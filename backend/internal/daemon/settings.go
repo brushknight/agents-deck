@@ -23,7 +23,7 @@ var Settings = map[string]struct {
 	Help   string
 }{
 	"term":  {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
-	"mouse": {[]string{MouseNative, MouseTmux}, "native = your terminal selects, copies, opens links and scrolls; tmux = tmux mouse mode (wheel scrolls tmux history, drag selects in tmux)"},
+	"mouse": {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
 }
 
 // Mouse modes (`agentctl set mouse …`).
@@ -32,7 +32,7 @@ const (
 	MouseTmux   = "tmux"
 )
 
-// CurrentMouse reads the mouse mode from config.json (default native).
+// CurrentMouse reads the mouse mode from config.json (default tmux).
 func CurrentMouse() string {
 	var c struct {
 		Mouse string `json:"mouse"`
@@ -40,10 +40,10 @@ func CurrentMouse() string {
 	if b, err := os.ReadFile(paths.Config()); err == nil {
 		_ = json.Unmarshal(b, &c)
 	}
-	if c.Mouse == MouseTmux {
-		return MouseTmux
+	if c.Mouse == MouseNative {
+		return MouseNative
 	}
-	return MouseNative
+	return MouseTmux
 }
 
 // CurrentTerm reads the focus mode from config.json (re-read on every focus,

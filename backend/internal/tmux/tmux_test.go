@@ -29,10 +29,11 @@ func TestServerDefaultsKeepSelectionAndPassKeys(t *testing.T) {
 		`copy-mode \; send-keys -X cancel \; send-keys -H 3b`,
 		`copy-mode-vi Enter send-keys -X cancel \; send-keys Enter`,
 		"root C-q detach-client",
+		`root MouseUp1Pane if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'`,
 	} {
 		found := false
 		for _, l := range strings.Split(keys, "\n") {
-			if strings.Join(strings.Fields(l), " ") == "bind-key -T "+want {
+			if strings.HasPrefix(strings.Join(strings.Fields(l), " "), "bind-key -T "+want) {
 				found = true
 				break
 			}

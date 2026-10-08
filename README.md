@@ -85,7 +85,7 @@ agentctl resume <id-prefix>         continue a Claude session as an agent
 agentctl web                        open the dashboard
 agentctl pair [--rotate]            values for pairing the panel
 agentctl set term iterm|tmux|window how "focus" shows an agent
-agentctl set mouse native|tmux      who owns the mouse in agent terminals
+agentctl set mouse tmux|native      who owns the mouse in agent terminals
 agentctl sim start|stop             simulated agents for demos
 ```
 
@@ -115,7 +115,7 @@ flowchart LR
 - **Codex.** A separate watcher polls the Codex state database and tails rollout logs, both read-only (see [Codex sessions](#codex-sessions)).
 - **Answers.** The chosen key is sent into the agent's tmux session. Arrow-key menus get Up/Down + Enter.
 - **Focus.** iTerm's local API selects the agent's tab and pane. Then iTerm's `StealFocus` escape code, written to that pane's terminal, brings the window forward, including a hidden hotkey window. The alternatives are `agentctl set term tmux` (switch your last-used tab to the agent) and `window` (only raise the window).
-- **Mouse, links and scrolling.** Agent terminals behave like plain iTerm: select and ⌘C, ⌘-click links (Claude's hyperlinks are passed through tmux), and the wheel scrolls iTerm's own scrollback. `agentctl set mouse tmux` switches to tmux mouse mode instead, where the wheel scrolls tmux's history and a drag selection stays highlighted and goes to the clipboard.
+- **Mouse, links and scrolling.** tmux mouse mode is on, so the wheel scrolls an agent's history. Dragging selects text, which stays highlighted and goes straight to the clipboard; double-click selects a word, path or URL, triple-click a line, and typing afterwards goes to the agent as usual. A click on a link opens it: Claude's hyperlinks are passed through tmux, and plain `http(s)://` and `file://` URLs work too. `agentctl set mouse native` hands the mouse to iTerm instead (its own selection, ⌘-click and scrollback).
 - **Protocol.** One small JSON API that sends the whole state on every change. See [docs/protocol.md](docs/protocol.md).
 
 ## Security & privacy

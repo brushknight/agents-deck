@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -57,7 +58,7 @@ const usage = `agentctl — agents-terminal
   agentctl serve [--demo]        run the daemon (normally via launchd)
   agentctl install               install + start the launchd agent
   agentctl set term iterm|tmux|window
-  agentctl set mouse native|tmux
+  agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
   agentctl get [key]             show settings
   agentctl completion zsh        tab completion (add to ~/.zshrc: source <(agentctl completion zsh))
@@ -101,6 +102,9 @@ func main() {
 		err = getCmd(args)
 	case "__complete":
 		completeCmd(args) // silent: used by shell completion
+		return
+	case "open-link":
+		openLink(args) // silent: run by a click in an agent terminal
 		return
 	case "sim-agent":
 		err = simAgent(args)
@@ -706,6 +710,48 @@ func getCmd(args []string) error {
 		fmt.Printf("%-6s %-8s %s\n", k, vals[k], daemon.Settings[k].Help)
 	}
 	return nil
+}
+
+// openLink opens the link a click in an agent terminal landed on: the
+// hyperlink under the mouse, else a URL-looking word. Only http, https and
+// file links go to macOS open, like ⌘-click in iTerm.
+func openLink(args []string) {
+	var link, word string
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "--link="); ok {
+			link = v
+		} else if v, ok := strings.CutPrefix(a, "--word="); ok {
+			word = v
+		}
+	}
+	if u := linkTarget(link, word); u != "" {
+		_ = exec.Command("/usr/bin/open", u).Run()
+	}
+}
+
+func linkTarget(link, word string) string {
+	cand := strings.TrimSpace(link)
+	if cand == "" {
+		// A word in prose: drop the punctuation around it.
+		cand = strings.TrimRight(strings.TrimLeft(strings.TrimSpace(word), "(<[{'\"`"), ".,;:!?)>]}'\"`")
+	}
+	u, err := url.Parse(cand)
+	if err != nil || strings.ContainsAny(cand, " \t\n") {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		if u.Host == "" {
+			return ""
+		}
+	case "file":
+		if u.Path == "" {
+			return ""
+		}
+	default:
+		return ""
+	}
+	return u.String()
 }
 
 // ---- simulation --------------------------------------------------------------------

@@ -60,7 +60,7 @@ const pbcopy = "/usr/bin/pbcopy"
 
 // NativeMouse reports whether the terminal, not tmux, should own the mouse
 // (agentctl set mouse); the daemon wires it to config.json.
-var NativeMouse = func() bool { return true }
+var NativeMouse = func() bool { return false }
 
 // ServerDefaults sets the server-wide options and key bindings of our private
 // server (a no-op while it isn't running; NewSession applies them again).
@@ -71,17 +71,24 @@ var NativeMouse = func() bool { return true }
 // scrolls off lands in iTerm's own scrollback. Terminal features and
 // overrides are read when a client attaches: reattach to pick them up.
 //
-// Mouse, tmux: tmux mouse mode is on (the wheel scrolls tmux history). A drag
-// selection stays highlighted and goes to the clipboard; a click clears it,
-// and typing leaves copy mode with the key passed on to the agent.
+// Mouse, tmux (default): tmux mouse mode is on (the wheel scrolls tmux
+// history). A drag selection stays highlighted and goes to the clipboard; a
+// click clears it, and typing leaves copy mode with the key passed on to the
+// agent. iTerm never sees the clicks, so tmux opens links itself: a plain
+// click on a hyperlink or a URL runs `agentctl open-link`.
 func ServerDefaults() {
 	native := NativeMouse()
 	mouse, screen := "on", []string{"set-option", "-su", "terminal-overrides[90]"}
 	if native {
 		mouse, screen = "off", []string{"set-option", "-s", "terminal-overrides[90]", "*:smcup@:rmcup@"}
 	}
+	self, _ := os.Executable()
 	cmds := [][]string{
 		{"set-option", "-g", "mouse", mouse},
+		// Words end at spaces, quotes and brackets: a URL or a path is one
+		// word (double-click selects it whole, a click on it opens it).
+		{"set-option", "-g", "word-separators", ` "'()<>[]{}|` + "`"},
+		{"bind-key", "-n", "MouseUp1Pane", `if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'` + self + `' open-link --link=#{q:mouse_hyperlink} --word=#{q:mouse_word}" }`},
 		{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
 		screen,
 		{"set-option", "-g", "escape-time", "10"},

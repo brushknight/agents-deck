@@ -37,7 +37,7 @@ _agentctl() {
     'pair:print the values the panel needs'
     'serve:run the daemon'
     'install:install and start the launchd agent'
-    'set:change a setting (term iterm|tmux|window, mouse native|tmux)'
+    'set:change a setting (term iterm|tmux|window, mouse tmux|native)'
     'get:show settings'
     'completion:print the shell completion script'
     'version:print the version'
@@ -86,7 +86,7 @@ _agentctl() {
         local -a modes; modes=('iterm:select the agent'"'"'s iTerm tab and pane' 'tmux:switch your last-used tab to the agent' 'window:just raise the agent'"'"'s window')
         _describe -t modes 'focus mode' modes
       elif [[ ${words[3]} == mouse ]]; then
-        local -a modes; modes=('native:your terminal selects, copies, opens links and scrolls' 'tmux:tmux mouse mode, the wheel scrolls tmux history')
+        local -a modes; modes=('tmux:wheel scrolls tmux history, drag copies, click opens links' 'native:your terminal handles the mouse and its own scrollback')
         _describe -t modes 'mouse mode' modes
       fi ;;
     get) (( CURRENT == 3 )) && _values 'setting' term mouse ;;
