@@ -207,6 +207,8 @@ body.offline .main { opacity: 0.4; }
 }
 .tile .spr { width: 54%; max-width: 110px; line-height: 0; margin-top: 4px; }
 .tile .spr svg { width: 100%; height: auto; display: block; overflow: visible; }
+/* Centre the body (x 0..14 of the 18-wide sprite), not body + bubble: shift by 2/18. */
+.tile .spr svg, .empty-art svg { transform: translateX(11.111%); }
 .tile .name {
   margin-top: 9%;
   font-size: 16px; letter-spacing: 0.5px; color: var(--label);
