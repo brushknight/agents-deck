@@ -47,7 +47,7 @@ const ctxPct = (a) => {
   const w = a.context?.window || 0;
   return w ? Math.min(100, Math.round((a.context.used / w) * 100)) : 0;
 };
-const VERBS = { todowrite: 'plan', webfetch: 'web', websearch: 'search', multiedit: 'edit', notebookedit: 'edit', task: 'agent' };
+const VERBS = { compact: 'compacting', todowrite: 'plan', webfetch: 'web', websearch: 'search', multiedit: 'edit', notebookedit: 'edit', task: 'agent' };
 const verb = (tool) => { const t = (tool || '').toLowerCase(); return VERBS[t] || t || 'thinking'; };
 
 // status → sprite pose
@@ -58,7 +58,7 @@ const TOOL_POSE = {
   read: 'read', grep: 'read', glob: 'read', ls: 'read',
   edit: 'write', write: 'write', multiedit: 'write', notebookedit: 'write',
   bash: 'bash', bashoutput: 'bash', killshell: 'bash', killbash: 'bash',
-  webfetch: 'web', websearch: 'web', todowrite: 'plan', task: 'delegate', agent: 'delegate',
+  webfetch: 'web', websearch: 'web', todowrite: 'plan', task: 'delegate', agent: 'delegate', compact: 'compact',
 };
 const poseOf = (a) => {
   if (a.status === 'running') {
@@ -190,6 +190,15 @@ function spriteSVG(pose, species = 'claude') {
       bubble = pixels(['#', '#', '#', '.', '#'], 15.6, 1.2, 'bang'); break;
     case 'start':
       eyes = eyesOpen(2); bubble = DOTS; break;
+    case 'compact': {
+      // Compacting the conversation: squeezed flat and springing back, eyes
+      // strained "> <", while a stack of pages presses into one.
+      eyes = '<path class="cx" stroke-width="0.55" d="M3.6 1.9 L4.8 2.7 L3.6 3.5 M10.4 1.9 L9.2 2.7 L10.4 3.5"/>';
+      grp = 'squash';
+      const bar = (y, cls) => `<rect class="b ${cls}" x="14.6" y="${y}" width="3.2" height="0.6"/>`;
+      bubble = bar(-3.8, 'press2') + bar(-2.7, 'press1') + bar(-1.6, '');
+      break;
+    }
     case 'exit':
       body += bot ? '<path class="c" d="M6 -1h2v1h1v1h1v2h1v2h1v1h-10v-1h1v-2h1v-2h1v-1h1z"/>' : '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
       eyes = '<rect class="b" x="4" y="3" width="1" height="1"/><rect class="b" x="9" y="3" width="1" height="1"/>'; break;

@@ -265,6 +265,12 @@ body.offline .main { opacity: 0.4; }
 @keyframes bobc { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(0.6px) } }
 .bobc { animation: bobc .6s infinite; }
 .s1 { animation-delay: .2s; } .s2 { animation-delay: .4s; }
+/* compact: four frames, squashed around the feet (x 7, y 7) */
+@keyframes squash { 0%, 24% { transform: none } 25%, 49%, 75%, 100% { transform: scale(1.1, .8) } 50%, 74% { transform: scale(1.2, .62) } }
+@keyframes press1 { 0%, 24% { transform: none } 25%, 49%, 75%, 100% { transform: translateY(0.4px) } 50%, 74% { transform: translateY(1.1px) } }
+@keyframes press2 { 0%, 24% { transform: none } 25%, 49%, 75%, 100% { transform: translateY(0.8px) } 50%, 74% { transform: translateY(2.2px) } }
+.squash { animation: squash 1.2s infinite; transform-box: view-box; transform-origin: 7px 7px; }
+.press1 { animation: press1 1.2s infinite; } .press2 { animation: press2 1.2s infinite; }
 
 /* ---------- empty / expired ---------- */
 .empty {

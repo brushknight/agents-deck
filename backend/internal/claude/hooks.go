@@ -15,8 +15,11 @@ import (
 // Events the per-agent settings file subscribes to.
 var Events = []string{
 	"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-	"PermissionRequest", "Notification", "Stop", "SessionEnd",
+	"PermissionRequest", "Notification", "Stop", "SessionEnd", "PreCompact",
 }
+
+// CompactTool is the activity shown while Claude compacts the conversation.
+const CompactTool = "Compact"
 
 // HooksSettings is the JSON passed to `claude --settings`: every event runs
 // `<agentctl> hook`, which forwards the payload to the daemon and prints nothing.
@@ -46,6 +49,7 @@ type Event struct {
 	NotificationType string          `json:"notification_type"`
 	Source           string          `json:"source"`
 	Reason           string          `json:"reason"`
+	Trigger          string          `json:"trigger"` // PreCompact: manual | auto
 }
 
 // Apply folds one hook event into the agent. It returns true when the agent
@@ -64,7 +68,21 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		e.A.Cwd = ev.Cwd
 	}
 	switch ev.Name {
+	case "PreCompact":
+		e.SetStatus(model.Running)
+		detail := "compacting conversation"
+		if ev.Trigger == "auto" {
+			detail = "auto-compacting · context full"
+		}
+		e.A.Activity = &model.Activity{Tool: CompactTool, Detail: detail}
+		e.CompactManual = ev.Trigger == "manual"
 	case "SessionStart":
+		if ev.Source == "compact" {
+			if !EndCompact(e) {
+				return false, false
+			}
+			break
+		}
 		if e.A.Status == model.Starting || e.A.Status == model.Exited || e.A.Status == model.Error {
 			e.SetStatus(model.Idle)
 		}
@@ -132,6 +150,21 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		return false, false
 	}
 	return true, false
+}
+
+// EndCompact clears a running compaction: a /compact you typed leaves the
+// agent idle (it was waiting for you before), an auto-compact goes on working.
+func EndCompact(e *store.Entry) bool {
+	if e.A.Activity == nil || e.A.Activity.Tool != CompactTool {
+		return false
+	}
+	if e.CompactManual {
+		e.SetStatus(model.Idle)
+	} else {
+		e.A.Activity = nil
+	}
+	e.CompactManual = false
+	return true
 }
 
 // DefaultPermissionOptions mirror Claude Code's dialog when the pane can't be read.

@@ -389,3 +389,37 @@ func TestTailCatchesUpInOneCall(t *testing.T) {
 		t.Fatalf("totals over the whole file: %+v", e.A.Tokens)
 	}
 }
+
+func TestCompaction(t *testing.T) {
+	e := &store.Entry{}
+	e.SetStatus(model.Idle)
+	// A /compact you typed: compacting, then back to idle (not hungry).
+	Apply(e, Event{Name: "PreCompact", Trigger: "manual"})
+	if e.A.Status != model.Running || e.A.Activity == nil || e.A.Activity.Tool != CompactTool || e.A.Activity.Detail != "compacting conversation" {
+		t.Fatalf("manual start: %+v %+v", e.A, e.A.Activity)
+	}
+	Apply(e, Event{Name: "SessionStart", Source: "compact"})
+	if e.A.Status != model.Idle || e.A.Activity != nil || e.A.Unseen {
+		t.Fatalf("manual end: %+v %+v", e.A, e.A.Activity)
+	}
+	// Auto-compact mid-turn: the turn goes on, and the transcript's boundary
+	// line ends it if the hook didn't.
+	e.SetStatus(model.Running)
+	Apply(e, Event{Name: "PreCompact", Trigger: "auto"})
+	if e.A.Activity == nil || e.A.Activity.Detail != "auto-compacting · context full" {
+		t.Fatalf("auto start: %+v", e.A.Activity)
+	}
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	if err := os.WriteFile(path, []byte(`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.Transcript = path
+	Tail(e)
+	if e.A.Status != model.Running || e.A.Activity != nil {
+		t.Fatalf("auto end: %+v %+v", e.A, e.A.Activity)
+	}
+	// A stray compact SessionStart changes nothing.
+	if changed, _ := Apply(e, Event{Name: "SessionStart", Source: "compact"}); changed {
+		t.Fatal("no compaction running")
+	}
+}

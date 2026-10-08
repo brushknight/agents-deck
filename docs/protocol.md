@@ -65,7 +65,8 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "branch": "main",               // may be ""
   "model": "claude-opus-5-5",     // may be ""
   "modelLabel": "opus 5.5",       // short display form
-  "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running
+  "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running. Besides
+                                  // Claude's tools: "Compact" while compacting, "Task" for subagents at work
   "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 280 chars
   "waiting": null,                // Prompt, only when status == "waiting"
   "error": null,                  // { "message": "api 529 overloaded" } only when status == "error"

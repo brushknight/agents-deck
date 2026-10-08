@@ -248,8 +248,8 @@
       "model": "claude-sonnet-5",
       "modelLabel": "sonnet 5",
       "activity": {
-        "tool": "Bash",
-        "detail": "kubectl get nodes -o wide"
+        "tool": "Compact",
+        "detail": "auto-compacting · context full"
       },
       "lastPrompt": "drain the old node pool and move workloads to the new one",
       "waiting": null,
@@ -261,7 +261,7 @@
         "cacheWrite": 80000
       },
       "context": {
-        "used": 126000,
+        "used": 180000,
         "window": 200000
       },
       "costUsd": 1.34,

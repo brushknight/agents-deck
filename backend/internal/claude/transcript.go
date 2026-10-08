@@ -22,6 +22,7 @@ const (
 
 type line struct {
 	Type      string `json:"type"`
+	Subtype   string `json:"subtype"`
 	GitBranch string `json:"gitBranch"`
 	AITitle   string `json:"aiTitle"`
 	Custom    string `json:"customTitle"`
@@ -88,6 +89,11 @@ func Tail(e *store.Entry) bool {
 				e.A.Branch, changed = l.GitBranch, true
 			}
 			switch l.Type {
+			case "system":
+				// The compaction finished (also caught by SessionStart "compact").
+				if l.Subtype == "compact_boundary" && EndCompact(e) {
+					changed = true
+				}
 			case "ai-title":
 				if l.AITitle != "" && l.AITitle != e.A.AITitle {
 					e.A.AITitle, changed = l.AITitle, true

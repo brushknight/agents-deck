@@ -15,15 +15,16 @@ import (
 
 // Entry is one agent: the wire view plus private bookkeeping.
 type Entry struct {
-	A           model.Agent `json:"agent"`
-	SessionID   string      `json:"sessionId"`  // Claude session uuid
-	Transcript  string      `json:"transcript"` // Claude JSONL path, learned from hooks
-	TmuxName    string      `json:"tmuxName"`
-	Sim         bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
-	TitleSet    bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
-	CustomTitle string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
-	External    bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
-	Background  bool        `json:"-"`                  // shown running only because its subagents are writing
+	A             model.Agent `json:"agent"`
+	SessionID     string      `json:"sessionId"`  // Claude session uuid
+	Transcript    string      `json:"transcript"` // Claude JSONL path, learned from hooks
+	TmuxName      string      `json:"tmuxName"`
+	Sim           bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
+	TitleSet      bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
+	CustomTitle   string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
+	External      bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
+	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
+	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

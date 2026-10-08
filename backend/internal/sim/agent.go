@@ -77,6 +77,9 @@ func Run(cfg Config) error {
 		}
 	}
 	a.ctx = 18_000 + int64(a.r.Intn(9000))
+	if a.r.Intn(4) == 0 { // a long-running session, close to its first auto-compact
+		a.ctx = a.window() * int64(80+a.r.Intn(9)) / 100
+	}
 
 	restore := rawMode()
 	defer restore()
@@ -248,18 +251,34 @@ func (a *agent) usage(delta int64) {
 	a.msgN++
 	read := a.ctx
 	a.ctx += delta
-	window := int64(1_000_000)
-	if strings.Contains(a.model, "haiku") {
-		window = 200_000
-	}
-	if a.ctx > window*9/10 { // "auto-compact"
-		a.ctx = window / 5
+	if a.ctx > a.window()*9/10 {
+		a.compact()
+		read = a.ctx
+		a.ctx += delta
 	}
 	a.line(map[string]any{"type": "assistant", "gitBranch": a.p.Branch, "message": map[string]any{
 		"id": fmt.Sprintf("msg_sim_%s_%d", a.cfg.ID, a.msgN), "model": a.model,
 		"usage": map[string]any{"input_tokens": 3 + a.r.Intn(40), "output_tokens": 60 + a.r.Intn(900),
 			"cache_read_input_tokens": read, "cache_creation_input_tokens": delta},
 	}})
+}
+
+func (a *agent) window() int64 {
+	if strings.Contains(a.model, "haiku") {
+		return 200_000
+	}
+	return 1_000_000
+}
+
+// compact plays an auto-compact: the hook, a few seconds of summarising,
+// then the boundary line and the fresh session start, like Claude Code.
+func (a *agent) compact() {
+	a.hook("PreCompact", map[string]any{"trigger": "auto"})
+	a.spin("Compacting conversation", 4, 8)
+	a.ctx = 40_000 + int64(a.r.Intn(30_000))
+	a.line(map[string]any{"type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"})
+	a.hook("SessionStart", map[string]any{"source": "compact"})
+	a.print(cDim + "✻ Conversation compacted" + cReset)
 }
 
 // ---- behaviour --------------------------------------------------------------------

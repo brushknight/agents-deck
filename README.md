@@ -17,7 +17,7 @@ The daemon only talks to your own Mac and your own panel. It has no telemetry an
 | | |
 |---|---|
 | <img src="docs/images/web-board.png" alt="web dashboard: grid of agents"> | <img src="docs/images/web-permission.png" alt="answering a permission prompt from the web"> |
-| **The board.** One tile per agent. The pixel critter shows what the agent is doing (thinking, reading, editing, running a command, planning…). The tile's border fills clockwise with its context window. Orange means it's working; a solid orange tile means it needs you. An agent that has finished but whose result you haven't reviewed yet gets hungry: sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task. | **Answer from anywhere.** Permission prompts show the exact command with Claude's own options. Questions show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused. |
+| **The board.** One tile per agent. The pixel critter shows what the agent is doing (thinking, reading, editing, running a command, planning…); while Claude compacts the conversation it gets squeezed flat and springs back. The tile's border fills clockwise with its context window. Orange means it's working; a solid orange tile means it needs you. An agent that has finished but whose result you haven't reviewed yet gets hungry: sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task. | **Answer from anywhere.** Permission prompts show the exact command with Claude's own options. Questions show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused. |
 | <img src="docs/images/web-detail.png" alt="agent detail"> | <img src="docs/images/web-panel.png" alt="panel view in the browser"> |
 | **Agent detail.** Shows what it's doing now, context used, tokens, estimated cost, turns and the last prompt, plus **focus terminal**, **interrupt** and **stop**. Subagents at work appear as small critters next to the mascot, each posed by what it's doing. | **Panel view.** The web dashboard can mirror the 720×720 desk panel. Arrange the board freely: drag a tile onto any free spot to move it there, or onto another tile to swap them. The layout is shared with the panel. |
 
@@ -29,7 +29,7 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 |---|---|---|
 | <img src="docs/images/panel-board.png" alt="panel board"> | <img src="docs/images/panel-permission.png" alt="panel permission prompt"> | <img src="docs/images/panel-question.png" alt="panel question"> |
 
-<p align="center"><img src="docs/images/critters.png" alt="every critter pose" width="70%"><br><sub>Critter poses: one for each kind of work, plus waiting, error, idle, starting and exited.</sub></p>
+<p align="center"><img src="docs/images/critters.png" alt="every critter pose" width="70%"><br><sub>Critter poses: one for each kind of work, plus waiting, error, idle, starting, exited and compacting.</sub></p>
 
 ### In the terminal
 
@@ -108,6 +108,7 @@ flowchart LR
 ```
 
 - **Status.** Each agent is started with its own hook settings file, so your global `~/.claude/settings.json` is never touched. Hooks report prompts, tool calls, permission requests and stops. Dialogs that don't fire a hook, such as workspace trust, are read off the screen.
+- **Actions.** Compaction (`/compact` or auto-compact) is tracked from the `PreCompact` hook to the transcript's compact boundary, and shown as its own activity and animation.
 - **Usage.** Token counts, model, branch and Claude's session title come from Claude's transcript files. Cost is estimated from public list prices.
 - **Subagents.** Each session's subagent transcripts (`<session>/subagents/agent-*.jsonl`) show which subagents are still working and on what. A session with working subagents shows as running, even while its main loop is idle.
 - **Codex.** A separate watcher polls the Codex state database and tails rollout logs, both read-only (see [Codex sessions](#codex-sessions)).
