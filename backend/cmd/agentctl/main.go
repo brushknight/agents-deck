@@ -822,11 +822,23 @@ func install() error {
 </dict>
 </plist>
 `, plistLabel, self, home, paths.Log(), paths.Log())
+	uid := fmt.Sprint(os.Getuid())
+	job := "gui/" + uid + "/" + plistLabel
+	// Same login item already registered: just restart the daemon (it picks
+	// up a rebuilt binary). Re-registering makes macOS announce a new
+	// background item every time.
+	if cur, err := os.ReadFile(plist); err == nil && string(cur) == content &&
+		exec.Command("launchctl", "print", job).Run() == nil {
+		if out, err := exec.Command("launchctl", "kickstart", "-k", job).CombinedOutput(); err != nil {
+			return fmt.Errorf("launchctl kickstart: %v: %s", err, out)
+		}
+		fmt.Println("restarted", plistLabel)
+		return nil
+	}
 	if err := os.WriteFile(plist, []byte(content), 0o644); err != nil {
 		return err
 	}
-	uid := fmt.Sprint(os.Getuid())
-	_ = exec.Command("launchctl", "bootout", "gui/"+uid+"/"+plistLabel).Run()
+	_ = exec.Command("launchctl", "bootout", job).Run()
 	time.Sleep(500 * time.Millisecond)
 	if out, err := exec.Command("launchctl", "bootstrap", "gui/"+uid, plist).CombinedOutput(); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
