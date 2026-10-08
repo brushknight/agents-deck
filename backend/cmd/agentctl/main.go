@@ -285,7 +285,11 @@ func list() error {
 		if a.Waiting != nil {
 			st += ": " + a.Waiting.Title
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t$%.2f\t%s\n", a.ID, a.Title, st, ctx, a.CostUSD, a.Folder)
+		cost := fmt.Sprintf("$%.2f", a.CostUSD)
+		if a.External {
+			cost = "—" // Codex reports no prices
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder)
 	}
 	return tw.Flush()
 }

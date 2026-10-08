@@ -145,11 +145,26 @@ func Tail(e *store.Entry) bool {
 	if st.Size() == e.Offset {
 		return false
 	}
+	first := e.Offset == 0
+	skipPartial := false
+	if first && st.Size() > maxRead {
+		// Long threads grow rollouts past a gigabyte. Status, model and the
+		// (cumulative) token counts all come from recent lines, so start at
+		// the tail instead of replaying the whole history.
+		e.Offset, skipPartial = st.Size()-maxRead, true
+	}
 	if _, err := f.Seek(e.Offset, io.SeekStart); err != nil {
 		return false
 	}
 	buf, _ := io.ReadAll(io.LimitReader(f, maxRead))
-	first := e.Offset == 0
+	if skipPartial {
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			return false
+		}
+		e.Offset += int64(i + 1)
+		buf = buf[i+1:]
+	}
 	e.Offset += int64(len(buf))
 	data := append([]byte(e.Pending), buf...)
 	last := bytes.LastIndexByte(data, '\n')

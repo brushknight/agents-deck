@@ -60,3 +60,25 @@ func TestAgentIDStable(t *testing.T) {
 		t.Fatalf("%q %q", a, b)
 	}
 }
+
+func TestTailStartsNearTheEndOfHugeRollouts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	var b strings.Builder
+	b.WriteString(`{"type":"event_msg","payload":{"type":"task_started"}}` + "\n")
+	filler := `{"type":"response_item","payload":{"type":"reasoning","summary":"` + strings.Repeat("x", 1000) + `"}}` + "\n"
+	for b.Len() < maxRead+maxRead/2 {
+		b.WriteString(filler)
+	}
+	b.WriteString(`{"type":"event_msg","payload":{"type":"task_complete"}}` + "\n")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &store.Entry{Transcript: path}
+	Tail(e)
+	if e.A.Status != model.Idle || e.A.Unseen {
+		t.Fatalf("one pass should reach the finished turn at the end: %+v", e.A)
+	}
+	if e.Offset != int64(b.Len()) || e.Pending != "" {
+		t.Fatalf("offset %d of %d, pending %q", e.Offset, b.Len(), e.Pending)
+	}
+}
