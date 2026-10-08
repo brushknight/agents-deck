@@ -147,6 +147,7 @@ func (d *Daemon) Run() {
 func (d *Daemon) enableFocusReports(list []tmux.Client) {
 	if d.reporting == nil {
 		d.reporting = map[string]bool{}
+		tmux.NativeMouse = func() bool { return CurrentMouse() == MouseNative }
 		tmux.ServerDefaults() // agents started by an older daemon get them too
 	}
 	seen := map[string]bool{}

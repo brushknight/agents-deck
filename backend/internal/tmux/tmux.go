@@ -47,7 +47,6 @@ func NewSession(name, dir string, env []string, argv []string) error {
 	// Quiet, agent-friendly defaults on our private server only.
 	for _, o := range [][]string{
 		{"set-option", "-t", name, "status", "off"},
-		{"set-option", "-t", name, "mouse", "on"},
 		{"set-option", "-t", name, "history-limit", "50000"},
 	} {
 		_, _ = run(o...)
@@ -59,16 +58,32 @@ func NewSession(name, dir string, env []string, argv []string) error {
 // pbcopy puts tmux selections on the macOS clipboard.
 const pbcopy = "/usr/bin/pbcopy"
 
+// NativeMouse reports whether the terminal, not tmux, should own the mouse
+// (agentctl set mouse); the daemon wires it to config.json.
+var NativeMouse = func() bool { return true }
+
 // ServerDefaults sets the server-wide options and key bindings of our private
 // server (a no-op while it isn't running; NewSession applies them again).
 //
-// Mouse selection: with mouse mode on (for wheel scrolling), tmux selects on
-// drag and by default drops the highlight the moment the button is released.
-// Here a selection stays highlighted and goes straight to the clipboard; a
-// click clears it, and typing leaves copy mode with the key passed on to the
-// agent, so nothing typed after a selection is lost.
+// Mouse, native (default): tmux mouse mode is off, so iTerm itself selects,
+// copies, ⌘-clicks links and scrolls. Hyperlinks (OSC 8, which Claude Code
+// prints) are passed through, and tmux skips the alternate screen so what
+// scrolls off lands in iTerm's own scrollback. Terminal features and
+// overrides are read when a client attaches: reattach to pick them up.
+//
+// Mouse, tmux: tmux mouse mode is on (the wheel scrolls tmux history). A drag
+// selection stays highlighted and goes to the clipboard; a click clears it,
+// and typing leaves copy mode with the key passed on to the agent.
 func ServerDefaults() {
+	native := NativeMouse()
+	mouse, screen := "on", []string{"set-option", "-su", "terminal-overrides[90]"}
+	if native {
+		mouse, screen = "off", []string{"set-option", "-s", "terminal-overrides[90]", "*:smcup@:rmcup@"}
+	}
 	cmds := [][]string{
+		{"set-option", "-g", "mouse", mouse},
+		{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
+		screen,
 		{"set-option", "-g", "escape-time", "10"},
 		{"set-option", "-g", "focus-events", "on"}, // lets us see which tab has focus
 		{"bind-key", "-n", "C-q", "detach-client"},
@@ -84,6 +99,10 @@ func ServerDefaults() {
 		for _, k := range passThroughKeys() {
 			cmds = append(cmds, []string{"bind-key", "-T", table, k.name, "send-keys -X cancel ; send-keys " + k.send})
 		}
+	}
+	// Sessions made by older versions set mouse per session: follow the global.
+	for name := range Sessions() {
+		cmds = append(cmds, []string{"set-option", "-u", "-t", name, "mouse"})
 	}
 	// A few tmux calls, commands joined with ";" (one call has a size limit).
 	for len(cmds) > 0 {

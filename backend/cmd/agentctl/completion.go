@@ -37,7 +37,7 @@ _agentctl() {
     'pair:print the values the panel needs'
     'serve:run the daemon'
     'install:install and start the launchd agent'
-    'set:change a setting (term iterm|tmux|window)'
+    'set:change a setting (term iterm|tmux|window, mouse native|tmux)'
     'get:show settings'
     'completion:print the shell completion script'
     'version:print the version'
@@ -81,12 +81,15 @@ _agentctl() {
     serve)      _arguments '--demo[simulated fleet from the fixture]' ;;
     completion) (( CURRENT == 3 )) && _values 'shell' zsh ;;
     set)
-      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]'
+      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]'
       elif [[ ${words[3]} == term ]]; then
         local -a modes; modes=('iterm:select the agent'"'"'s iTerm tab and pane' 'tmux:switch your last-used tab to the agent' 'window:just raise the agent'"'"'s window')
         _describe -t modes 'focus mode' modes
+      elif [[ ${words[3]} == mouse ]]; then
+        local -a modes; modes=('native:your terminal selects, copies, opens links and scrolls' 'tmux:tmux mouse mode, the wheel scrolls tmux history')
+        _describe -t modes 'mouse mode' modes
       fi ;;
-    get) (( CURRENT == 3 )) && _values 'setting' term ;;
+    get) (( CURRENT == 3 )) && _values 'setting' term mouse ;;
   esac
 }
 

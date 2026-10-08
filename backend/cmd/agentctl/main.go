@@ -682,12 +682,17 @@ func setCmd(args []string) error {
 		return err
 	}
 	fmt.Printf("%s = %s\n", args[0], args[1])
+	if args[0] == "mouse" { // applies to running agents now; reattach for links and scrollback
+		tmux.NativeMouse = func() bool { return daemon.CurrentMouse() == daemon.MouseNative }
+		tmux.ServerDefaults()
+		fmt.Println("applied to running agents (reattach a terminal to pick up links and scrollback)")
+	}
 	return nil
 }
 
 func getCmd(args []string) error {
-	vals := map[string]string{"term": daemon.CurrentTerm()}
-	keys := []string{"term"}
+	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse()}
+	keys := []string{"term", "mouse"}
 	if len(args) == 1 {
 		v, ok := vals[args[0]]
 		if !ok {
