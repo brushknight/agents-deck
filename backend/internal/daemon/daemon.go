@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -101,7 +102,10 @@ func (d *Daemon) Run() {
 				e.SetStatus(model.Idle) // e.g. the daemon restarted while tmux was briefly unreachable
 				changed = true
 			}
-			if n%2 == 0 && alive && e.A.Tool == "claude" && d.background(e) {
+			if n%2 == 0 && alive && e.A.Tool == "claude" && d.subagents(e) {
+				changed = true
+			} else if !alive && e.A.Subagents != nil {
+				e.A.Subagents = nil
 				changed = true
 			}
 			if r := e.A.Status == model.Exited && e.A.Tool == "claude" && e.SessionID != "" && !e.Sim; r != e.A.Resumable {
@@ -161,25 +165,36 @@ func (d *Daemon) enableFocusReports(list []tmux.Client) {
 	}
 }
 
-// background shows an idle agent as running while its session's subagents are
-// still writing, and puts it back to idle once they have been quiet a while.
-func (d *Daemon) background(e *store.Entry) bool {
+// subagents tracks the session's working subagents, and shows an idle agent
+// as running while any are left, back to idle once they are done or quiet.
+func (d *Daemon) subagents(e *store.Entry) bool {
 	if e.A.Status != model.Running {
 		e.Background = false
 	}
-	busy := claude.SubagentsBusy(e.Transcript, 20*time.Second)
+	subs := claude.Subagents(e.Transcript, time.Minute)
+	changed := !slices.Equal(subs, e.A.Subagents)
+	e.A.Subagents = subs
 	switch {
-	case busy && e.A.Status == model.Idle:
+	case len(subs) > 0 && e.A.Status == model.Idle:
 		e.SetStatus(model.Running)
-		e.A.Activity = &model.Activity{Tool: "Task", Detail: "subagents working"}
 		e.Background = true
-		return true
-	case !busy && e.Background:
+		changed = true
+	case len(subs) == 0 && e.Background:
 		e.SetStatus(model.Idle)
 		e.Background = false
-		return true
+		changed = true
 	}
-	return false
+	if e.Background {
+		detail := "1 subagent working"
+		if len(subs) != 1 {
+			detail = fmt.Sprintf("%d subagents working", len(subs))
+		}
+		if e.A.Activity == nil || e.A.Activity.Detail != detail {
+			e.A.Activity = &model.Activity{Tool: "Task", Detail: detail}
+			changed = true
+		}
+	}
+	return changed
 }
 
 // exitedTTL is how long an exited agent stays on the board, resumable, before

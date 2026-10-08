@@ -26,33 +26,42 @@ type Server struct {
 }
 
 type Agent struct {
-	ID          string    `json:"id"`
-	Slot        int       `json:"slot"`
-	Title       string    `json:"title"`
-	AITitle     string    `json:"aiTitle"`
-	Tool        string    `json:"tool"`
-	Status      Status    `json:"status"`
-	StatusSince time.Time `json:"statusSince"`
-	Cwd         string    `json:"cwd"`
-	Folder      string    `json:"folder"`
-	Branch      string    `json:"branch"`
-	Model       string    `json:"model"`
-	ModelLabel  string    `json:"modelLabel"`
-	Activity    *Activity `json:"activity"`
-	LastPrompt  string    `json:"lastPrompt"`
-	Waiting     *Prompt   `json:"waiting"`
-	Error       *ErrInfo  `json:"error"`
-	Tokens      Tokens    `json:"tokens"`
-	Context     Context   `json:"context"`
-	CostUSD     float64   `json:"costUsd"`
-	Turns       int       `json:"turns"`
-	Focused     bool      `json:"focused"`
-	Attached    bool      `json:"attached"`
-	Resumable   bool      `json:"resumable"` // exited Claude agent that POST /resume can bring back
-	Unseen      bool      `json:"unseen"`    // finished a turn you haven't looked at yet ("hungry")
-	External    bool      `json:"external"`  // owned by another app (Codex): view and focus only
-	StartedAt   time.Time `json:"startedAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string     `json:"id"`
+	Slot        int        `json:"slot"`
+	Title       string     `json:"title"`
+	AITitle     string     `json:"aiTitle"`
+	Tool        string     `json:"tool"`
+	Status      Status     `json:"status"`
+	StatusSince time.Time  `json:"statusSince"`
+	Cwd         string     `json:"cwd"`
+	Folder      string     `json:"folder"`
+	Branch      string     `json:"branch"`
+	Model       string     `json:"model"`
+	ModelLabel  string     `json:"modelLabel"`
+	Activity    *Activity  `json:"activity"`
+	LastPrompt  string     `json:"lastPrompt"`
+	Waiting     *Prompt    `json:"waiting"`
+	Error       *ErrInfo   `json:"error"`
+	Tokens      Tokens     `json:"tokens"`
+	Context     Context    `json:"context"`
+	CostUSD     float64    `json:"costUsd"`
+	Turns       int        `json:"turns"`
+	Focused     bool       `json:"focused"`
+	Attached    bool       `json:"attached"`
+	Resumable   bool       `json:"resumable"`           // exited Claude agent that POST /resume can bring back
+	Unseen      bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
+	External    bool       `json:"external"`            // owned by another app (Codex): view and focus only
+	Subagents   []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
+	StartedAt   time.Time  `json:"startedAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// Subagent is one of an agent's subagents that is still working.
+type Subagent struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`          // the task description it was given
+	Type  string `json:"type,omitempty"` // agent type (Explore, general-purpose, fork…)
+	Tool  string `json:"tool,omitempty"` // tool of its latest call, for the critter's pose
 }
 
 type Activity struct {

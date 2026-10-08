@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
 // SessionInfo describes one Claude Code session found on disk.
@@ -186,20 +188,99 @@ func FindSession(all []SessionInfo, ref string) (SessionInfo, int) {
 	return SessionInfo{}, len(hits)
 }
 
-// SubagentsBusy reports whether any subagent transcript of the session at
-// transcript (<session>/subagents/*.jsonl) was written within the last window.
-// Subagents can keep working while the main loop is idle (background agents,
-// or another process on the same session) and fire no hook of ours.
-func SubagentsBusy(transcript string, window time.Duration) bool {
+// Subagents lists the subagents of the session at transcript that are still
+// working: their own transcript (<session>/subagents/agent-*.jsonl) was
+// written within window and doesn't end with a final reply. Subagents can
+// keep working while the main loop is idle (background agents, or another
+// process on the same session) and fire no hook of ours.
+func Subagents(transcript string, window time.Duration) []model.Subagent {
 	if transcript == "" {
-		return false
+		return nil
 	}
-	files, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents", "*.jsonl"))
+	files, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents", "agent-*.jsonl"))
 	cutoff := time.Now().Add(-window)
+	type found struct {
+		s     model.Subagent
+		since time.Time
+	}
+	var out []found
 	for _, f := range files {
-		if st, err := os.Stat(f); err == nil && st.ModTime().After(cutoff) {
-			return true
+		st, err := os.Stat(f)
+		if err != nil || st.ModTime().Before(cutoff) {
+			continue
+		}
+		done, tool, start := subagentTail(f, st.Size())
+		if done {
+			continue
+		}
+		id := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(f), ".jsonl"), "agent-")
+		s := model.Subagent{ID: id, Tool: tool}
+		var meta struct {
+			Type        string `json:"agentType"`
+			Description string `json:"description"`
+		}
+		if b, err := os.ReadFile(strings.TrimSuffix(f, ".jsonl") + ".meta.json"); err == nil && json.Unmarshal(b, &meta) == nil {
+			s.Title, s.Type = clip(oneLine(meta.Description), 80), meta.Type
+		}
+		if s.Title == "" {
+			s.Title = "subagent"
+		}
+		out = append(out, found{s, start})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].since.Before(out[j].since) })
+	subs := make([]model.Subagent, len(out))
+	for i, f := range out {
+		subs[i] = f.s
+	}
+	return subs
+}
+
+// subagentTail reads the end of a subagent transcript: whether its last
+// message is a final reply (no tool call pending), the tool of its latest
+// call, and roughly when it started (file birth time).
+func subagentTail(path string, size int64) (done bool, tool string, start time.Time) {
+	f, err := os.Open(path)
+	if err != nil {
+		return true, "", start
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil {
+		start = birthTime(st)
+	}
+	off := max(0, size-256<<10)
+	buf := make([]byte, size-off)
+	n, _ := f.ReadAt(buf, off)
+	lines := bytes.Split(bytes.TrimSpace(buf[:n]), []byte("\n"))
+	var m struct {
+		Type    string `json:"type"`
+		Message *struct {
+			StopReason string `json:"stop_reason"`
+			Content    []struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	decided := false
+	for i := len(lines) - 1; i >= 0 && (tool == "" || !decided); i-- {
+		m.Type, m.Message = "", nil
+		if json.Unmarshal(lines[i], &m) != nil || m.Message == nil {
+			continue
+		}
+		if !decided && (m.Type == "assistant" || m.Type == "user") {
+			decided = true
+			done = m.Type == "assistant" && m.Message.StopReason == "end_turn"
+		}
+		if m.Type == "assistant" && tool == "" {
+			for _, c := range m.Message.Content {
+				if c.Type == "tool_use" {
+					tool = c.Name
+				}
+			}
 		}
 	}
-	return false
+	return done, tool, start
 }

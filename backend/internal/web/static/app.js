@@ -462,17 +462,39 @@ const closeIcon = () => {
   return s;
 };
 
+// The agent's working subagents, as small critters next to its mascot.
+const CREW_MAX = 6;
+function crewUpdate(crew, a) {
+  const subs = a.subagents || [];
+  const key = subs.map((x) => `${x.id}:${x.tool || ''}`).join(',');
+  if (crew.dataset.key === key) return;
+  crew.dataset.key = key;
+  crew.hidden = subs.length === 0;
+  const shown = subs.slice(0, CREW_MAX);
+  const minis = shown.map((x) => {
+    const m = h('span', { class: 'd-mini', title: x.type ? `${x.title} · ${x.type}` : x.title });
+    setSprite(m, x.tool ? TOOL_POSE[x.tool.toLowerCase()] || 'run' : 'think', 'claude');
+    return m;
+  });
+  const more = subs.length - shown.length;
+  const label = `${subs.length} subagent${subs.length === 1 ? '' : 's'}` + (more > 0 ? ` · +${more}` : '');
+  crew.replaceChildren(...minis, h('span', { class: 'd-crew-n', text: label }));
+  crew.setAttribute('aria-label', `${label}: ${subs.map((x) => x.title).join(', ')}`);
+}
+
 function header(a) {
   const spr = h('span', { class: 'd-spr' });
+  const crew = h('span', { class: 'd-crew', role: 'img' });
   const pill = h('span', { class: 'pill' });
   const ai = h('span', { class: 'd-ai' });
   const el = h('div', { class: 'd-top' },
-    h('div', { class: 'd-id' }, spr, h('h2', { class: 'd-title', id: 'd-title', tabindex: '-1', text: a.title }), ai),
+    h('div', { class: 'd-id' }, h('div', { class: 'd-mascots' }, spr, crew), h('h2', { class: 'd-title', id: 'd-title', tabindex: '-1', text: a.title }), ai),
     h('div', { class: 'd-right' },
       h('button', { type: 'button', class: 'd-close', 'aria-label': 'close panel (esc)', onclick: closeDetail }, closeIcon()),
       h('div', { class: `d-pillrow tool-${a.tool}` }, h('span', { class: 'chip', title: a.tool, 'aria-label': `tool: ${a.tool}`, role: 'img' }), pill)));
   setSprite(spr, poseOf(a), a.tool);
-  return { el, update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; } };
+  crewUpdate(crew, a);
+  return { el, update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; crewUpdate(crew, x); } };
 }
 
 function postAction(a, path, body) {

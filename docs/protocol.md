@@ -78,6 +78,9 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "resumable": false,             // exited Claude agent that /resume can bring back
   "unseen": false,                // finished a turn nobody has looked at yet ("hungry"); cleared when its terminal is focused or it gets a new prompt
   "external": false,              // mirrored from another app (a Codex app thread): focus opens it there, dismiss hides it; answer/interrupt/resume return an error
+  "subagents": [                  // omitted when none: subagents still working, oldest first
+    { "id": "a1f3c9", "title": "map the payment retry paths", "type": "Explore", "tool": "Grep" }
+  ],
   "startedAt": "2026-10-08T00:13:00Z",
   "updatedAt": "2026-10-08T00:51:02Z"
 }

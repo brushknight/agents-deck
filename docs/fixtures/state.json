@@ -42,7 +42,27 @@
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "subagents": [
+        {
+          "id": "a1f3c9",
+          "title": "map the payment retry paths",
+          "type": "Explore",
+          "tool": "Grep"
+        },
+        {
+          "id": "b72e01",
+          "title": "write tests for refunds",
+          "type": "general-purpose",
+          "tool": "Edit"
+        },
+        {
+          "id": "c90d4a",
+          "title": "check the webhook docs",
+          "type": "general-purpose",
+          "tool": "WebFetch"
+        }
+      ]
     },
     {
       "id": "h0m3l4",

@@ -85,28 +85,39 @@ func TestMatchAndFind(t *testing.T) {
 	_ = fmt.Sprint
 }
 
-func TestSubagentsBusy(t *testing.T) {
+func TestSubagents(t *testing.T) {
 	dir := t.TempDir()
 	tr := filepath.Join(dir, "0b5c2f4e-1111-4222-8333-944455556666.jsonl")
-	if SubagentsBusy(tr, time.Minute) {
-		t.Fatal("no subagents folder: not busy")
+	if subs := Subagents(tr, time.Minute); subs != nil {
+		t.Fatalf("no subagents folder: %v", subs)
 	}
 	sub := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(sub, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	f := filepath.Join(sub, "agent-a1.jsonl")
-	if err := os.WriteFile(f, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
+	write := func(name, body string) string {
+		p := filepath.Join(sub, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
 	}
-	if !SubagentsBusy(tr, time.Minute) {
-		t.Fatal("fresh subagent transcript: busy")
-	}
+	toolCall := `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"text","text":"x"},{"type":"tool_use","name":"Grep"}]}}`
+	result := `{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}`
+	final := `{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}`
+	write("agent-a1.jsonl", toolCall+"\n"+result+"\n"+`{"type":"attachment","attachment":{}}`+"\n")
+	write("agent-a1.meta.json", `{"agentType":"Explore","description":"find  the\nauth code"}`)
+	write("agent-a2.jsonl", toolCall+"\n"+result+"\n"+final+"\n") // finished
+	quiet := write("agent-a3.jsonl", toolCall+"\n")
 	old := time.Now().Add(-5 * time.Minute)
-	if err := os.Chtimes(f, old, old); err != nil {
+	if err := os.Chtimes(quiet, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if SubagentsBusy(tr, time.Minute) {
-		t.Fatal("quiet subagent transcript: not busy")
+	subs := Subagents(tr, time.Minute)
+	if len(subs) != 1 {
+		t.Fatalf("want only a1 working: %+v", subs)
+	}
+	if s := subs[0]; s.ID != "a1" || s.Title != "find the auth code" || s.Type != "Explore" || s.Tool != "Grep" {
+		t.Fatalf("a1: %+v", s)
 	}
 }
