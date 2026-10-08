@@ -252,6 +252,32 @@ func (s *Store) Reorder(ids []string) {
 	}
 }
 
+// MaxSlot bounds board positions (16 pages of the panel's 16 tiles).
+const MaxSlot = 255
+
+// Place puts an agent at any board position. Positions can be left empty, so
+// the board can be arranged freely; an agent already there swaps into the
+// mover's old position. It reports false for an unknown id or a bad slot.
+func (s *Store) Place(id string, slot int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.entries[id]
+	if !ok || slot < 0 || slot > MaxSlot {
+		return false
+	}
+	if e.A.Slot == slot {
+		return true
+	}
+	for _, x := range s.entries {
+		if x != e && x.A.Slot == slot {
+			x.A.Slot = e.A.Slot
+		}
+	}
+	e.A.Slot = slot
+	s.changed()
+	return true
+}
+
 func (s *Store) Remove(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

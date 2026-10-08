@@ -17,7 +17,7 @@ The daemon only talks to your own Mac and your own panel. It has no telemetry an
 | <img src="docs/images/web-board.png" alt="web dashboard: grid of agents"> | <img src="docs/images/web-permission.png" alt="answering a permission prompt from the web"> |
 | **The board.** One tile per agent. The pixel critter shows what the agent is doing (thinking, reading, editing, running a command, planning…). The tile's border fills clockwise with its context window. Orange means it's working; a solid orange tile means it needs you. An agent that has finished but whose result you haven't reviewed yet gets hungry: sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task. | **Answer from anywhere.** Permission prompts show the exact command with Claude's own options. Questions show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused. |
 | <img src="docs/images/web-detail.png" alt="agent detail"> | <img src="docs/images/web-panel.png" alt="panel view in the browser"> |
-| **Agent detail.** Shows what it's doing now, context used, tokens, estimated cost, turns and the last prompt, plus **focus terminal**, **interrupt** and **stop**. | **Panel view.** The web dashboard can mirror the 720×720 desk panel. Drag a tile onto another to swap them; the order is shared with the panel. |
+| **Agent detail.** Shows what it's doing now, context used, tokens, estimated cost, turns and the last prompt, plus **focus terminal**, **interrupt** and **stop**. | **Panel view.** The web dashboard can mirror the 720×720 desk panel. Arrange the board freely: drag a tile onto any free spot to move it there, or onto another tile to swap them. The layout is shared with the panel. |
 
 ### On the desk panel
 
@@ -37,7 +37,7 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 
 ### Codex sessions too
 
-Threads from the **Codex app** (and Codex CLI) that were active in the last 6 hours appear on the board automatically. They're drawn by their own mascot: a boxy bot with an antenna and block feet. No wrapper, no login and no config change is needed. agents deck reads Codex's local files read-only:
+Threads from the **Codex app** (and Codex CLI) that were active in the last 6 hours appear on the board automatically. They're drawn by their own mascot: an onigiri, a little rice triangle wrapped in nori. No wrapper, no login and no config change is needed. agents deck reads Codex's local files read-only:
 - **Names, folder, branch and model** come from `~/.codex/state_*.sqlite`, opened with the system `sqlite3 -readonly`.
 - **Live status** comes from each thread's `~/.codex/sessions/…/rollout-*.jsonl`: running or idle, what it's doing, context window, tokens, a question waiting for you, and hungry when a turn finishes.
 
@@ -67,7 +67,7 @@ agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an age
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
 agentctl ls                         the fleet at a glance
 agentctl rm <id|title>              stop and forget an agent
-agentctl move <id|title> <n>        put an agent at position n
+agentctl move <id|title> <n>        put an agent at position n (free spots are fine)
 agentctl sessions [words]           look up any Claude session by id, title, folder, branch or last prompt
 agentctl resume <id-prefix>         continue a Claude session as an agent
 agentctl web                        open the dashboard

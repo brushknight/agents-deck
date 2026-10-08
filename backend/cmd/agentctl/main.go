@@ -44,7 +44,7 @@ const usage = `agentctl — agents-terminal
   agentctl attach <id|title>     show an agent in this terminal (detach: ctrl-q)
   agentctl ls                    list agents
   agentctl rm <id|title>         stop and forget an agent
-  agentctl move <id|title> <n>   move an agent to position n (1 = first tile)
+  agentctl move <id|title> <n>   put an agent at position n (1 = first tile; free spots ok)
   agentctl sessions [words] [-n N]
                                  look up Claude sessions (any, not just agentctl's) by id/title/folder/prompt
   agentctl resume <id> [-d] [--force]
@@ -445,31 +445,18 @@ func clip(s string, n int) string {
 
 func move(args []string) error {
 	if len(args) != 2 {
-		return errors.New("usage: agentctl move <id|title> <position>   (1 = first tile)")
+		return errors.New("usage: agentctl move <id|title> <position>   (1 = first tile; free spots are fine)")
 	}
 	a, err := resolve(args[0])
 	if err != nil {
 		return err
 	}
 	var pos int
-	if _, err := fmt.Sscan(args[1], &pos); err != nil || pos < 1 {
-		return errors.New("position must be a number ≥ 1")
+	if _, err := fmt.Sscan(args[1], &pos); err != nil || pos < 1 || pos > store.MaxSlot+1 {
+		return fmt.Errorf("position must be a number from 1 to %d", store.MaxSlot+1)
 	}
-	s, err := state()
-	if err != nil {
-		return err
-	}
-	var ids []string
-	for _, x := range s.Agents { // already in slot order
-		if x.ID != a.ID {
-			ids = append(ids, x.ID)
-		}
-	}
-	if pos > len(ids)+1 {
-		pos = len(ids) + 1
-	}
-	ids = append(ids[:pos-1], append([]string{a.ID}, ids[pos-1:]...)...)
-	if err := call("POST", "/v1/order", map[string][]string{"ids": ids}, nil); err != nil {
+	// Any position works, free or not; an agent already there swaps places.
+	if err := call("POST", "/v1/agents/"+a.ID+"/move", map[string]int{"slot": pos - 1}, nil); err != nil {
 		return err
 	}
 	fmt.Printf("%s → position %d\n", a.Title, pos)

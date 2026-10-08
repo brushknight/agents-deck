@@ -115,10 +115,11 @@ const BODY = 'M2 0h10v1h1v1h1v2h-1v2h-1v1h-10v-1h-1v-2h-1v-2h1v-1h1z';
 const LEGS_A = [2, 4, 9, 11];
 const LEGS_B = [3, 5, 8, 10];
 const critterLegs = (xs, cls = '') => xs.map((x) => `<rect class="b ${cls}" x="${x}" y="7" width="1" height="2"/>`).join('');
-// Codex bot: block feet that step in turn (legs B lifts the left foot).
-const botFeet = (xs, cls = '') => `<rect class="b ${cls}" x="2.5" y="${xs === LEGS_B ? 6.4 : 7}" width="3" height="1.6"/><rect class="b ${cls}" x="8.5" y="7" width="3" height="1.6"/>`;
-const BOT_BODY = 'M1 0h12v1h1v5h-1v1h-12v-1h-1v-5h1z';
-const BOT_ANTENNA = '<rect class="b" x="6.6" y="-1.4" width="0.8" height="1.4"/><rect class="b ant" x="6.2" y="-2.4" width="1.6" height="1"/>';
+// Codex onigiri: a rounded rice triangle wrapped in nori, on two little feet that
+// step in turn (legs B lifts the left foot).
+const botFeet = (xs, cls = '') => `<rect class="b ${cls}" x="3.5" y="${xs === LEGS_B ? 6.4 : 7}" width="2" height="1.4"/><rect class="b ${cls}" x="8.5" y="7" width="2" height="1.4"/>`;
+const BOT_BODY = 'M6 -3h2v1h1v1h1v1h1v1h1v2h1v2h1v1h-1v1h-12v-1h-1v-1h1v-2h1v-2h1v-1h1v-1h1v-1h1z';
+const BOT_NORI = '<rect class="c" x="4" y="5.4" width="6" height="1.6"/>';
 let legs = critterLegs;
 const eyesOpen = (y) => `<rect class="c" x="4" y="${y}" width="1" height="2"/><rect class="c" x="9" y="${y}" width="1" height="2"/>`;
 const eyesOpenAt = (y, h) => `<rect class="c" x="4" y="${y}" width="1" height="${h}"/><rect class="c" x="9" y="${y}" width="1" height="${h}"/>`;
@@ -133,7 +134,7 @@ const MINI = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><g cl
 function spriteSVG(pose, species = 'claude') {
   const bot = species === 'codex';
   legs = bot ? botFeet : critterLegs;
-  let body = bot ? `<path class="b" d="${BOT_BODY}"/>${BOT_ANTENNA}` : `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
+  let body = bot ? `<path class="b" d="${BOT_BODY}"/>${pose === 'exit' ? '' : BOT_NORI}` : `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
   switch (pose) {
     case 'think':
       eyes = `<g class="glance">${eyesOpenAt(1, 1.5)}</g>`;
@@ -169,7 +170,8 @@ function spriteSVG(pose, species = 'claude') {
     case 'hungry':
       // Eyes up at a bobbing cookie; the mouth chomps open and shut.
       eyes = '<rect class="c" x="4.6" y="1" width="1" height="2"/><rect class="c" x="9.6" y="1" width="1" height="2"/>' +
-        '<rect class="c la slow" x="6.2" y="4.2" width="2.2" height="1.8"/><rect class="c lb slow" x="6.2" y="5" width="2.2" height="0.5"/>';
+        (bot ? '<rect class="c la slow" x="6.2" y="3.4" width="1.6" height="1.4"/><rect class="c lb slow" x="6.2" y="4" width="1.6" height="0.5"/>'
+          : '<rect class="c la slow" x="6.2" y="4.2" width="2.2" height="1.8"/><rect class="c lb slow" x="6.2" y="5" width="2.2" height="0.5"/>');
       bubble = `<g class="bobc">${pixels(['.###.', '##.##', '#####', '#.###', '.###.'], 14.3, 0.75, '', 0.75, -4.2)}</g>`;
       break;
     case 'celebrate': {
@@ -189,7 +191,7 @@ function spriteSVG(pose, species = 'claude') {
     case 'start':
       eyes = eyesOpen(2); bubble = DOTS; break;
     case 'exit':
-      body += bot ? '<path class="c" d="M2 1h10v5h-10z"/>' : '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
+      body += bot ? '<path class="c" d="M6 -1h2v1h1v1h1v2h1v2h1v1h-10v-1h1v-2h1v-2h1v-1h1z"/>' : '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
       eyes = '<rect class="b" x="4" y="3" width="1" height="1"/><rect class="b" x="9" y="3" width="1" height="1"/>'; break;
     default: // idle: asleep
       eyes = eyesShut;
@@ -250,36 +252,27 @@ function makeTile(a) {
   return { el, spr, name, meta, ring: ring.fill, dash: '', cls: '', label: '' };
 }
 
-// ---------------------------------------------------------------- reorder
-// Tiles can be dragged (or moved with Alt+arrows) to change the agents' slots;
-// the daemon stores the order, so the panel follows. Disabled while the
-// "needs you first" view is on, since that sort isn't the real order.
+// ---------------------------------------------------------------- arrange
+// Every agent has a board position (slot); positions can stay empty, so the
+// board is arranged freely. Drag a tile onto a free cell to move it there, or
+// onto another tile to swap them (or Alt+arrows). The daemon stores the
+// positions, so the panel follows. Disabled while "needs you first" is on,
+// since that sort isn't the real layout.
 let dragId = null;
+const MAX_SLOT = 255;
 
-const slotOrder = () => [...(state?.agents || [])].sort((x, y) => x.slot - y.slot).map((a) => a.id);
-
-async function saveOrder(ids) {
-  const pos = new Map(ids.map((id, i) => [id, i]));
-  for (const a of state.agents) if (pos.has(a.id)) a.slot = pos.get(a.id);
+// place mirrors the daemon: whoever holds the target slot swaps into ours.
+async function place(id, slot) {
+  const a = state?.agents.find((x) => x.id === id);
+  if (!a || slot < 0 || slot > MAX_SLOT || a.slot === slot) return;
+  for (const x of state.agents) if (x.slot === slot) x.slot = a.slot;
+  a.slot = slot;
   renderGrid();
-  const r = await api('/v1/order', { ids });
-  if (!r.ok) loadState(); // put the real order back
+  const r = await api(`/v1/agents/${encodeURIComponent(id)}/move`, { slot });
+  if (!r.ok) loadState(); // put the real layout back
 }
 
-// Dropping a tile on another swaps the two agents' positions.
-function swap(a, b) {
-  const ids = slotOrder();
-  const i = ids.indexOf(a), j = ids.indexOf(b);
-  if (i < 0 || j < 0 || i === j) return;
-  [ids[i], ids[j]] = [ids[j], ids[i]];
-  saveOrder(ids);
-}
-
-function moveTo(id, index) {
-  const ids = slotOrder().filter((x) => x !== id);
-  ids.splice(Math.max(0, Math.min(ids.length, index)), 0, id);
-  saveOrder(ids);
-}
+const slotOf = (id) => state?.agents.find((x) => x.id === id)?.slot;
 
 function wireDrag(el, id) {
   el.draggable = true;
@@ -299,7 +292,7 @@ function wireDrag(el, id) {
   el.addEventListener('drop', (e) => {
     e.preventDefault();
     delete el.dataset.drop;
-    if (dragId && dragId !== id) swap(dragId, id);
+    if (dragId && dragId !== id) place(dragId, slotOf(id));
   });
   el.addEventListener('dragend', () => {
     dragId = null;
@@ -339,7 +332,7 @@ function renderGrid() {
     updateTile(t, a);
   }
   for (const [id, t] of tiles) if (!seen.has(id)) { t.el.remove(); tiles.delete(id); }
-  const want = panelMode ? panelCells(list) : list.map((a) => tiles.get(a.id).el);
+  const want = panelMode ? panelCells(list) : needsFirst ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
   // Reconcile in place so running animations aren't restarted needlessly.
   want.forEach((el, i) => { if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null); });
   while (grid.children.length > want.length) grid.lastElementChild.remove();
@@ -347,29 +340,46 @@ function renderGrid() {
   grid.hidden = list.length === 0 && !panelMode;
 }
 
-// Panel view: 16 cells like the device — up to 16 agents, else 15 per page
-// plus a pager cell; free cells are empty slots you can drop a tile on.
-const emptyCells = [];
+// Free cells are pooled by slot so they keep their DOM nodes between renders.
+const emptyCells = new Map();
+function emptyCell(slot) {
+  let el = emptyCells.get(slot);
+  if (!el) { el = makeEmptyCell(slot); emptyCells.set(slot, el); }
+  return el;
+}
+
+// The free-form board: a cell per slot up to the last agent, the row filled out
+// with free cells so there's always somewhere to drop.
+function boardCells(list) {
+  if (!list.length) return [];
+  const bySlot = new Map(list.map((a) => [a.slot, a]));
+  const cols = Math.max(1, getComputedStyle($('grid')).gridTemplateColumns.split(' ').length);
+  const last = Math.max(...bySlot.keys());
+  const n = Math.min(MAX_SLOT + 1, Math.ceil((last + 1) / cols) * cols);
+  const cells = [];
+  for (let s = 0; s < n; s++) cells.push(bySlot.has(s) ? tiles.get(bySlot.get(s).id).el : emptyCell(s));
+  return cells;
+}
+
+// Panel view: 16 cells like the device. While every agent sits in slots 0..15
+// it's one page; beyond that pages hold 15 slots each plus a pager cell.
 let pagerCell = null;
 function panelCells(list) {
-  const paged = list.length > 16;
+  const bySlot = new Map(list.map((a) => [a.slot, a]));
+  const last = list.length ? Math.max(...bySlot.keys()) : 0;
+  const paged = last >= 16;
   const per = paged ? 15 : 16;
-  const pages = Math.max(1, Math.ceil(list.length / per));
+  const pages = Math.floor(last / per) + 1;
   if (panelPage >= pages) panelPage = 0;
   const start = panelPage * per;
-  const shown = list.slice(start, start + per);
-  const cells = shown.map((a) => tiles.get(a.id).el);
-  for (let i = 0; cells.length < per; i++) {
-    if (!emptyCells[i]) emptyCells[i] = makeEmptyCell();
-    emptyCells[i].dataset.index = String(start + shown.length + i);
-    cells.push(emptyCells[i]);
-  }
+  const cells = [];
+  for (let s = start; s < start + per; s++) cells.push(bySlot.has(s) ? tiles.get(bySlot.get(s).id).el : emptyCell(s));
   if (paged) {
     if (!pagerCell) {
       pagerCell = h('button', { type: 'button', class: 'tile pager' });
       pagerCell.addEventListener('click', () => { panelPage++; renderGrid(); });
     }
-    const elsewhere = list.some((a, i) => (i < start || i >= start + per) && needsYou(a));
+    const elsewhere = list.some((a) => (a.slot < start || a.slot >= start + per) && needsYou(a));
     pagerCell.classList.toggle('hot', elsewhere);
     const bar = Array.from({ length: pages }, (_, i) => (i === panelPage ? '■' : '□')).join(' ');
     pagerCell.replaceChildren(h('span', { class: 'name', text: 'next ›' }), h('span', { class: 'meta', text: bar }));
@@ -379,14 +389,14 @@ function panelCells(list) {
   return cells;
 }
 
-function makeEmptyCell() {
+function makeEmptyCell(slot) {
   const el = h('div', { class: 'tile-empty', 'aria-hidden': 'true' });
   el.addEventListener('dragover', (e) => { if (dragId) { e.preventDefault(); el.dataset.drop = 'swap'; } });
   el.addEventListener('dragleave', () => { delete el.dataset.drop; });
   el.addEventListener('drop', (e) => {
     e.preventDefault();
     delete el.dataset.drop;
-    if (dragId) moveTo(dragId, Number(el.dataset.index)); // a free slot: move there (the end)
+    if (dragId) place(dragId, slot); // a free spot: the agent moves there
   });
   return el;
 }
@@ -700,14 +710,10 @@ document.addEventListener('keydown', (e) => {
   // Alt+arrow on a tile moves the agent (left/right by one, up/down by a row).
   if (e.altKey && !needsFirst && !expired && t instanceof HTMLElement && t.classList.contains('tile') && e.key.startsWith('Arrow')) {
     e.preventDefault();
-    const els = [...$('grid').children];
-    const top0 = els[0].offsetTop;
-    let cols = els.findIndex((el) => el.offsetTop !== top0);
-    if (cols < 0) cols = els.length;
-    const ids = slotOrder();
-    const i = ids.indexOf(t.dataset.id);
+    const cols = Math.max(1, getComputedStyle($('grid')).gridTemplateColumns.split(' ').length);
+    const i = slotOf(t.dataset.id);
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[e.key] || 0;
-    if (i >= 0 && step) moveTo(t.dataset.id, i + step);
+    if (i != null && step) place(t.dataset.id, i + step).then(() => tiles.get(t.dataset.id)?.el.focus());
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey || expired) return;
@@ -827,7 +833,7 @@ async function start() {
 //   &open=<id>  open that agent's panel   &still  no simulation
 //   &empty      no agents                 &offline  disconnected banner   &expired  401 screen
 let fx = null;
-const AGO = [38, 2, 12, 4, 3, 63, 5, 60, 9, 190, 7]; // minutes since status change, by slot
+const AGO = { 0: 38, 1: 2, 2: 12, 3: 4, 4: 3, 5: 63, 6: 5, 7: 60, 8: 9, 10: 7, 15: 190 }; // minutes since status change, by slot
 const ACTS = [
   ['Edit', 'src/auth/session.ts'], ['Bash', 'go test ./auth/...'], ['Read', 'internal/state/store.go'],
   ['Grep', 'refreshToken'], ['TodoWrite', 'planning 6 steps'], ['Write', 'docs/install.md'], ['WebFetch', 'pkg.go.dev/net/http'],
@@ -908,6 +914,12 @@ async function fixtureAction(path, body) {
   const [, , , id, action] = path.split('/');
   const a = fx?.agents.find((x) => x.id === decodeURIComponent(id));
   if (!a) return { ok: false, status: 404, error: 'no such agent' };
+  if (action === 'move') {
+    for (const x of fx.agents) if (x.slot === body.slot) x.slot = a.slot;
+    a.slot = body.slot;
+    fxEmit();
+    return { ok: true, status: 204 };
+  }
   const t = iso(Date.now());
   if (action === 'focus') {
     for (const x of fx.agents) { x.focused = x === a; x.attached = x.attached || x === a; }

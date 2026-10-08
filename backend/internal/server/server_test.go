@@ -180,3 +180,41 @@ func TestOrder(t *testing.T) {
 		t.Errorf("empty order: %d", c)
 	}
 }
+
+func TestMoveToFreeSlot(t *testing.T) {
+	s, _ := newTestServer()
+	s.Store.Add(&store.Entry{A: model.Agent{ID: "a2", Title: "two"}})
+	h := s.DeviceHandler()
+	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	slots := func() map[string]int {
+		m := map[string]int{}
+		for _, a := range s.Store.Snapshot().Agents {
+			m[a.ID] = a.Slot
+		}
+		return m
+	}
+	if c := do(h, "POST", "/v1/agents/a1/move", `{"slot":9}`, auth).Code; c != 204 {
+		t.Fatalf("move: %d", c)
+	}
+	if got := slots(); got["a1"] != 9 || got["a2"] != 1 {
+		t.Fatalf("free spot: %v", got)
+	}
+	if c := do(h, "POST", "/v1/agents/a2/move", `{"slot":9}`, auth).Code; c != 204 {
+		t.Fatalf("move: %d", c)
+	}
+	if got := slots(); got["a2"] != 9 || got["a1"] != 1 {
+		t.Fatalf("taken spot should swap: %v", got)
+	}
+	s.Store.Add(&store.Entry{A: model.Agent{ID: "a3", Title: "three"}})
+	if got := slots(); got["a3"] != 0 {
+		t.Fatalf("new agents take the first free spot: %v", got)
+	}
+	for _, body := range []string{`{}`, `{"slot":-1}`, `{"slot":256}`} {
+		if c := do(h, "POST", "/v1/agents/a1/move", body, auth).Code; c != 400 {
+			t.Errorf("%s: %d", body, c)
+		}
+	}
+	if c := do(h, "POST", "/v1/agents/zz/move", `{"slot":3}`, auth).Code; c != 404 {
+		t.Errorf("unknown: %d", c)
+	}
+}

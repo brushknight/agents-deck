@@ -262,7 +262,7 @@ body.offline .main { opacity: 0.4; }
 .spark { animation: spark .6s infinite; }
 @keyframes bobc { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(0.6px) } }
 .bobc { animation: bobc .6s infinite; }
-.ant { animation: cursor 1s infinite; } .s1 { animation-delay: .2s; } .s2 { animation-delay: .4s; }
+.s1 { animation-delay: .2s; } .s2 { animation-delay: .4s; }
 
 /* ---------- empty / expired ---------- */
 .empty {
@@ -504,6 +504,7 @@ body.panel-mode .tile { aspect-ratio: auto; width: 100%; height: 100%; min-heigh
 body.panel-mode .tile .name { font-size: clamp(9px, 2.2cqi, 16px); }
 body.panel-mode .tile .meta { font-size: clamp(8px, 1.75cqi, 12.5px); }
 .tile-empty { background: #0B0B0B; border: 1px solid #262622; border-radius: var(--r-tile); }
+body:not(.panel-mode) .tile-empty { aspect-ratio: 1 / 1; background: transparent; border: 1px dashed #22221F; }
 .tile-empty[data-drop="swap"] { box-shadow: inset 0 0 0 3px var(--ink); }
 .tile.pager .name { font-size: clamp(10px, 2.4cqi, 18px); }
 .tile.pager .meta { letter-spacing: 2px; }

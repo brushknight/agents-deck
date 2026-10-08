@@ -107,6 +107,21 @@ func (s *Server) api() *http.ServeMux {
 		s.Store.Reorder(body.IDs)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/agents/{id}/move", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Slot *int `json:"slot"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body); err != nil || body.Slot == nil ||
+			*body.Slot < 0 || *body.Slot > store.MaxSlot {
+			writeErr(w, http.StatusBadRequest, "body must be {\"slot\": 0..255}")
+			return
+		}
+		if !s.Store.Place(r.PathValue("id"), *body.Slot) {
+			writeErr(w, http.StatusNotFound, "no such agent")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))
 	})

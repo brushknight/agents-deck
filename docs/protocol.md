@@ -22,7 +22,8 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/focus` | – | `204` — brings the agent's terminal to the front on the Mac (iTerm tab / overlay) |
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
-| POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — puts those agents in slots 0..n-1 in that order (others keep their order after them); used by drag-to-swap on the web and the panel |
+| POST | `/v1/agents/{id}/move` | `{"slot": 9}` | `204` — puts the agent at board position 0..255; free positions are fine (the board can have gaps), and an agent already there swaps into the mover's old position. Used by drag-and-drop on the web and the panel |
+| POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 
 Errors are `{"error": "message"}` with a 4xx/5xx status.
@@ -53,7 +54,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
 // Agent
 {
   "id": "k3f9a2",                 // stable, [a-z0-9]{6}
-  "slot": 0,                      // 0-based display position, stable for the agent's life
+  "slot": 0,                      // 0-based board position, stable for the agent's life; gaps allowed
   "title": "checkout-api",          // user-facing name (folder name by default)
   "aiTitle": "Fix refresh token race", // Claude's own session title, may be ""
   "tool": "claude",               // claude | codex | gemini | shell
