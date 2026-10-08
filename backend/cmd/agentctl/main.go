@@ -57,6 +57,7 @@ const usage = `agentctl — agents-terminal
   agentctl serve [--demo]        run the daemon (normally via launchd)
   agentctl install               install + start the launchd agent
   agentctl set term iterm|tmux|window
+  agentctl set mouse native|tmux
                                  how focus shows an agent (default iterm); applies immediately
   agentctl get [key]             show settings
   agentctl completion zsh        tab completion (add to ~/.zshrc: source <(agentctl completion zsh))
