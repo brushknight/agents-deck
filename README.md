@@ -29,7 +29,7 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 |---|---|---|
 | <img src="docs/images/panel-board.png" alt="panel board"> | <img src="docs/images/panel-permission.png" alt="panel permission prompt"> | <img src="docs/images/panel-question.png" alt="panel question"> |
 
-<p align="center"><img src="docs/images/critters.png" alt="every critter pose" width="70%"><br><sub>Critter poses: one for each kind of work, plus waiting, error, idle, starting, exited and compacting.</sub></p>
+<p align="center"><img src="docs/images/critters.png" alt="every pose of the Claude critter and the Codex onigiri" width="70%"><br><sub>Every pose, for the Claude critter and the Codex onigiri: one for each kind of work, plus waiting, error, idle, starting, exited and compacting.</sub></p>
 
 ### In the terminal
 
