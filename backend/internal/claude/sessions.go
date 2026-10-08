@@ -185,3 +185,21 @@ func FindSession(all []SessionInfo, ref string) (SessionInfo, int) {
 	}
 	return SessionInfo{}, len(hits)
 }
+
+// SubagentsBusy reports whether any subagent transcript of the session at
+// transcript (<session>/subagents/*.jsonl) was written within the last window.
+// Subagents can keep working while the main loop is idle (background agents,
+// or another process on the same session) and fire no hook of ours.
+func SubagentsBusy(transcript string, window time.Duration) bool {
+	if transcript == "" {
+		return false
+	}
+	files, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents", "*.jsonl"))
+	cutoff := time.Now().Add(-window)
+	for _, f := range files {
+		if st, err := os.Stat(f); err == nil && st.ModTime().After(cutoff) {
+			return true
+		}
+	}
+	return false
+}

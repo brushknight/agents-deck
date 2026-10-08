@@ -101,6 +101,9 @@ func (d *Daemon) Run() {
 				e.SetStatus(model.Idle) // e.g. the daemon restarted while tmux was briefly unreachable
 				changed = true
 			}
+			if n%2 == 0 && alive && e.A.Tool == "claude" && d.background(e) {
+				changed = true
+			}
 			if r := e.A.Status == model.Exited && e.A.Tool == "claude" && e.SessionID != "" && !e.Sim; r != e.A.Resumable {
 				e.A.Resumable = r
 				changed = true
@@ -156,6 +159,27 @@ func (d *Daemon) enableFocusReports(list []tmux.Client) {
 			delete(d.reporting, t) // detached: ask again if it comes back
 		}
 	}
+}
+
+// background shows an idle agent as running while its session's subagents are
+// still writing, and puts it back to idle once they have been quiet a while.
+func (d *Daemon) background(e *store.Entry) bool {
+	if e.A.Status != model.Running {
+		e.Background = false
+	}
+	busy := claude.SubagentsBusy(e.Transcript, 20*time.Second)
+	switch {
+	case busy && e.A.Status == model.Idle:
+		e.SetStatus(model.Running)
+		e.A.Activity = &model.Activity{Tool: "Task", Detail: "subagents working"}
+		e.Background = true
+		return true
+	case !busy && e.Background:
+		e.SetStatus(model.Idle)
+		e.Background = false
+		return true
+	}
+	return false
 }
 
 // exitedTTL is how long an exited agent stays on the board, resumable, before

@@ -23,6 +23,7 @@ type Entry struct {
 	TitleSet    bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
 	CustomTitle string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
 	External    bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
+	Background  bool        `json:"-"`                  // shown running only because its subagents are writing
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

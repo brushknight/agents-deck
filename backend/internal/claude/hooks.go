@@ -51,6 +51,7 @@ type Event struct {
 // Apply folds one hook event into the agent. It returns true when the agent
 // changed and whether the pane should be scanned for prompt options.
 func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
+	e.Background = false // hooks are the real status again
 	if ev.TranscriptPath != "" && e.Transcript != ev.TranscriptPath {
 		e.Transcript, e.Offset, e.Usage, e.Pending = ev.TranscriptPath, 0, nil, ""
 	}
