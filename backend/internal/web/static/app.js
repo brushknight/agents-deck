@@ -254,11 +254,12 @@ function makeTile(a) {
   const name = h('span', { class: 'name' });
   const meta = h('span', { class: 'meta' });
   const ring = makeRing();
+  const subs = h('span', { class: 'subs', 'aria-hidden': 'true', hidden: true });
   const el = h('button', { type: 'button', class: 'tile', 'data-id': a.id },
-    h('span', { class: 'chip', 'aria-hidden': 'true' }), spr, name, meta, ring.svg);
+    h('span', { class: 'chip', 'aria-hidden': 'true' }), subs, spr, name, meta, ring.svg);
   el.addEventListener('click', () => openDetail(a.id));
   wireDrag(el, a.id);
-  return { el, spr, name, meta, ring: ring.fill, dash: '', cls: '', label: '' };
+  return { el, spr, name, meta, subs, subsKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
 }
 
 // ---------------------------------------------------------------- arrange
@@ -319,7 +320,20 @@ function updateTile(t, a) {
   const meta = tileMeta(a);
   setText(t.name, a.title);
   setText(t.meta, meta);
-  const label = `${a.title}, ${a.tool}, ${a.status === 'waiting' ? 'needs you' : a.status}: ${meta}${a.focused ? ', focused terminal' : ''}`;
+  // Subagents at work: a small critter in the top-left corner (+ a count).
+  const list = a.subagents || [];
+  const subsKey = list.length ? `${list.length}|${list[0].tool || ''}` : '';
+  if (t.subsKey !== subsKey) {
+    t.subsKey = subsKey;
+    t.subs.hidden = !list.length;
+    if (list.length) {
+      const m = h('span', { class: 'subs-spr' });
+      setSprite(m, list[0].tool ? TOOL_POSE[list[0].tool.toLowerCase()] || 'run' : 'think', 'claude');
+      t.subs.replaceChildren(m, list.length > 1 ? h('span', { class: 'subs-n', text: `×${list.length}` }) : '');
+    }
+  }
+  const subsNote = list.length ? `, ${list.length} subagent${list.length === 1 ? '' : 's'} working` : '';
+  const label = `${a.title}, ${a.tool}, ${a.status === 'waiting' ? 'needs you' : a.status}: ${meta}${subsNote}${a.focused ? ', focused terminal' : ''}`;
   if (t.label !== label) { t.el.setAttribute('aria-label', label); t.label = label; }
   if (a.id === selectedId) t.el.setAttribute('aria-expanded', 'true'); else t.el.removeAttribute('aria-expanded');
 }

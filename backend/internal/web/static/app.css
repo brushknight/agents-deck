@@ -205,6 +205,12 @@ body.offline .main { opacity: 0.4; }
 .tile .chip {
   position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; background: var(--chip);
 }
+.tile .subs { position: absolute; top: 9px; left: 10px; display: flex; align-items: flex-end; gap: 3px; line-height: 0; }
+.tile .subs[hidden] { display: none; }
+/* the mini critter's own bubble is clipped off: just the body, 14 of 18 cells */
+.tile .subs-spr { width: 26px; overflow: hidden; }
+.tile .subs-spr svg { width: calc(26px * 18 / 14); height: auto; display: block; }
+.tile .subs-n { font-family: var(--f-label); font-size: 11px; line-height: 1; color: var(--meta); }
 .tile .spr { width: 54%; max-width: 110px; line-height: 0; margin-top: 4px; }
 .tile .spr svg { width: 100%; height: auto; display: block; overflow: visible; }
 /* Centre the body (x 0..14 of the 18-wide sprite), not body + bubble: shift by 2/18. */

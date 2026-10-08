@@ -189,16 +189,18 @@ func FindSession(all []SessionInfo, ref string) (SessionInfo, int) {
 }
 
 // Subagents lists the subagents of the session at transcript that are still
-// working: their own transcript (<session>/subagents/agent-*.jsonl) was
-// written within window and doesn't end with a final reply. Subagents can
-// keep working while the main loop is idle (background agents, or another
-// process on the same session) and fire no hook of ours.
-func Subagents(transcript string, window time.Duration) []model.Subagent {
+// working, from their own transcripts (<session>/subagents/agent-*.jsonl):
+// not ended with a final reply, and written within window, or within
+// toolWindow while a tool call is still waiting for its result (a long build
+// or test run writes nothing until it returns). Subagents can keep working
+// while the main loop is idle (background agents, or another process on the
+// same session) and fire no hook of ours.
+func Subagents(transcript string, window, toolWindow time.Duration) []model.Subagent {
 	if transcript == "" {
 		return nil
 	}
 	files, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents", "agent-*.jsonl"))
-	cutoff := time.Now().Add(-window)
+	now := time.Now()
 	type found struct {
 		s     model.Subagent
 		since time.Time
@@ -206,11 +208,11 @@ func Subagents(transcript string, window time.Duration) []model.Subagent {
 	var out []found
 	for _, f := range files {
 		st, err := os.Stat(f)
-		if err != nil || st.ModTime().Before(cutoff) {
+		if err != nil || now.Sub(st.ModTime()) > max(window, toolWindow) {
 			continue
 		}
-		done, tool, start := subagentTail(f, st.Size())
-		if done {
+		done, inTool, tool, start := subagentTail(f, st.Size())
+		if done || (!inTool && now.Sub(st.ModTime()) > window) {
 			continue
 		}
 		id := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(f), ".jsonl"), "agent-")
@@ -239,12 +241,12 @@ func Subagents(transcript string, window time.Duration) []model.Subagent {
 }
 
 // subagentTail reads the end of a subagent transcript: whether its last
-// message is a final reply (no tool call pending), the tool of its latest
-// call, and roughly when it started (file birth time).
-func subagentTail(path string, size int64) (done bool, tool string, start time.Time) {
+// message is a final reply, whether it is a tool call still waiting for its
+// result, the tool of its latest call, and roughly when it started.
+func subagentTail(path string, size int64) (done, inTool bool, tool string, start time.Time) {
 	f, err := os.Open(path)
 	if err != nil {
-		return true, "", start
+		return true, false, "", start
 	}
 	defer f.Close()
 	if st, err := f.Stat(); err == nil {
@@ -273,6 +275,10 @@ func subagentTail(path string, size int64) (done bool, tool string, start time.T
 		if !decided && (m.Type == "assistant" || m.Type == "user") {
 			decided = true
 			done = m.Type == "assistant" && m.Message.StopReason == "end_turn"
+			// Tool calls usually carry no stop_reason: look for the block.
+			for _, c := range m.Message.Content {
+				inTool = inTool || (m.Type == "assistant" && c.Type == "tool_use")
+			}
 		}
 		if m.Type == "assistant" && tool == "" {
 			for _, c := range m.Message.Content {
@@ -282,5 +288,5 @@ func subagentTail(path string, size int64) (done bool, tool string, start time.T
 			}
 		}
 	}
-	return done, tool, start
+	return done, inTool, tool, start
 }

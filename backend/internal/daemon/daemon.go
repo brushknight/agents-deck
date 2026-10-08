@@ -171,7 +171,7 @@ func (d *Daemon) subagents(e *store.Entry) bool {
 	if e.A.Status != model.Running {
 		e.Background = false
 	}
-	subs := claude.Subagents(e.Transcript, time.Minute)
+	subs := claude.Subagents(e.Transcript, 2*time.Minute, 30*time.Minute)
 	changed := !slices.Equal(subs, e.A.Subagents)
 	e.A.Subagents = subs
 	switch {
