@@ -26,6 +26,10 @@ import (
 type Config struct {
 	// ClaudeArgs are appended to every claude launch, e.g. ["--model", "opus"].
 	ClaudeArgs []string `json:"claudeArgs"`
+	// Codex: mirror Codex app/CLI threads onto the board (default on).
+	Codex *bool `json:"codex"`
+	// CodexWindowHours: threads updated within this many hours are shown (default 6).
+	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).
 	ExitedTTLSeconds int `json:"exitedTTLSeconds"`
 }
@@ -39,7 +43,8 @@ type Daemon struct {
 	lastFocus time.Time
 	iterm     itermLink
 	reporting map[string]bool // ttys we asked to report focus
-	front     string          // tmux session of the focused terminal (last tick)
+	codex     codexWatch
+	front     string // tmux session of the focused terminal (last tick)
 }
 
 func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
@@ -79,6 +84,9 @@ func (d *Daemon) Run() {
 		d.mu.Unlock()
 		var gone []string
 		d.Store.Each(func(e *store.Entry) bool {
+			if e.External {
+				return false // mirrored by WatchCodex
+			}
 			changed := claude.Tail(e)
 			alive := live[e.TmuxName]
 			young := time.Since(e.A.StartedAt) < 3*time.Second // tmux session still being created
@@ -314,6 +322,9 @@ func (d *Daemon) uniqueTitle(base string) string {
 
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
+	if e, ok := d.Store.Get(id); ok && e.External {
+		return errExternal
+	}
 	var tmuxName string
 	var label string
 	var keys []string
@@ -389,6 +400,9 @@ func (d *Daemon) Interrupt(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
+	if e.External {
+		return errExternal
+	}
 	if err := tmux.SendKeys(e.TmuxName, "", "Escape"); err != nil {
 		return err
 	}
@@ -407,6 +421,9 @@ func (d *Daemon) Focus(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
+	}
+	if e.External {
+		return d.focusExternal(e)
 	}
 	if e.A.Status == model.Exited {
 		return errors.New("agent has exited")
@@ -483,6 +500,10 @@ func (d *Daemon) Dismiss(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
+	if e.External {
+		d.hideExternal(e)
+		return nil
+	}
 	if e.A.Status != model.Exited {
 		_ = tmux.Kill(e.TmuxName)
 	}
@@ -498,6 +519,9 @@ func (d *Daemon) Dismiss(id string) error {
 func (d *Daemon) Adopt() {
 	live := tmux.Sessions()
 	d.Store.Each(func(e *store.Entry) bool {
+		if e.External {
+			return false
+		}
 		e.Offset, e.Usage, e.Pending = 0, nil, "" // rebuild totals from the transcript
 		if !live[e.TmuxName] {
 			e.SetStatus(model.Exited)

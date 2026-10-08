@@ -41,7 +41,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "h0m3l4",
@@ -97,7 +98,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "d0cs1t",
@@ -132,7 +134,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": true
+      "unseen": true,
+      "external": false
     },
     {
       "id": "t3st5a",
@@ -170,7 +173,8 @@
       "attached": true,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "1nfr4t",
@@ -207,7 +211,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "k8sn0d",
@@ -245,7 +250,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "4uthfl",
@@ -301,7 +307,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "h4ptic",
@@ -336,7 +343,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "plug1n",
@@ -368,13 +376,14 @@
         "used": 18000,
         "window": 200000
       },
-      "costUsd": 0.12,
+      "costUsd": 0,
       "turns": 2,
       "focused": false,
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": true
     },
     {
       "id": "scr4tc",
@@ -409,7 +418,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     },
     {
       "id": "fw0t4x",
@@ -447,7 +457,8 @@
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
-      "unseen": false
+      "unseen": false,
+      "external": false
     }
   ]
 }

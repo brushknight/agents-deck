@@ -2,7 +2,7 @@
 
 # agents deck
 
-**Mission control for a fleet of Claude Code agents**, on a 4″ desk panel, in the browser and in your terminal.
+**Mission control for a fleet of Claude Code agents**, plus your Codex sessions, on a 4″ desk panel, in the browser and in your terminal.
 
 You start agents with `agentctl new`. Each one runs in a private tmux session, and a small Go daemon keeps track of all of them: who's working, who needs you, what each one is doing, how full its context is and what it has cost so far. The board shows that live. When an agent asks for permission or asks you a question, you can answer from the panel or the web without going back to the terminal. **focus terminal** takes you to that agent's iTerm tab, even inside a hidden hotkey window.
 
@@ -34,6 +34,14 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 <p align="center"><img src="docs/images/cli.png" alt="agentctl ls, sessions and resume" width="85%"></p>
 
 ---
+
+### Codex sessions too
+
+Threads from the **Codex app** (and Codex CLI) that were active in the last 6 hours appear on the board automatically. They're drawn by their own mascot: a boxy bot with an antenna and block feet. No wrapper, no login and no config change is needed. agents deck reads Codex's local files read-only:
+- **Names, folder, branch and model** come from `~/.codex/state_*.sqlite`, opened with the system `sqlite3 -readonly`.
+- **Live status** comes from each thread's `~/.codex/sessions/…/rollout-*.jsonl`: running or idle, what it's doing, context window, tokens, a question waiting for you, and hungry when a turn finishes.
+
+**focus** opens the thread in the Codex app (`codex://threads/<id>`). Answering, interrupting and stopping stay in the Codex app. **hide** removes a thread from the board until it's active again. Settings in `config.json`: `"codex": false` turns it off, and `"codexWindowHours": 12` widens the window.
 
 ## Quick start
 

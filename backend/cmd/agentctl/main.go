@@ -596,6 +596,7 @@ func serve(args []string) error {
 		}
 		d.Adopt()
 		go d.Run()
+		go d.WatchCodex()
 		ctl, lc = d, d
 	}
 

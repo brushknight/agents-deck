@@ -114,7 +114,12 @@ function pillText(a) {
 const BODY = 'M2 0h10v1h1v1h1v2h-1v2h-1v1h-10v-1h-1v-2h-1v-2h1v-1h1z';
 const LEGS_A = [2, 4, 9, 11];
 const LEGS_B = [3, 5, 8, 10];
-const legs = (xs, cls = '') => xs.map((x) => `<rect class="b ${cls}" x="${x}" y="7" width="1" height="2"/>`).join('');
+const critterLegs = (xs, cls = '') => xs.map((x) => `<rect class="b ${cls}" x="${x}" y="7" width="1" height="2"/>`).join('');
+// Codex bot: block feet that step in turn (legs B lifts the left foot).
+const botFeet = (xs, cls = '') => `<rect class="b ${cls}" x="2.5" y="${xs === LEGS_B ? 6.4 : 7}" width="3" height="1.6"/><rect class="b ${cls}" x="8.5" y="7" width="3" height="1.6"/>`;
+const BOT_BODY = 'M1 0h12v1h1v5h-1v1h-12v-1h-1v-5h1z';
+const BOT_ANTENNA = '<rect class="b" x="6.6" y="-1.4" width="0.8" height="1.4"/><rect class="b ant" x="6.2" y="-2.4" width="1.6" height="1"/>';
+let legs = critterLegs;
 const eyesOpen = (y) => `<rect class="c" x="4" y="${y}" width="1" height="2"/><rect class="c" x="9" y="${y}" width="1" height="2"/>`;
 const eyesOpenAt = (y, h) => `<rect class="c" x="4" y="${y}" width="1" height="${h}"/><rect class="c" x="9" y="${y}" width="1" height="${h}"/>`;
 const eyesShut = '<rect class="c" x="3.5" y="3.2" width="2" height="0.55"/><rect class="c" x="8.5" y="3.2" width="2" height="0.55"/>';
@@ -125,8 +130,10 @@ const pixels = (rows, x0, w, cls, h = 0.9, y0 = -4) => `<g class="${cls}">` + ro
 const MINI = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><g class="bob"><path class="b" d="${BODY}"/>` +
   `<rect class="c" x="4" y="2" width="1" height="2"/><rect class="c" x="9" y="2" width="1" height="2"/></g>${legs(LEGS_A, 'la')}${legs(LEGS_B, 'lb')}</g>`;
 
-function spriteSVG(pose) {
-  let body = `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
+function spriteSVG(pose, species = 'claude') {
+  const bot = species === 'codex';
+  legs = bot ? botFeet : critterLegs;
+  let body = bot ? `<path class="b" d="${BOT_BODY}"/>${BOT_ANTENNA}` : `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
   switch (pose) {
     case 'think':
       eyes = `<g class="glance">${eyesOpenAt(1, 1.5)}</g>`;
@@ -182,7 +189,7 @@ function spriteSVG(pose) {
     case 'start':
       eyes = eyesOpen(2); bubble = DOTS; break;
     case 'exit':
-      body += '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
+      body += bot ? '<path class="c" d="M2 1h10v5h-10z"/>' : '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
       eyes = '<rect class="b" x="4" y="3" width="1" height="1"/><rect class="b" x="9" y="3" width="1" height="1"/>'; break;
     default: // idle: asleep
       eyes = eyesShut;
@@ -205,7 +212,10 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
-const setSprite = (el, pose) => { if (el.dataset.pose !== pose) { el.dataset.pose = pose; el.innerHTML = spriteSVG(pose); } };
+const setSprite = (el, pose, species = 'claude') => {
+  const key = `${pose}|${species}`;
+  if (el.dataset.pose !== key) { el.dataset.pose = key; el.innerHTML = spriteSVG(pose, species); }
+};
 
 // ---------------------------------------------------------------- tiles (keyed)
 const tiles = new Map(); // id -> { el, spr, name, meta, chip, key }
@@ -300,7 +310,7 @@ function wireDrag(el, id) {
 function updateTile(t, a) {
   const cls = `tile st-${a.status} tool-${a.tool}` + (hungry(a) ? ' hungry' : '') + (a.focused ? ' focused' : '') + (a.id === selectedId ? ' selected' : '');
   if (t.cls !== cls) { t.el.className = cls; t.cls = cls; }
-  setSprite(t.spr, poseOf(a));
+  setSprite(t.spr, poseOf(a), a.tool);
   const used = a.context?.window > 0 ? Math.min(100, (a.context.used / a.context.window) * 100) : 0;
   const dash = `${used.toFixed(2)} 100`;
   if (t.dash !== dash) { t.ring.setAttribute('stroke-dasharray', dash); t.dash = dash; }
@@ -451,7 +461,7 @@ function header(a) {
     h('div', { class: 'd-right' },
       h('button', { type: 'button', class: 'd-close', 'aria-label': 'close panel (esc)', onclick: closeDetail }, closeIcon()),
       h('div', { class: `d-pillrow tool-${a.tool}` }, h('span', { class: 'chip', title: a.tool, 'aria-label': `tool: ${a.tool}`, role: 'img' }), pill)));
-  setSprite(spr, poseOf(a));
+  setSprite(spr, poseOf(a), a.tool);
   return { el, update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; } };
 }
 
@@ -474,8 +484,8 @@ function actionButton(a, label, path, cls, note) {
 
 // Exited agents are removed at once; a live one is stopped only on a second click.
 function removeButton(a, note) {
-  const exited = a.status === 'exited';
-  const idle = exited ? 'remove' : 'stop';
+  const exited = a.status === 'exited' || a.external; // hiding a Codex thread needs no confirm
+  const idle = a.external ? 'hide' : a.status === 'exited' ? 'remove' : 'stop';
   const b = h('button', { type: 'button', class: 'btn narrow', text: idle });
   let armed = null;
   b.addEventListener('click', async () => {
@@ -510,9 +520,9 @@ function buildInfo(a) {
   const server = h('span');
   const note = h('div', { class: 'note', role: 'status', 'aria-live': 'polite' });
   const actions = h('div', { class: 'actions' });
-  if (a.status !== 'exited') actions.append(actionButton(a, hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
+  if (a.status !== 'exited') actions.append(actionButton(a, a.external ? 'open in codex' : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
   else if (a.resumable) actions.append(actionButton(a, 'resume', 'resume', 'solid', note));
-  if (a.status === 'running') actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
+  if (a.status === 'running' && !a.external) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
   else actions.append(removeButton(a, note));
 
   panel.className = 'detail' + (a.status === 'error' ? ' p-error' : ['idle', 'starting', 'exited'].includes(a.status) ? ' p-dim' : '');
@@ -546,7 +556,8 @@ function buildInfo(a) {
     bar.setAttribute('aria-valuenow', String(pct));
     const t = x.tokens || {};
     [fmtN(t.input), fmtN(t.output), fmtN(t.cacheRead), fmtN(t.cacheWrite)].forEach((v, i) => setText(S[i][1], v));
-    if (S[4][1].dataset.v !== fmtCost(x.costUsd)) { S[4][1].dataset.v = fmtCost(x.costUsd); S[4][1].replaceChildren(fmtCost(x.costUsd), h('small', { text: 'est' })); }
+    const cost = x.external ? '—' : fmtCost(x.costUsd); // no price list for Codex models
+    if (S[4][1].dataset.v !== cost) { S[4][1].dataset.v = cost; S[4][1].replaceChildren(cost, ...(x.external ? [] : [h('small', { text: 'est' })])); }
     setText(S[5][1], String(x.turns ?? 0));
     setText(prompt, x.lastPrompt || '—');
     setText(foot, [x.modelLabel || x.model, tilde(x.cwd), x.branch].filter(Boolean).join(' · '));

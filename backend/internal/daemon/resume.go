@@ -124,6 +124,9 @@ func (d *Daemon) Resume(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
+	if e.External {
+		return errExternal
+	}
 	if e.A.Status != model.Exited {
 		return errors.New("agent is still running")
 	}

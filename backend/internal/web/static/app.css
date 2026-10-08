@@ -261,7 +261,8 @@ body.offline .main { opacity: 0.4; }
 .hop { animation: hop .4s infinite; }
 .spark { animation: spark .6s infinite; }
 @keyframes bobc { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(0.6px) } }
-.bobc { animation: bobc .6s infinite; } .s1 { animation-delay: .2s; } .s2 { animation-delay: .4s; }
+.bobc { animation: bobc .6s infinite; }
+.ant { animation: cursor 1s infinite; } .s1 { animation-delay: .2s; } .s2 { animation-delay: .4s; }
 
 /* ---------- empty / expired ---------- */
 .empty {

@@ -22,6 +22,7 @@ type Entry struct {
 	Sim         bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
 	TitleSet    bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
 	CustomTitle string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
+	External    bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`
@@ -154,7 +155,9 @@ func (s *Store) Flush() {
 	s.mu.Lock()
 	list := make([]*Entry, 0, len(s.entries))
 	for _, e := range s.entries {
-		list = append(list, e)
+		if !e.External {
+			list = append(list, e)
+		}
 	}
 	b, err := json.MarshalIndent(list, "", " ")
 	s.mu.Unlock()

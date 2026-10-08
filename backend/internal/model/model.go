@@ -50,6 +50,7 @@ type Agent struct {
 	Attached    bool      `json:"attached"`
 	Resumable   bool      `json:"resumable"` // exited Claude agent that POST /resume can bring back
 	Unseen      bool      `json:"unseen"`    // finished a turn you haven't looked at yet ("hungry")
+	External    bool      `json:"external"`  // owned by another app (Codex): view and focus only
 	StartedAt   time.Time `json:"startedAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
