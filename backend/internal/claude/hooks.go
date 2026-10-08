@@ -52,7 +52,9 @@ type Event struct {
 // changed and whether the pane should be scanned for prompt options.
 func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 	e.Background = false // hooks are the real status again
-	if ev.TranscriptPath != "" && e.Transcript != ev.TranscriptPath {
+	// Only the main transcript counts; a subagent's own file would swap the
+	// context ring to the subagent's and force a full re-read on the way back.
+	if ev.TranscriptPath != "" && e.Transcript != ev.TranscriptPath && !strings.Contains(ev.TranscriptPath, "/subagents/") {
 		e.Transcript, e.Offset, e.Usage, e.Pending = ev.TranscriptPath, 0, nil, ""
 	}
 	if ev.SessionID != "" {

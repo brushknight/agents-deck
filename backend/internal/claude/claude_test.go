@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -359,5 +360,32 @@ func TestApplyHungry(t *testing.T) {
 	Apply(e, ev("UserPromptSubmit", "prompt", "next"))
 	if e.A.Unseen {
 		t.Fatal("feeding it a prompt clears hungry")
+	}
+}
+
+func TestTailCatchesUpInOneCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	msg := func(id string, ctx int) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"id":%q,"model":"claude-opus-5-5","usage":{"input_tokens":%d,"output_tokens":10}}}`, id, ctx) + "\n"
+	}
+	var b strings.Builder
+	b.WriteString(msg("early", 900_000)) // before a compaction
+	pad := `{"type":"user","message":{"content":"` + strings.Repeat("x", 4000) + `"}}` + "\n"
+	for b.Len() < 3*maxRead {
+		b.WriteString(pad)
+	}
+	b.WriteString(msg("late", 50_000))
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &store.Entry{Transcript: path}
+	if !Tail(e) {
+		t.Fatal("no change")
+	}
+	if e.A.Context.Used != 50_000 || e.Offset != int64(b.Len()) {
+		t.Fatalf("one call should reach the end: ctx %d, offset %d of %d", e.A.Context.Used, e.Offset, b.Len())
+	}
+	if e.A.Tokens.Input != 950_000 {
+		t.Fatalf("totals over the whole file: %+v", e.A.Tokens)
 	}
 }

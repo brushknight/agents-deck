@@ -13,8 +13,12 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
-// maxRead bounds one tail pass so a huge transcript can't stall the daemon.
-const maxRead = 8 << 20
+// One tail call reads up to maxChunks × maxRead (1 GiB): a whole long
+// session in one go, without holding it all in memory at once.
+const (
+	maxRead   = 8 << 20
+	maxChunks = 128
+)
 
 type line struct {
 	Type      string `json:"type"`
@@ -54,59 +58,66 @@ func Tail(e *store.Entry) bool {
 	if _, err := f.Seek(e.Offset, io.SeekStart); err != nil {
 		return false
 	}
-	buf, _ := io.ReadAll(io.LimitReader(f, maxRead))
-	e.Offset += int64(len(buf))
-	data := append([]byte(e.Pending), buf...)
-	last := bytes.LastIndexByte(data, '\n')
-	if last < 0 {
-		e.Pending = string(data)
-		return false
-	}
-	e.Pending = string(data[last+1:])
-
+	// Catch up in one call, chunk by chunk, so the board never shows the
+	// numbers of half-read history (a restart re-reads from the start).
 	changed := false
 	var lastCtx int64
 	var lastModel string
-	sc := bufio.NewScanner(bytes.NewReader(data[:last]))
-	sc.Buffer(make([]byte, 64<<10), 16<<20)
-	for sc.Scan() {
-		var l line
-		if json.Unmarshal(sc.Bytes(), &l) != nil {
+	for range maxChunks {
+		buf, _ := io.ReadAll(io.LimitReader(f, maxRead))
+		if len(buf) == 0 {
+			break
+		}
+		e.Offset += int64(len(buf))
+		data := append([]byte(e.Pending), buf...)
+		last := bytes.LastIndexByte(data, '\n')
+		if last < 0 {
+			e.Pending = string(data)
 			continue
 		}
-		if l.GitBranch != "" && l.GitBranch != e.A.Branch {
-			e.A.Branch, changed = l.GitBranch, true
-		}
-		switch l.Type {
-		case "ai-title":
-			if l.AITitle != "" && l.AITitle != e.A.AITitle {
-				e.A.AITitle, changed = l.AITitle, true
-			}
-		case "custom-title":
-			if l.Custom != e.CustomTitle {
-				e.CustomTitle, changed = l.Custom, true
-			}
-		case "assistant":
-			if l.Message == nil {
+		e.Pending = string(data[last+1:])
+
+		sc := bufio.NewScanner(bytes.NewReader(data[:last]))
+		sc.Buffer(make([]byte, 64<<10), 16<<20)
+		for sc.Scan() {
+			var l line
+			if json.Unmarshal(sc.Bytes(), &l) != nil {
 				continue
 			}
-			if l.IsAPIErr {
-				e.SetStatus(model.Error)
-				e.A.Error = &model.ErrInfo{Message: apiErrorText(l.Message.Content)}
+			if l.GitBranch != "" && l.GitBranch != e.A.Branch {
+				e.A.Branch, changed = l.GitBranch, true
+			}
+			switch l.Type {
+			case "ai-title":
+				if l.AITitle != "" && l.AITitle != e.A.AITitle {
+					e.A.AITitle, changed = l.AITitle, true
+				}
+			case "custom-title":
+				if l.Custom != e.CustomTitle {
+					e.CustomTitle, changed = l.Custom, true
+				}
+			case "assistant":
+				if l.Message == nil {
+					continue
+				}
+				if l.IsAPIErr {
+					e.SetStatus(model.Error)
+					e.A.Error = &model.ErrInfo{Message: apiErrorText(l.Message.Content)}
+					changed = true
+					continue
+				}
+				if l.Message.Usage == nil || l.Message.ID == "" || l.Message.Model == "<synthetic>" {
+					continue
+				}
+				u := l.Message.Usage
+				e.SetUsage(l.Message.ID, l.Message.Model, model.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
+				lastCtx = u.Input + u.CacheRead + u.CacheWrite
+				lastModel = l.Message.Model
+				if e.A.Status == model.Error {
+					e.SetStatus(model.Running) // recovered: a real reply arrived
+				}
 				changed = true
-				continue
 			}
-			if l.Message.Usage == nil || l.Message.ID == "" || l.Message.Model == "<synthetic>" {
-				continue
-			}
-			u := l.Message.Usage
-			e.SetUsage(l.Message.ID, l.Message.Model, model.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
-			lastCtx = u.Input + u.CacheRead + u.CacheWrite
-			lastModel = l.Message.Model
-			if e.A.Status == model.Error {
-				e.SetStatus(model.Running) // recovered: a real reply arrived
-			}
-			changed = true
 		}
 	}
 	if lastModel != "" {
