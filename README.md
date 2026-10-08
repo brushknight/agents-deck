@@ -114,6 +114,7 @@ flowchart LR
 - **Codex.** A separate watcher polls the Codex state database and tails rollout logs, both read-only (see [Codex sessions](#codex-sessions)).
 - **Answers.** The chosen key is sent into the agent's tmux session. Arrow-key menus get Up/Down + Enter.
 - **Focus.** iTerm's local API selects the agent's tab and pane. Then iTerm's `StealFocus` escape code, written to that pane's terminal, brings the window forward, including a hidden hotkey window. The alternatives are `agentctl set term tmux` (switch your last-used tab to the agent) and `window` (only raise the window).
+- **Selecting text.** tmux mouse mode is on, so the wheel scrolls an agent's history. Dragging selects text, which stays highlighted and goes straight to the clipboard; double-click selects a word, triple-click a line. Typing afterwards goes to the agent as usual. Hold ⌥ while dragging for iTerm's own selection.
 - **Protocol.** One small JSON API that sends the whole state on every change. See [docs/protocol.md](docs/protocol.md).
 
 ## Security & privacy

@@ -147,7 +147,7 @@ func (d *Daemon) Run() {
 func (d *Daemon) enableFocusReports(list []tmux.Client) {
 	if d.reporting == nil {
 		d.reporting = map[string]bool{}
-		_ = tmux.SetGlobal("focus-events", "on")
+		tmux.ServerDefaults() // agents started by an older daemon get them too
 	}
 	seen := map[string]bool{}
 	for _, c := range list {
