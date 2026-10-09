@@ -12,10 +12,10 @@ let skew = 0;              // server clock minus local clock (ms)
 let selectedId = null;     // agent shown in the detail panel
 let needsFirst = false;    // "needs you first" sort toggle
 let panelMode = false;     // "panel view": the 720×720 panel's 4×4 grid
-// Phones get a list of agent rows instead (no panel view, no free cells).
+// Phones: the deck view by default (the panel's 4×4), or a list of agent rows.
 const phoneMQ = matchMedia('(max-width: 640px)');
 const onPhone = () => phoneMQ.matches;
-const panelOn = () => panelMode && !onPhone();
+const panelOn = () => panelMode;
 let panelPage = 0;
 let online = false;
 let expired = false;
@@ -791,7 +791,10 @@ function setPanelMode(on) {
   renderGrid();
 }
 $('panel-toggle').addEventListener('click', () => setPanelMode(!panelMode));
-try { panelMode = localStorage.getItem('agents.panelMode') === '1'; } catch { panelMode = false; }
+try {
+  const saved = localStorage.getItem('agents.panelMode');
+  panelMode = saved === null ? onPhone() : saved === '1';
+} catch { panelMode = onPhone(); }
 if (new URLSearchParams(location.search).has('panel')) panelMode = true; // bookmarkable
 document.body.classList.toggle('panel-mode', panelOn());
 $('panel-toggle').setAttribute('aria-pressed', String(panelMode));

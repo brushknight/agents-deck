@@ -478,30 +478,44 @@ body.offline .main { opacity: 0.4; }
 /* Phones: a list of agent rows; the context ring becomes a bar along the bottom. */
 .tile .ctxbar { display: none; }
 @media (max-width: 640px) {
-  #panel-toggle, .server { display: none; }
+  .server { display: none; }
   .top-left { width: 100%; justify-content: space-between; }
   .counts { gap: 2px 12px; font-size: 13px; }
   .top-right { gap: 8px 12px; }
-  .grid { grid-template-columns: 1fr; gap: 8px; }
-  .tile-empty { display: none; }
-  .tile {
+  body:not(.panel-mode) .grid { grid-template-columns: 1fr; gap: 8px; }
+  body:not(.panel-mode) .tile-empty { display: none; }
+  body:not(.panel-mode) .tile {
     aspect-ratio: auto; min-height: 78px;
     display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-rows: 1fr 1fr;
     column-gap: 14px; align-items: center; justify-items: start; text-align: left;
     padding: 10px 34px 12px 14px;
   }
-  .tile .spr { grid-row: 1 / span 2; width: 58px; margin: 0; }
-  .tile .spr svg { transform: none; }
-  .tile .name { margin: 0; align-self: end; font-size: 16px; }
-  .tile .meta { margin: 3px 0 0; align-self: start; font-size: 13px; }
-  .tile .ring { display: none; }
-  .tile .ctxbar {
+  body:not(.panel-mode) .tile .spr { grid-row: 1 / span 2; width: 58px; margin: 0; }
+  body:not(.panel-mode) .tile .spr svg { transform: none; }
+  body:not(.panel-mode) .tile .name { margin: 0; align-self: end; font-size: 16px; }
+  body:not(.panel-mode) .tile .meta { margin: 3px 0 0; align-self: start; font-size: 13px; }
+  body:not(.panel-mode) .tile .ring { display: none; }
+  body:not(.panel-mode) .tile .ctxbar {
     display: block; position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
     background: var(--ring); pointer-events: none;
   }
-  .tile .chip { top: 50%; right: 14px; margin-top: -4px; }
-  .tile .subs { top: 8px; left: auto; right: 30px; }
-  .tile.selected::after { display: none; }
+  body:not(.panel-mode) .tile .chip { top: 50%; right: 14px; margin-top: -4px; }
+  body:not(.panel-mode) .tile .subs { top: 8px; left: auto; right: 30px; }
+  body:not(.panel-mode) .tile.selected::after { display: none; }
+  /* Deck view on a phone: ~90 px tiles. A smaller critter so its bubble clears
+     the tool chip, the chip tucked into the corner, a smaller subagent badge. */
+  body.panel-mode .tile .spr { width: 44%; margin-top: 8%; }
+  body.panel-mode .tile .chip { top: 6px; right: 6px; width: 6px; height: 6px; }
+  body.panel-mode .tile .subs { top: 5px; left: 6px; gap: 2px; }
+  body.panel-mode .tile .subs-spr { width: 14px; }
+  body.panel-mode .tile .subs-spr svg { width: calc(14px * 18 / 14); }
+  body.panel-mode .tile .subs-n { font-size: 9px; }
+  body.panel-mode .tile .name { margin-top: 7%; }
+  /* header on one row of buttons: the live dot without its label */
+  #conn-label { display: none; }
+  .top-right { flex-wrap: nowrap; }
+  .toggle { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+  .clock { font-size: 16px; }
 }
 @media (max-width: 480px) {
   .server { display: none; }

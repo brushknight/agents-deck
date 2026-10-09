@@ -125,7 +125,7 @@ flowchart LR
 
 - **Nothing leaves your machine.** No telemetry, no update checks, standard library only.
 - **Codex is read, never written.** The state database is opened with `sqlite3 -readonly` and rollouts are only read; the deck never talks to OpenAI or the Codex app, apart from opening a `codex://` link when you press focus.
-- **The web dashboard is loopback-only** unless you opt in with `agentctl set web lan`, which also serves it over plain HTTP on port 7342 for your phone. Same login and checks, with this Mac's own LAN names as the allowed hosts; use it on networks you trust. On a phone the board becomes a list of agent rows.
+- **The web dashboard is loopback-only** unless you opt in with `agentctl set web lan`, which also serves it over plain HTTP on port 7342 for your phone. Same login and checks, with this Mac's own LAN names as the allowed hosts; use it on networks you trust. On a phone it opens in the deck view (the panel's 4×4); the panel view toggle switches to a list of agent rows.
 - **The web dashboard on the Mac:**
   - it only answers requests for its own host name, which blocks DNS-rebinding attacks;
   - the login is a one-time link that sets an HttpOnly, SameSite=Strict cookie;
