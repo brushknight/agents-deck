@@ -37,6 +37,7 @@ _agentctl() {
     'pair:print the values the panel needs'
     'serve:run the daemon'
     'install:install and start the launchd agent'
+    'reopen:iTerm tabs for every agent no terminal shows'
     'set:change a setting (term iterm|tmux|window, mouse tmux|native)'
     'get:show settings'
     'completion:print the shell completion script'

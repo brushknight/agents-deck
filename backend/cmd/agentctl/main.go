@@ -42,6 +42,7 @@ const usage = `agentctl — agents-terminal
 
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
+  agentctl reopen                iTerm tabs for every agent no terminal shows (after a crash)
   agentctl attach <id|title>     show an agent in this terminal (detach: ctrl-q)
   agentctl ls                    list agents
   agentctl rm <id|title>         stop and forget an agent
@@ -82,6 +83,8 @@ func main() {
 		err = newAgent(args)
 	case "attach", "a":
 		err = attach(args)
+	case "reopen":
+		err = reopen()
 	case "ls", "list":
 		err = list()
 	case "rm":
@@ -268,6 +271,43 @@ func attach(args []string) error {
 		return exec.Command("tmux", "new-window", "-n", a.Title, strings.Join(argv, " ")).Run()
 	}
 	return syscall.Exec(argv[0], argv, os.Environ())
+}
+
+// reopen opens an iTerm tab for every live agent that no terminal shows, e.g.
+// after iTerm quit or crashed (the agents kept running in tmux).
+func reopen() error {
+	s, err := state()
+	if err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace
+	var script strings.Builder
+	script.WriteString("tell application \"iTerm2\"\n  activate\n  if (count of windows) = 0 then create window with default profile\n  tell current window\n")
+	n := 0
+	for _, a := range s.Agents {
+		if a.Attached || a.External || a.Status == model.Exited {
+			continue
+		}
+		cmd := fmt.Sprintf("'%s' attach %s", strings.ReplaceAll(self, "'", ""), a.ID)
+		fmt.Fprintf(&script, "    set t to (create tab with default profile command \"%s\")\n", esc(cmd))
+		fmt.Fprintf(&script, "    set name of current session of t to \"%s\"\n", esc(a.Title))
+		fmt.Printf("%s  %s\n", a.ID, a.Title)
+		n++
+	}
+	if n == 0 {
+		fmt.Println("every agent already has a terminal")
+		return nil
+	}
+	script.WriteString("  end tell\nend tell\n")
+	if out, err := exec.Command("osascript", "-e", script.String()).CombinedOutput(); err != nil {
+		return fmt.Errorf("iTerm: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	fmt.Printf("opened %d tab(s) in iTerm\n", n)
+	return nil
 }
 
 func list() error {

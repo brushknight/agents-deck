@@ -77,6 +77,7 @@ Want a full board without spending tokens? Run `agentctl sim start --root ~/dev 
 ```text
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an agent and attach (-d: stay detached)
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
+agentctl reopen                     iTerm tabs for every agent no terminal shows (after iTerm quits or crashes)
 agentctl ls                         the fleet at a glance
 agentctl rm <id|title>              stop and forget an agent
 agentctl move <id|title> <n>        put an agent at position n (free spots are fine)
