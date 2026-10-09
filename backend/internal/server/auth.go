@@ -109,7 +109,9 @@ type loginCodes struct {
 	codes map[string]time.Time
 }
 
-func (l *loginCodes) issue() string {
+func (l *loginCodes) issue() string { return l.issueFor(60 * time.Second) }
+
+func (l *loginCodes) issueFor(ttl time.Duration) string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.codes == nil {
@@ -122,7 +124,7 @@ func (l *loginCodes) issue() string {
 		}
 	}
 	c := RandomToken()
-	l.codes[c] = now.Add(60 * time.Second)
+	l.codes[c] = now.Add(ttl)
 	return c
 }
 

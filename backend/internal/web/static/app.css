@@ -334,12 +334,12 @@ body.offline .main { opacity: 0.4; }
 
 .d-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .d-id { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.d-spr { width: 54px; line-height: 0; }
+.d-spr { width: 54px; flex-shrink: 0; line-height: 0; }
 .d-spr svg { width: 100%; height: auto; overflow: visible; }
 .d-mascots { display: flex; align-items: flex-end; gap: 14px; }
-.d-crew { display: flex; align-items: flex-end; gap: 7px; padding-bottom: 1px; }
+.d-crew { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 7px; padding-bottom: 1px; min-width: 0; }
 .d-crew[hidden] { display: none; }
-.d-mini { width: 28px; line-height: 0; }
+.d-mini { width: 28px; flex-shrink: 0; line-height: 0; }
 .d-mini svg { width: 100%; height: auto; overflow: visible; }
 .d-crew-n { font-family: var(--f-label); font-size: 12px; color: var(--d-dim); margin-left: 6px; white-space: nowrap; }
 .d-title:focus { outline: none; }
@@ -474,6 +474,34 @@ body.offline .main { opacity: 0.4; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .btn { font-size: 16px; }
   .btn.narrow { flex: 1 1 0; }
+}
+/* Phones: a list of agent rows; the context ring becomes a bar along the bottom. */
+.tile .ctxbar { display: none; }
+@media (max-width: 640px) {
+  #panel-toggle, .server { display: none; }
+  .top-left { width: 100%; justify-content: space-between; }
+  .counts { gap: 2px 12px; font-size: 13px; }
+  .top-right { gap: 8px 12px; }
+  .grid { grid-template-columns: 1fr; gap: 8px; }
+  .tile-empty { display: none; }
+  .tile {
+    aspect-ratio: auto; min-height: 78px;
+    display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-rows: 1fr 1fr;
+    column-gap: 14px; align-items: center; justify-items: start; text-align: left;
+    padding: 10px 34px 12px 14px;
+  }
+  .tile .spr { grid-row: 1 / span 2; width: 58px; margin: 0; }
+  .tile .spr svg { transform: none; }
+  .tile .name { margin: 0; align-self: end; font-size: 16px; }
+  .tile .meta { margin: 3px 0 0; align-self: start; font-size: 13px; }
+  .tile .ring { display: none; }
+  .tile .ctxbar {
+    display: block; position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
+    background: var(--ring); pointer-events: none;
+  }
+  .tile .chip { top: 50%; right: 14px; margin-top: -4px; }
+  .tile .subs { top: 8px; left: auto; right: 30px; }
+  .tile.selected::after { display: none; }
 }
 @media (max-width: 480px) {
   .server { display: none; }

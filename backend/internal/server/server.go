@@ -63,7 +63,10 @@ type Server struct {
 	DeviceToken func() string
 	WebSession  string
 	LocalAddr   string // e.g. 127.0.0.1:7340
-	logins      loginCodes
+	// LANHosts lists the host:port values the opt-in LAN web listener answers
+	// to (this Mac's own addresses and .local name); nil when it is off.
+	LANHosts func() []string
+	logins   loginCodes
 }
 
 const sessionCookie = "agentsterm_session"
@@ -228,18 +231,48 @@ func ServeDevice(addr string, cert tls.Certificate, h http.Handler) error {
 // ---- local listener (loopback, web UI) ----------------------------------
 
 func (s *Server) LocalHandler() http.Handler {
-	api := s.api()
-	static := http.FileServerFS(s.Static)
-	return secureHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// DNS-rebinding guard: only our own host names.
-		if r.Host != s.LocalAddr && r.Host != strings.Replace(s.LocalAddr, "127.0.0.1", "localhost", 1) {
-			writeErr(w, http.StatusMisdirectedRequest, "bad host")
-			return
-		}
+	alt := strings.Replace(s.LocalAddr, "127.0.0.1", "localhost", 1)
+	return s.webHandler(func(r *http.Request) bool {
+		return r.Host == s.LocalAddr || r.Host == alt
+	}, func(w http.ResponseWriter, r *http.Request) bool {
 		// The session cookie belongs to 127.0.0.1; send localhost visitors there
 		// so a bookmark on either name works.
 		if strings.HasPrefix(r.Host, "localhost") && r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v1/") {
 			http.Redirect(w, r, "http://"+s.LocalAddr+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+			return true
+		}
+		return false
+	})
+}
+
+// LANHandler serves the same web UI to other devices on the local network
+// (opt-in: agentctl set web lan). Same login and session as on the Mac; the
+// host must be one of this Mac's own names, and writes must be same-origin.
+func (s *Server) LANHandler() http.Handler {
+	return s.webHandler(func(r *http.Request) bool {
+		if s.LANHosts == nil {
+			return false
+		}
+		for _, h := range s.LANHosts() {
+			if strings.EqualFold(r.Host, h) {
+				return true
+			}
+		}
+		return false
+	}, nil)
+}
+
+// webHandler is the web UI + cookie-authenticated API behind a host check
+// (DNS-rebinding guard) and a same-origin check for writes.
+func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.ResponseWriter, *http.Request) bool) http.Handler {
+	api := s.api()
+	static := http.FileServerFS(s.Static)
+	return secureHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !hostOK(r) {
+			writeErr(w, http.StatusMisdirectedRequest, "bad host")
+			return
+		}
+		if pre != nil && pre(w, r) {
 			return
 		}
 		if r.URL.Path == "/login" {
@@ -265,12 +298,9 @@ func (s *Server) LocalHandler() http.Handler {
 			writeErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		if r.Method != http.MethodGet {
-			o := r.Header.Get("Origin")
-			if o != "http://"+s.LocalAddr && o != "http://"+strings.Replace(s.LocalAddr, "127.0.0.1", "localhost", 1) {
-				writeErr(w, http.StatusForbidden, "bad origin")
-				return
-			}
+		if r.Method != http.MethodGet && r.Header.Get("Origin") != "http://"+r.Host {
+			writeErr(w, http.StatusForbidden, "bad origin")
+			return
 		}
 		api.ServeHTTP(w, r)
 	}))
@@ -343,7 +373,11 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 	})
 	mux.HandleFunc("POST /local/login-code", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"code": s.logins.issue()})
+		code := s.logins.issue()
+		if r.URL.Query().Get("for") == "phone" { // time to scan or paste it on another device
+			code = s.logins.issueFor(5 * time.Minute)
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"code": code})
 	})
 	return mux
 }

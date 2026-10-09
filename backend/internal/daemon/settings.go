@@ -23,6 +23,7 @@ var Settings = map[string]struct {
 	Help   string
 }{
 	"term":  {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
+	"web":   {[]string{"local", "lan"}, "local = dashboard on this Mac only; lan = also on your local network at :7342 (login link: agentctl web --phone)"},
 	"mouse": {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
 }
 

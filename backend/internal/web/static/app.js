@@ -12,6 +12,10 @@ let skew = 0;              // server clock minus local clock (ms)
 let selectedId = null;     // agent shown in the detail panel
 let needsFirst = false;    // "needs you first" sort toggle
 let panelMode = false;     // "panel view": the 720×720 panel's 4×4 grid
+// Phones get a list of agent rows instead (no panel view, no free cells).
+const phoneMQ = matchMedia('(max-width: 640px)');
+const onPhone = () => phoneMQ.matches;
+const panelOn = () => panelMode && !onPhone();
 let panelPage = 0;
 let online = false;
 let expired = false;
@@ -255,11 +259,12 @@ function makeTile(a) {
   const meta = h('span', { class: 'meta' });
   const ring = makeRing();
   const subs = h('span', { class: 'subs', 'aria-hidden': 'true', hidden: true });
+  const bar = h('span', { class: 'ctxbar', 'aria-hidden': 'true' }); // the ring, as a bar, on phones
   const el = h('button', { type: 'button', class: 'tile', 'data-id': a.id },
-    h('span', { class: 'chip', 'aria-hidden': 'true' }), subs, spr, name, meta, ring.svg);
+    h('span', { class: 'chip', 'aria-hidden': 'true' }), subs, spr, name, meta, ring.svg, bar);
   el.addEventListener('click', () => openDetail(a.id));
   wireDrag(el, a.id);
-  return { el, spr, name, meta, subs, subsKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
+  return { el, spr, name, meta, subs, bar, subsKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
 }
 
 // ---------------------------------------------------------------- arrange
@@ -316,7 +321,7 @@ function updateTile(t, a) {
   setSprite(t.spr, poseOf(a), a.tool);
   const used = a.context?.window > 0 ? Math.min(100, (a.context.used / a.context.window) * 100) : 0;
   const dash = `${used.toFixed(2)} 100`;
-  if (t.dash !== dash) { t.ring.setAttribute('stroke-dasharray', dash); t.dash = dash; }
+  if (t.dash !== dash) { t.ring.setAttribute('stroke-dasharray', dash); t.bar.style.width = `${used.toFixed(2)}%`; t.dash = dash; }
   const meta = tileMeta(a);
   setText(t.name, a.title);
   setText(t.meta, meta);
@@ -355,12 +360,12 @@ function renderGrid() {
     updateTile(t, a);
   }
   for (const [id, t] of tiles) if (!seen.has(id)) { t.el.remove(); tiles.delete(id); }
-  const want = panelMode ? panelCells(list) : needsFirst ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
+  const want = panelOn() ? panelCells(list) : needsFirst || onPhone() ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
   // Reconcile in place so running animations aren't restarted needlessly.
   want.forEach((el, i) => { if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null); });
   while (grid.children.length > want.length) grid.lastElementChild.remove();
-  $('empty').hidden = list.length > 0 || !state || panelMode;
-  grid.hidden = list.length === 0 && !panelMode;
+  $('empty').hidden = list.length > 0 || !state || panelOn();
+  grid.hidden = list.length === 0 && !panelOn();
 }
 
 // Free cells are pooled by slot so they keep their DOM nodes between renders.
@@ -780,7 +785,7 @@ document.addEventListener('keydown', (e) => {
 
 function setPanelMode(on) {
   panelMode = on;
-  document.body.classList.toggle('panel-mode', on);
+  document.body.classList.toggle('panel-mode', panelOn());
   $('panel-toggle').setAttribute('aria-pressed', String(on));
   try { localStorage.setItem('agents.panelMode', on ? '1' : '0'); } catch { /* storage unavailable */ }
   renderGrid();
@@ -788,8 +793,9 @@ function setPanelMode(on) {
 $('panel-toggle').addEventListener('click', () => setPanelMode(!panelMode));
 try { panelMode = localStorage.getItem('agents.panelMode') === '1'; } catch { panelMode = false; }
 if (new URLSearchParams(location.search).has('panel')) panelMode = true; // bookmarkable
-document.body.classList.toggle('panel-mode', panelMode);
+document.body.classList.toggle('panel-mode', panelOn());
 $('panel-toggle').setAttribute('aria-pressed', String(panelMode));
+phoneMQ.addEventListener('change', () => { document.body.classList.toggle('panel-mode', panelOn()); renderGrid(); });
 
 $('sort-toggle').addEventListener('click', (e) => {
   needsFirst = !needsFirst;

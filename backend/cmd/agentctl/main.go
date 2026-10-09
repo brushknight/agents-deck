@@ -112,7 +112,7 @@ func main() {
 	case "sim-agent":
 		err = simAgent(args)
 	case "web":
-		err = openWeb()
+		err = openWeb(args)
 	case "pair":
 		err = pair(args)
 	case "install":
@@ -523,12 +523,37 @@ func remove(args []string) error {
 	return call("POST", "/v1/agents/"+a.ID+"/dismiss", nil, nil)
 }
 
-func openWeb() error {
+func openWeb(args []string) error {
+	cfg := loadConfig()
+	if len(args) > 0 && args[0] == "--phone" {
+		if cfg.Web != "lan" {
+			return errors.New("the dashboard is on this Mac only: run `agentctl set web lan` first")
+		}
+		var res struct{ Code string }
+		if err := call("POST", "/local/login-code?for=phone", nil, &res); err != nil {
+			return err
+		}
+		ips := lanIPs()
+		hosts := append([]string{}, ips...)
+		hosts = append(hosts, localHostName())
+		fmt.Println("open on your phone (one-time link, valid 5 minutes):")
+		for _, h := range hosts {
+			fmt.Printf("  http://%s:%s/login?code=%s\n", h, lanWebPort, res.Code)
+		}
+		if len(hosts) > 0 {
+			link := fmt.Sprintf("http://%s:%s/login?code=%s", hosts[0], lanWebPort, res.Code)
+			c := exec.Command("/usr/bin/pbcopy")
+			c.Stdin = strings.NewReader(link)
+			if c.Run() == nil {
+				fmt.Println("the first link is on the clipboard (paste it on an iPhone via Universal Clipboard)")
+			}
+		}
+		return nil
+	}
 	var res struct{ Code string }
 	if err := call("POST", "/local/login-code", nil, &res); err != nil {
 		return err
 	}
-	cfg := loadConfig()
 	return exec.Command("open", "http://"+cfg.LocalAddr+"/login?code="+res.Code).Run()
 }
 
@@ -582,6 +607,30 @@ type fileConfig struct {
 	daemon.Config
 	LocalAddr  string `json:"localAddr"`
 	DeviceAddr string `json:"deviceAddr"` // "" disables the LAN listener
+	Web        string `json:"web"`        // "lan" also serves the web UI on the LAN (lanWebPort)
+}
+
+const lanWebPort = "7342"
+
+// lanHosts are the host:port names the LAN web listener answers to.
+func lanHosts() []string {
+	hosts := []string{localHostName() + ":" + lanWebPort}
+	for _, ip := range lanIPs() {
+		hosts = append(hosts, ip+":"+lanWebPort)
+	}
+	return hosts
+}
+
+// lanIPs are this Mac's non-loopback IPv4 addresses.
+func lanIPs() []string {
+	var ips []string
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+			ips = append(ips, ipn.IP.String())
+		}
+	}
+	return ips
 }
 
 func loadConfig() fileConfig {
@@ -643,8 +692,15 @@ func serve(args []string) error {
 	tokenCache := newSecretCache(paths.DeviceToken())
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(), DeviceToken: tokenCache.get,
 		WebSession: webSession, LocalAddr: cfg.LocalAddr}
+	errc := make(chan error, 4)
+	if cfg.Web == "lan" {
+		srv.LANHosts = lanHosts
+		log.Printf("web also on the local network, port %s", lanWebPort)
+		go func() {
+			errc <- fmt.Errorf("web lan :%s: %w", lanWebPort, server.ServeLocal(":"+lanWebPort, srv.LANHandler()))
+		}()
+	}
 
-	errc := make(chan error, 3)
 	if lc != nil {
 		go func() { errc <- fmt.Errorf("unix socket: %w", server.ServeUnix(paths.Socket(), srv.UnixHandler(lc))) }()
 	} else {
@@ -727,6 +783,12 @@ func setCmd(args []string) error {
 		return err
 	}
 	fmt.Printf("%s = %s\n", args[0], args[1])
+	if args[0] == "web" { // the daemon reads it at start
+		uid := fmt.Sprint(os.Getuid())
+		if exec.Command("launchctl", "kickstart", "-k", "gui/"+uid+"/"+plistLabel).Run() == nil {
+			fmt.Println("daemon restarted")
+		}
+	}
 	if args[0] == "mouse" { // applies to running agents now; reattach for links and scrollback
 		tmux.NativeMouse = func() bool { return daemon.CurrentMouse() == daemon.MouseNative }
 		tmux.ServerDefaults()
