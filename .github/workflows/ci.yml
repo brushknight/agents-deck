@@ -1,0 +1,54 @@
+# Tests on every push and pull request: the Go daemon/CLI and the deck UI.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: brew install tmux # daemon tests drive a throwaway tmux server
+      - name: vet and test
+        working-directory: backend
+        run: |
+          go vet ./...
+          go test -race ./...
+      - name: cross-compile (targets the release matrix will grow into)
+        working-directory: backend
+        run: |
+          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/agentctl
+          done
+
+  flutter:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+      - name: deck UI package
+        working-directory: clients/flutter/agents_ui
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: menu bar app
+        working-directory: clients/macos
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test

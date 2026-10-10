@@ -1,0 +1,161 @@
+# Release builds. Push a tag (v0.2.0) and this creates the GitHub release; or
+# publish a release from the GitHub UI and this fills it. Either way it
+# builds the executables and attaches them, with SHA256SUMS.
+#
+# Today: macOS arm64 (agentctl + the menu bar app). Linux amd64/arm64 and
+# Windows join the matrix once those platforms are supported (see
+# docs/releasing.md).
+#
+# Signing is optional: with the MACOS_* / APPLE_* secrets set, both are
+# signed with your Developer ID and the app is notarized; without them they
+# are ad-hoc signed (macOS will ask before opening them).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: existing tag to (re)build and attach
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.44.6
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          tag="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  macos-arm64:
+    needs: meta
+    runs-on: macos-14 # Apple Silicon
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      HAVE_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      HAVE_NOTARY: ${{ secrets.APPLE_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: agentctl
+        working-directory: backend
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
+            -ldflags "-s -w -X main.version=$VERSION" -o ../dist/agentctl ./cmd/agentctl
+          ../dist/agentctl version
+
+      - name: menu bar app
+        working-directory: clients/macos
+        run: |
+          flutter pub get
+          flutter build macos --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
+          cp -R "build/macos/Build/Products/Release/agents deck.app" ../../dist/
+
+      - name: signing keychain
+        if: env.HAVE_CERT == 'true'
+        env:
+          P12: ${{ secrets.MACOS_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          pw="$(openssl rand -hex 16)"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: sign
+        env:
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [ "$HAVE_CERT" = "true" ]; then
+            id="$IDENTITY"; opts=(--options runtime --timestamp)
+          else
+            id="-"; opts=()
+            echo "::warning::no MACOS_CERT_P12 secret: ad-hoc signing (macOS will warn on first open)"
+          fi
+          codesign --force "${opts[@]}" -s "$id" -i dev.agents-deck.agentctl dist/agentctl
+          codesign --force --deep "${opts[@]}" -s "$id" \
+            --entitlements clients/macos/macos/Runner/Release.entitlements "dist/agents deck.app"
+          codesign --verify --strict --verbose=2 "dist/agents deck.app"
+
+      - name: notarize
+        if: env.HAVE_CERT == 'true' && env.HAVE_NOTARY == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          cd dist
+          ditto -c -k --keepParent "agents deck.app" notarize.zip
+          xcrun notarytool submit notarize.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "agents deck.app"
+          rm notarize.zip
+          # A bare binary can't be stapled; notarizing it registers the ticket online.
+          zip -q agentctl.zip agentctl
+          xcrun notarytool submit agentctl.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          rm agentctl.zip
+
+      - name: package
+        run: |
+          cd dist
+          tar -czf "agentctl_${VERSION}_darwin_arm64.tar.gz" agentctl
+          ditto -c -k --keepParent "agents deck.app" "agents-deck_${VERSION}_macos_arm64.zip"
+          rm -rf agentctl "agents deck.app"
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dist/*
+
+  publish:
+    needs: [meta, macos-arm64]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.meta.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: release
+        run: |
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes --title "agents deck $TAG"
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/*

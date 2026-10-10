@@ -11,4 +11,4 @@ PRODUCT_NAME = agents deck
 PRODUCT_BUNDLE_IDENTIFIER = dev.agents-deck.menubar
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Apache-2.0
+PRODUCT_COPYRIGHT = agents deck

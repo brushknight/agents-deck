@@ -35,7 +35,9 @@ Off by default. `agentctl set notify off|needs-you|all`:
 
 Delivered by the menu bar app as native notifications. Clicking one opens that agent's card. No sound unless asked for.
 
-## 4. Easy install: build and release pipeline
+## 4. Easy install: build and release pipeline — in place, first release pending
+
+`ci` (tests on every push) and `release` (on a tag: builds, optional signing and notarization, GitHub release with `SHA256SUMS`) workflows, and `install.sh`. macOS arm64 only for now; see [releasing.md](releasing.md) for signing secrets and the platform plan.
 
 - GitHub Actions: `go test -race` and the web checks on every push; a release builds on every tag.
 - Release artifacts:

@@ -36,7 +36,8 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/web"
 )
 
-const version = "0.1.0"
+// version is stamped by release builds: -ldflags "-X main.version=<tag>".
+var version = "dev"
 
 const usage = `agentctl — agents-terminal
 

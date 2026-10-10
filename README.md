@@ -1,8 +1,10 @@
-<p align="center"><img src="docs/images/hero.png" alt="agents deck: a pixel-critter board of Claude Code and Codex agents on a 4-inch desk panel and in the browser" width="100%"></p>
+<p align="center"><img src="docs/images/hero.png" alt="agents deck: a pixel-critter board of Claude Code and Codex agents in the macOS menu bar, with a 4-inch desk panel as a companion" width="100%"></p>
 
 # agents deck
 
-**Mission control for your Claude Code and Codex agents**, on a 4″ desk panel, in the browser and in your terminal.
+**Mission control for your Claude Code and Codex agents**: in your menu bar, on your desk, in the browser and in your terminal.
+
+It's fully self-contained on your laptop: a small daemon, a deck that drops down from the menu bar, and a web dashboard (also on your phone). Physical companions are optional: today a 4″ desk panel, with more devices coming.
 
 Claude Code agents are started with `agentctl new`. Each one runs in a private tmux session, and a small Go daemon keeps track of all of them: who's working, who needs you, what each one is doing, how full its context is and what it has cost so far. The board shows that live. When an agent asks for permission or asks you a question, you can answer from the panel or the web without going back to the terminal. **focus terminal** takes you to that agent's iTerm tab, even inside a hidden hotkey window.
 
@@ -14,6 +16,16 @@ The daemon only talks to your own Mac and your own panel. It has no telemetry an
 
 ## What you see
 
+### In the menu bar
+
+A critter in the macOS menu bar turns orange when an agent needs you. Click it and the same 4×4 deck as the desk panel drops down in the top-right corner; click a tile for the agent's card to answer, focus its terminal, interrupt or resume it. Esc, the ‹ button or a click elsewhere puts it away; right-click opens the web dashboard. It pairs with the local daemon by itself.
+
+| | |
+|---|---|
+| <img src="docs/images/menubar-deck.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/menubar-permission.png" alt="answering a permission prompt from the menu bar"> |
+
+### In the browser (and on your phone)
+
 | | |
 |---|---|
 | <img src="docs/images/web-board.png" alt="web dashboard: grid of agents"> | <img src="docs/images/web-permission.png" alt="answering a permission prompt from the web"> |
@@ -21,7 +33,7 @@ The daemon only talks to your own Mac and your own panel. It has no telemetry an
 | <img src="docs/images/web-detail.png" alt="agent detail"> | <img src="docs/images/web-panel.png" alt="panel view in the browser"> |
 | **Agent detail.** Shows what it's doing now, context used, tokens, estimated cost, turns and the last prompt, plus **focus terminal**, **interrupt** and **stop**. Subagents at work appear as small critters next to the mascot, each posed by what it's doing. | **Panel view.** The web dashboard can mirror the 720×720 desk panel. Arrange the board freely: drag a tile onto any free spot to move it there, or onto another tile to swap them. The layout is shared with the panel. |
 
-### On the desk panel
+### On the desk panel (companion device)
 
 A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon over Wi-Fi. The connection is TLS with a pinned certificate.
 
@@ -30,10 +42,6 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 | <img src="docs/images/panel-board.png" alt="panel board"> | <img src="docs/images/panel-permission.png" alt="panel permission prompt"> | <img src="docs/images/panel-question.png" alt="panel question"> |
 
 <p align="center"><img src="docs/images/critters.png" alt="every pose of the Claude critter and the Codex onigiri" width="70%"><br><sub>Every pose, for the Claude critter and the Codex onigiri: one for each kind of work, plus waiting, error, idle, starting, exited and compacting.</sub></p>
-
-### In the menu bar
-
-A critter in the macOS menu bar (orange when an agent needs you). Click it and the same 4×4 deck as the desk panel drops down; click a tile for the agent's card. Esc or a click elsewhere puts it away; right-click for the web dashboard or quit. It pairs with the local daemon by itself. Early: build it from `clients/macos` for now (see below).
 
 ### In the terminal
 
@@ -61,18 +69,31 @@ Settings in `config.json`: `"codex": false` turns it off, and `"codexWindowHours
 
 ## Quick start
 
-Requirements: macOS, Go 1.24+, tmux, Claude Code, and iTerm2 (only needed for tab focus). The Codex app is optional; its threads show up once it's installed.
+Requirements: macOS on Apple Silicon, tmux, Claude Code, and iTerm2 (only needed for tab focus). The Codex app is optional; its threads show up once it's installed.
 
 ```bash
-git clone git@github.com:brushknight/agents-deck.git && cd agents-deck/backend
-go build -o ~/.local/bin/agentctl ./cmd/agentctl
-agentctl install                  # LaunchAgent: the daemon starts at login
+curl -fsSL https://raw.githubusercontent.com/brushknight/agents-deck/main/install.sh | sh -s -- --app
+```
+
+That downloads the latest release, checks it against the release's `SHA256SUMS`, installs `agentctl` to `~/.local/bin`, starts the daemon at login (`agentctl install`) and puts the menu bar app in `~/Applications` (drop `--app` to skip it). Then:
+
+```bash
 source <(agentctl completion zsh) # tab completion (add to ~/.zshrc)
 
 cd ~/dev/my-project
 agentctl new                      # a Claude agent for this folder, attached here (ctrl-q detaches)
 agentctl web                      # open the dashboard (one-time login link)
 ```
+
+From source instead (Go 1.24+; Flutter 3.44 for the menu bar app):
+
+```bash
+git clone git@github.com:brushknight/agents-deck.git && cd agents-deck
+(cd backend && go build -o ~/.local/bin/agentctl ./cmd/agentctl) && agentctl install
+(cd clients/macos && flutter build macos --release)   # → build/macos/Build/Products/Release/agents deck.app
+```
+
+Releases are built by GitHub Actions on every tag; see [docs/releasing.md](docs/releasing.md).
 
 Want a full board without spending tokens? Run `agentctl sim start --root ~/dev --slots 12`. It starts simulated agents that "work" on the real projects under `~/dev`: they read, edit, run commands, ask questions and hit errors. They're read-only: they list file names and never open, change or run anything. `agentctl sim stop` removes them.
 
@@ -152,6 +173,7 @@ flowchart LR
 | `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
 | `clients/macos` | The menu bar app (Flutter + a small native Swift shell). `flutter build macos --debug` builds `agents deck.app`. |
 | `docs/protocol.md` | The `/v1` API spoken by the web UI and the panel. |
+| `docs/releasing.md` | How releases are built, signed and published, and which platforms come next. |
 | `docs/roadmap.md` | What's planned next: restore after a tmux crash, a menu bar app, opt-in notifications, easy install. |
 | `docs/fixtures/state.json` | Sample fleet used by demo mode (`agentctl serve --demo`), the web fixture view and the panel tests. |
 
