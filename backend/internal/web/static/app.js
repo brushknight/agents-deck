@@ -365,7 +365,7 @@ function renderGrid() {
     updateTile(t, a);
   }
   for (const [id, t] of tiles) if (!seen.has(id)) { t.el.remove(); tiles.delete(id); }
-  if (!panelOn()) $('pagebar').hidden = true;
+  if (!panelOn()) { $('pagebar').hidden = true; document.body.classList.remove('paged'); }
   const want = panelOn() ? panelCells(list) : needsFirst || onPhone() ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
   // Reconcile in place so running animations aren't restarted needlessly.
   want.forEach((el, i) => { if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null); });
@@ -418,6 +418,7 @@ function renderPageBar(pages, hot) {
   panelPages = pages;
   const bar = $('pagebar');
   bar.hidden = pages < 2 || !panelOn();
+  document.body.classList.toggle('paged', !bar.hidden);
   if (bar.hidden) return;
   const key = `${pages}|${panelPage}|${[...hot].join(',')}`;
   if (bar.dataset.key === key) return;

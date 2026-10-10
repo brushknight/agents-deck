@@ -568,7 +568,7 @@ body.offline .main { opacity: 0.4; }
 /* ---------- panel view: the 720×720 device, 4×4, scaled to fit ---------- */
 body.panel-mode .main { display: flex; flex-direction: column; align-items: center; }
 body.panel-mode .grid {
-  --pv: min(100%, calc(100dvh - 160px)); /* room for the page bars */
+  --pv: min(100%, calc(100dvh - 130px));
   width: var(--pv);
   aspect-ratio: 1 / 1;
   max-width: none;
@@ -589,7 +589,10 @@ body.panel-mode .tile .meta { font-size: clamp(8px, 1.75cqi, 12.5px); }
 body:not(.panel-mode) .tile-empty { aspect-ratio: 1 / 1; background: transparent; border: 1px dashed #22221F; }
 .tile-empty[data-drop="swap"] { box-shadow: inset 0 0 0 3px var(--ink); }
 @media (max-width: 640px) { body.panel-mode .grid { border-radius: 12px; } }
-.pagebar { display: flex; justify-content: center; gap: 10px; margin: 14px auto 0; }
+/* more than 16 slots: the board keeps its square, the tiles get a little
+   shorter and the page bars fill the space below them */
+body.panel-mode.paged .grid { aspect-ratio: auto; height: calc(var(--pv) - 30px); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.pagebar { display: flex; justify-content: center; align-items: center; gap: 10px; height: 30px; margin: 0 auto; }
 .pagebar[hidden] { display: none; }
 .pagebar .page { width: 30px; height: 8px; padding: 0; border: 0; border-radius: 4px; background: #2A2925; cursor: pointer; transition: width .2s; }
 .pagebar .page.hot { background: var(--accent); }

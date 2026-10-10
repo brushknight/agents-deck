@@ -148,11 +148,13 @@ class _HudClockState extends State<HudClock> {
 }
 
 /// The deck's 4×4 board: square cells with an 8 px gap, as large as the
-/// space allows, centred.
+/// space allows, centred. With [square] false the cells fill the space
+/// instead (a little shorter than wide when room is needed below the grid).
 class DeckGrid extends StatelessWidget {
-  const DeckGrid({super.key, required this.cells});
+  const DeckGrid({super.key, required this.cells, this.square = true});
 
   final List<Widget> cells;
+  final bool square;
 
   static const columns = 4, rows = 4;
   static const gap = 8.0;
@@ -161,13 +163,10 @@ class DeckGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) {
-        final side = math.max(
-          0.0,
-          math.min(
-            (box.maxWidth - gap * (columns - 1)) / columns,
-            (box.maxHeight - gap * (rows - 1)) / rows,
-          ),
-        );
+        final w = math.max(0.0, (box.maxWidth - gap * (columns - 1)) / columns);
+        final h = math.max(0.0, (box.maxHeight - gap * (rows - 1)) / rows);
+        final side = math.min(w, h);
+        final cellW = square ? side : w, cellH = square ? side : h;
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -179,8 +178,9 @@ class DeckGrid extends StatelessWidget {
                   children: [
                     for (var c = 0; c < columns; c++) ...[
                       if (c > 0) const SizedBox(width: gap),
-                      SizedBox.square(
-                        dimension: side,
+                      SizedBox(
+                        width: cellW,
+                        height: cellH,
                         child: r * columns + c < cells.length
                             ? cells[r * columns + c]
                             : null,

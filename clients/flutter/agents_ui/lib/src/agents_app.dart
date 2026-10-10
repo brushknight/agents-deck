@@ -245,8 +245,9 @@ class _AgentsAppState extends State<AgentsApp> {
   }
 
   /// Pages of 16 slots (page = slot ~/ 16), side by side: swipe between
-  /// them, use the arrow keys or click a bar. The bar row underneath is always
-  /// there, so the grid doesn't jump when a 17th agent arrives.
+  /// them, use the arrow keys or click a bar. With one page the tiles are
+  /// square; with more, they keep their width and get a little shorter so
+  /// the bar row fits in the same square.
   Widget _deck(AgentsState state) {
     final last = state.agents.map((a) => a.slot).fold(0, math.max);
     final pages = last ~/ _cells + 1;
@@ -269,7 +270,7 @@ class _AgentsAppState extends State<AgentsApp> {
         return KeyEventResult.handled;
       },
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        padding: EdgeInsets.fromLTRB(8, 8, 8, pages < 2 ? 8 : 0),
         child: Column(
           children: [
             Expanded(
@@ -279,20 +280,19 @@ class _AgentsAppState extends State<AgentsApp> {
                 itemCount: pages,
                 onPageChanged: (p) => setState(() => _page = p),
                 itemBuilder: (context, p) =>
-                    DeckGrid(cells: _cellsFor(state, p)),
+                    DeckGrid(cells: _cellsFor(state, p), square: pages < 2),
               ),
             ),
-            SizedBox(
-              height: _barsHeight,
-              child: pages < 2
-                  ? null
-                  : _PageBars(
-                      pages: pages,
-                      current: _page,
-                      hot: hot,
-                      onTap: _goTo,
-                    ),
-            ),
+            if (pages > 1)
+              SizedBox(
+                height: _barsHeight,
+                child: _PageBars(
+                  pages: pages,
+                  current: _page,
+                  hot: hot,
+                  onTap: _goTo,
+                ),
+              ),
           ],
         ),
       ),
