@@ -288,7 +288,7 @@ func liveCmd() error {
 	var res struct {
 		Sessions []struct {
 			SessionID, Title, Folder string
-			OnBoard                  bool
+			OnBoard, Background      bool
 		}
 	}
 	if err := call("GET", "/v1/live", nil, &res); err != nil {
@@ -299,13 +299,17 @@ func liveCmd() error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "SESSION\tTITLE\tFOLDER\tDECK")
+	fmt.Fprintln(tw, "SESSION\tTITLE\tFOLDER\tKIND\tDECK")
 	for _, s := range res.Sessions {
 		deck := "-"
 		if s.OnBoard {
 			deck = "on the deck"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.SessionID[:8], s.Title, s.Folder, deck)
+		kind := "terminal"
+		if s.Background {
+			kind = "background"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.SessionID[:8], s.Title, s.Folder, kind, deck)
 	}
 	if err := tw.Flush(); err != nil {
 		return err

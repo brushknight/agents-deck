@@ -511,7 +511,7 @@ async function refreshPicker() {
     });
     return h('li', {},
       h('span', { class: 'picker-name', text: s.title || s.folder }),
-      h('span', { class: 'picker-meta', text: `${s.folder} · started ${rel(s.started)} ago` }),
+      h('span', { class: 'picker-meta', text: `${s.folder}${s.background ? ' · background' : ''} · started ${rel(s.started)} ago` }),
       btn);
   }));
 }

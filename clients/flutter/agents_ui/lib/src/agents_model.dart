@@ -468,6 +468,7 @@ class LiveSession {
     required this.folder,
     this.started,
     this.onBoard = false,
+    this.background = false,
   });
 
   final String sessionId;
@@ -476,11 +477,15 @@ class LiveSession {
   final DateTime? started;
   final bool onBoard;
 
+  /// Runs without a terminal (`claude --bg`, or one the desktop app runs).
+  final bool background;
+
   static LiveSession fromJson(Map<String, dynamic> j) => LiveSession(
     sessionId: _str(j['sessionId']),
     title: _str(j['title']),
     folder: _str(j['folder']),
     started: _time(j['started']),
     onBoard: j['onBoard'] == true,
+    background: j['background'] == true,
   );
 }

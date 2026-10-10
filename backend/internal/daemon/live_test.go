@@ -61,6 +61,7 @@ func TestWatchedHandStartedSession(t *testing.T) {
 	write(`{"type":"user","cwd":"`+work+`","message":{"content":"hi"}}`, finished)
 
 	d := &Daemon{Store: store.New("", "test", "0")}
+	d.live.claudeBin = "-" // the process scan, not this machine's real `claude agents`
 	d.syncLive()
 	cands := d.LiveJSON().([]LiveCandidate)
 	var c *LiveCandidate
@@ -109,5 +110,37 @@ func TestWatchedHandStartedSession(t *testing.T) {
 	}
 	if cmd.ProcessState != nil {
 		t.Fatal("the session itself must keep running")
+	}
+}
+
+// With Claude Code's own list (`claude agents --json`), background sessions
+// show up too, and "blocked" means it needs you.
+func TestClaudeAgentsList(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTSTERM_HOME", filepath.Join(root, "home"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "cfg"))
+	_ = os.MkdirAll(filepath.Join(root, "home"), 0o700)
+	old := tmux.Socket
+	tmux.Socket = fmt.Sprintf("agentsdeck-test-a%d", os.Getpid())
+	t.Cleanup(func() { tmux.Socket = old })
+	id := "5d6e7f80-1111-4222-8333-944455556666"
+	list := `[{"id":"ab12cd34","cwd":"/work/app","kind":"background","startedAt":1791446002609,"sessionId":"` + id + `","name":"refactor auth","state":"blocked","pid":4242,"status":"busy"}]`
+	fake := filepath.Join(root, "claude")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '"+list+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.live.claudeBin = fake
+	d.syncLive()
+	cands := d.LiveJSON().([]LiveCandidate)
+	if len(cands) != 1 || cands[0].SessionID != id || !cands[0].Background || cands[0].Title != "refactor auth" {
+		t.Fatalf("%+v", cands)
+	}
+	if err := d.AddLive(id, -1); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := d.Store.Get(liveAgentID(id))
+	if e.A.Status != model.Waiting || e.A.Waiting == nil || e.LiveAttach != "ab12cd34" {
+		t.Fatalf("blocked = needs you: %+v %q", e.A, e.LiveAttach)
 	}
 }

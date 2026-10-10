@@ -26,6 +26,7 @@ type Entry struct {
 	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
 	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
 	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
+	LiveAttach    string      `json:"-"`                  // a watched background session: its `claude attach` id
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

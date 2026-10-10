@@ -163,7 +163,7 @@ class _LivePickerState extends State<LivePicker> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    s.folder,
+                    s.background ? '${s.folder} · background' : s.folder,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: DeckHud.mono(

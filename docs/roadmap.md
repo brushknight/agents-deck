@@ -60,7 +60,9 @@ See the Claude sessions that agentctl didn't start (plain `claude` in any termin
 - Focus: find the session's terminal by its TTY (the iTerm API already maps TTYs to tabs).
 - Adding to the deck is a choice per session (a picker on the web dashboard and in the menu bar app); the rest stay listed but off the board.
 
-### Claude desktop app sessions
+### Claude desktop app sessions — local ones done
+
+Local sessions (including the desktop app's background sessions) come from `claude agents --json` and join the same picker; a blocked one shows "needs you". Cloud sessions (running on Anthropic's servers) aren't on this Mac: reaching them needs claude.ai with your login, so they wait for a decision on network access.
 
 The Claude desktop app's sessions, some of them important. Pick which ones show on the deck, read-only like Codex threads: status and activity, focus opens them in the app. First step: find out what the app keeps locally and whether it can be read without touching it.
 
