@@ -1,0 +1,55 @@
+# Roadmap
+
+Short and ordered. Each step should be usable on its own before the next starts.
+
+## 1. Restore after a tmux crash or reboot
+
+Today a dead tmux server (crash, reboot, `tmux kill-server`) leaves every agent `exited`. Each one offers **resume**, then moves to the history after 10 minutes.
+
+- `agentctl restore` brings the whole board back in one go. Every Claude agent that has a session id is resumed with `claude --resume <id>` in its own folder, keeping its title (if you set one with `-t`) and its board position.
+- On daemon start, agents that were alive before the tmux server died are listed for restore instead of expiring. Restoring automatically is a setting (`agentctl set restore auto|ask`), default `ask`.
+- Shells and non-Claude agents come back as fresh sessions in their folders, or are skipped; to be decided while building.
+- Out of scope: running processes themselves never survive; only the conversations do.
+
+## 2. Menu bar app (the deck as an overlay)
+
+A macOS menu bar icon. Clicking it opens a small overlay in the top-right corner with the same 4×4 deck as the desk panel. Click an agent for its card: answer, focus terminal, interrupt.
+
+- Reuse the panel UI as-is: the agents app from the Flutter panel, built for macOS desktop. That gives the same tiles, critters, cards and drag-to-arrange, with no second UI to maintain.
+- It talks to the daemon locally. Pairing is automatic: it reads the token and certificate fingerprint from `~/.local/share/agents-terminal`.
+- The icon shows state at a glance: plain when idle, an accent dot when an agent needs you.
+- It hides when it loses focus (like other menu bar popovers), and has a global shortcut to open it.
+
+Open question: Flutter desktop (full reuse of the panel code, but a larger app) versus a small Swift shell around the web panel view (tiny and native, but reuses the web UI rather than the panel UI). The plan assumes Flutter.
+
+## 3. Notifications (opt-in)
+
+Off by default. `agentctl set notify off|needs-you|all`:
+
+- `needs-you`: a permission prompt or a question is waiting.
+- `all`: also when an agent finishes a turn (turns hungry).
+
+Delivered by the menu bar app as native notifications. Clicking one opens that agent's card. No sound unless asked for.
+
+## 4. Easy install: build and release pipeline
+
+- GitHub Actions: `go test -race` and the web checks on every push; a release builds on every tag.
+- Release artifacts:
+  - a universal macOS `agentctl` (arm64 + amd64) with the version stamped in;
+  - the menu bar app;
+  - checksums.
+- An install script: download, verify the checksum, put `agentctl` in `~/.local/bin`, run `agentctl install`.
+- Code signing: today's ad-hoc signature makes macOS re-ask for permissions after every build. Releases should be signed with a stable identity (a Developer ID with notarization, or at least one consistent certificate).
+
+## Later
+
+- **Homebrew:** a tap with a formula for `agentctl` and a cask for the menu bar app, once the above has been used for a while.
+
+## Parked ideas
+
+From reviewing other tools (e.g. herdr). Not planned, but kept in mind:
+
+- Screen-reading status for agents without hooks (Codex CLI, Gemini…), and as a safety net for Claude states hooks miss.
+- Agent automation: `agentctl prompt --wait`, `agentctl wait --until blocked`, `agentctl read`, plus a skill file.
+- `agentctl explain <agent>`: why the deck shows an agent's current state.
+- Grouping agents by project on the board.

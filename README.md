@@ -144,6 +144,7 @@ flowchart LR
 |---|---|
 | `backend/` | Go daemon and CLI (`agentctl`). The web UI is embedded from `backend/internal/web/static`. |
 | `docs/protocol.md` | The `/v1` API spoken by the web UI and the panel. |
+| `docs/roadmap.md` | What's planned next: restore after a tmux crash, a menu bar app, opt-in notifications, easy install. |
 | `docs/fixtures/state.json` | Sample fleet used by demo mode (`agentctl serve --demo`), the web fixture view and the panel tests. |
 
 The desk panel client is a separate Flutter app; it speaks the same `/v1` protocol (see [docs/protocol.md](docs/protocol.md)).
