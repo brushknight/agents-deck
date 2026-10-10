@@ -124,9 +124,9 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 /// The menu bar icon: the deck's pixel critter. A template image (it follows
 /// the menu bar's light or dark look); orange when an agent needs you.
 enum CritterIcon {
-  // Body rows (y 0..6) as [x0, x1) spans on a 14-wide grid; eyes at x 4 and
-  // 9 (rows 2-3); legs (rows 7-8) at x 2, 4, 9, 11.
-  private static let rows: [(Int, Int)] = [(2, 12), (1, 13), (0, 14), (0, 14), (1, 13), (1, 13), (2, 12)]
+  // The deck's critter: a 12×6 block body (x 1..13, rows 0..5) with 1×2 arms
+  // at x 0 and 13 (rows 2-3), eyes at x 4 and 9 (rows 2-3), and legs (rows 6-7)
+  // at x 2, 4, 9, 11, on a 14×8 grid.
   private static let legs = [2, 4, 9, 11]
   private static let accent = NSColor(red: 1, green: 0x4D / 255.0, blue: 0, alpha: 1)
 
@@ -135,7 +135,7 @@ enum CritterIcon {
     let size = NSSize(width: 18, height: 18)
     let image = NSImage(size: size, flipped: true) { _ in
       let ox = (size.width - 14 * cell) / 2
-      let oy = (size.height - 9 * cell) / 2
+      let oy = (size.height - 8 * cell) / 2
       func fill(_ x: Int, _ y: Int, _ w: Int, _ h: Int) {
         NSRect(
           x: ox + CGFloat(x) * cell, y: oy + CGFloat(y) * cell,
@@ -143,8 +143,10 @@ enum CritterIcon {
         ).fill()
       }
       (attention ? accent : NSColor.black).setFill()
-      for (y, span) in rows.enumerated() { fill(span.0, y, span.1 - span.0, 1) }
-      for x in legs { fill(x, 7, 1, 2) }
+      fill(1, 0, 12, 6)  // body
+      fill(0, 2, 1, 2)  // arms
+      fill(13, 2, 1, 2)
+      for x in legs { fill(x, 6, 1, 2) }
       // Eyes: punched out of the body.
       NSGraphicsContext.current?.compositingOperation = .clear
       fill(4, 2, 1, 2)
