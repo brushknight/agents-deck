@@ -106,6 +106,15 @@ abstract class AgentsSource {
   /// `POST /v1/live/{session}/add` — puts one on the deck, at [slot] if given.
   Future<AgentsResult> addLive(String sessionId, {int? slot});
 
+  /// `POST /v1/agents/{id}/hat` — picks the hat of the agent's working
+  /// folder ([shape] + optional [color]), or back to the automatic one.
+  Future<AgentsResult> setHat(
+    String agentId, {
+    String? shape,
+    String? color,
+    bool auto = false,
+  });
+
   /// One-off `GET /v1/state` (after a 409, so the new prompt shows at once).
   Future<void> refresh();
 
@@ -541,6 +550,19 @@ class HttpAgentsClient implements AgentsSource {
       return const [];
     }
   }
+
+  @override
+  Future<AgentsResult> setHat(
+    String agentId, {
+    String? shape,
+    String? color,
+    bool auto = false,
+  }) => _postPath([
+    'v1',
+    'agents',
+    agentId,
+    'hat',
+  ], auto ? {'auto': true} : {'shape': shape, 'color': ?color});
 
   @override
   Future<AgentsResult> addLive(String sessionId, {int? slot}) => _postPath([

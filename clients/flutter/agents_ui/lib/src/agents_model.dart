@@ -4,6 +4,8 @@
 /// degrades to an empty value, it never throws past [AgentsState.fromJson].
 library;
 
+import 'dart:convert';
+
 /// Agent lifecycle as reported by the daemon. [unknown] covers statuses a
 /// newer daemon may add; it renders like [idle].
 enum AgentStatus { starting, running, waiting, idle, error, exited, unknown }
@@ -139,6 +141,86 @@ class AgentSubagent {
   );
 }
 
+/// The pixel hat an agent wears, picked by its working folder (or by hand).
+
+class AgentHat {
+  const AgentHat({required this.shape, required this.color, this.auto = true});
+
+  /// One of [hatShapes].
+  final String shape;
+
+  /// One of [hatColors].
+  final String color;
+
+  /// Picked by the daemon's hash of the folder, not by hand.
+  final bool auto;
+
+  static AgentHat? fromJson(Object? j) {
+    if (j is! Map<String, dynamic>) return null;
+    final shape = _str(j['shape']), color = _str(j['color']);
+    if (shape.isEmpty) return null;
+    return AgentHat(shape: shape, color: color, auto: j['auto'] == true);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AgentHat &&
+      other.shape == shape &&
+      other.color == color &&
+      other.auto == auto;
+
+  @override
+  int get hashCode => Object.hash(shape, color, auto);
+}
+
+/// Every hat shape, in the daemon's order.
+const hatShapes = [
+  'hard hat',
+  'cap',
+  'beanie',
+  'helmet',
+  'wizard',
+  'beret',
+  'chef',
+  'crown',
+  'headphones',
+  'propeller',
+  'top hat',
+  'cowboy',
+  'bandana',
+];
+
+/// The daemon's automatic hat for a working folder: FNV-1a 32 of the path
+/// picks the shape and (from the next byte) the colour. The daemon sends the
+/// hat itself; this mirrors it for demos and tests.
+AgentHat autoHatFor(String folder) {
+  var f = folder;
+  while (f.length > 1 && f.endsWith('/')) {
+    f = f.substring(0, f.length - 1);
+  }
+  var h = 0x811C9DC5;
+  for (final b in utf8.encode(f)) {
+    h ^= b;
+    h = (h * 0x01000193) & 0xFFFFFFFF;
+  }
+  return AgentHat(
+    shape: hatShapes[h % hatShapes.length],
+    color: hatColors[(h >> 8) % hatColors.length],
+  );
+}
+
+/// Every hat colour (never the status orange).
+const hatColors = [
+  'teal',
+  'blue',
+  'yellow',
+  'green',
+  'purple',
+  'pink',
+  'sky',
+  'ink',
+];
+
 class Agent {
   const Agent({
     required this.id,
@@ -172,6 +254,7 @@ class Agent {
     this.unseen = false,
     this.external = false,
     this.subagents = const [],
+    this.hat,
     this.startedAt,
     this.updatedAt,
   });
@@ -228,6 +311,9 @@ class Agent {
   /// Subagents still working, oldest first.
   final List<AgentSubagent> subagents;
 
+  /// The pixel hat for its working folder; null = none.
+  final AgentHat? hat;
+
   /// A Codex app thread (view and open in the app only).
   bool get codexThread => external && tool == 'codex';
 
@@ -279,6 +365,7 @@ class Agent {
       lost: j['lost'] == true,
       unseen: j['unseen'] == true,
       external: j['external'] == true,
+      hat: AgentHat.fromJson(j['hat']),
       subagents: [
         if (j['subagents'] case final List l)
           for (final x in l)

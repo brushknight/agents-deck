@@ -66,6 +66,9 @@ class _AgentDetailState extends State<AgentDetail> {
   /// A command is in flight (or succeeded and the card is about to close).
   bool _busy = false;
 
+  /// The hat picker is open (tap the mascot).
+  bool _hats = false;
+
   /// "stop" on a live agent needs a second tap; this arms it for a few seconds.
   bool _confirmStop = false;
   Timer? _confirmTimer;
@@ -239,6 +242,7 @@ class _AgentDetailState extends State<AgentDetail> {
         final state = frozen?.$1 ?? snap.state;
         final a = frozen?.$2 ?? state?.byId(widget.agentId);
         if (state == null || a == null) return _gone();
+        if (_hats) return _hatPicker(a);
         final p = frozen != null
             ? frozen.$3
             : (a.status == AgentStatus.waiting ? a.waiting : null);
@@ -272,6 +276,172 @@ class _AgentDetailState extends State<AgentDetail> {
     );
   }
 
+  // ---- hat picker ------------------------------------------------------------
+
+  Future<void> _setHat(
+    Agent a, {
+    String? shape,
+    String? color,
+    bool auto = false,
+  }) async {
+    final r = await widget.source.setHat(
+      a.id,
+      shape: shape,
+      color: color,
+      auto: auto,
+    );
+    if (!mounted) return;
+    setState(() => _note = r.isOk ? null : (r.message ?? 'failed'));
+  }
+
+  /// Every hat shape in the current colour, the colours, and "auto". A hat
+  /// belongs to the working folder: every agent there wears it.
+  Widget _hatPicker(Agent a) {
+    final hat = a.hat ?? autoHatFor(a.cwd);
+    return _card(
+      fill: DeckHud.bg,
+      child: Column(
+        key: const Key('hat-picker'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              CritterSprite(
+                pose: CritterPose.idle,
+                species: critterSpeciesFor(a.tool),
+                hat: a.hat,
+                width: 54,
+                body: DeckHud.ink,
+                cut: DeckHud.bg,
+              ),
+              const SizedBox(width: 16),
+              Text(
+                'hat',
+                style: DeckHud.rm(30, DeckHud.ink, weight: 700, spacing: -0.3),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'for ${tildePath(a.cwd)} · every agent working there wears it'
+            '${a.hat?.auto ?? true ? ' · now automatic' : ''}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.mono(
+              size: 15,
+              color: DeckHud.dim,
+            ).copyWith(height: 1.4),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final shape in hatShapes)
+                Pressable(
+                  key: Key('hat-shape-$shape'),
+                  onTap: () => _setHat(a, shape: shape, color: hat.color),
+                  builder: (context, pressed) => Container(
+                    width: 84,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: pressed ? DeckHud.ink : DeckHud.panel,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: shape == hat.shape && !hat.auto
+                            ? DeckHud.ink
+                            : DeckHud.panel,
+                        width: 2,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: CritterSprite(
+                      pose: CritterPose.wait,
+                      species: critterSpeciesFor(a.tool),
+                      hat: AgentHat(shape: shape, color: hat.color),
+                      showBubble: false,
+                      centerBody: true,
+                      width: 64,
+                      body: pressed ? DeckHud.bg : DeckHud.dim,
+                      cut: pressed ? DeckHud.ink : DeckHud.panel,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              for (final color in hatColors) ...[
+                Pressable(
+                  key: Key('hat-color-$color'),
+                  onTap: () => _setHat(a, shape: hat.shape, color: color),
+                  builder: (context, pressed) => Container(
+                    width: 52,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: hatColor(color).$1,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: color == hat.color && !hat.auto || pressed
+                            ? DeckHud.ink
+                            : DeckHud.bg,
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ],
+          ),
+          const Spacer(),
+          if (_note != null) ...[
+            Text(_note!, style: DeckHud.mono(size: 15, color: DeckHud.accent)),
+            const SizedBox(height: 12),
+          ],
+          Row(
+            children: [
+              ..._back(
+                ink: DeckHud.ink,
+                outline: DeckHud.dim,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
+              Expanded(
+                child: AgentButton(
+                  key: const Key('hat-auto'),
+                  label: hat.auto ? 'automatic' : 'back to automatic',
+                  onTap: hat.auto ? null : () => _setHat(a, auto: true),
+                  fill: const Color(0x00000000),
+                  ink: hat.auto ? DeckHud.dim : DeckHud.ink,
+                  outline: DeckHud.dim,
+                  pressedFill: DeckHud.ink,
+                  pressedInk: DeckHud.bg,
+                ),
+              ),
+              const SizedBox(width: 14),
+              SizedBox(
+                width: 200,
+                child: AgentButton(
+                  key: const Key('hat-done'),
+                  label: 'done',
+                  onTap: () => setState(() => _hats = false),
+                  fill: DeckHud.ink,
+                  ink: DeckHud.bg,
+                  outline: DeckHud.ink,
+                  pressedFill: DeckHud.accent,
+                  pressedInk: DeckHud.bg,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _topBar(
     AgentsState state,
     Agent a, {
@@ -291,18 +461,30 @@ class _AgentDetailState extends State<AgentDetail> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  CritterSprite(
-                    pose: critterPoseOf(a, inStatus: state.inStatus(a)),
-                    celebrateUntil: DateTime.now().add(
-                      critterCelebration - state.inStatus(a),
+                  // Tap the mascot to pick its hat.
+                  GestureDetector(
+                    key: const Key('agent-hat'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: a.cwd.isEmpty
+                        ? null
+                        : () => setState(() {
+                            _hats = true;
+                            _note = null;
+                          }),
+                    child: CritterSprite(
+                      pose: critterPoseOf(a, inStatus: state.inStatus(a)),
+                      celebrateUntil: DateTime.now().add(
+                        critterCelebration - state.inStatus(a),
+                      ),
+                      afterCelebrate: a.unseen
+                          ? CritterPose.hungry
+                          : CritterPose.idle,
+                      species: critterSpeciesFor(a.tool),
+                      hat: a.hat,
+                      width: 54,
+                      body: body,
+                      cut: cut,
                     ),
-                    afterCelebrate: a.unseen
-                        ? CritterPose.hungry
-                        : CritterPose.idle,
-                    species: critterSpeciesFor(a.tool),
-                    width: 54,
-                    body: body,
-                    cut: cut,
                   ),
                   if (a.subagents.isNotEmpty) ...[
                     const SizedBox(width: 16),

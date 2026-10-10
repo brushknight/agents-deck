@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,6 +28,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
+	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/server"
@@ -44,6 +46,8 @@ const usage = `agentctl — agents-terminal
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
   agentctl restore               bring back agents lost with the tmux server (crash, reboot)
+  agentctl hats                  the hats agents wear (one per working folder)
+  agentctl set hat <agent|folder> <shape> [colour] | auto
   agentctl live                  Claude sessions started by hand in other terminals
   agentctl add <session>         put one of them on the deck (watched)
   agentctl reopen                iTerm tabs for every agent no terminal shows (after a crash)
@@ -91,6 +95,8 @@ func main() {
 		err = reopen()
 	case "restore":
 		err = restore()
+	case "hats":
+		err = hatsCmd()
 	case "live":
 		err = liveCmd()
 	case "add":
@@ -281,6 +287,114 @@ func attach(args []string) error {
 		return exec.Command("tmux", "new-window", "-n", a.Title, strings.Join(argv, " ")).Run()
 	}
 	return syscall.Exec(argv[0], argv, os.Environ())
+}
+
+// hatName accepts "hard hat", hard-hat or hard_hat.
+func hatName(s string) string {
+	return strings.ToLower(strings.NewReplacer("-", " ", "_", " ").Replace(s))
+}
+
+// setHat: agentctl set hat <agent|folder> <shape> [colour] | auto
+func setHat(args []string) error {
+	if len(args) < 2 || len(args) > 3 {
+		return fmt.Errorf("usage: agentctl set hat <agent|folder> <shape> [colour]   or   agentctl set hat <agent|folder> auto\nshapes: %s, none\ncolours: %s",
+			strings.Join(hats.Shapes, ", "), strings.Join(hats.Colors, ", "))
+	}
+	body := map[string]any{}
+	if args[1] == "auto" {
+		body["auto"] = true
+	} else {
+		shape, color := hatName(args[1]), ""
+		if len(args) == 3 {
+			color = strings.ToLower(args[2])
+		}
+		if err := hats.Validate(shape, color); err != nil {
+			return err
+		}
+		body["shape"], body["color"] = shape, color
+	}
+	target := args[0]
+	if st, err := os.Stat(target); err == nil && st.IsDir() {
+		abs, _ := filepath.Abs(target)
+		body["folder"] = abs
+		if err := call("POST", "/v1/hats", body, nil); err != nil {
+			return err
+		}
+		fmt.Printf("%s → %s\n", tildePath(abs), hatLabel(body))
+		return nil
+	}
+	a, err := resolve(target)
+	if err != nil {
+		return fmt.Errorf("%v (give an agent id or title, or a folder)", err)
+	}
+	if err := call("POST", "/v1/agents/"+a.ID+"/hat", body, nil); err != nil {
+		return err
+	}
+	fmt.Printf("%s (%s) → %s\n", a.Title, tildePath(a.Cwd), hatLabel(body))
+	return nil
+}
+
+func hatLabel(body map[string]any) string {
+	if body["auto"] == true {
+		return "automatic hat"
+	}
+	l := fmt.Sprint(body["shape"])
+	if c, _ := body["color"].(string); c != "" {
+		l += " · " + c
+	}
+	return l
+}
+
+func tildePath(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// hatsCmd lists the hats, the colours, and who wears what.
+func hatsCmd() error {
+	var res struct {
+		Shapes, Colors []string
+		Overrides      map[string]hats.Override
+	}
+	if err := call("GET", "/v1/hats", nil, &res); err != nil {
+		return err
+	}
+	s, err := state()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("shapes:  %s, none\ncolours: %s\n\n", strings.Join(res.Shapes, ", "), strings.Join(res.Colors, ", "))
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tTITLE\tHAT\tFOLDER")
+	for _, a := range s.Agents {
+		h := "none"
+		if a.Hat != nil {
+			h = a.Hat.Shape + " · " + a.Hat.Color
+			if a.Hat.Auto {
+				h += " (auto)"
+			}
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.ID, a.Title, h, tildePath(a.Cwd))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if len(res.Overrides) > 0 {
+		fmt.Println("\nchosen by hand:")
+		folders := make([]string, 0, len(res.Overrides))
+		for f := range res.Overrides {
+			folders = append(folders, f)
+		}
+		sort.Strings(folders)
+		for _, f := range folders {
+			o := res.Overrides[f]
+			fmt.Printf("  %s → %s\n", tildePath(f), strings.TrimSuffix(o.Shape+" · "+o.Color, " · "))
+		}
+	}
+	fmt.Println("\nchange one: agentctl set hat <agent|folder> <shape> [colour]  ·  back to automatic: agentctl set hat <agent|folder> auto")
+	return nil
 }
 
 // liveCmd lists Claude sessions started by hand in other terminals.
@@ -787,8 +901,10 @@ func serve(args []string) error {
 		return err
 	}
 	tokenCache := newSecretCache(paths.DeviceToken())
+	book := &hats.Book{Path: paths.Config()}
+	st.Hat = book.For
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(), DeviceToken: tokenCache.get,
-		WebSession: webSession, LocalAddr: cfg.LocalAddr}
+		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book}
 	errc := make(chan error, 4)
 	if cfg.Web == "lan" {
 		srv.LANHosts = lanHosts
@@ -873,6 +989,9 @@ func (c *secretCache) get() string {
 // ---- settings ----------------------------------------------------------------------
 
 func setCmd(args []string) error {
+	if len(args) > 0 && args[0] == "hat" {
+		return setHat(args[1:])
+	}
 	if len(args) != 2 {
 		return errors.New("usage: agentctl set <key> <value>   e.g. agentctl set term tmux")
 	}

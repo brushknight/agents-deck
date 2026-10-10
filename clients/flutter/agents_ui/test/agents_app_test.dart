@@ -166,6 +166,41 @@ void main() {
     expect(find.byKey(const Key('agent-interrupt')), findsNothing);
   });
 
+  testWidgets('tapping the mascot picks a hat for its folder', (tester) async {
+    final source = FakeAgentsSource.demo();
+    await _pumpApp(tester, source);
+    await _open(tester, 'checkout-api');
+    await tester.tap(find.byKey(const Key('agent-hat')));
+    await tester.pump();
+    expect(find.byKey(const Key('hat-picker')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('hat-shape-cowboy')));
+    await tester.pump();
+    var call = source.calls.lastWhere((c) => c.$1 == 'hat');
+    expect(call.$2, 'k3f9a2');
+    expect(call.$3, {'shape': 'cowboy', 'color': 'blue'});
+    await tester.tap(find.byKey(const Key('hat-color-teal')));
+    await tester.pump();
+    call = source.calls.lastWhere((c) => c.$1 == 'hat');
+    expect(call.$3, {'shape': 'cowboy', 'color': 'teal'});
+    // Same folder (api-tests, auth-flow): same hat.
+    final hats = {
+      for (final a in source.snapshot.value.state!.agents)
+        if (a.cwd == '/Users/sam/dev/checkout-api') a.hat,
+    };
+    expect(hats, {const AgentHat(shape: 'cowboy', color: 'teal', auto: false)});
+    await tester.tap(find.byKey(const Key('hat-auto')));
+    await tester.pump();
+    expect(source.calls.last.$3, {'auto': true});
+    expect(
+      source.snapshot.value.state!.byId('k3f9a2')!.hat,
+      const AgentHat(shape: 'propeller', color: 'blue'),
+    );
+    await tester.tap(find.byKey(const Key('hat-done')));
+    await tester.pump();
+    expect(find.byKey(const Key('hat-picker')), findsNothing);
+    expect(find.text('doing now'), findsOneWidget);
+  });
+
   testWidgets('idle and error cards: no interrupt, error message shown', (
     tester,
   ) async {

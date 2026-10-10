@@ -69,7 +69,12 @@ const agentsDemoStateJson = r'''
           "type": "general-purpose",
           "tool": "WebFetch"
         }
-      ]
+      ],
+      "hat": {
+        "shape": "propeller",
+        "color": "blue",
+        "auto": true
+      }
     },
     {
       "id": "h0m3l4",
@@ -126,7 +131,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "cap",
+        "color": "yellow",
+        "auto": true
+      }
     },
     {
       "id": "d0cs1t",
@@ -162,7 +172,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": true,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "crown",
+        "color": "ink",
+        "auto": true
+      }
     },
     {
       "id": "t3st5a",
@@ -201,7 +216,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "propeller",
+        "color": "blue",
+        "auto": true
+      }
     },
     {
       "id": "1nfr4t",
@@ -239,7 +259,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "top hat",
+        "color": "sky",
+        "auto": true
+      }
     },
     {
       "id": "k8sn0d",
@@ -278,7 +303,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "beanie",
+        "color": "purple",
+        "auto": true
+      }
     },
     {
       "id": "4uthfl",
@@ -335,7 +365,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "propeller",
+        "color": "blue",
+        "auto": true
+      }
     },
     {
       "id": "h4ptic",
@@ -371,7 +406,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "cap",
+        "color": "blue",
+        "auto": true
+      }
     },
     {
       "id": "plug1n",
@@ -410,7 +450,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": true
+      "external": true,
+      "hat": {
+        "shape": "headphones",
+        "color": "ink",
+        "auto": true
+      }
     },
     {
       "id": "fw0t4x",
@@ -449,7 +494,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "helmet",
+        "color": "sky",
+        "auto": true
+      }
     },
     {
       "id": "scr4tc",
@@ -485,7 +535,12 @@ const agentsDemoStateJson = r'''
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": false
+      "external": false,
+      "hat": {
+        "shape": "cowboy",
+        "color": "yellow",
+        "auto": true
+      }
     }
   ]
 }

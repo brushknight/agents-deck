@@ -452,6 +452,7 @@ class _AgentTileState extends State<AgentTile> {
                                   ? CritterPose.hungry
                                   : CritterPose.idle,
                               species: critterSpeciesFor(a.tool),
+                              hat: a.hat,
                               centerBody: true,
                               width: 92,
                               body: c(look.body),

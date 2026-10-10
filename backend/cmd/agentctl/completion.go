@@ -41,7 +41,8 @@ _agentctl() {
     'live:Claude sessions started by hand in other terminals'
     'add:put a hand-started Claude session on the deck'
     'reopen:iTerm tabs for every agent no terminal shows'
-    'set:change a setting (term iterm|tmux|window, mouse tmux|native)'
+    'hats:the hats agents wear (one per working folder)'
+    'set:change a setting (term, mouse, restore, hat)'
     'get:show settings'
     'completion:print the shell completion script'
     'version:print the version'
@@ -85,7 +86,12 @@ _agentctl() {
     serve)      _arguments '--demo[simulated fleet from the fixture]' ;;
     completion) (( CURRENT == 3 )) && _values 'shell' zsh ;;
     set)
-      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]' 'restore[what happens to agents lost with tmux]'
+      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]' 'restore[what happens to agents lost with tmux]' 'hat[the hat of an agent'"'"'s working folder]'
+      elif [[ ${words[3]} == hat ]]; then
+        if (( CURRENT == 4 )); then _alternative 'agents:agent:_agentctl_agents' 'folders:folder:_files -/'
+        elif (( CURRENT == 5 )); then _values 'hat' auto none hard-hat cap beanie helmet wizard beret chef crown headphones propeller top-hat cowboy bandana
+        elif (( CURRENT == 6 )); then _values 'colour' teal blue yellow green purple pink sky ink
+        fi
       elif [[ ${words[3]} == term ]]; then
         local -a modes; modes=('iterm:select the agent'"'"'s iTerm tab and pane' 'tmux:switch your last-used tab to the agent' 'window:just raise the agent'"'"'s window')
         _describe -t modes 'focus mode' modes

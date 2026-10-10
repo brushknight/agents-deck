@@ -225,6 +225,38 @@ class FakeAgentsSource implements AgentsSource {
   Future<List<LiveSession>> liveSessions() async => List.of(live);
 
   @override
+  Future<AgentsResult> setHat(
+    String agentId, {
+    String? shape,
+    String? color,
+    bool auto = false,
+  }) async {
+    calls.add((
+      'hat',
+      agentId,
+      auto ? {'auto': true} : {'shape': shape, 'color': color},
+    ));
+    final a = _agent(agentId);
+    if (a == null) return AgentsResult.ok;
+    // Hats belong to the folder: every agent working there changes.
+    for (final x in _agents.where((x) => x['cwd'] == a['cwd'])) {
+      final cur = (x['hat'] as Map?) ?? const {};
+      x['hat'] = auto
+          ? (() {
+              final h = autoHatFor('${x['cwd']}');
+              return {'shape': h.shape, 'color': h.color, 'auto': true};
+            })()
+          : {
+              'shape': shape,
+              'color': color ?? cur['color'] ?? 'teal',
+              'auto': false,
+            };
+    }
+    _emit();
+    return AgentsResult.ok;
+  }
+
+  @override
   Future<AgentsResult> addLive(String sessionId, {int? slot}) async {
     calls.add(('addLive', sessionId, slot == null ? null : {'slot': slot}));
     final i = live.indexWhere((s) => s.sessionId == sessionId);

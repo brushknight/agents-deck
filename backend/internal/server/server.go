@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
@@ -78,7 +79,9 @@ type Server struct {
 	// LANHosts lists the host:port values the opt-in LAN web listener answers
 	// to (this Mac's own addresses and .local name); nil when it is off.
 	LANHosts func() []string
-	logins   loginCodes
+	// Hats holds the per-folder hat overrides (nil: hats can't be changed).
+	Hats   *hats.Book
+	logins loginCodes
 }
 
 const sessionCookie = "agentsterm_session"
@@ -137,6 +140,38 @@ func (s *Server) api() *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("GET /v1/hats", func(w http.ResponseWriter, r *http.Request) {
+		over := map[string]hats.Override{}
+		if s.Hats != nil {
+			over = s.Hats.Overrides()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"shapes": hats.Shapes, "colors": hats.Colors, "overrides": over})
+	})
+	mux.HandleFunc("POST /v1/hats", func(w http.ResponseWriter, r *http.Request) {
+		var body hatBody
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil || body.Folder == "" {
+			writeErr(w, http.StatusBadRequest, `body must be {"folder", "shape", "color"} or {"folder", "auto": true}`)
+			return
+		}
+		s.setHat(w, body.Folder, body)
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/hat", func(w http.ResponseWriter, r *http.Request) {
+		var body hatBody
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, `body must be {"shape", "color"} or {"auto": true}`)
+			return
+		}
+		e, ok := s.Store.Get(r.PathValue("id"))
+		if !ok {
+			writeErr(w, http.StatusNotFound, "no such agent")
+			return
+		}
+		if e.A.Cwd == "" {
+			writeErr(w, http.StatusBadRequest, "this agent has no working folder")
+			return
+		}
+		s.setHat(w, e.A.Cwd, body)
+	})
 	mux.HandleFunc("GET /v1/live", func(w http.ResponseWriter, r *http.Request) {
 		lw, ok := s.Ctl.(Watcher)
 		if !ok {
@@ -173,6 +208,33 @@ func (s *Server) api() *http.ServeMux {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))
 	})
 	return mux
+}
+
+// hatBody picks a hat ({"shape", "color"}; "color" optional) or goes back to
+// the automatic one ({"auto": true}).
+type hatBody struct {
+	Folder string `json:"folder"`
+	Shape  string `json:"shape"`
+	Color  string `json:"color"`
+	Auto   bool   `json:"auto"`
+}
+
+// setHat stores a folder's hat and tells every client.
+func (s *Server) setHat(w http.ResponseWriter, folder string, b hatBody) {
+	if s.Hats == nil {
+		writeErr(w, http.StatusNotImplemented, "hats can't be changed here")
+		return
+	}
+	if !b.Auto && b.Shape == "" {
+		writeErr(w, http.StatusBadRequest, `give a "shape" (or "auto": true)`)
+		return
+	}
+	if err := s.Hats.Set(folder, b.Shape, b.Color, b.Auto); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.Store.Touch()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) act(w http.ResponseWriter, err error) {

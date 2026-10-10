@@ -24,6 +24,9 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
 | POST | `/v1/agents/{id}/move` | `{"slot": 9}` | `204` — puts the agent at board position 0..255; free positions are fine (the board can have gaps), and an agent already there swaps into the mover's old position. Used by drag-and-drop on the web and the panel |
 | GET | `/v1/live` | – | `200` `{"sessions": [{"sessionId", "title", "cwd", "folder", "started", "onBoard", "background"}]}` — active Claude sessions on this machine that agentctl didn't start: in terminals, or in the background (`claude --bg`, the Claude desktop app) |
+| POST | `/v1/agents/{id}/hat` | `{"shape": "cap", "color": "teal"}` (`color` optional), `{"shape": "none"}`, or `{"auto": true}` | `204` — picks the hat of the agent's working folder (every agent working there wears it), or back to the automatic one; stored in `config.json` `"hats"` |
+| GET | `/v1/hats` | – | `200` `{"shapes": […], "colors": […], "overrides": {"<folder>": {"shape", "color"}}}` |
+| POST | `/v1/hats` | `{"folder": "/Users/sam/dev/app", "shape", "color"}` or `{"folder", "auto": true}` | `204` — the same, by folder |
 | POST | `/v1/live/{session}/add` | `{"slot": 9}` (optional) | `204` — puts that session on the deck, watched (`external: true`, `tool: "claude"`): status, context, cost and subagents from its transcript; answer, interrupt and resume return an error; dismiss takes it off the deck. It stays added: it comes back whenever it runs |
 | POST | `/v1/restore` | – | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}` — brings back every agent with `lost: true`: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
@@ -83,6 +86,11 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "lost": false,                  // omitted when false: ended with the tmux server (crash, reboot), not by itself; POST /v1/restore brings it back
   "unseen": false,                // finished a turn nobody has looked at yet ("hungry"); cleared when its terminal is focused or it gets a new prompt
   "external": false,              // mirrored from another app (a Codex app thread): focus opens it there, dismiss hides it; answer/interrupt/resume return an error
+  "hat": { "shape": "propeller", "color": "blue", "auto": true }, // omitted when none: the pixel hat for its working folder;
+                                  // shape: hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones,
+                                  // propeller, top hat, cowboy, bandana · color: teal, blue, yellow, green, purple,
+                                  // pink, sky, ink · auto: picked by FNV-1a of the folder (shape = h mod 13,
+                                  // colour = (h >> 8) mod 8), false when chosen by hand
   "subagents": [                  // omitted when none: subagents still working, oldest first
     { "id": "a1f3c9", "title": "map the payment retry paths", "type": "Explore", "tool": "Grep" }
   ],

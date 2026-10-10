@@ -3,8 +3,10 @@ package server
 import (
 	"bufio"
 	"context"
+	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -216,5 +218,44 @@ func TestMoveToFreeSlot(t *testing.T) {
 	}
 	if c := do(h, "POST", "/v1/agents/zz/move", `{"slot":3}`, auth).Code; c != 404 {
 		t.Errorf("unknown: %d", c)
+	}
+}
+
+func TestHatEndpoints(t *testing.T) {
+	s, _ := newTestServer()
+	dir := t.TempDir()
+	s.Hats = &hats.Book{Path: filepath.Join(dir, "config.json")}
+	s.Store.Hat = s.Hats.For
+	s.Store.Update("a1", func(e *store.Entry) bool { e.A.Cwd = "/Users/sam/dev/app"; return true })
+	h := s.DeviceHandler()
+	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	hatOf := func() *model.Hat {
+		for _, a := range s.Store.Snapshot().Agents {
+			if a.ID == "a1" {
+				return a.Hat
+			}
+		}
+		return nil
+	}
+	if got := hatOf(); got == nil || !got.Auto {
+		t.Fatalf("automatic hat in the state: %+v", got)
+	}
+	if c := do(h, "POST", "/v1/agents/a1/hat", `{"shape":"top hat","color":"purple"}`, auth).Code; c != 204 {
+		t.Fatalf("set: %d", c)
+	}
+	if got := hatOf(); got.Shape != "top hat" || got.Color != "purple" || got.Auto {
+		t.Fatalf("chosen: %+v", got)
+	}
+	if c := do(h, "POST", "/v1/agents/a1/hat", `{"shape":"sombrero"}`, auth).Code; c != 400 {
+		t.Fatalf("unknown shape: %d", c)
+	}
+	if c := do(h, "POST", "/v1/hats", `{"folder":"/Users/sam/dev/app","auto":true}`, auth).Code; c != 204 {
+		t.Fatalf("auto by folder: %d", c)
+	}
+	if got := hatOf(); !got.Auto {
+		t.Fatalf("back to auto: %+v", got)
+	}
+	if c := do(h, "POST", "/v1/agents/zz/hat", `{"auto":true}`, auth).Code; c != 404 {
+		t.Fatalf("unknown agent: %d", c)
 	}
 }

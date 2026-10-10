@@ -47,7 +47,7 @@ void main() {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final (sp, p) in rows)
+                for (final (i, (sp, p)) in rows.indexed)
                   SizedBox(
                     height: 74,
                     child: Row(
@@ -55,7 +55,7 @@ void main() {
                         SizedBox(
                           width: 100,
                           child: Text(
-                            '${sp == CritterSpecies.codex ? 'codex ' : ''}${p.name}',
+                            '${sp == CritterSpecies.codex ? 'codex ' : ''}${p.name}\n${hatShapes[i % hatShapes.length]}',
                             style: DeckHud.mono(size: 13, color: DeckHud.dim),
                           ),
                         ),
@@ -68,6 +68,11 @@ void main() {
                                 child: CritterSprite(
                                   pose: p,
                                   species: sp,
+                                  // Every hat shows up, in turn, on both mascots.
+                                  hat: AgentHat(
+                                    shape: hatShapes[i % hatShapes.length],
+                                    color: hatColors[i % hatColors.length],
+                                  ),
                                   width: 72,
                                   body:
                                       p == CritterPose.compact ||

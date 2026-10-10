@@ -48,6 +48,21 @@ void main() {
     );
   });
 
+  testWidgets('agents hat picker golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    await pumpBoard(tester, FakeAgentsSource.demo());
+    await tester.tap(find.text('checkout-api'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const Key('agent-hat')));
+    await tester.pump();
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-hats.png'),
+    );
+  });
+
   testWidgets('agents paged golden', skip: !autoUpdateGoldenFiles, (
     tester,
   ) async {

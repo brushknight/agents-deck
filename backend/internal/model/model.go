@@ -53,8 +53,17 @@ type Agent struct {
 	Unseen      bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
 	External    bool       `json:"external"`            // owned by another app (Codex): view and focus only
 	Subagents   []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
+	Hat         *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
 	StartedAt   time.Time  `json:"startedAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// Hat is the pixel hat an agent wears, picked by its working folder: shape
+// and colour from a stable hash of the folder (Auto), or chosen by hand.
+type Hat struct {
+	Shape string `json:"shape"` // hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones, propeller, top hat, cowboy, bandana
+	Color string `json:"color"` // teal, blue, yellow, green, purple, pink, sky, ink
+	Auto  bool   `json:"auto"`  // picked by the hash, not by hand
 }
 
 // Subagent is one of an agent's subagents that is still working.

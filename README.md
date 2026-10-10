@@ -23,7 +23,7 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | <img src="docs/images/panel-board.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
-Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. The full tour is in [docs/features.md](docs/features.md).
+Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. It wears a pixel hat picked by its working folder, so a project's agents look alike; tap the critter to pick another. The full tour is in [docs/features.md](docs/features.md).
 
 ## Quick start
 
@@ -50,6 +50,8 @@ From source: `cd backend && go build -o ~/.local/bin/agentctl ./cmd/agentctl && 
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an agent and attach (-d: stay detached)
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
 agentctl reopen                     iTerm tabs for every agent no terminal shows (after iTerm quits or crashes)
+agentctl hats                       the hats agents wear (one per working folder)
+agentctl set hat <agent|folder> <shape> [colour] | auto
 agentctl live                       Claude sessions started by hand in other terminals
 agentctl add <session>              put one of them on the deck (watched; or tap a free cell)
 agentctl restore                    bring back agents lost with the tmux server (crash, reboot), each in its old spot

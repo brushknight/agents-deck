@@ -6,7 +6,8 @@ Everything the deck shows and does, in one place. The [README](../README.md) is 
 
 One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk panel and in the browser's panel view.
 
-- **The critter** shows what the agent is doing: thinking, reading, editing, running a command, searching the web, planning, delegating to subagents. While Claude compacts the conversation it gets squeezed flat and springs back.
+- **The critter** is Claude's pixel mascot (Codex threads get an onigiri) and shows what the agent is doing: thinking, reading, editing, running a command, searching the web, planning, delegating to subagents. A finished turn waves a checkered flag; an error throws both arms up; while Claude compacts the conversation it gets squeezed flat and springs back.
+- **Hats.** Every agent wears a pixel hat picked by its working folder, so agents of one project look alike at a glance: 13 shapes (hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones, propeller, top hat, cowboy, bandana) in 8 colours, chosen by a stable hash of the folder. Tap the critter on an agent's card (or click it in the web dashboard) to pick another shape or colour for that folder, or go back to automatic. From the terminal: `agentctl hats`, `agentctl set hat <agent|folder> <shape> [colour]`, `agentctl set hat <agent|folder> auto`.
 - **Colour.** Orange means working; a solid orange tile means the agent needs you (a permission prompt or a question).
 - **The border** fills clockwise with the agent's context window.
 - **Hungry.** An agent that finished but whose result you haven't reviewed gets sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task.
@@ -85,3 +86,4 @@ If the tmux server dies under live agents (a crash, a reboot), they are marked *
 | `mouse` | `tmux` (default), `native`: who owns the mouse in agent terminals |
 | `restore` | `ask` (default), `auto`: what happens to agents lost with tmux |
 | `web` | `local` (default), `lan`: also serve the dashboard on your local network |
+| `hat` | `agentctl set hat <agent|folder> <shape> [colour]`, `none` or `auto`: the hat of a working folder (stored in `config.json` `"hats"`) |

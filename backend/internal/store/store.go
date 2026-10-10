@@ -112,6 +112,9 @@ type Store struct {
 	saveReq chan struct{}
 	Name    string
 	Version string
+
+	// Hat gives each agent its hat by working folder (nil: no hats).
+	Hat func(cwd string) *model.Hat
 }
 
 func New(path, name, version string) *Store {
@@ -174,6 +177,13 @@ func (s *Store) Flush() {
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, s.path)
 	}
+}
+
+// Touch tells every subscriber the state changed (e.g. a hat was picked).
+func (s *Store) Touch() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.changed()
 }
 
 func (s *Store) changed() {
@@ -365,7 +375,13 @@ func (s *Store) Snapshot() model.State {
 	for _, e := range s.entries {
 		agents = append(agents, e.A)
 	}
+	hat := s.Hat
 	s.mu.Unlock()
+	if hat != nil {
+		for i := range agents {
+			agents[i].Hat = hat(agents[i].Cwd)
+		}
+	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })
 	return model.State{
 		Server: model.Server{Name: s.Name, Version: s.Version, Time: time.Now().UTC()},

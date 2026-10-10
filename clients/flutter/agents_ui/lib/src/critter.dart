@@ -5,19 +5,21 @@ import 'package:flutter/widgets.dart';
 
 import 'agents_model.dart';
 
-/// The agents app's pixel critter: a 14×7 body on 2-px legs in an 18×13
-/// cell box (the top 4 rows hold the "…", "?", "!" or "z z" bubble). One
-/// sprite per agent, drawn per status:
+/// The agents app's pixel critter: Claude's flat 12×6 block with 1×2 arms
+/// at its sides, on short legs, in an 18×13 cell box (the top 4 rows hold
+/// the "…", "?", "!" or "z z" bubble; a hat may poke up above them). It
+/// wears its working folder's hat ([AgentHat]). One sprite per agent, drawn
+/// per status:
 ///
 /// * running — what it is doing shows: thinking (glancing eyes, rising
-///   thought dots), reading (eyes scan, magnifier), writing (eyes down, hands
-///   typing, pencil), bash (fast legs, ">_" with a blinking cursor), web
+///   thought dots, a hand on the chin), reading (eyes scan, magnifier),
+///   writing and bash (fast legs, ">_" with a blinking cursor), web
 ///   (globe), planning (checklist ticking), delegating (a mini critter in
 ///   tow); any other tool walks with "…";
-/// * just finished — a short hop with sparkles, then hungry: eyes up at a
+/// * just finished — a short hop waving a checkered flag, then hungry: eyes up at a
 ///   bobbing cookie, mouth chomping, until its result has been looked at;
 /// * waiting — eyes up, blinking "?";
-/// * error   — X eyes, "!";
+/// * error   — X eyes, both arms up, "!";
 /// * idle    — eyes closed, drifting "z z";
 /// * starting — still, "…";
 /// * exited  — hollow outline.
@@ -170,10 +172,10 @@ int critterFrame(CritterPose pose, int tick) => switch (pose) {
   CritterPose.read => (tick ~/ 6) % 4,
   // Squeeze, squeeze harder, ease off, let go: 300 ms each.
   CritterPose.compact => (tick ~/ 6) % 4,
-  // Hands tap every 150 ms.
-  CritterPose.write => (tick ~/ 3) % 2,
-  // Legs every 100 ms (in a hurry); cursor blinks at 1 Hz.
-  CritterPose.bash => ((tick ~/ 2) % 2) * 10 + (tick ~/ 10) % 2,
+  // Legs every 100 ms (in a hurry); cursor blinks at 1 Hz. Writing looks
+  // the same as bash for now.
+  CritterPose.bash ||
+  CritterPose.write => ((tick ~/ 2) % 2) * 10 + (tick ~/ 10) % 2,
   // The globe turns every 400 ms.
   CritterPose.web => (tick ~/ 8) % 2,
   // One more box ticked every 500 ms.
@@ -202,9 +204,17 @@ class CritterSprite extends StatefulWidget {
     this.afterCelebrate = CritterPose.idle,
     this.species = CritterSpecies.claude,
     this.centerBody = false,
+    this.hat,
+    this.showBubble = true,
   });
 
+  /// False: body and hat only, no "…/?/!/z" bubble (pickers, swatches).
+  final bool showBubble;
+
   final CritterSpecies species;
+
+  /// The hat it wears (its working folder's); null = bare-headed.
+  final AgentHat? hat;
 
   /// Centre the body itself (not body + bubble) in [width]; the bubble then
   /// pokes out past the right edge. For sprites centred on a tile.
@@ -285,6 +295,8 @@ class _CritterSpriteState extends State<CritterSprite> {
           bubble: widget.bubble ?? widget.body,
           species: widget.species,
           centerBody: widget.centerBody,
+          hat: widget.hat,
+          showBubble: widget.showBubble,
           frame: _frame,
         ),
       ),
@@ -294,33 +306,33 @@ class _CritterSpriteState extends State<CritterSprite> {
 
 class _CritterPainter extends CustomPainter {
   _CritterPainter({
-    required this.pose,
+    required CritterPose pose,
     required this.body,
     required this.cut,
     required this.bubble,
     required this.frame,
     this.species = CritterSpecies.claude,
     this.centerBody = false,
-  }) : super(repaint: frame);
+    this.hat,
+    this.showBubble = true,
+  }) : pose = pose == CritterPose.write ? CritterPose.bash : pose,
+       super(repaint: frame);
 
   final CritterSpecies species;
   final bool centerBody;
+  final AgentHat? hat;
+  final bool showBubble;
+
+  /// What is drawn ([CritterPose.write] looks like bash for now).
   final CritterPose pose;
   final Color body;
   final Color cut;
   final Color bubble;
   final ValueListenable<int> frame;
 
-  /// Body rows (y 0..6) as [x0, x1) spans — the mockup's BODY path.
-  static const _rows = [
-    (2, 12),
-    (1, 13),
-    (0, 14),
-    (0, 14),
-    (1, 13),
-    (1, 13),
-    (2, 12),
-  ];
+  /// Body rows (y 0..5) as [x0, x1) spans: Claude's flat block (the arms
+  /// at x 0 and 13 are drawn per pose).
+  static const _rows = [(1, 13), (1, 13), (1, 13), (1, 13), (1, 13), (1, 13)];
 
   /// Codex onigiri: a rounded rice triangle (rows y -3..6), wrapped in nori.
   static const _onigiriTop = -3;
@@ -380,6 +392,20 @@ class _CritterPainter extends CustomPainter {
     final hop = pose == CritterPose.celebrate && f >= 10;
     final bot = species == CritterSpecies.codex;
     final bob = hop ? -1.5 : (legsB ? -0.5 : 0.0);
+    // The block's eyes sit half a row higher than the old round body's.
+    final ey = bot ? 0.0 : -0.5;
+    // Arms: 1×2 cells beside the body, at their top row (2 = hanging down).
+    var armL = 2.0, armR = 2.0;
+    switch (pose) {
+      case CritterPose.celebrate: // waving the finish flag
+      case CritterPose.error: // both up in alarm
+        armL = armR = 0;
+      case CritterPose.run || CritterPose.delegate:
+        (armL, armR) = legsB ? (1, 2) : (2, 1);
+      case CritterPose.think: // a hand on the chin
+        armR = 1;
+      default:
+    }
 
     // Compacting squashes body and eyes around the feet (x 7, y 7).
     const squashY = [1.0, 0.8, 0.62, 0.8];
@@ -410,12 +436,14 @@ class _CritterPainter extends CustomPainter {
           );
         }
       } else {
-        canvas.drawPath(_bodyPath(cell), outline);
+        canvas.drawRect(cell(1.25, 0.25, 11.5, 5.5), outline);
       }
     } else if (bot) {
       _onigiri(canvas, bob, fill, cell);
       // The nori wrap across the bottom.
       canvas.drawRect(cell(4, 5.4 + bob, 6, 1.6), hole);
+      canvas.drawRect(cell(1, armL - 1 + bob, 1, 2), fill);
+      canvas.drawRect(cell(12, armR - 1 + bob, 1, 2), fill);
     } else {
       for (final (y, (x0, x1)) in _rows.indexed) {
         canvas.drawRect(
@@ -423,38 +451,37 @@ class _CritterPainter extends CustomPainter {
           fill,
         );
       }
+      canvas.drawRect(cell(0, armL + bob, 1, 2), fill);
+      canvas.drawRect(cell(13, armR + bob, 1, 2), fill);
     }
     switch (pose) {
       case CritterPose.run:
       case CritterPose.bash:
+      case CritterPose.write:
       case CritterPose.plan:
       case CritterPose.delegate:
-        canvas.drawRect(cell(4, 2 + bob, 1, 2), hole);
-        canvas.drawRect(cell(9, 2 + bob, 1, 2), hole);
+        canvas.drawRect(cell(4, 2 + ey + bob, 1, 2), hole);
+        canvas.drawRect(cell(9, 2 + ey + bob, 1, 2), hole);
       case CritterPose.think:
         // Glancing up, left then right.
         final dx = f >= 10 ? 1.0 : -1.0;
-        canvas.drawRect(cell(4 + dx, 1, 1, 1.5), hole);
-        canvas.drawRect(cell(9 + dx, 1, 1, 1.5), hole);
+        canvas.drawRect(cell(4 + dx, 1 + ey, 1, 1.5), hole);
+        canvas.drawRect(cell(9 + dx, 1 + ey, 1, 1.5), hole);
       case CritterPose.read:
         const scan = [0.0, -1.0, 0.0, 1.0];
-        canvas.drawRect(cell(4 + scan[f], 2, 1, 2), hole);
-        canvas.drawRect(cell(9 + scan[f], 2, 1, 2), hole);
-      case CritterPose.write:
-        // Looking down at the keys.
-        canvas.drawRect(cell(4, 3.2, 1, 1.2), hole);
-        canvas.drawRect(cell(9, 3.2, 1, 1.2), hole);
+        canvas.drawRect(cell(4 + scan[f], 2 + ey, 1, 2), hole);
+        canvas.drawRect(cell(9 + scan[f], 2 + ey, 1, 2), hole);
       case CritterPose.web:
-        canvas.drawRect(cell(4.4, 1, 1, 2), hole);
-        canvas.drawRect(cell(9.4, 1, 1, 2), hole);
+        canvas.drawRect(cell(4.4, 1 + ey, 1, 2), hole);
+        canvas.drawRect(cell(9.4, 1 + ey, 1, 2), hole);
       case CritterPose.hungry:
         // Eyes up at the cookie; the mouth chomps open and shut.
-        canvas.drawRect(cell(4.6, 1, 1, 2), hole);
-        canvas.drawRect(cell(9.6, 1, 1, 2), hole);
+        canvas.drawRect(cell(4.6, 1 + ey, 1, 2), hole);
+        canvas.drawRect(cell(9.6, 1 + ey, 1, 2), hole);
         canvas.drawRect(
           bot
               ? (f == 0 ? cell(6.2, 3.4, 1.6, 1.4) : cell(6.2, 4.0, 1.6, 0.5))
-              : (f == 0 ? cell(6.2, 4.2, 2.2, 1.8) : cell(6.2, 5.0, 2.2, 0.5)),
+              : (f == 0 ? cell(6.2, 3.7, 2.2, 1.6) : cell(6.2, 4.3, 2.2, 0.5)),
           hole,
         );
       case CritterPose.celebrate:
@@ -468,23 +495,23 @@ class _CritterPainter extends CustomPainter {
           canvas.drawPath(
             Path()
               ..moveTo(
-                cell(ex - 1, 3.3 + bob, 0, 0).left,
-                cell(ex - 1, 3.3 + bob, 0, 0).top,
+                cell(ex - 1, 3.3 + ey + bob, 0, 0).left,
+                cell(ex - 1, 3.3 + ey + bob, 0, 0).top,
               )
               ..lineTo(
-                cell(ex, 2.2 + bob, 0, 0).left,
-                cell(ex, 2.2 + bob, 0, 0).top,
+                cell(ex, 2.2 + ey + bob, 0, 0).left,
+                cell(ex, 2.2 + ey + bob, 0, 0).top,
               )
               ..lineTo(
-                cell(ex + 1, 3.3 + bob, 0, 0).left,
-                cell(ex + 1, 3.3 + bob, 0, 0).top,
+                cell(ex + 1, 3.3 + ey + bob, 0, 0).left,
+                cell(ex + 1, 3.3 + ey + bob, 0, 0).top,
               ),
             happy,
           );
         }
       case CritterPose.wait:
-        canvas.drawRect(cell(4, 1, 1, 2), hole);
-        canvas.drawRect(cell(9, 1, 1, 2), hole);
+        canvas.drawRect(cell(4, 1 + ey, 1, 2), hole);
+        canvas.drawRect(cell(9, 1 + ey, 1, 2), hole);
       case CritterPose.error:
         final x = Paint()
           ..color = cut
@@ -492,27 +519,27 @@ class _CritterPainter extends CustomPainter {
           ..strokeCap = StrokeCap.butt;
         for (final ex in [3.8, 8.8]) {
           canvas.drawLine(
-            cell(ex - 0.4, 1.8, 0, 0).topLeft,
-            cell(ex + 1.4, 4.0, 0, 0).topLeft,
+            cell(ex - 0.4, 1.8 + ey, 0, 0).topLeft,
+            cell(ex + 1.4, 4.0 + ey, 0, 0).topLeft,
             x,
           );
           canvas.drawLine(
-            cell(ex + 1.4, 1.8, 0, 0).topLeft,
-            cell(ex - 0.4, 4.0, 0, 0).topLeft,
+            cell(ex + 1.4, 1.8 + ey, 0, 0).topLeft,
+            cell(ex - 0.4, 4.0 + ey, 0, 0).topLeft,
             x,
           );
         }
       case CritterPose.idle:
       case CritterPose.starting:
-        canvas.drawRect(cell(3.5, 3.2, 2, 0.55), hole);
-        canvas.drawRect(cell(8.5, 3.2, 2, 0.55), hole);
+        canvas.drawRect(cell(3.5, 3.2 + ey, 2, 0.55), hole);
+        canvas.drawRect(cell(8.5, 3.2 + ey, 2, 0.55), hole);
       case CritterPose.compact:
         // Strained "> <".
         final strain = Paint()
           ..color = cut
           ..strokeWidth = u * 0.55
           ..style = PaintingStyle.stroke;
-        Offset at(double x, double y) => cell(x, y, 0, 0).topLeft;
+        Offset at(double x, double y) => cell(x, y + ey, 0, 0).topLeft;
         canvas.drawPath(
           Path()
             ..moveTo(at(3.6, 1.9).dx, at(3.6, 1.9).dy)
@@ -527,8 +554,21 @@ class _CritterPainter extends CustomPainter {
         final shut = Paint()
           ..color = body
           ..isAntiAlias = false;
-        canvas.drawRect(cell(3.5, 3.2, 2, 0.55), shut);
-        canvas.drawRect(cell(8.5, 3.2, 2, 0.55), shut);
+        canvas.drawRect(cell(3.5, 3.2 + ey, 2, 0.55), shut);
+        canvas.drawRect(cell(8.5, 3.2 + ey, 2, 0.55), shut);
+    }
+
+    // The hat rides the body: bob, hop and squash; faded when it exited.
+    final h = hat;
+    if (h != null) {
+      _paintHat(
+        canvas,
+        h,
+        bot,
+        bob,
+        pose == CritterPose.exited ? 0.45 : 1,
+        cell,
+      );
     }
 
     if (squash) canvas.restore();
@@ -539,16 +579,11 @@ class _CritterPainter extends CustomPainter {
       // Two little feet that step in turn.
       canvas.drawRect(cell(3.5, legY - (legsB ? 0.6 : 0), 2, 1.4), fill);
       canvas.drawRect(cell(8.5, legY, 2, 1.4), fill);
-    } else {
+    } else if (pose != CritterPose.exited) {
+      // Short legs under the block.
       for (final lx in legsB ? _legsB : _legsA) {
-        canvas.drawRect(cell(lx.toDouble(), legY, 1, 2), fill);
+        canvas.drawRect(cell(lx.toDouble(), legY - 1, 1, 1.6), fill);
       }
-    }
-    if (pose == CritterPose.write) {
-      // Two little hands tapping between the legs.
-      final up = f == 0;
-      canvas.drawRect(cell(5.9, up ? 7.0 : 7.6, 0.9, 0.8), fill);
-      canvas.drawRect(cell(7.3, up ? 7.6 : 7.0, 0.9, 0.8), fill);
     }
     if (pose == CritterPose.delegate) {
       // A mini critter in tow, walking in step.
@@ -556,6 +591,7 @@ class _CritterPainter extends CustomPainter {
     }
 
     // Bubble.
+    if (!showBubble) return;
     switch (pose) {
       case CritterPose.run:
       case CritterPose.starting:
@@ -592,7 +628,6 @@ class _CritterPainter extends CustomPainter {
       case CritterPose.read:
         _bitmap(canvas, _lens, 14.6, -4, 0.75, 0.75, fill, cell);
       case CritterPose.write:
-        _bitmap(canvas, _pencil, 14.7, -4, 0.7, 0.7, fill, cell);
       case CritterPose.bash:
         _bitmap(canvas, _prompt, 14.5, -3.7, 0.7, 0.8, fill, cell);
         if (f % 10 == 0) canvas.drawRect(cell(16.5, -1.7, 1.2, 0.5), fill);
@@ -615,8 +650,25 @@ class _CritterPainter extends CustomPainter {
           canvas.drawRect(cell(15.6, y + 0.25, 2.2, 0.45), fill);
         }
       case CritterPose.celebrate:
+        // The finish flag in the raised right hand: a pole and a 3×2
+        // checker that waves by swapping its squares.
+        final top = armR + bob - 4;
+        final ink = Paint()
+          ..color = _flagInk
+          ..isAntiAlias = false;
+        canvas.drawRect(cell(14, top, 1, 6), ink);
+        for (var cx = 0; cx < 3; cx++) {
+          for (var cy = 0; cy < 2; cy++) {
+            final light = (cx + cy + (f % 2)) % 2 == 0;
+            canvas.drawRect(
+              cell(15.0 + cx, top + cy, 1, 1),
+              light ? ink : hole,
+            );
+          }
+        }
+        // Sparkles twinkle above it.
         final lit = f % 10;
-        const spots = [(15.0, -3.4), (17.2, -1.9), (14.5, -0.8)];
+        const spots = [(16.4, -6.2), (18.2, -4.4)];
         for (final (i, (x, y)) in spots.indexed) {
           final big = i == lit;
           final a = big ? 1.0 : 0.45;
@@ -664,9 +716,187 @@ class _CritterPainter extends CustomPainter {
     }
   }
 
+  /// Paints [hat]: its bitmap rows end on y -1 (just above the head); "a" is
+  /// the hat's colour, "b" its shade, "c" a highlight, "d" near-black. The
+  /// onigiri gets a narrower version that sits down over its tip.
+  static void _paintHat(
+    Canvas canvas,
+    AgentHat hat,
+    bool onigiri,
+    double dy,
+    double opacity,
+    Rect Function(double, double, double, double) cell,
+  ) {
+    final rows = (onigiri ? _onigiriHats : _hats)[hat.shape];
+    if (rows == null) return;
+    final (main, shade) = hatColor(hat.color);
+    Paint p(Color c) => Paint()
+      ..color = c.withValues(alpha: opacity)
+      ..isAntiAlias = false;
+    final paints = {
+      'a': p(main),
+      'b': p(shade),
+      'c': p(_hatLight),
+      'd': p(_hatDark),
+    };
+    final x0 = (onigiri ? _onigiriHatX : _hatX)[hat.shape] ?? 0;
+    var top = -rows.length + dy;
+    if (hat.shape == 'bandana') top = (onigiri ? 0 : -1) + dy;
+    for (final (r, row) in rows.indexed) {
+      for (var c = 0; c < row.length; c++) {
+        final paint = paints[row[c]];
+        if (paint != null) {
+          canvas.drawRect(cell(x0 + c.toDouble(), top + r, 1, 1), paint);
+        }
+      }
+    }
+    if (hat.shape == 'headphones') {
+      // Ear cups over the sides of the head.
+      final cup = paints['b']!;
+      if (onigiri) {
+        canvas.drawRect(cell(2, -0.5 + dy, 1, 2), cup);
+        canvas.drawRect(cell(11, -0.5 + dy, 1, 2), cup);
+      } else {
+        canvas.drawRect(cell(0, dy, 1, 2), cup);
+        canvas.drawRect(cell(13, dy, 1, 2), cup);
+      }
+    }
+  }
+
+  static const _hatLight = Color(0xFFF7F4EC);
+  static const _hatDark = Color(0xFF0A0A0A);
+
+  /// Hats on the critter's flat head (14 cells wide).
+  static const _hats = {
+    'hard hat': [
+      '....aaaaa.....',
+      '...acaaaaa....',
+      '..aaaaaaaaa...',
+      '.bbbbbbbbbbbb.',
+    ],
+    // Baseball cap: the brim runs long to the left (rows start at x -3),
+    // clear of the bubbles at the top right.
+    'cap': ['........aaaaaa', '.......aaaaacaa', 'bbbbbbbbbbbbbbb'],
+    'beanie': [
+      '.....cc.......',
+      '....aaaaaa....',
+      '...aaaaaaaa...',
+      '..babababab...',
+    ],
+    'helmet': [
+      '....aaaaaa....',
+      '...aaaaaaaa...',
+      '..aaaacaaaaa..',
+      '..bbbbbbbbbb..',
+    ],
+    'wizard': [
+      '........a.....',
+      '.......aa.....',
+      '......aaca....',
+      '.....aaaaaa...',
+      '..bbbbbbbbbb..',
+    ],
+    'beret': [
+      '......b.......',
+      '...aaaaaaaa...',
+      '..aaaaaaaaaaa.',
+      '...bbbbbbbb...',
+    ],
+    'chef': [
+      '...cc.cc.cc...',
+      '..cccccccccc..',
+      '...cccccccc...',
+      '...aaaaaaaa...',
+    ],
+    'crown': [
+      '...a..aa..a...',
+      '...aa.aa.aa...',
+      '...aaaaaaaa...',
+      '...acaacaaca..',
+    ],
+    'headphones': ['....aaaaaa....', '...a......a...', '..a........a..'],
+    'propeller': [
+      '..cccc.aaaa...',
+      '.......d......',
+      '....ababab....',
+      '...aaaaaaaa...',
+    ],
+    'top hat': [
+      '...aaaaaaaa...',
+      '...aaaaaaaa...',
+      '...aaaaaaaa...',
+      '...bbbbbbbb...',
+      '.aaaaaaaaaaaa.',
+    ],
+    'cowboy': [
+      '.....aaaa.....',
+      '....aabbaa....',
+      'b...aaaaaa...b',
+      'bbbbbbbbbbbbbb',
+    ],
+    'bandana': ['..aaaaaaaaaa.b', '..acacacacac.b'],
+  };
+  static const _hatX = {'cap': -3};
+
+  /// The same hats for the onigiri: narrower, centred on its apex and
+  /// sitting down over it (the last row lies on the triangle at y -1).
+  static const _onigiriHats = {
+    'hard hat': ['.....aaaa.....', '....acaaaa....', '...bbbbbbbb...'],
+    'cap': ['......aaaa', '.....aaacaa', 'bbbbbbbbbbbb'],
+    'beanie': [
+      '......cc......',
+      '.....aaaa.....',
+      '....aaaaaa....',
+      '...babababa...',
+    ],
+    'helmet': ['.....aaaa.....', '....aacaaa....', '...bbbbbbbb...'],
+    'wizard': [
+      '......aa......',
+      '......aa......',
+      '.....acaa.....',
+      '....aaaaaa....',
+      '...bbbbbbbb...',
+    ],
+    'beret': [
+      '......bb......',
+      '....aaaaaa....',
+      '..aaaaaaaaaa..',
+      '....bbbbbb....',
+    ],
+    'chef': [
+      '....cccccc....',
+      '....cccccc....',
+      '.....cccc.....',
+      '....aaaaaa....',
+    ],
+    'crown': ['....a.aa.a....', '....aaaaaa....', '....acaaca....'],
+    'headphones': ['.....aaaa.....', '....a....a....', '...a......a...'],
+    'propeller': [
+      '...ccc..aaa...',
+      '......dd......',
+      '.....abab.....',
+      '....aaaaaa....',
+    ],
+    'top hat': [
+      '.....aaaa.....',
+      '.....aaaa.....',
+      '.....bbbb.....',
+      '...aaaaaaaa...',
+    ],
+    'cowboy': [
+      '......aa......',
+      '.....abba.....',
+      '.b..aaaaaa..b.',
+      '.bbbbbbbbbbbb.',
+    ],
+    'bandana': ['...aaaaaaaa.b.', '..acacacacac.b'],
+  };
+  static const _onigiriHatX = {'cap': -1};
+
+  static const _flagInk = Color(0xFFE8E4DC);
+
   static const _cookie = ['.###.', '##.##', '#####', '#.###', '.###.'];
   static const _lens = ['.##..', '#..#.', '#..#.', '.##..', '....#'];
-  static const _pencil = ['...##', '..##.', '.##..', '##...', '#....'];
   static const _prompt = ['#..', '.#.', '#..'];
   static const _globeA = ['.###.', '#.#.#', '#####', '#.#.#', '.###.'];
   static const _globeB = ['.###.', '##.##', '#####', '##.##', '.###.'];
@@ -689,10 +919,12 @@ class _CritterPainter extends CustomPainter {
         fill,
       );
     }
-    canvas.drawRect(cell(x + 4 * s, y + bob + 2 * s, s, 2 * s), hole);
-    canvas.drawRect(cell(x + 9 * s, y + bob + 2 * s, s, 2 * s), hole);
+    canvas.drawRect(cell(x, y + bob + 2 * s, s, 2 * s), fill); // arms
+    canvas.drawRect(cell(x + 13 * s, y + bob + 2 * s, s, 2 * s), fill);
+    canvas.drawRect(cell(x + 4 * s, y + bob + 1.5 * s, s, 2 * s), hole);
+    canvas.drawRect(cell(x + 9 * s, y + bob + 1.5 * s, s, 2 * s), hole);
     for (final lx in step ? _legsB : _legsA) {
-      canvas.drawRect(cell(x + lx * s, y + 7 * s, s, 2 * s), fill);
+      canvas.drawRect(cell(x + lx * s, y + 6 * s, s, 1.6 * s), fill);
     }
   }
 
@@ -715,22 +947,6 @@ class _CritterPainter extends CustomPainter {
     }
   }
 
-  /// Outline of the body (exited critter), cell-aligned.
-  static Path _bodyPath(Rect Function(double, double, double, double) cell) {
-    Offset p(double x, double y) => cell(x, y, 0, 0).topLeft;
-    const pts = [
-      (2, 0), (12, 0), (12, 1), (13, 1), (13, 2), (14, 2), (14, 4), (13, 4),
-      (13, 6), (12, 6), (12, 7), (2, 7), (2, 6), (1, 6), (1, 4), (0, 4),
-      (0, 2), (1, 2), (1, 1), (2, 1), //
-    ];
-    final path = Path()..moveTo(p(2, 0).dx, p(2, 0).dy);
-    for (final (x, y) in pts.skip(1)) {
-      final o = p(x.toDouble(), y.toDouble());
-      path.lineTo(o.dx, o.dy);
-    }
-    return path..close();
-  }
-
   @override
   bool shouldRepaint(_CritterPainter old) =>
       old.pose != pose ||
@@ -739,5 +955,19 @@ class _CritterPainter extends CustomPainter {
       old.bubble != bubble ||
       old.species != species ||
       old.centerBody != centerBody ||
+      old.hat != hat ||
+      old.showBubble != showBubble ||
       old.frame != frame;
 }
+
+/// A hat colour's main tone and shade (unknown names fall back to ink).
+(Color, Color) hatColor(String name) => switch (name) {
+  'teal' => (const Color(0xFF4FB3A6), const Color(0xFF2F7F75)),
+  'blue' => (const Color(0xFF6F8FD8), const Color(0xFF4A63A3)),
+  'yellow' => (const Color(0xFFE8B94A), const Color(0xFFB08429)),
+  'green' => (const Color(0xFF6DBE6A), const Color(0xFF468A44)),
+  'purple' => (const Color(0xFFA68BD8), const Color(0xFF7660A6)),
+  'pink' => (const Color(0xFFE58BB0), const Color(0xFFB05E80)),
+  'sky' => (const Color(0xFF5EC4D6), const Color(0xFF3A8E9C)),
+  _ => (const Color(0xFFE8E4DC), const Color(0xFFA8A39A)),
+};

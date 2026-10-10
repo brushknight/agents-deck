@@ -118,12 +118,13 @@ function pillText(a) {
 }
 
 // ---------------------------------------------------------------- sprite
-// Pixel critter from the approved panel mockup (viewBox 0 -4 18 13). Colours come from
-// CSS: .b = var(--body), .c / .cx = var(--cut) (the background the sprite sits on).
-const BODY = 'M2 0h10v1h1v1h1v2h-1v2h-1v1h-10v-1h-1v-2h-1v-2h1v-1h1z';
+// Pixel critter (viewBox 0 -4 18 13; mirrors critter.dart on the panel): Claude's flat
+// 12×6 block with 1×2 arms, on short legs, wearing its working folder's hat. Colours
+// come from CSS: .b = var(--body), .c / .cx = var(--cut) (the background behind it).
+const BODY = 'M1 0h12v6h-12z';
 const LEGS_A = [2, 4, 9, 11];
 const LEGS_B = [3, 5, 8, 10];
-const critterLegs = (xs, cls = '') => xs.map((x) => `<rect class="b ${cls}" x="${x}" y="7" width="1" height="2"/>`).join('');
+const critterLegs = (xs, cls = '') => xs.map((x) => `<rect class="b ${cls}" x="${x}" y="6" width="1" height="1.6"/>`).join('');
 // Codex onigiri: a rounded rice triangle wrapped in nori, on two little feet that
 // step in turn (legs B lifts the left foot).
 const botFeet = (xs, cls = '') => `<rect class="b ${cls}" x="3.5" y="${xs === LEGS_B ? 6.4 : 7}" width="2" height="1.4"/><rect class="b ${cls}" x="8.5" y="7" width="2" height="1.4"/>`;
@@ -138,25 +139,87 @@ const pixels = (rows, x0, w, cls, h = 0.9, y0 = -4) => `<g class="${cls}">` + ro
   ch === '#' ? `<rect class="b" x="${x0 + c * w}" y="${y0 + r * h}" width="${w}" height="${h}"/>` : '')).join('') + '</g>';
 
 const MINI = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><g class="bob"><path class="b" d="${BODY}"/>` +
-  `<rect class="c" x="4" y="2" width="1" height="2"/><rect class="c" x="9" y="2" width="1" height="2"/></g>${legs(LEGS_A, 'la')}${legs(LEGS_B, 'lb')}</g>`;
+  '<rect class="b" x="0" y="2" width="1" height="2"/><rect class="b" x="13" y="2" width="1" height="2"/>' +
+  `<rect class="c" x="4" y="1.5" width="1" height="2"/><rect class="c" x="9" y="1.5" width="1" height="2"/></g>${critterLegs(LEGS_A, 'la')}${critterLegs(LEGS_B, 'lb')}</g>`;
 
-function spriteSVG(pose, species = 'claude') {
+// Hats: bitmap rows ending on y -1 (just above the head); a = the hat's colour,
+// b = its shade, c = highlight, d = near-black. The onigiri wears a narrower
+// version that sits down over its tip. Shapes and colours match the daemon's.
+const HATS = {
+  'hard hat': ['....aaaaa.....', '...acaaaaa....', '..aaaaaaaaa...', '.bbbbbbbbbbbb.'],
+  cap: ['........aaaaaa', '.......aaaaacaa', 'bbbbbbbbbbbbbbb'], // baseball: brim long to the left (from x -3)
+  beanie: ['.....cc.......', '....aaaaaa....', '...aaaaaaaa...', '..babababab...'],
+  helmet: ['....aaaaaa....', '...aaaaaaaa...', '..aaaacaaaaa..', '..bbbbbbbbbb..'],
+  wizard: ['........a.....', '.......aa.....', '......aaca....', '.....aaaaaa...', '..bbbbbbbbbb..'],
+  beret: ['......b.......', '...aaaaaaaa...', '..aaaaaaaaaaa.', '...bbbbbbbb...'],
+  chef: ['...cc.cc.cc...', '..cccccccccc..', '...cccccccc...', '...aaaaaaaa...'],
+  crown: ['...a..aa..a...', '...aa.aa.aa...', '...aaaaaaaa...', '...acaacaaca..'],
+  headphones: ['....aaaaaa....', '...a......a...', '..a........a..'],
+  propeller: ['..cccc.aaaa...', '.......d......', '....ababab....', '...aaaaaaaa...'],
+  'top hat': ['...aaaaaaaa...', '...aaaaaaaa...', '...aaaaaaaa...', '...bbbbbbbb...', '.aaaaaaaaaaaa.'],
+  cowboy: ['.....aaaa.....', '....aabbaa....', 'b...aaaaaa...b', 'bbbbbbbbbbbbbb'],
+  bandana: ['..aaaaaaaaaa.b', '..acacacacac.b'],
+};
+const ONI_HATS = {
+  'hard hat': ['.....aaaa.....', '....acaaaa....', '...bbbbbbbb...'],
+  cap: ['......aaaa', '.....aaacaa', 'bbbbbbbbbbbb'],
+  beanie: ['......cc......', '.....aaaa.....', '....aaaaaa....', '...babababa...'],
+  helmet: ['.....aaaa.....', '....aacaaa....', '...bbbbbbbb...'],
+  wizard: ['......aa......', '......aa......', '.....acaa.....', '....aaaaaa....', '...bbbbbbbb...'],
+  beret: ['......bb......', '....aaaaaa....', '..aaaaaaaaaa..', '....bbbbbb....'],
+  chef: ['....cccccc....', '....cccccc....', '.....cccc.....', '....aaaaaa....'],
+  crown: ['....a.aa.a....', '....aaaaaa....', '....acaaca....'],
+  headphones: ['.....aaaa.....', '....a....a....', '...a......a...'],
+  propeller: ['...ccc..aaa...', '......dd......', '.....abab.....', '....aaaaaa....'],
+  'top hat': ['.....aaaa.....', '.....aaaa.....', '.....bbbb.....', '...aaaaaaaa...'],
+  cowboy: ['......aa......', '.....abba.....', '.b..aaaaaa..b.', '.bbbbbbbbbbbb.'],
+  bandana: ['...aaaaaaaa.b.', '..acacacacac.b'],
+};
+const HAT_X = { cap: -3 };
+const ONI_HAT_X = { cap: -1 };
+const HAT_COLORS = {
+  teal: ['#4FB3A6', '#2F7F75'], blue: ['#6F8FD8', '#4A63A3'], yellow: ['#E8B94A', '#B08429'], green: ['#6DBE6A', '#468A44'],
+  purple: ['#A68BD8', '#7660A6'], pink: ['#E58BB0', '#B05E80'], sky: ['#5EC4D6', '#3A8E9C'], ink: ['#E8E4DC', '#A8A39A'],
+};
+const HAT_SHAPES = Object.keys(HATS);
+const HAT_COLOR_NAMES = Object.keys(HAT_COLORS);
+
+function hatSVG(hat, oni, faded) {
+  const rows = (oni ? ONI_HATS : HATS)[hat?.shape];
+  if (!rows) return '';
+  const [main, shade] = HAT_COLORS[hat.color] || HAT_COLORS.ink;
+  const fill = { a: main, b: shade, c: '#F7F4EC', d: '#0A0A0A' };
+  const x0 = (oni ? ONI_HAT_X : HAT_X)[hat.shape] || 0;
+  const top = hat.shape === 'bandana' ? (oni ? 0 : -1) : -rows.length;
+  let out = '';
+  rows.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (fill[ch]) out += `<rect x="${x0 + c}" y="${top + r}" width="1" height="1" fill="${fill[ch]}"/>`;
+  }));
+  if (hat.shape === 'headphones') {
+    out += oni ? `<rect x="2" y="-0.5" width="1" height="2" fill="${shade}"/><rect x="11" y="-0.5" width="1" height="2" fill="${shade}"/>`
+      : `<rect x="0" y="0" width="1" height="2" fill="${shade}"/><rect x="13" y="0" width="1" height="2" fill="${shade}"/>`;
+  }
+  return `<g class="hat"${faded ? ' opacity="0.45"' : ''}>${out}</g>`;
+}
+
+function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
   const bot = species === 'codex';
+  if (pose === 'write') pose = 'bash'; // writing looks like bash for now
   legs = bot ? botFeet : critterLegs;
   let body = bot ? `<path class="b" d="${BOT_BODY}"/>${pose === 'exit' ? '' : BOT_NORI}` : `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
+  // Arms: 1×2 beside the body, at their top row (2 = hanging down).
+  const arm = (l, r, cls = '') => bot
+    ? `<rect class="b ${cls}" x="1" y="${l - 1}" width="1" height="2"/><rect class="b ${cls}" x="12" y="${r - 1}" width="1" height="2"/>`
+    : `<rect class="b ${cls}" x="0" y="${l}" width="1" height="2"/><rect class="b ${cls}" x="13" y="${r}" width="1" height="2"/>`;
+  let arms = arm(2, 2), held = '';
   switch (pose) {
     case 'think':
-      eyes = `<g class="glance">${eyesOpenAt(1, 1.5)}</g>`;
+      eyes = `<g class="glance">${eyesOpenAt(1, 1.5)}</g>`; arms = arm(2, 1);
       bubble = '<rect class="b t1" x="14.3" y="-0.9" width="0.6" height="0.6"/><rect class="b t2" x="15.3" y="-2.1" width="0.9" height="0.9"/><rect class="b t3" x="16.5" y="-3.8" width="1.3" height="1.3"/>';
       break;
     case 'read':
       eyes = `<g class="scan">${eyesOpen(2)}</g>`;
       bubble = pixels(['.##..', '#..#.', '#..#.', '.##..', '....#'], 14.6, 0.75, '', 0.75);
-      break;
-    case 'write':
-      eyes = '<rect class="c" x="4" y="3.2" width="1" height="1.2"/><rect class="c" x="9" y="3.2" width="1" height="1.2"/>';
-      feet = legs(LEGS_A) + '<rect class="b tapA" x="5.9" y="7" width="0.9" height="0.8"/><rect class="b tapB" x="7.3" y="7.6" width="0.9" height="0.8"/>';
-      bubble = pixels(['...##', '..##.', '.##..', '##...', '#....'], 14.7, 0.7, '', 0.7);
       break;
     case 'bash':
       eyes = eyesOpen(2); feet = legs(LEGS_A, 'la fast') + legs(LEGS_B, 'lb fast'); grp = 'bob fast';
@@ -173,29 +236,35 @@ function spriteSVG(pose, species = 'claude') {
         return `<rect class="b" x="14.4" y="${y}" width="0.9" height="0.9"/><rect class="c tick${i}" x="14.6" y="${y + 0.2}" width="0.5" height="0.5"/><rect class="b" x="15.6" y="${y + 0.25}" width="2.2" height="0.45"/>`; }).join('');
       break;
     case 'delegate':
-      eyes = eyesOpen(2); feet = legs(LEGS_A, 'la') + legs(LEGS_B, 'lb'); grp = 'bob';
+      eyes = eyesOpen(2); feet = legs(LEGS_A, 'la') + legs(LEGS_B, 'lb'); grp = 'bob'; arms = arm(2, 1, 'la') + arm(1, 2, 'lb');
       bubble = MINI(14.4, 3.2, 0.26);
       break;
     case 'hungry':
       // Eyes up at a bobbing cookie; the mouth chomps open and shut.
       eyes = '<rect class="c" x="4.6" y="1" width="1" height="2"/><rect class="c" x="9.6" y="1" width="1" height="2"/>' +
         (bot ? '<rect class="c la slow" x="6.2" y="3.4" width="1.6" height="1.4"/><rect class="c lb slow" x="6.2" y="4" width="1.6" height="0.5"/>'
-          : '<rect class="c la slow" x="6.2" y="4.2" width="2.2" height="1.8"/><rect class="c lb slow" x="6.2" y="5" width="2.2" height="0.5"/>');
+          : '<rect class="c la slow" x="6.2" y="4.2" width="2.2" height="1.6"/><rect class="c lb slow" x="6.2" y="4.8" width="2.2" height="0.5"/>');
       bubble = `<g class="bobc">${pixels(['.###.', '##.##', '#####', '#.###', '.###.'], 14.3, 0.75, '', 0.75, -4.2)}</g>`;
       break;
     case 'celebrate': {
       eyes = [4.5, 9.5].map((x) => `<path class="cx" stroke-width="0.55" d="M${x - 1} 3.3 L${x} 2.2 L${x + 1} 3.3"/>`).join('');
-      grp = 'hop'; feet = `<g class="hop">${legs(LEGS_A)}</g>`;
+      grp = 'hop'; feet = `<g class="hop">${legs(LEGS_A)}</g>`; arms = arm(0, 0);
+      // The finish flag in the raised hand: a pole and a 3×2 checker that waves
+      // by swapping its squares.
+      const checker = (phase, cls) => `<g class="${cls}">` + [0, 1, 2].flatMap((cx) => [0, 1].map((cy) =>
+        `<rect class="${(cx + cy + phase) % 2 ? 'c' : 'fl'}" x="${15 + cx}" y="${-4 + cy}" width="1" height="1"/>`)).join('') + '</g>';
+      held = `<rect class="fl" x="14" y="-4" width="1" height="6"/>${checker(0, 'la')}${checker(1, 'lb')}`;
       const plus = (x, y, i) => `<g class="spark s${i}"><rect class="b" x="${x - 0.5}" y="${y}" width="1.5" height="0.5"/><rect class="b" x="${x}" y="${y - 0.5}" width="0.5" height="1.5"/></g>`;
-      bubble = plus(15, -3.4, 0) + plus(17.2, -1.9, 1) + plus(14.5, -0.8, 2);
+      bubble = plus(16.4, -6.2, 0) + plus(18.2, -4.4, 1);
       break;
     }
     case 'run':
-      eyes = eyesOpen(2); feet = legs(LEGS_A, 'la') + legs(LEGS_B, 'lb'); bubble = DOTS; grp = 'bob'; break;
+      eyes = eyesOpen(2); feet = legs(LEGS_A, 'la') + legs(LEGS_B, 'lb'); bubble = DOTS; grp = 'bob'; arms = arm(2, 1, 'la') + arm(1, 2, 'lb'); break;
     case 'wait':
       eyes = eyesOpen(1); bubble = pixels(['###', '..#', '.#.', '...', '.#.'], 14.5, 1.1, 'blink'); break;
     case 'err':
       eyes = [3.8, 8.8].map((x) => `<path class="cx" stroke-width="0.55" d="M${x - 0.4} 1.8 l1.8 2.2 M${x + 1.4} 1.8 l-1.8 2.2"/>`).join('');
+      arms = arm(0, 0); // both up in alarm
       bubble = pixels(['#', '#', '#', '.', '#'], 15.6, 1.2, 'bang'); break;
     case 'start':
       eyes = eyesOpen(2); bubble = DOTS; break;
@@ -209,13 +278,18 @@ function spriteSVG(pose, species = 'claude') {
       break;
     }
     case 'exit':
-      body += bot ? '<path class="c" d="M6 -1h2v1h1v1h1v2h1v2h1v1h-10v-1h1v-2h1v-2h1v-1h1z"/>' : '<path class="c" d="M3 1h8v1h1v3h-1v1h-8v-1h-1v-3h1z"/>';
+      body += bot ? '<path class="c" d="M6 -1h2v1h1v1h1v2h1v2h1v1h-10v-1h1v-2h1v-2h1v-1h1z"/>' : '<path class="c" d="M2 1h10v4h-10z"/>';
+      arms = ''; if (!bot) feet = '';
       eyes = '<rect class="b" x="4" y="3" width="1" height="1"/><rect class="b" x="9" y="3" width="1" height="1"/>'; break;
     default: // idle: asleep
       eyes = eyesShut;
       bubble = '<text class="zt zz" x="14.8" y="-0.6" font-size="3.2">z</text><text class="zt zz" x="16.6" y="-2.4" font-size="2.3">z</text>';
   }
-  return `<svg viewBox="0 -4 18 13" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><g class="${grp}">${body}${eyes}</g>${feet}${bubble}</svg>`;
+  // The block's face sits half a row higher than the onigiri's.
+  const face = bot ? eyes : `<g transform="translate(0 -0.5)">${eyes}</g>`;
+  const hatG = hat ? hatSVG(hat, bot, pose === 'exit') : '';
+  if (opts.bubble === false) bubble = '';
+  return `<svg viewBox="0 -4 18 13" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><g class="${grp}">${body}${arms}${face}${hatG}${held}</g>${feet}${bubble}</svg>`;
 }
 
 // ---------------------------------------------------------------- dom helpers
@@ -232,9 +306,9 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
-const setSprite = (el, pose, species = 'claude') => {
-  const key = `${pose}|${species}`;
-  if (el.dataset.pose !== key) { el.dataset.pose = key; el.innerHTML = spriteSVG(pose, species); }
+const setSprite = (el, pose, species = 'claude', hat = null, opts = {}) => {
+  const key = `${pose}|${species}|${hat ? `${hat.shape}/${hat.color}` : ''}|${opts.bubble === false ? 'nb' : ''}`;
+  if (el.dataset.pose !== key) { el.dataset.pose = key; el.innerHTML = spriteSVG(pose, species, hat, opts); }
 };
 
 // ---------------------------------------------------------------- tiles (keyed)
@@ -323,7 +397,7 @@ function wireDrag(el, id) {
 function updateTile(t, a) {
   const cls = `tile st-${a.status} tool-${a.tool}` + (hungry(a) ? ' hungry' : '') + (a.focused ? ' focused' : '') + (a.id === selectedId ? ' selected' : '');
   if (t.cls !== cls) { t.el.className = cls; t.cls = cls; }
-  setSprite(t.spr, poseOf(a), a.tool);
+  setSprite(t.spr, poseOf(a), a.tool, a.hat);
   const used = a.context?.window > 0 ? Math.min(100, (a.context.used / a.context.window) * 100) : 0;
   const dash = `${used.toFixed(2)} 100`;
   if (t.dash !== dash) { t.ring.setAttribute('stroke-dasharray', dash); t.bar.style.width = `${used.toFixed(2)}%`; t.dash = dash; }
@@ -615,6 +689,45 @@ function crewUpdate(crew, a) {
   crew.setAttribute('aria-label', `${label}: ${subs.map((x) => x.title).join(', ')}`);
 }
 
+// The hat picker under the detail header: every shape in the current colour,
+// the colours, and "automatic". A hat belongs to the working folder.
+function hatPicker(a) {
+  const el = h('div', { class: 'hatpick', hidden: true });
+  let cur = null;
+  const pick = async (body) => {
+    const r = await postAction(a, 'hat', body);
+    if (!r.ok) setText(note, `hat · ${r.error}`);
+  };
+  const note = h('span', { class: 'hatpick-note' });
+  const render = (x) => {
+    const hat = x.hat || { shape: '', color: 'ink', auto: true };
+    const key = `${hat.shape}/${hat.color}/${hat.auto}`;
+    if (key === cur) return;
+    cur = key;
+    const shapes = HAT_SHAPES.map((shape) => {
+      const b = h('button', { type: 'button', class: 'hatpick-shape' + (shape === hat.shape && !hat.auto ? ' on' : ''), title: shape, 'aria-label': `hat: ${shape}` });
+      setSprite(b, 'wait', x.tool, { shape, color: hat.color }, { bubble: false });
+      b.addEventListener('click', () => pick({ shape, color: hat.color }));
+      return b;
+    });
+    const colors = HAT_COLOR_NAMES.map((color) => {
+      const b = h('button', { type: 'button', class: 'hatpick-color' + (color === hat.color && !hat.auto ? ' on' : ''), title: color, 'aria-label': `colour: ${color}` });
+      b.style.background = HAT_COLORS[color][0];
+      b.addEventListener('click', () => pick({ shape: hat.shape || 'cap', color }));
+      return b;
+    });
+    const auto = h('button', { type: 'button', class: 'toggle', text: hat.auto ? 'automatic' : 'back to automatic', disabled: hat.auto });
+    auto.addEventListener('click', () => pick({ auto: true }));
+    el.replaceChildren(
+      h('div', { class: 'hatpick-sub', text: `for ${tilde(x.cwd || '')} · every agent working there wears it` }),
+      h('div', { class: 'hatpick-shapes' }, shapes),
+      h('div', { class: 'hatpick-colors' }, colors),
+      h('div', { class: 'hatpick-foot' }, auto, note));
+  };
+  render(a);
+  return { el, update: render };
+}
+
 function header(a) {
   const spr = h('span', { class: 'd-spr' });
   const crew = h('span', { class: 'd-crew', role: 'img' });
@@ -625,9 +738,21 @@ function header(a) {
     h('div', { class: 'd-right' },
       h('button', { type: 'button', class: 'd-close', 'aria-label': 'close panel (esc)', onclick: closeDetail }, closeIcon()),
       h('div', { class: `d-pillrow tool-${a.tool}` }, h('span', { class: 'chip', title: a.tool, 'aria-label': `tool: ${a.tool}`, role: 'img' }), pill)));
-  setSprite(spr, poseOf(a), a.tool);
+  setSprite(spr, poseOf(a), a.tool, a.hat);
   crewUpdate(crew, a);
-  return { el, update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; crewUpdate(crew, x); } };
+  // Click the mascot to pick its hat.
+  const hats = hatPicker(a);
+  if (a.cwd) {
+    spr.classList.add('d-spr-btn');
+    spr.setAttribute('role', 'button');
+    spr.setAttribute('tabindex', '0');
+    spr.setAttribute('aria-label', 'pick a hat');
+    spr.title = 'pick a hat';
+    const toggle = () => { hats.el.hidden = !hats.el.hidden; };
+    spr.addEventListener('click', toggle);
+    spr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  }
+  return { el: h('div', { class: 'd-head' }, el, hats.el), update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; crewUpdate(crew, x); setSprite(spr, poseOf(x), x.tool, x.hat); hats.update(x); } };
 }
 
 function postAction(a, path, body) {
@@ -990,7 +1115,7 @@ async function start() {
 // ---------------------------------------------------------------- fixture mode (dev only)
 // ?fixture loads ./fixture.json and animates it locally. Extra dev flags:
 //   &open=<id>  open that agent's panel   &still  no simulation
-//   &picker     the "add a session" picker
+//   &picker     the "add a session" picker   &hatpick  the hat picker (with &open=<id>)
 //   &many       40 agents (pages)
 //   &empty      no agents                 &offline  disconnected banner   &expired  401 screen
 let fx = null;
@@ -1030,6 +1155,8 @@ async function startFixture() {
   if (params.has('empty')) data.agents = [];
   if (params.has('many')) data.agents = Array.from({ length: 40 }, (_, i) => ({ ...data.agents[i % data.agents.length], id: `m${String(i).padStart(5, '0')}`, slot: i }));
   if (params.has('picker')) setTimeout(() => openPicker(9), 300);
+  if (params.has('hatpick')) setTimeout(() => { const p = document.querySelector('.hatpick'); if (p) p.hidden = false; }, 400);
+  for (const a of data.agents) a.autoHat = a.hat; // what "back to automatic" restores
   if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
   fxEmit();
@@ -1098,6 +1225,14 @@ async function fixtureAction(path, body) {
   const [, , , id, action] = path.split('/');
   const a = fx?.agents.find((x) => x.id === decodeURIComponent(id));
   if (!a) return { ok: false, status: 404, error: 'no such agent' };
+  if (action === 'hat') {
+    // Hats belong to the folder: every agent working there changes.
+    for (const x of fx.agents.filter((y) => y.cwd === a.cwd)) {
+      x.hat = body.auto ? { ...(x.autoHat || x.hat), auto: true } : { shape: body.shape, color: body.color || x.hat?.color || 'teal', auto: false };
+    }
+    fxEmit();
+    return { ok: true, status: 204 };
+  }
   if (action === 'move') {
     for (const x of fx.agents) if (x.slot === body.slot) x.slot = a.slot;
     a.slot = body.slot;

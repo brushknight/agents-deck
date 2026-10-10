@@ -251,6 +251,7 @@ body.offline .main { opacity: 0.4; }
 .c { fill: var(--cut); }
 .cx { stroke: var(--cut); fill: none; }
 .zt { fill: var(--body); font-family: var(--f-label); }
+.fl { fill: #E8E4DC; } /* the finish flag's light squares */
 
 @keyframes la { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
 @keyframes lb { 0%, 49% { opacity: 0 } 50%, 100% { opacity: 1 } }
@@ -352,7 +353,24 @@ body.offline .main { opacity: 0.4; }
 .detail.p-error { --body: var(--accent); }
 .detail.p-dim { --body: var(--dim); }
 
+.d-head { display: flex; flex-direction: column; gap: 16px; }
 .d-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+/* the mascot opens the hat picker */
+.d-spr-btn { cursor: pointer; border-radius: 6px; }
+.d-spr-btn:hover { outline: 1px dashed var(--d-dim); outline-offset: 4px; }
+.hatpick { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.hatpick[hidden] { display: none; }
+.hatpick-sub { color: var(--d-dim); font-size: 13px; }
+.hatpick-shapes { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px; }
+.hatpick-shape { --body: var(--dim); --cut: var(--bg); background: var(--bg); border: 2px solid var(--bg); border-radius: 10px; padding: 14px 8px 6px; cursor: pointer; line-height: 0; }
+.hatpick-shape svg { width: 100%; height: auto; overflow: visible; }
+.hatpick-shape:hover, .hatpick-shape.on { border-color: var(--ink); }
+.hatpick-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.hatpick-color { width: 36px; height: 28px; border-radius: 8px; border: 3px solid var(--panel); cursor: pointer; }
+.hatpick-color:hover, .hatpick-color.on { border-color: var(--ink); }
+.hatpick-foot { display: flex; align-items: center; gap: 12px; }
+.hatpick-foot .toggle:disabled { opacity: 0.5; cursor: default; }
+.hatpick-note { color: var(--accent); font-size: 13px; }
 .d-id { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .d-spr { width: 54px; flex-shrink: 0; line-height: 0; }
 .d-spr svg { width: 100%; height: auto; overflow: visible; }
