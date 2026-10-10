@@ -97,15 +97,14 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   // MARK: deck window
 
   private func showDeck() {
-    guard let window = mainFlutterWindow, let button = statusItem.button,
-      let buttonWindow = button.window
-    else { return }
-    let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+    guard let window = mainFlutterWindow else { return }
+    // Pinned to the top-right corner of the screen with the menu bar icon,
+    // just under the menu bar (visibleFrame already leaves it out).
+    let screen = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
     let size = window.frame.size
-    let screen = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame ?? .zero
-    var x = anchor.midX - size.width / 2
-    x = min(max(x, screen.minX + 8), screen.maxX - size.width - 8)
-    window.setFrameOrigin(NSPoint(x: x, y: anchor.minY - size.height - 6))
+    let margin: CGFloat = 8
+    window.setFrameOrigin(
+      NSPoint(x: screen.maxX - size.width - margin, y: screen.maxY - size.height - margin))
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     channel?.invokeMethod("visible", arguments: true)
