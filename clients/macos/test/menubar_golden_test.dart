@@ -41,25 +41,30 @@ void main() {
     );
   });
 
-  testWidgets('an agent card at menu bar size', skip: !autoUpdateGoldenFiles, (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(880, 880);
-    tester.view.devicePixelRatio = 2;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-      MenuBarDeck(
-        source: FakeAgentsSource.demo(),
-        visible: ValueNotifier(true),
-      ),
-    );
-    await tester.pump();
-    await tester.tap(find.text('checkout-api'));
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pump(const Duration(milliseconds: 400));
-    await expectLater(
-      find.byType(MenuBarDeck),
-      matchesGoldenFile('goldens/menubar-card.png'),
-    );
-  });
+  for (final (title, golden) in [
+    ('checkout-api', 'menubar-card'),
+    ('infra-network', 'menubar-permission'),
+  ]) {
+    testWidgets('$golden at menu bar size', skip: !autoUpdateGoldenFiles, (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(880, 880);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MenuBarDeck(
+          source: FakeAgentsSource.demo(),
+          visible: ValueNotifier(true),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text(title));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 400));
+      await expectLater(
+        find.byType(MenuBarDeck),
+        matchesGoldenFile('goldens/$golden.png'),
+      );
+    });
+  }
 }

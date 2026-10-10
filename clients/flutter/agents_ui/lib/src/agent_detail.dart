@@ -284,10 +284,6 @@ class _AgentDetailState extends State<AgentDetail> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (widget.showBack) ...[
-                    _BackButton(color: ink, onTap: widget.onClose),
-                    const SizedBox(width: 10),
-                  ],
                   CritterSprite(
                     pose: critterPoseOf(a, inStatus: state.inStatus(a)),
                     celebrateUntil: DateTime.now().add(
@@ -355,6 +351,26 @@ class _AgentDetailState extends State<AgentDetail> {
       ],
     );
   }
+
+  /// The back button at the start of a card's bottom row (hosts without an
+  /// edge swipe): a square in the house button style, with a chevron.
+  List<Widget> _back({
+    required Color ink,
+    required Color outline,
+    required Color pressedFill,
+    required Color pressedInk,
+  }) => [
+    if (widget.showBack) ...[
+      _BackButton(
+        onTap: widget.onClose,
+        ink: ink,
+        outline: outline,
+        pressedFill: pressedFill,
+        pressedInk: pressedInk,
+      ),
+      const SizedBox(width: 14),
+    ],
+  ];
 
   Widget _label(String text, Color color) =>
       Text(text, style: DeckHud.mono(size: 14, color: color));
@@ -513,6 +529,12 @@ class _AgentDetailState extends State<AgentDetail> {
           const SizedBox(height: 22),
           Row(
             children: [
+              ..._back(
+                ink: DeckHud.ink,
+                outline: DeckHud.dim,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
               if (!exited)
                 Expanded(
                   child: AgentButton(
@@ -691,6 +713,12 @@ class _AgentDetailState extends State<AgentDetail> {
           const SizedBox(height: 22),
           Row(
             children: [
+              ..._back(
+                ink: DeckHud.bg,
+                outline: DeckHud.bg,
+                pressedFill: DeckHud.bg,
+                pressedInk: DeckHud.accent,
+              ),
               Expanded(
                 child: Text(
                   _note ?? 'answer here or at the terminal',
@@ -816,6 +844,12 @@ class _AgentDetailState extends State<AgentDetail> {
           const SizedBox(height: 20),
           Row(
             children: [
+              ..._back(
+                ink: DeckHud.ink,
+                outline: DeckHud.dim,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
               Expanded(
                 child: AgentButton(
                   key: const Key('agent-send'),
@@ -997,7 +1031,17 @@ class _AgentDetailState extends State<AgentDetail> {
             ),
           ),
           const SizedBox(height: 20),
-          _terminalButton(a, 'focus terminal'),
+          Row(
+            children: [
+              ..._back(
+                ink: DeckHud.ink,
+                outline: DeckHud.dim,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
+              Expanded(child: _terminalButton(a, 'focus terminal')),
+            ],
+          ),
         ],
       ),
     );
@@ -1090,12 +1134,22 @@ class SubagentCrew extends StatelessWidget {
   }
 }
 
-/// A bare "‹" that closes the card (hosts without an edge swipe).
+/// A square "‹" button that closes the card (hosts without an edge swipe),
+/// the same height and outline as the [AgentButton]s beside it.
 class _BackButton extends StatelessWidget {
-  const _BackButton({required this.color, required this.onTap});
+  const _BackButton({
+    required this.onTap,
+    required this.ink,
+    required this.outline,
+    required this.pressedFill,
+    required this.pressedInk,
+  });
 
-  final Color color;
   final VoidCallback onTap;
+  final Color ink;
+  final Color outline;
+  final Color pressedFill;
+  final Color pressedInk;
 
   @override
   Widget build(BuildContext context) {
@@ -1105,15 +1159,19 @@ class _BackButton extends StatelessWidget {
       child: Pressable(
         key: const Key('agent-back'),
         onTap: onTap,
-        // Just the chevron: a dim mark that brightens while pressed. The
-        // box is only there to make it easy to hit.
-        builder: (context, pressed) => SizedBox(
-          width: 28,
-          height: 40,
-          child: CustomPaint(
-            painter: _ChevronPainter(
-              color.withValues(alpha: pressed ? 1 : 0.55),
+        builder: (context, pressed) => Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            color: pressed ? pressedFill : null,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: pressed ? pressedFill : outline,
+              width: 2,
             ),
+          ),
+          child: CustomPaint(
+            painter: _ChevronPainter(pressed ? pressedInk : ink),
           ),
         ),
       ),
