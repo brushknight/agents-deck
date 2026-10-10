@@ -100,6 +100,10 @@ Each agent gets its own hook settings, so your global `~/.claude/settings.json` 
 - **Codex files are only read.** App control is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
 - **Secrets** live in `~/.local/share/agents-terminal/` (`0700` / `0600`).
 
+## Credits
+
+The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly change how you work”](https://www.youtube.com/watch?v=lDrAZ1wAyVs) by Jay E ([RoboNuggets](https://www.youtube.com/@RoboNuggets)).
+
 ## Docs
 
 [Features](docs/features.md) · [Protocol](docs/protocol.md) · [Releasing](docs/releasing.md) · [Roadmap](docs/roadmap.md)
