@@ -9,6 +9,11 @@ import 'agents_model.dart';
 import 'agents_style.dart';
 import 'critter.dart';
 
+/// The header's left column: the 54 px critter (13/18 as tall as wide) and
+/// the 30 px title; the right column lines up with them.
+const _mascotHeight = 54 * 13 / 18;
+const _titleHeight = 30.0;
+
 /// Matches the morph card's landed corner radius (the morph lerps to 26).
 const _cardRadius = 26.0;
 
@@ -314,37 +319,52 @@ class _AgentDetailState extends State<AgentDetail> {
           ),
         ),
         const SizedBox(width: 16),
+        // The same rhythm as the left column: the clock sits level with the
+        // critter's body (its top rows are headroom for bubbles), the pill
+        // level with the title.
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            HudClock(color: ink, size: 22),
+            SizedBox(
+              height: _mascotHeight,
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: HudClock(color: ink, size: 22),
+                ),
+              ),
+            ),
             const SizedBox(height: 10),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(width: 8, height: 8, color: agentToolColor(a.tool)),
-                const SizedBox(width: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 300),
-                  child: Container(
-                    key: const Key('agent-pill'),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: pillFill,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      agentPillLabel(a, state),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: DeckHud.mono(size: 15, color: pillInk),
+            SizedBox(
+              height: _titleHeight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 8, height: 8, color: agentToolColor(a.tool)),
+                  const SizedBox(width: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 300),
+                    child: Container(
+                      key: const Key('agent-pill'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: pillFill,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        agentPillLabel(a, state),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: DeckHud.mono(size: 15, color: pillInk),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
