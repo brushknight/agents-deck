@@ -141,6 +141,31 @@ void main() {
     expect(find.text('doing now'), findsNothing);
   });
 
+  testWidgets('a free cell adds a hand-started session into that cell', (
+    tester,
+  ) async {
+    final source = FakeAgentsSource.demo();
+    await _pumpApp(tester, source);
+    // The demo fleet leaves slot 9 free (row 3, second cell).
+    await tester.tap(find.byType(AgentsEmptyTile).first);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('live-picker')), findsOneWidget);
+    expect(find.text('notes cleanup'), findsOneWidget);
+    await tester.tap(find.text('notes cleanup'));
+    await tester.pump();
+    final call = source.calls.lastWhere((c) => c.$1 == 'addLive');
+    expect(call.$2, '7a1c9e20-5d3b-4f6a-9b2e-1c4d5e6f7a8b');
+    expect(call.$3, {'slot': 9});
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('live-picker')), findsNothing);
+    // It's on the deck now, watched: no answering, a "remove from deck".
+    expect(find.text('notes cleanup'), findsOneWidget);
+    await _open(tester, 'notes cleanup');
+    expect(find.text('remove from deck'), findsOneWidget);
+    expect(find.byKey(const Key('agent-interrupt')), findsNothing);
+  });
+
   testWidgets('idle and error cards: no interrupt, error message shown', (
     tester,
   ) async {

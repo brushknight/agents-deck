@@ -228,6 +228,13 @@ class Agent {
   /// Subagents still working, oldest first.
   final List<AgentSubagent> subagents;
 
+  /// A Codex app thread (view and open in the app only).
+  bool get codexThread => external && tool == 'codex';
+
+  /// A Claude session started by hand in another terminal and added to the
+  /// deck: watched (status, context, cost), answered in its own terminal.
+  bool get watched => external && tool == 'claude';
+
   /// Idle with an unreviewed result.
   bool get hungry => unseen && status == AgentStatus.idle;
   final DateTime? startedAt;
@@ -450,4 +457,30 @@ String agentPillLabel(Agent a, AgentsState state, [DateTime? localNow]) {
     AgentStatus.starting => 'starting · $t',
     AgentStatus.exited => a.lost ? 'lost with tmux · $t' : 'exited · $t',
   };
+}
+
+/// A Claude session started by hand in another terminal (`GET /v1/live`),
+/// which can be added to the deck (watched).
+class LiveSession {
+  const LiveSession({
+    required this.sessionId,
+    required this.title,
+    required this.folder,
+    this.started,
+    this.onBoard = false,
+  });
+
+  final String sessionId;
+  final String title;
+  final String folder;
+  final DateTime? started;
+  final bool onBoard;
+
+  static LiveSession fromJson(Map<String, dynamic> j) => LiveSession(
+    sessionId: _str(j['sessionId']),
+    title: _str(j['title']),
+    folder: _str(j['folder']),
+    started: _time(j['started']),
+    onBoard: j['onBoard'] == true,
+  );
 }

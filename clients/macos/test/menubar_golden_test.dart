@@ -67,4 +67,28 @@ void main() {
       );
     });
   }
+
+  testWidgets(
+    'add-a-session picker at menu bar size',
+    skip: !autoUpdateGoldenFiles,
+    (tester) async {
+      tester.view.physicalSize = const Size(880, 880);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MenuBarDeck(
+          source: FakeAgentsSource.demo(),
+          visible: ValueNotifier(true),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byType(AgentsEmptyTile).first);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 400));
+      await expectLater(
+        find.byType(MenuBarDeck),
+        matchesGoldenFile('goldens/menubar-picker.png'),
+      );
+    },
+  );
 }

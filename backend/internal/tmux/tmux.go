@@ -173,6 +173,16 @@ func Sessions() map[string]bool {
 	return live
 }
 
+// PaneTTYs are the terminals of every pane on our server (agentctl's agents).
+func PaneTTYs() map[string]bool {
+	out, _ := run("list-panes", "-a", "-F", "#{pane_tty}")
+	ttys := map[string]bool{}
+	for _, l := range strings.Fields(out) {
+		ttys[l] = true
+	}
+	return ttys
+}
+
 // ServerRunning reports whether our tmux server is up. (It exits by itself
 // once its last session ends.)
 func ServerRunning() bool {

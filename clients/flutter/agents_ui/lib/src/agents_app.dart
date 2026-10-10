@@ -10,6 +10,7 @@ import 'agents_client.dart';
 import 'agents_model.dart';
 import 'agents_style.dart';
 import 'critter.dart';
+import 'live_picker.dart';
 
 /// Agents app: a Stream-Deck-style board of the Mac's coding agents
 /// (`agentctl serve`). Chrome-less 4×4 grid, one tile per agent by slot,
@@ -117,6 +118,23 @@ class _AgentsAppState extends State<AgentsApp> {
           onVisible: _cardVisible,
           showBack: widget.backButton,
         ),
+      ),
+    );
+  }
+
+  /// A free cell opens "add a session" (hand-started Claude sessions); the
+  /// one you pick lands in that cell.
+  void _openPicker(BuildContext cellContext, GlobalKey cellKey, int slot) {
+    (widget.openCard ?? CardMorph.open)(
+      cellContext,
+      cellKey,
+      id: 'add/$slot',
+      fill: DeckHud.bg,
+      builder: (close) => LivePicker(
+        source: widget.source,
+        slot: slot,
+        onClose: close,
+        showBack: widget.backButton,
       ),
     );
   }
@@ -253,7 +271,11 @@ class _AgentsAppState extends State<AgentsApp> {
             ),
           )
         else
-          _swapCell(state, slot: slot, child: const AgentsEmptyTile()),
+          _swapCell(
+            state,
+            slot: slot,
+            child: _FreeCell(onOpen: (ctx, key) => _openPicker(ctx, key, slot)),
+          ),
     ];
     if (paged) {
       final elsewhere = [
@@ -575,6 +597,28 @@ class ContextRingPainter extends CustomPainter {
 }
 
 /// Unused slot: near-black block with a faint frame.
+/// A free cell: tap it to add a session there.
+class _FreeCell extends StatefulWidget {
+  const _FreeCell({required this.onOpen});
+
+  final void Function(BuildContext context, GlobalKey key) onOpen;
+
+  @override
+  State<_FreeCell> createState() => _FreeCellState();
+}
+
+class _FreeCellState extends State<_FreeCell> {
+  final _key = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    key: _key,
+    behavior: HitTestBehavior.opaque,
+    onTap: () => widget.onOpen(context, _key),
+    child: const AgentsEmptyTile(),
+  );
+}
+
 class AgentsEmptyTile extends StatelessWidget {
   const AgentsEmptyTile({super.key});
 

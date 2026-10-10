@@ -17,6 +17,14 @@ import (
 // errExternal answers actions that only the owning app can perform.
 var errExternal = errors.New("this is a Codex app session — answer, interrupt or stop it in the Codex app")
 
+// externalErr is the reason an external agent can't take an action.
+func externalErr(e store.Entry) error {
+	if e.A.Tool == "claude" {
+		return errLive
+	}
+	return errExternal
+}
+
 // codexWatch mirrors recent Codex app/CLI threads onto the board.
 type codexWatch struct {
 	mu     sync.Mutex
@@ -63,7 +71,7 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 	}
 	// Drop threads that aged out, were archived or hidden.
 	for _, a := range d.Store.Snapshot().Agents {
-		if a.External {
+		if a.External && a.Tool == "codex" {
 			if _, ok := want[a.ID]; !ok {
 				d.Store.Remove(a.ID)
 			}

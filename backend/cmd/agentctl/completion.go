@@ -38,6 +38,8 @@ _agentctl() {
     'serve:run the daemon'
     'install:install and start the launchd agent'
     'restore:bring back agents lost with the tmux server'
+    'live:Claude sessions started by hand in other terminals'
+    'add:put a hand-started Claude session on the deck'
     'reopen:iTerm tabs for every agent no terminal shows'
     'set:change a setting (term iterm|tmux|window, mouse tmux|native)'
     'get:show settings'

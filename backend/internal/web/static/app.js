@@ -74,6 +74,11 @@ const poseOf = (a) => {
   return POSE[a.status] || 'idle';
 };
 
+// External agents: Codex app threads, and Claude sessions started by hand in
+// another terminal that you added to the deck ("watched").
+const codexThread = (a) => a.external && a.tool === 'codex';
+const watched = (a) => a.external && a.tool === 'claude';
+
 const needsYou = (a) => a.status === 'waiting' || a.status === 'error';
 
 // Finished a turn nobody has reviewed yet: hungry until its terminal is focused.
@@ -418,7 +423,8 @@ function panelCells(list) {
 }
 
 function makeEmptyCell(slot) {
-  const el = h('div', { class: 'tile-empty', 'aria-hidden': 'true' });
+  const el = h('div', { class: 'tile-empty', title: 'add a session here' });
+  el.addEventListener('click', () => { if (!dragId) openPicker(slot); });
   el.addEventListener('dragover', (e) => { if (dragId) { e.preventDefault(); el.dataset.drop = 'swap'; } });
   el.addEventListener('dragleave', () => { delete el.dataset.drop; });
   el.addEventListener('drop', (e) => {
@@ -428,6 +434,51 @@ function makeEmptyCell(slot) {
   });
   return el;
 }
+
+// ---------------------------------------------------------------- add a session
+// Claude sessions started by hand in other terminals (GET /v1/live); adding
+// one puts it on the deck, in the free cell it was opened from.
+let pickerSlot = -1;
+
+async function openPicker(slot = -1) {
+  pickerSlot = slot;
+  $('picker').hidden = false;
+  $('picker-close').focus();
+  await refreshPicker();
+}
+
+function closePicker() { $('picker').hidden = true; }
+
+async function refreshPicker() {
+  const list = $('picker-list');
+  let sessions = [];
+  try {
+    const r = FIXTURE ? { ok: true, json: async () => ({ sessions: fixtureLive }) } : await fetch('/v1/live', { credentials: 'same-origin', cache: 'no-store' });
+    if (r.ok) sessions = (await r.json()).sessions || [];
+  } catch { /* offline: empty list */ }
+  if (!sessions.length) {
+    list.replaceChildren(h('li', { class: 'picker-empty', text: 'no other Claude sessions running in your terminals' }));
+    return;
+  }
+  list.replaceChildren(...sessions.map((s) => {
+    const btn = h('button', { type: 'button', class: 'toggle', text: s.onBoard ? 'on the deck' : 'add', disabled: s.onBoard });
+    btn.addEventListener('click', async () => {
+      btn.disabled = true; btn.textContent = 'adding…';
+      const r = await api(`/v1/live/${encodeURIComponent(s.sessionId)}/add`, pickerSlot >= 0 ? { slot: pickerSlot } : {});
+      if (r.ok) closePicker(); else { btn.disabled = false; btn.textContent = `failed · ${r.error}`; }
+    });
+    return h('li', {},
+      h('span', { class: 'picker-name', text: s.title || s.folder }),
+      h('span', { class: 'picker-meta', text: `${s.folder} · started ${rel(s.started)} ago` }),
+      btn);
+  }));
+}
+
+$('add-session').addEventListener('click', () => openPicker(-1));
+$('picker-close').replaceChildren(closeIcon());
+$('picker-close').addEventListener('click', closePicker);
+$('picker').addEventListener('click', (e) => { if (e.target === e.currentTarget) closePicker(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('picker').hidden) { e.stopPropagation(); closePicker(); } }, true);
 
 function renderTop() {
   const c = { running: 0, waiting: 0, idle: 0, error: 0 };
@@ -556,8 +607,8 @@ function actionButton(a, label, path, cls, note) {
 
 // Exited agents are removed at once; a live one is stopped only on a second click.
 function removeButton(a, note) {
-  const exited = a.status === 'exited' || a.external; // hiding a Codex thread needs no confirm
-  const idle = a.external ? 'hide' : a.status === 'exited' ? 'remove' : 'stop';
+  const exited = a.status === 'exited' || a.external; // hiding or un-adding needs no confirm
+  const idle = codexThread(a) ? 'hide' : watched(a) ? 'remove from deck' : a.status === 'exited' ? 'remove' : 'stop';
   const b = h('button', { type: 'button', class: 'btn narrow', text: idle });
   let armed = null;
   b.addEventListener('click', async () => {
@@ -592,7 +643,7 @@ function buildInfo(a) {
   const server = h('span');
   const note = h('div', { class: 'note', role: 'status', 'aria-live': 'polite' });
   const actions = h('div', { class: 'actions' });
-  if (a.status !== 'exited') actions.append(actionButton(a, a.external ? 'open in codex' : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
+  if (a.status !== 'exited') actions.append(actionButton(a, codexThread(a) ? 'open in codex' : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
   else if (a.resumable) actions.append(actionButton(a, 'resume', 'resume', 'solid', note));
   if (a.status === 'running' && !a.external) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
   else actions.append(removeButton(a, note));
@@ -628,8 +679,8 @@ function buildInfo(a) {
     bar.setAttribute('aria-valuenow', String(pct));
     const t = x.tokens || {};
     [fmtN(t.input), fmtN(t.output), fmtN(t.cacheRead), fmtN(t.cacheWrite)].forEach((v, i) => setText(S[i][1], v));
-    const cost = x.external ? '—' : fmtCost(x.costUsd); // no price list for Codex models
-    if (S[4][1].dataset.v !== cost) { S[4][1].dataset.v = cost; S[4][1].replaceChildren(cost, ...(x.external ? [] : [h('small', { text: 'est' })])); }
+    const cost = codexThread(x) ? '—' : fmtCost(x.costUsd); // no price list for Codex models
+    if (S[4][1].dataset.v !== cost) { S[4][1].dataset.v = cost; S[4][1].replaceChildren(cost, ...(codexThread(x) ? [] : [h('small', { text: 'est' })])); }
     setText(S[5][1], String(x.turns ?? 0));
     setText(prompt, x.lastPrompt || '—');
     setText(foot, [x.modelLabel || x.model, tilde(x.cwd), x.branch].filter(Boolean).join(' · '));
@@ -897,6 +948,7 @@ async function start() {
 // ---------------------------------------------------------------- fixture mode (dev only)
 // ?fixture loads ./fixture.json and animates it locally. Extra dev flags:
 //   &open=<id>  open that agent's panel   &still  no simulation
+//   &picker     the "add a session" picker
 //   &empty      no agents                 &offline  disconnected banner   &expired  401 screen
 let fx = null;
 const AGO = { 0: 38, 1: 2, 2: 12, 3: 4, 4: 3, 5: 63, 6: 5, 7: 60, 8: 9, 10: 7, 15: 190 }; // minutes since status change, by slot
@@ -933,6 +985,7 @@ async function startFixture() {
     a.updatedAt = iso(t0 - 5000);
   }
   if (params.has('empty')) data.agents = [];
+  if (params.has('picker')) setTimeout(() => openPicker(9), 300);
   if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
   fxEmit();
@@ -971,8 +1024,23 @@ function fxTick() {
   fxEmit();
 }
 
+// ?fixture: two hand-started sessions for the "add a session" picker.
+const fixtureLive = [
+  { sessionId: '7a1c9e20-5d3b-4f6a-9b2e-1c4d5e6f7a8b', title: 'notes cleanup', cwd: '/Users/sam/dev/notes', folder: 'notes', started: new Date(Date.now() - 42 * 60000).toISOString(), onBoard: false },
+  { sessionId: '3e8f0b14-2a6c-4d7e-8f9a-0b1c2d3e4f5a', title: 'release checklist', cwd: '/Users/sam/dev/checkout-api', folder: 'checkout-api', started: new Date(Date.now() - 3 * 3600000).toISOString(), onBoard: false },
+];
+
 async function fixtureAction(path, body) {
   await new Promise((r) => setTimeout(r, 250));
+  if (path.startsWith('/v1/live/')) {
+    const s = fixtureLive.find((x) => path.includes(x.sessionId));
+    if (!s) return { ok: false, status: 404, error: 'no such session' };
+    s.onBoard = true;
+    const slot = body?.slot ?? Math.max(-1, ...fx.agents.map((a) => a.slot)) + 1;
+    fx.agents.push({ ...fx.agents[0], id: 'l' + s.sessionId.slice(0, 5), title: s.title, folder: s.folder, cwd: s.cwd, slot, external: true, tool: 'claude', status: 'idle', unseen: false, activity: null, waiting: null, subagents: undefined, costUsd: 0.82 });
+    fxEmit();
+    return { ok: true, status: 204 };
+  }
   if (path === '/v1/restore') {
     for (const a of fx.agents) if (a.lost) Object.assign(a, { status: 'starting', lost: false, resumable: false });
     fxEmit();

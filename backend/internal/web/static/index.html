@@ -26,6 +26,7 @@
   <div class="top-right">
     <button type="button" id="panel-toggle" class="toggle" aria-pressed="false" title="show the board as the 720×720 panel shows it">panel view</button>
     <button type="button" id="sort-toggle" class="toggle" aria-pressed="false" title="show agents that need you first">needs you first</button>
+    <button type="button" id="add-session" class="toggle" title="add a Claude session that runs in another terminal">+ session</button>
     <span id="server-name" class="server">—</span>
     <span class="conn" id="conn" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><span id="conn-label">connecting…</span></span>
     <time id="clock" class="clock">--:--</time>
@@ -33,6 +34,13 @@
 </header>
 
 <div id="banner" class="banner" role="alert" hidden>connection lost · showing last known state · reconnecting…</div>
+<div id="picker" class="picker" hidden>
+  <div class="picker-card" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <div class="picker-head"><h2 id="picker-title">add a session</h2><button type="button" id="picker-close" class="d-close" aria-label="close (esc)">×</button></div>
+    <p class="picker-sub">Claude sessions running in your own terminals. Added ones are watched: status, context and cost; you answer them in their terminal.</p>
+    <ul id="picker-list" class="picker-list"></ul>
+  </div>
+</div>
 <div id="lost-bar" class="banner lost-bar" role="status" hidden><span id="lost-text"></span><button type="button" id="lost-restore" class="toggle">restore all</button></div>
 
 <div class="layout">

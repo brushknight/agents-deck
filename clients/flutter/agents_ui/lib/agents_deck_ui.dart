@@ -11,5 +11,6 @@ export 'src/agents_fake.dart';
 export 'src/agents_model.dart';
 export 'src/agents_style.dart';
 export 'src/critter.dart';
+export 'src/live_picker.dart';
 export 'src/theme.dart';
 export 'src/widgets.dart';

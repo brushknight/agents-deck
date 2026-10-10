@@ -50,6 +50,8 @@ From source: `cd backend && go build -o ~/.local/bin/agentctl ./cmd/agentctl && 
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an agent and attach (-d: stay detached)
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
 agentctl reopen                     iTerm tabs for every agent no terminal shows (after iTerm quits or crashes)
+agentctl live                       Claude sessions started by hand in other terminals
+agentctl add <session>              put one of them on the deck (watched; or tap a free cell)
 agentctl restore                    bring back agents lost with the tmux server (crash, reboot), each in its old spot
 agentctl set restore ask|auto       keep lost agents for `restore` (default), or bring them back right away
 agentctl ls                         the fleet at a glance

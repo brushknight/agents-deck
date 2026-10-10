@@ -198,8 +198,10 @@ class _AgentDetailState extends State<AgentDetail> {
       key: const Key('agent-remove'),
       label: _flashKey == 'dismiss' && _flash == _Flash.sent
           ? 'removed'
-          : a.external
+          : a.codexThread
           ? 'hide'
+          : a.watched
+          ? 'remove from deck'
           : exited
           ? 'remove'
           : armed
@@ -381,7 +383,7 @@ class _AgentDetailState extends State<AgentDetail> {
     required Color pressedInk,
   }) => [
     if (widget.showBack) ...[
-      _BackButton(
+      CardBackButton(
         onTap: widget.onClose,
         ink: ink,
         outline: outline,
@@ -495,7 +497,7 @@ class _AgentDetailState extends State<AgentDetail> {
                 ('cache read', compactCount(a.cacheRead)),
                 (
                   'cost · est',
-                  a.external ? '—' : '\$${a.costUsd.toStringAsFixed(2)}',
+                  a.codexThread ? '—' : '\$${a.costUsd.toStringAsFixed(2)}',
                 ),
                 ('turns', '${a.turns}'),
               ])
@@ -561,7 +563,7 @@ class _AgentDetailState extends State<AgentDetail> {
                     key: const Key('agent-focus'),
                     label: _flashKey == 'focus' && _flash == _Flash.sent
                         ? 'focused'
-                        : a.external
+                        : a.codexThread
                         ? 'open in codex'
                         : a.hungry
                         ? 'review in terminal'
@@ -1156,8 +1158,9 @@ class SubagentCrew extends StatelessWidget {
 
 /// A square "‹" button that closes the card (hosts without an edge swipe),
 /// the same height and outline as the [AgentButton]s beside it.
-class _BackButton extends StatelessWidget {
-  const _BackButton({
+class CardBackButton extends StatelessWidget {
+  const CardBackButton({
+    super.key,
     required this.onTap,
     required this.ink,
     required this.outline,

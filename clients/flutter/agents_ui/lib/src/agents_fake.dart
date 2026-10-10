@@ -207,6 +207,60 @@ class FakeAgentsSource implements AgentsSource {
   @override
   Future<AgentsResult> resume(String agentId) => _command('resume', agentId);
 
+  /// Hand-started sessions the "add a session" picker offers.
+  final live = <LiveSession>[
+    const LiveSession(
+      sessionId: '7a1c9e20-5d3b-4f6a-9b2e-1c4d5e6f7a8b',
+      title: 'notes cleanup',
+      folder: 'notes',
+    ),
+    const LiveSession(
+      sessionId: '3e8f0b14-2a6c-4d7e-8f9a-0b1c2d3e4f5a',
+      title: 'release checklist',
+      folder: 'checkout-api',
+    ),
+  ];
+
+  @override
+  Future<List<LiveSession>> liveSessions() async => List.of(live);
+
+  @override
+  Future<AgentsResult> addLive(String sessionId, {int? slot}) async {
+    calls.add(('addLive', sessionId, slot == null ? null : {'slot': slot}));
+    final i = live.indexWhere((s) => s.sessionId == sessionId);
+    if (i < 0) {
+      return const AgentsResult(AgentsResultKind.failed, 'no such session');
+    }
+    final s = live[i];
+    live[i] = LiveSession(
+      sessionId: s.sessionId,
+      title: s.title,
+      folder: s.folder,
+      onBoard: true,
+    );
+    final used = {for (final a in _agents) a['slot']};
+    var free = slot ?? 0;
+    while (slot == null && used.contains(free)) {
+      free++;
+    }
+    _agents.add({
+      ...(_agents.first),
+      'id': 'l${s.sessionId.substring(0, 5)}',
+      'title': s.title,
+      'folder': s.folder,
+      'slot': free,
+      'tool': 'claude',
+      'external': true,
+      'status': 'idle',
+      'unseen': false,
+      'activity': null,
+      'waiting': null,
+      'subagents': null,
+    });
+    _emit();
+    return AgentsResult.ok;
+  }
+
   @override
   Future<AgentsResult> move(String agentId, int slot) async {
     calls.add(('move', agentId, {'slot': slot}));

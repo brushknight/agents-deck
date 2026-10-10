@@ -25,6 +25,7 @@ type Entry struct {
 	External      bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
 	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
 	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
+	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

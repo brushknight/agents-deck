@@ -240,6 +240,26 @@ func Subagents(transcript string, window, toolWindow time.Duration) []model.Suba
 	return subs
 }
 
+// ReadSession reads one session transcript's metadata (title, folder, branch,
+// last prompt).
+func ReadSession(path, id string) (SessionInfo, bool) { return readSession(path, id) }
+
+// TranscriptTurn reads the end of a session transcript: whether a turn is in
+// progress (the last message isn't Claude's final reply, and the file was
+// written within window or a tool call is still out), and the tool of the
+// latest call.
+func TranscriptTurn(path string, window time.Duration) (running bool, tool string) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return false, ""
+	}
+	done, inTool, tool, _ := subagentTail(path, st.Size())
+	if done {
+		return false, ""
+	}
+	return inTool || time.Since(st.ModTime()) < window, tool
+}
+
 // subagentTail reads the end of a subagent transcript: whether its last
 // message is a final reply, whether it is a tool call still waiting for its
 // result, the tool of its latest call, and roughly when it started.

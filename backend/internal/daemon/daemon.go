@@ -48,6 +48,7 @@ type Daemon struct {
 	front     string // tmux session of the focused terminal (last tick)
 
 	lastAutoRestore time.Time
+	live            liveWatch
 }
 
 func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
@@ -373,7 +374,7 @@ func (d *Daemon) uniqueTitle(base string) string {
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
 	if e, ok := d.Store.Get(id); ok && e.External {
-		return errExternal
+		return externalErr(e)
 	}
 	var tmuxName string
 	var label string
@@ -451,7 +452,7 @@ func (d *Daemon) Interrupt(id string) error {
 		return server.ErrNotFound
 	}
 	if e.External {
-		return errExternal
+		return externalErr(e)
 	}
 	if err := tmux.SendKeys(e.TmuxName, "", "Escape"); err != nil {
 		return err
@@ -471,6 +472,9 @@ func (d *Daemon) Focus(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
+	}
+	if e.External && e.A.Tool == "claude" {
+		return d.focusLive(e)
 	}
 	if e.External {
 		return d.focusExternal(e)
@@ -549,6 +553,10 @@ func (d *Daemon) Dismiss(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
+	}
+	if e.External && e.A.Tool == "claude" {
+		d.removeLive(e) // off the deck; the session keeps running
+		return nil
 	}
 	if e.External {
 		d.hideExternal(e)

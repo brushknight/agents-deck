@@ -36,6 +36,13 @@ type Restorer interface {
 	RestoreJSON() any
 }
 
+// Watcher lists Claude sessions started by hand in other terminals and puts
+// the ones you pick on the deck (GET /v1/live, POST /v1/live/{session}/add).
+type Watcher interface {
+	LiveJSON() any
+	AddLive(sessionID string, slot int) error
+}
+
 // Local-only extras (unix socket).
 type LocalController interface {
 	Controller
@@ -129,6 +136,30 @@ func (s *Server) api() *http.ServeMux {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/live", func(w http.ResponseWriter, r *http.Request) {
+		lw, ok := s.Ctl.(Watcher)
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]any{"sessions": []any{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": lw.LiveJSON()})
+	})
+	mux.HandleFunc("POST /v1/live/{session}/add", func(w http.ResponseWriter, r *http.Request) {
+		lw, ok := s.Ctl.(Watcher)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "not available")
+			return
+		}
+		body := struct {
+			Slot *int `json:"slot"`
+		}{}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body) // optional
+		slot := -1
+		if body.Slot != nil && *body.Slot >= 0 && *body.Slot <= store.MaxSlot {
+			slot = *body.Slot
+		}
+		s.act(w, lw.AddLive(r.PathValue("session"), slot))
 	})
 	mux.HandleFunc("POST /v1/restore", func(w http.ResponseWriter, r *http.Request) {
 		rs, ok := s.Ctl.(Restorer)

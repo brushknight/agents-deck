@@ -100,6 +100,12 @@ abstract class AgentsSource {
   /// (free or not; an agent already there swaps into the old position).
   Future<AgentsResult> move(String agentId, int slot);
 
+  /// `GET /v1/live` — Claude sessions started by hand in other terminals.
+  Future<List<LiveSession>> liveSessions();
+
+  /// `POST /v1/live/{session}/add` — puts one on the deck, at [slot] if given.
+  Future<AgentsResult> addLive(String sessionId, {int? slot});
+
   /// One-off `GET /v1/state` (after a 409, so the new prompt shows at once).
   Future<void> refresh();
 
@@ -510,6 +516,39 @@ class HttpAgentsClient implements AgentsSource {
   @override
   Future<AgentsResult> move(String agentId, int slot) =>
       _postPath(['v1', 'agents', agentId, 'move'], {'slot': slot});
+
+  @override
+  Future<List<LiveSession>> liveSessions() async {
+    final cfg = _config;
+    if (cfg == null) return const [];
+    try {
+      final req = await _clientFor(
+        cfg,
+      ).getUrl(cfg.endpoint(const ['v1', 'live'])).timeout(requestTimeout);
+      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}');
+      final res = await req.close().timeout(requestTimeout);
+      _checkPin(res.certificate, cfg);
+      final text = await _readBody(res);
+      if (res.statusCode != 200) return const [];
+      final j = jsonDecode(text);
+      final list = j is Map<String, dynamic> ? j['sessions'] : null;
+      return [
+        if (list is List)
+          for (final x in list)
+            if (x is Map<String, dynamic>) LiveSession.fromJson(x),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<AgentsResult> addLive(String sessionId, {int? slot}) => _postPath([
+    'v1',
+    'live',
+    sessionId,
+    'add',
+  ], slot == null ? null : {'slot': slot});
 
   @override
   Future<void> refresh() async {

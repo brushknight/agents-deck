@@ -51,6 +51,12 @@ Threads from the Codex app (and Codex CLI) active in the last 6 hours appear on 
 
 `config.json`: `"codex": false` turns it off; `"codexWindowHours": 12` widens the window.
 
+## Claude sessions started elsewhere
+
+Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (or **+ session** on the web dashboard, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell.
+
+Added sessions are **watched**: status (working, idle, hungry when a turn finishes while watched), activity, context, cost and subagents come from the session's transcript, and **focus** jumps to its terminal tab. There are no hooks there, so the deck can't see or answer a permission prompt: answer it in that terminal. **remove from deck** takes the session off the deck; the session itself keeps running. Added sessions come back whenever they run again.
+
 ## Agent terminals
 
 - **Focus.** iTerm's local API selects the agent's tab and pane, then iTerm's `StealFocus` escape brings the window forward, including a hidden hotkey window. `agentctl set term tmux` switches your last-used tab to the agent instead; `window` only raises its window.

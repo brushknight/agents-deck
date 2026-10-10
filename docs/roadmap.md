@@ -49,7 +49,9 @@ Delivered by the menu bar app as native notifications. Clicking one opens that a
 
 ## Next (after the first release)
 
-### Every Claude Code session on this machine
+### Every Claude Code session on this machine — done
+
+`agentctl live` / `agentctl add`, `GET /v1/live` + `POST /v1/live/{session}/add`, a free cell (or **+ session** on the web) opens "add a session". Watched sessions show status, activity, context, cost and subagents; "needs you" isn't visible without hooks.
 
 See the Claude sessions that agentctl didn't start (plain `claude` in any terminal) and add the ones you want to the deck.
 

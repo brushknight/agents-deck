@@ -44,6 +44,8 @@ const usage = `agentctl — agents-terminal
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
   agentctl restore               bring back agents lost with the tmux server (crash, reboot)
+  agentctl live                  Claude sessions started by hand in other terminals
+  agentctl add <session>         put one of them on the deck (watched)
   agentctl reopen                iTerm tabs for every agent no terminal shows (after a crash)
   agentctl attach <id|title>     show an agent in this terminal (detach: ctrl-q)
   agentctl ls                    list agents
@@ -89,6 +91,10 @@ func main() {
 		err = reopen()
 	case "restore":
 		err = restore()
+	case "live":
+		err = liveCmd()
+	case "add":
+		err = addCmd(args)
 	case "ls", "list":
 		err = list()
 	case "rm":
@@ -275,6 +281,48 @@ func attach(args []string) error {
 		return exec.Command("tmux", "new-window", "-n", a.Title, strings.Join(argv, " ")).Run()
 	}
 	return syscall.Exec(argv[0], argv, os.Environ())
+}
+
+// liveCmd lists Claude sessions started by hand in other terminals.
+func liveCmd() error {
+	var res struct {
+		Sessions []struct {
+			SessionID, Title, Folder string
+			OnBoard                  bool
+		}
+	}
+	if err := call("GET", "/v1/live", nil, &res); err != nil {
+		return err
+	}
+	if len(res.Sessions) == 0 {
+		fmt.Println("no other Claude sessions running in your terminals")
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "SESSION\tTITLE\tFOLDER\tDECK")
+	for _, s := range res.Sessions {
+		deck := "-"
+		if s.OnBoard {
+			deck = "on the deck"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.SessionID[:8], s.Title, s.Folder, deck)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Println("\nput one on the deck: agentctl add <session>")
+	return nil
+}
+
+func addCmd(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: agentctl add <session id or prefix>   (see agentctl live)")
+	}
+	if err := call("POST", "/v1/live/"+url.PathEscape(args[0])+"/add", nil, nil); err != nil {
+		return err
+	}
+	fmt.Println("on the deck · watched: status, context and cost; answer it in its own terminal")
+	return nil
 }
 
 // restore brings back every agent lost with the tmux server (crash, reboot).
@@ -726,6 +774,7 @@ func serve(args []string) error {
 		d.Adopt()
 		go d.Run()
 		go d.WatchCodex()
+		go d.WatchLive()
 		ctl, lc = d, d
 	}
 
