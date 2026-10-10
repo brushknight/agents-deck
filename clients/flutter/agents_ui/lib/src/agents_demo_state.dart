@@ -452,8 +452,8 @@ const agentsDemoStateJson = r'''
       "unseen": false,
       "external": true,
       "hat": {
-        "shape": "headphones",
-        "color": "ink",
+        "shape": "beret",
+        "color": "pink",
         "auto": true
       }
     },
