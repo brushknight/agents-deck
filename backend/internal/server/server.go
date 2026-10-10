@@ -31,6 +31,11 @@ type Controller interface {
 	Resume(id string) error
 }
 
+// Restorer brings back agents lost with the tmux server (POST /v1/restore).
+type Restorer interface {
+	RestoreJSON() any
+}
+
 // Local-only extras (unix socket).
 type LocalController interface {
 	Controller
@@ -124,6 +129,14 @@ func (s *Server) api() *http.ServeMux {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/restore", func(w http.ResponseWriter, r *http.Request) {
+		rs, ok := s.Ctl.(Restorer)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "restore is not available")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"results": rs.RestoreJSON()})
 	})
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))

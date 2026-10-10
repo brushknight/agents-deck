@@ -42,6 +42,7 @@ const usage = `agentctl — agents-terminal
 
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
+  agentctl restore               bring back agents lost with the tmux server (crash, reboot)
   agentctl reopen                iTerm tabs for every agent no terminal shows (after a crash)
   agentctl attach <id|title>     show an agent in this terminal (detach: ctrl-q)
   agentctl ls                    list agents
@@ -85,6 +86,8 @@ func main() {
 		err = attach(args)
 	case "reopen":
 		err = reopen()
+	case "restore":
+		err = restore()
 	case "ls", "list":
 		err = list()
 	case "rm":
@@ -273,6 +276,35 @@ func attach(args []string) error {
 	return syscall.Exec(argv[0], argv, os.Environ())
 }
 
+// restore brings back every agent lost with the tmux server (crash, reboot).
+func restore() error {
+	var res struct {
+		Results []struct {
+			ID, Title, Action, Error string
+		}
+	}
+	if err := call("POST", "/v1/restore", nil, &res); err != nil {
+		return err
+	}
+	if len(res.Results) == 0 {
+		fmt.Println("nothing to restore: no agents were lost with the tmux server")
+		return nil
+	}
+	failed := 0
+	for _, r := range res.Results {
+		line := fmt.Sprintf("%s  %-10s %s", r.ID, r.Action, r.Title)
+		if r.Error != "" {
+			line += "  (" + r.Error + ")"
+			failed++
+		}
+		fmt.Println(line)
+	}
+	if n := len(res.Results) - failed; n > 0 {
+		fmt.Printf("%d agent(s) back · `agentctl reopen` opens their terminals\n", n)
+	}
+	return nil
+}
+
 // reopen opens an iTerm tab for every live agent that no terminal shows, e.g.
 // after iTerm quit or crashed (the agents kept running in tmux).
 func reopen() error {
@@ -321,12 +353,17 @@ func list() error {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER")
+	lost := 0
 	for _, a := range s.Agents {
 		ctx := "-"
 		if a.Context.Window > 0 {
 			ctx = fmt.Sprintf("%d%%", a.Context.Used*100/a.Context.Window)
 		}
 		st := string(a.Status)
+		if a.Lost {
+			st = "lost"
+			lost++
+		}
 		if a.Waiting != nil {
 			st += ": " + a.Waiting.Title
 		}
@@ -336,7 +373,13 @@ func list() error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if lost > 0 {
+		fmt.Printf("\n%d agent(s) were lost with the tmux server · `agentctl restore` brings them back\n", lost)
+	}
+	return nil
 }
 
 // liveWindow: a transcript written this recently probably belongs to a Claude
@@ -798,8 +841,8 @@ func setCmd(args []string) error {
 }
 
 func getCmd(args []string) error {
-	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse()}
-	keys := []string{"term", "mouse"}
+	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse(), "restore": daemon.CurrentRestore()}
+	keys := []string{"term", "mouse", "restore"}
 	if len(args) == 1 {
 		v, ok := vals[args[0]]
 		if !ok {
@@ -809,7 +852,7 @@ func getCmd(args []string) error {
 		return nil
 	}
 	for _, k := range keys {
-		fmt.Printf("%-6s %-8s %s\n", k, vals[k], daemon.Settings[k].Help)
+		fmt.Printf("%-7s %-7s %s\n", k, vals[k], daemon.Settings[k].Help)
 	}
 	return nil
 }

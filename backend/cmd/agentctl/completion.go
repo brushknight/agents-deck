@@ -37,6 +37,7 @@ _agentctl() {
     'pair:print the values the panel needs'
     'serve:run the daemon'
     'install:install and start the launchd agent'
+    'restore:bring back agents lost with the tmux server'
     'reopen:iTerm tabs for every agent no terminal shows'
     'set:change a setting (term iterm|tmux|window, mouse tmux|native)'
     'get:show settings'
@@ -82,15 +83,18 @@ _agentctl() {
     serve)      _arguments '--demo[simulated fleet from the fixture]' ;;
     completion) (( CURRENT == 3 )) && _values 'shell' zsh ;;
     set)
-      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]'
+      if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]' 'restore[what happens to agents lost with tmux]'
       elif [[ ${words[3]} == term ]]; then
         local -a modes; modes=('iterm:select the agent'"'"'s iTerm tab and pane' 'tmux:switch your last-used tab to the agent' 'window:just raise the agent'"'"'s window')
         _describe -t modes 'focus mode' modes
+      elif [[ ${words[3]} == restore ]]; then
+        local -a modes; modes=('ask:keep them for agentctl restore' 'auto:bring them back right away')
+        _describe -t modes 'restore mode' modes
       elif [[ ${words[3]} == mouse ]]; then
         local -a modes; modes=('tmux:wheel scrolls tmux history, drag copies, click opens links' 'native:your terminal handles the mouse and its own scrollback')
         _describe -t modes 'mouse mode' modes
       fi ;;
-    get) (( CURRENT == 3 )) && _values 'setting' term mouse ;;
+    get) (( CURRENT == 3 )) && _values 'setting' term mouse restore ;;
   esac
 }
 

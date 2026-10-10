@@ -173,6 +173,13 @@ func Sessions() map[string]bool {
 	return live
 }
 
+// ServerRunning reports whether our tmux server is up. (It exits by itself
+// once its last session ends.)
+func ServerRunning() bool {
+	_, err := run("list-sessions", "-F", "#{session_name}")
+	return err == nil
+}
+
 // Client is one terminal attached to a session.
 type Client struct {
 	Session  string

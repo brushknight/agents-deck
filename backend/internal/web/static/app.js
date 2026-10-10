@@ -95,7 +95,7 @@ function tileMeta(a) {
     case 'idle': return ageMin(a.statusSince) < 120 ? `done · ${rel(a.statusSince)} ago` : `idle · ${rel(a.statusSince)}`;
     case 'error': return a.error?.message || 'error';
     case 'starting': return 'starting…';
-    case 'exited': return a.resumable ? `ended · resumable` : `exited · ${rel(a.statusSince)} ago`;
+    case 'exited': return a.lost ? 'lost with tmux' : a.resumable ? `ended · resumable` : `exited · ${rel(a.statusSince)} ago`;
     default: return a.status || '';
   }
 }
@@ -107,7 +107,7 @@ function pillText(a) {
     case 'waiting': return a.waiting?.kind === 'question' && a.waiting.context ? a.waiting.context : `needs you · ${since}`;
     case 'idle': return a.unseen ? `hungry · ${since}` : `idle · ${since}`;
     case 'error': return `error · ${since}`;
-    case 'exited': return `exited · ${since}`;
+    case 'exited': return a.lost ? `lost with tmux · ${since}` : `exited · ${since}`;
     default: return a.status;
   }
 }
@@ -440,10 +440,22 @@ function renderTop() {
   $('c-waiting').classList.toggle('hot', c.waiting > 0);
   $('c-error').classList.toggle('hot', c.error > 0);
   if (state?.server?.name) setText($('server-name'), state.server.name);
+  // Agents lost with the tmux server (crash, reboot): offer to bring them all back.
+  const lost = (state?.agents || []).filter((a) => a.lost).length;
+  $('lost-bar').hidden = lost === 0;
+  if (lost) setText($('lost-text'), `${lost} agent${lost === 1 ? ' was' : 's were'} lost when tmux stopped`);
   const attention = c.waiting ? `(${c.waiting}) ` : '';
   const title = `${attention}agents${state?.server?.name ? ' · ' + state.server.name : ''}`;
   if (document.title !== title) document.title = title;
 }
+
+$('lost-restore').addEventListener('click', async (e) => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'restoring…';
+  const r = await api('/v1/restore');
+  b.disabled = false; b.textContent = 'restore all';
+  if (!r.ok) setText($('lost-text'), `restore failed · ${r.error}`);
+});
 
 function setConn(mode) { // live | reconnecting | connecting
   online = mode === 'live';
@@ -921,6 +933,7 @@ async function startFixture() {
     a.updatedAt = iso(t0 - 5000);
   }
   if (params.has('empty')) data.agents = [];
+  if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
   fxEmit();
   setConn('live');
@@ -960,6 +973,11 @@ function fxTick() {
 
 async function fixtureAction(path, body) {
   await new Promise((r) => setTimeout(r, 250));
+  if (path === '/v1/restore') {
+    for (const a of fx.agents) if (a.lost) Object.assign(a, { status: 'starting', lost: false, resumable: false });
+    fxEmit();
+    return { ok: true, status: 200 };
+  }
   if (path === '/v1/order') {
     body.ids.forEach((id, i) => { const a = fx.agents.find((x) => x.id === id); if (a) a.slot = i; });
     fxEmit();

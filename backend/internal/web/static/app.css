@@ -130,6 +130,10 @@ code, .code { font-family: var(--f-head); }
   color: var(--accent);
   padding: 8px var(--gutter);
 }
+.lost-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.lost-bar[hidden] { display: none; }
+.lost-bar .toggle { border-color: var(--accent); color: var(--accent); }
+.lost-bar .toggle:hover { background: var(--accent); color: var(--bg); }
 
 /* ---------- layout ---------- */
 .layout { flex: 1; display: flex; min-height: 0; }

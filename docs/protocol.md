@@ -23,6 +23,7 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
 | POST | `/v1/agents/{id}/move` | `{"slot": 9}` | `204` — puts the agent at board position 0..255; free positions are fine (the board can have gaps), and an agent already there swaps into the mover's old position. Used by drag-and-drop on the web and the panel |
+| POST | `/v1/restore` | – | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}` — brings back every agent with `lost: true`: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 
@@ -77,6 +78,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "focused": false,               // true when its terminal is the front iTerm tab on the Mac
   "attached": true,               // a terminal is currently showing it
   "resumable": false,             // exited Claude agent that /resume can bring back
+  "lost": false,                  // omitted when false: ended with the tmux server (crash, reboot), not by itself; POST /v1/restore brings it back
   "unseen": false,                // finished a turn nobody has looked at yet ("hungry"); cleared when its terminal is focused or it gets a new prompt
   "external": false,              // mirrored from another app (a Codex app thread): focus opens it there, dismiss hides it; answer/interrupt/resume return an error
   "subagents": [                  // omitted when none: subagents still working, oldest first

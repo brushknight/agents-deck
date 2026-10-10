@@ -2,13 +2,15 @@
 
 Short and ordered. Each step should be usable on its own before the next starts.
 
-## 1. Restore after a tmux crash or reboot
+## 1. Restore after a tmux crash or reboot — done
 
-Today a dead tmux server (crash, reboot, `tmux kill-server`) leaves every agent `exited`. Each one offers **resume**, then moves to the history after 10 minutes.
+`agentctl restore`, `agentctl set restore ask|auto`, `POST /v1/restore`, and a "restore all" bar on the web dashboard. Shells and other tools are relaunched fresh in their folders; simulated agents are dropped.
+
+Before this, a dead tmux server (crash, reboot, `tmux kill-server`) left every agent `exited`; each one offered **resume**, then moved to the history after 10 minutes.
 
 - `agentctl restore` brings the whole board back in one go. Every Claude agent that has a session id is resumed with `claude --resume <id>` in its own folder, keeping its title (if you set one with `-t`) and its board position.
 - On daemon start, agents that were alive before the tmux server died are listed for restore instead of expiring. Restoring automatically is a setting (`agentctl set restore auto|ask`), default `ask`.
-- Shells and non-Claude agents come back as fresh sessions in their folders, or are skipped; to be decided while building.
+- Shells and non-Claude agents come back as fresh sessions in their folders.
 - Out of scope: running processes themselves never survive; only the conversations do.
 
 ## 2. Menu bar app (the deck as an overlay)

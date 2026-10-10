@@ -46,6 +46,8 @@ type Daemon struct {
 	reporting map[string]bool // ttys we asked to report focus
 	codex     codexWatch
 	front     string // tmux session of the focused terminal (last tick)
+
+	lastAutoRestore time.Time
 }
 
 func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
@@ -83,7 +85,7 @@ func (d *Daemon) Run() {
 		d.mu.Lock()
 		d.front = front
 		d.mu.Unlock()
-		var gone []string
+		var gone, died []string
 		d.Store.Each(func(e *store.Entry) bool {
 			if e.External {
 				return false // mirrored by WatchCodex
@@ -94,12 +96,14 @@ func (d *Daemon) Run() {
 			switch {
 			case !alive && !young && e.A.Status != model.Exited:
 				e.SetStatus(model.Exited)
+				died = append(died, e.A.ID)
 				changed = true
-			case !alive && e.A.Status == model.Exited && d.exitedTTL() > 0 && time.Since(e.A.StatusSince) > d.exitedTTL():
+			case !alive && e.A.Status == model.Exited && !e.A.Lost && d.exitedTTL() > 0 && time.Since(e.A.StatusSince) > d.exitedTTL():
 				remember(*e)
 				gone = append(gone, e.A.ID)
 			case alive && e.A.Status == model.Exited:
 				e.SetStatus(model.Idle) // e.g. the daemon restarted while tmux was briefly unreachable
+				e.A.Lost = false
 				changed = true
 			}
 			if n%2 == 0 && alive && e.A.Tool == "claude" && d.subagents(e) {
@@ -138,6 +142,12 @@ func (d *Daemon) Run() {
 		for _, id := range gone {
 			d.Store.Remove(id)
 			log.Printf("removed exited agent %s", id)
+		}
+		// Several agents gone at once and no tmux server left: it crashed or
+		// was killed, the agents didn't quit. (One agent quitting is normal,
+		// and the server exits by itself after its last session.)
+		if len(died) >= 2 && !tmux.ServerRunning() {
+			d.markLost(died, "tmux server stopped")
 		}
 	}
 }
@@ -558,16 +568,24 @@ func (d *Daemon) Dismiss(id string) error {
 // Adopt marks restored agents whose tmux session is gone as exited.
 func (d *Daemon) Adopt() {
 	live := tmux.Sessions()
+	server := tmux.ServerRunning()
+	var lost []string
 	d.Store.Each(func(e *store.Entry) bool {
 		if e.External {
 			return false
 		}
 		e.Offset, e.Usage, e.Pending = 0, nil, "" // rebuild totals from the transcript
 		if !live[e.TmuxName] {
+			// Alive when the daemon last saw it, gone now with no tmux server:
+			// lost with the server or the machine (reboot), not quit.
+			if e.A.Status != model.Exited && !server && !e.Sim {
+				lost = append(lost, e.A.ID)
+			}
 			e.SetStatus(model.Exited)
 		}
 		return true
 	})
+	d.markLost(lost, "not running after the daemon started")
 }
 
 func shellJoin(argv []string) string {

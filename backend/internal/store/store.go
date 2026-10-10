@@ -322,6 +322,18 @@ func (s *Store) Each(fn func(*Entry) bool) {
 	}
 }
 
+// Entries returns copies of every entry, in slot order.
+func (s *Store) Entries() []Entry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Entry, 0, len(s.entries))
+	for _, e := range s.entries {
+		out = append(out, *e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].A.Slot < out[j].A.Slot })
+	return out
+}
+
 // Get returns a copy of one entry's wire view and private fields.
 func (s *Store) Get(id string) (Entry, bool) {
 	s.mu.Lock()

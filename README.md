@@ -78,6 +78,8 @@ Want a full board without spending tokens? Run `agentctl sim start --root ~/dev 
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an agent and attach (-d: stay detached)
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
 agentctl reopen                     iTerm tabs for every agent no terminal shows (after iTerm quits or crashes)
+agentctl restore                    bring back agents lost with the tmux server (crash, reboot), each in its old spot
+agentctl set restore ask|auto       keep lost agents for `restore` (default), or bring them back right away
 agentctl ls                         the fleet at a glance
 agentctl rm <id|title>              stop and forget an agent
 agentctl move <id|title> <n>        put an agent at position n (free spots are fine)

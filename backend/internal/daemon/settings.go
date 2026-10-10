@@ -22,9 +22,10 @@ var Settings = map[string]struct {
 	Values []string
 	Help   string
 }{
-	"term":  {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
-	"web":   {[]string{"local", "lan"}, "local = dashboard on this Mac only; lan = also on your local network at :7342 (login link: agentctl web --phone)"},
-	"mouse": {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
+	"term":    {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
+	"web":     {[]string{"local", "lan"}, "local = dashboard on this Mac only; lan = also on your local network at :7342 (login link: agentctl web --phone)"},
+	"restore": {[]string{RestoreAsk, RestoreAuto}, "agents lost with the tmux server (crash, reboot): ask = keep them for `agentctl restore`, auto = bring them back right away"},
+	"mouse":   {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
 }
 
 // Mouse modes (`agentctl set mouse …`).
@@ -32,6 +33,20 @@ const (
 	MouseNative = "native"
 	MouseTmux   = "tmux"
 )
+
+// CurrentRestore reads the restore mode from config.json (default ask).
+func CurrentRestore() string {
+	var c struct {
+		Restore string `json:"restore"`
+	}
+	if b, err := os.ReadFile(paths.Config()); err == nil {
+		_ = json.Unmarshal(b, &c)
+	}
+	if c.Restore == RestoreAuto {
+		return RestoreAuto
+	}
+	return RestoreAsk
+}
 
 // CurrentMouse reads the mouse mode from config.json (default tmux).
 func CurrentMouse() string {

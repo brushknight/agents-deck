@@ -142,6 +142,7 @@ func (d *Daemon) Resume(id string) error {
 	d.Store.Update(id, func(e *store.Entry) bool {
 		e.SetStatus(model.Starting)
 		e.Menu = false
+		e.A.Lost = false
 		e.A.StartedAt = time.Now().UTC() // restarts the "still creating" grace period
 		return true
 	})

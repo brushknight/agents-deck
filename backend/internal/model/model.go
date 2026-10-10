@@ -49,6 +49,7 @@ type Agent struct {
 	Focused     bool       `json:"focused"`
 	Attached    bool       `json:"attached"`
 	Resumable   bool       `json:"resumable"`           // exited Claude agent that POST /resume can bring back
+	Lost        bool       `json:"lost,omitempty"`      // ended with the tmux server, not by itself: POST /v1/restore brings it back
 	Unseen      bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
 	External    bool       `json:"external"`            // owned by another app (Codex): view and focus only
 	Subagents   []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
