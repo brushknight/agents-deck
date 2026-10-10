@@ -31,6 +31,10 @@ A 4-inch 720×720 touch panel (Raspberry Pi CM4, Flutter) talks to the daemon ov
 
 <p align="center"><img src="docs/images/critters.png" alt="every pose of the Claude critter and the Codex onigiri" width="70%"><br><sub>Every pose, for the Claude critter and the Codex onigiri: one for each kind of work, plus waiting, error, idle, starting, exited and compacting.</sub></p>
 
+### In the menu bar
+
+A critter in the macOS menu bar (orange when an agent needs you). Click it and the same 4×4 deck as the desk panel drops down; click a tile for the agent's card. Esc or a click elsewhere puts it away; right-click for the web dashboard or quit. It pairs with the local daemon by itself. Early: build it from `clients/macos` for now (see below).
+
 ### In the terminal
 
 <p align="center"><img src="docs/images/cli.png" alt="agentctl ls, sessions and resume" width="85%"></p>
@@ -145,6 +149,8 @@ flowchart LR
 | path | |
 |---|---|
 | `backend/` | Go daemon and CLI (`agentctl`). The web UI is embedded from `backend/internal/web/static`. |
+| `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
+| `clients/macos` | The menu bar app (Flutter + a small native Swift shell). `flutter build macos --debug` builds `agents deck.app`. |
 | `docs/protocol.md` | The `/v1` API spoken by the web UI and the panel. |
 | `docs/roadmap.md` | What's planned next: restore after a tmux crash, a menu bar app, opt-in notifications, easy install. |
 | `docs/fixtures/state.json` | Sample fleet used by demo mode (`agentctl serve --demo`), the web fixture view and the panel tests. |

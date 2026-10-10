@@ -1,0 +1,27 @@
+name: agents_deck_ui
+description: The agents deck board (pixel critters, agent cards, prompts) shared by the desk panel and the macOS menu bar app.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  fonts:
+    - family: ShareTechMono
+      fonts:
+        - asset: fonts/ShareTechMono-Regular.ttf
+    - family: RobotoMono
+      fonts:
+        - asset: fonts/RobotoMono.ttf

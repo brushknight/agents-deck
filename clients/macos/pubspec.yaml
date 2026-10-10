@@ -1,0 +1,21 @@
+name: agents_deck_menubar
+description: agents deck in the macOS menu bar.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  agents_deck_ui:
+    path: ../flutter/agents_ui
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: false

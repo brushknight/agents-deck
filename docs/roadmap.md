@@ -13,7 +13,9 @@ Before this, a dead tmux server (crash, reboot, `tmux kill-server`) left every a
 - Shells and non-Claude agents come back as fresh sessions in their folders.
 - Out of scope: running processes themselves never survive; only the conversations do.
 
-## 2. Menu bar app (the deck as an overlay)
+## 2. Menu bar app (the deck as an overlay) — in progress
+
+Working: the deck UI moved into a shared Flutter package (`clients/flutter/agents_ui`, used by the desk panel too); `clients/macos` is the menu bar app (no Dock icon, a critter icon that turns orange when an agent needs you, the deck dropping down under it, Esc or a click elsewhere hides it, local pairing). Left: a global shortcut, release builds (they need Flutter's AOT compiler, which this Mac's security policy blocks, so they move to CI in step 4) and a universal arm64 + Intel binary.
 
 A macOS menu bar icon. Clicking it opens a small overlay in the top-right corner with the same 4×4 deck as the desk panel. Click an agent for its card: answer, focus terminal, interrupt.
 
@@ -22,7 +24,7 @@ A macOS menu bar icon. Clicking it opens a small overlay in the top-right corner
 - The icon shows state at a glance: plain when idle, an accent dot when an agent needs you.
 - It hides when it loses focus (like other menu bar popovers), and has a global shortcut to open it.
 
-Open question: Flutter desktop (full reuse of the panel code, but a larger app) versus a small Swift shell around the web panel view (tiny and native, but reuses the web UI rather than the panel UI). The plan assumes Flutter.
+Decided: Flutter desktop, reusing the panel UI through the shared package.
 
 ## 3. Notifications (opt-in)
 

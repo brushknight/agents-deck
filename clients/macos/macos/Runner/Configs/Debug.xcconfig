@@ -1,0 +1,6 @@
+#include "../../Flutter/Flutter-Debug.xcconfig"
+#include "Warnings.xcconfig"
+
+// Apple Silicon only for now: Flutter 3.41-3.44 cannot verify a universal
+// build with Xcode 27's lipo. Universal builds come with the release pipeline.
+ARCHS = arm64

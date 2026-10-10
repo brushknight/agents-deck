@@ -1,0 +1,484 @@
+{
+  "server": {
+    "name": "workstation",
+    "version": "0.1.0",
+    "time": "2026-10-08T00:51:00Z"
+  },
+  "agents": [
+    {
+      "id": "k3f9a2",
+      "slot": 0,
+      "title": "checkout-api",
+      "aiTitle": "Fix refresh token race",
+      "tool": "claude",
+      "status": "running",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/checkout-api",
+      "folder": "checkout-api",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": {
+        "tool": "Edit",
+        "detail": "src/auth/session.ts"
+      },
+      "lastPrompt": "fix the refresh-token race in session.ts and add a regression test for concurrent logins",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 1200,
+        "output": 84000,
+        "cacheRead": 3100000,
+        "cacheWrite": 210000
+      },
+      "context": {
+        "used": 410000,
+        "window": 1000000
+      },
+      "costUsd": 4.12,
+      "turns": 27,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false,
+      "subagents": [
+        {
+          "id": "a1f3c9",
+          "title": "map the payment retry paths",
+          "type": "Explore",
+          "tool": "Grep"
+        },
+        {
+          "id": "b72e01",
+          "title": "write tests for refunds",
+          "type": "general-purpose",
+          "tool": "Edit"
+        },
+        {
+          "id": "c90d4a",
+          "title": "check the webhook docs",
+          "type": "general-purpose",
+          "tool": "WebFetch"
+        }
+      ]
+    },
+    {
+      "id": "h0m3l4",
+      "slot": 1,
+      "title": "infra-network",
+      "aiTitle": "Split the staging network",
+      "tool": "claude",
+      "status": "waiting",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/infra-network",
+      "folder": "infra-network",
+      "branch": "infra",
+      "model": "claude-sonnet-5",
+      "modelLabel": "sonnet 5",
+      "activity": null,
+      "lastPrompt": "split the staging services onto their own subnet with terraform",
+      "waiting": {
+        "id": "p17",
+        "kind": "permission",
+        "title": "run this command?",
+        "detail": "terraform apply -target=module.staging_net",
+        "context": "bash · ~/dev/infra-network/terraform",
+        "options": [
+          {
+            "key": "1",
+            "label": "yes",
+            "primary": true
+          },
+          {
+            "key": "2",
+            "label": "yes, and don't ask again for terraform"
+          },
+          {
+            "key": "3",
+            "label": "no"
+          }
+        ]
+      },
+      "error": null,
+      "tokens": {
+        "input": 900,
+        "output": 21000,
+        "cacheRead": 640000,
+        "cacheWrite": 90000
+      },
+      "context": {
+        "used": 88000,
+        "window": 200000
+      },
+      "costUsd": 0.91,
+      "turns": 6,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "d0cs1t",
+      "slot": 2,
+      "title": "docs-site",
+      "aiTitle": "Rewrite install guide",
+      "tool": "codex",
+      "status": "idle",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/docs-site",
+      "folder": "docs-site",
+      "branch": "main",
+      "model": "gpt-5-codex",
+      "modelLabel": "codex",
+      "activity": null,
+      "lastPrompt": "rewrite the install guide for the new cli",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 400,
+        "output": 12000,
+        "cacheRead": 300000,
+        "cacheWrite": 40000
+      },
+      "context": {
+        "used": 52000,
+        "window": 200000
+      },
+      "costUsd": 0.38,
+      "turns": 4,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": true,
+      "external": false
+    },
+    {
+      "id": "t3st5a",
+      "slot": 3,
+      "title": "api-tests",
+      "aiTitle": "Concurrent login tests",
+      "tool": "claude",
+      "status": "running",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/checkout-api",
+      "folder": "checkout-api",
+      "branch": "tests",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": {
+        "tool": "Bash",
+        "detail": "go test ./auth/..."
+      },
+      "lastPrompt": "write table tests for the login handler",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 300,
+        "output": 9000,
+        "cacheRead": 120000,
+        "cacheWrite": 30000
+      },
+      "context": {
+        "used": 36000,
+        "window": 200000
+      },
+      "costUsd": 0.52,
+      "turns": 3,
+      "focused": true,
+      "attached": true,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "1nfr4t",
+      "slot": 4,
+      "title": "infra-tf",
+      "aiTitle": "Plan k8s node pool",
+      "tool": "gemini",
+      "status": "error",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/infra-tf",
+      "folder": "infra-tf",
+      "branch": "main",
+      "model": "gemini-3-pro",
+      "modelLabel": "gemini 3",
+      "activity": null,
+      "lastPrompt": "plan the new node pool",
+      "waiting": null,
+      "error": {
+        "message": "api 529 overloaded · retrying"
+      },
+      "tokens": {
+        "input": 200,
+        "output": 3000,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
+      "context": {
+        "used": 20000,
+        "window": 1000000
+      },
+      "costUsd": 0.05,
+      "turns": 1,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "k8sn0d",
+      "slot": 5,
+      "title": "k8s-nodes",
+      "aiTitle": "Node pool migration",
+      "tool": "claude",
+      "status": "running",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/cluster",
+      "folder": "cluster",
+      "branch": "main",
+      "model": "claude-sonnet-5",
+      "modelLabel": "sonnet 5",
+      "activity": {
+        "tool": "Compact",
+        "detail": "auto-compacting · context full"
+      },
+      "lastPrompt": "drain the old node pool and move workloads to the new one",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 800,
+        "output": 30000,
+        "cacheRead": 900000,
+        "cacheWrite": 80000
+      },
+      "context": {
+        "used": 180000,
+        "window": 200000
+      },
+      "costUsd": 1.34,
+      "turns": 9,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "4uthfl",
+      "slot": 6,
+      "title": "auth-flow",
+      "aiTitle": "Pick session strategy",
+      "tool": "claude",
+      "status": "waiting",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/checkout-api",
+      "folder": "checkout-api",
+      "branch": "auth",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "design the session strategy for login",
+      "waiting": {
+        "id": "p18",
+        "kind": "question",
+        "title": "which session strategy should the login flow use?",
+        "detail": "",
+        "context": "question · 1 of 1",
+        "options": [
+          {
+            "key": "1",
+            "label": "rotating refresh tokens — short access token, refresh rotates on use",
+            "primary": true
+          },
+          {
+            "key": "2",
+            "label": "sliding sessions — server-side session, expiry extends on activity"
+          },
+          {
+            "key": "3",
+            "label": "long-lived jwt — simplest, no revocation"
+          }
+        ]
+      },
+      "error": null,
+      "tokens": {
+        "input": 500,
+        "output": 14000,
+        "cacheRead": 400000,
+        "cacheWrite": 60000
+      },
+      "context": {
+        "used": 61000,
+        "window": 1000000
+      },
+      "costUsd": 1.02,
+      "turns": 5,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "h4ptic",
+      "slot": 7,
+      "title": "search-index",
+      "aiTitle": "Reindex product search",
+      "tool": "claude",
+      "status": "idle",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/search-index",
+      "folder": "search-index",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "rebuild the product search index with typo tolerance",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 1500,
+        "output": 60000,
+        "cacheRead": 2000000,
+        "cacheWrite": 150000
+      },
+      "context": {
+        "used": 140000,
+        "window": 1000000
+      },
+      "costUsd": 3.2,
+      "turns": 18,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "plug1n",
+      "slot": 8,
+      "title": "mobile-app",
+      "aiTitle": "Cart screen polish",
+      "tool": "codex",
+      "status": "running",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/mobile-app",
+      "folder": "mobile-app",
+      "branch": "main",
+      "model": "gpt-5-codex",
+      "modelLabel": "codex",
+      "activity": {
+        "tool": "Read",
+        "detail": "src/screens/Cart.tsx"
+      },
+      "lastPrompt": "polish the cart screen spacing and the empty state",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 100,
+        "output": 4000,
+        "cacheRead": 50000,
+        "cacheWrite": 10000
+      },
+      "context": {
+        "used": 18000,
+        "window": 200000
+      },
+      "costUsd": 0,
+      "turns": 2,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": true
+    },
+    {
+      "id": "fw0t4x",
+      "slot": 10,
+      "title": "billing-jobs",
+      "aiTitle": "Retry failed invoices",
+      "tool": "claude",
+      "status": "running",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/billing",
+      "folder": "billing",
+      "branch": "ota",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": {
+        "tool": "TodoWrite",
+        "detail": "planning 6 steps"
+      },
+      "lastPrompt": "plan a retry queue for failed invoice webhooks",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 400,
+        "output": 11000,
+        "cacheRead": 220000,
+        "cacheWrite": 50000
+      },
+      "context": {
+        "used": 54000,
+        "window": 200000
+      },
+      "costUsd": 0.77,
+      "turns": 2,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    },
+    {
+      "id": "scr4tc",
+      "slot": 15,
+      "title": "scratch",
+      "aiTitle": "Quick regex question",
+      "tool": "claude",
+      "status": "idle",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/scratch",
+      "folder": "scratch",
+      "branch": "",
+      "model": "claude-haiku-4-5",
+      "modelLabel": "haiku 4.5",
+      "activity": null,
+      "lastPrompt": "regex for semver with prerelease",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 50,
+        "output": 800,
+        "cacheRead": 0,
+        "cacheWrite": 6000
+      },
+      "context": {
+        "used": 8000,
+        "window": 200000
+      },
+      "costUsd": 0.01,
+      "turns": 1,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false
+    }
+  ]
+}
