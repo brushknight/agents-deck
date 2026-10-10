@@ -286,7 +286,7 @@ class _AgentDetailState extends State<AgentDetail> {
                 children: [
                   if (widget.showBack) ...[
                     _BackButton(color: ink, onTap: widget.onClose),
-                    const SizedBox(width: 18),
+                    const SizedBox(width: 10),
                   ],
                   CritterSprite(
                     pose: critterPoseOf(a, inStatus: state.inStatus(a)),
@@ -1090,7 +1090,7 @@ class SubagentCrew extends StatelessWidget {
   }
 }
 
-/// "‹ back": closes the card (hosts without an edge swipe).
+/// A bare "‹" that closes the card (hosts without an edge swipe).
 class _BackButton extends StatelessWidget {
   const _BackButton({required this.color, required this.onTap});
 
@@ -1105,15 +1105,16 @@ class _BackButton extends StatelessWidget {
       child: Pressable(
         key: const Key('agent-back'),
         onTap: onTap,
-        builder: (context, pressed) => Container(
-          width: 48,
+        // Just the chevron: a dim mark that brightens while pressed. The
+        // box is only there to make it easy to hit.
+        builder: (context, pressed) => SizedBox(
+          width: 28,
           height: 40,
-          decoration: BoxDecoration(
-            color: pressed ? color.withValues(alpha: 0.25) : null,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: color, width: 2),
+          child: CustomPaint(
+            painter: _ChevronPainter(
+              color.withValues(alpha: pressed ? 1 : 0.55),
+            ),
           ),
-          child: CustomPaint(painter: _ChevronPainter(color)),
         ),
       ),
     );
