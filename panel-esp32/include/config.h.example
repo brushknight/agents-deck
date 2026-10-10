@@ -1,0 +1,22 @@
+// Do not edit by hand. tools/make_config.py writes include/config.h.
+// This file only shows the shape.
+#pragma once
+
+// Pairing with the daemon, from `agentctl pair`.
+#define DECK_HOST  "MacBook-Pro"     // mDNS name without ".local", or an IPv4 address
+#define DECK_PORT  7341
+#define DECK_TOKEN "0000000000000000000000000000000000000000000000000000000000000000"
+// SHA-256 of the daemon's TLS certificate, 32 bytes
+#define DECK_FP    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
+                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
+                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
+                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+
+// Wi-Fi.
+#define WIFI_SSID  "my-network"
+#define WIFI_PASS  "my-password"
+// Optional: read "ssid" and "pass" from this NVS namespace first.
+// #define WIFI_NVS_NAMESPACE "wifi"
+
+// Options.
+#define PANEL_HOSTNAME "agents-deck-panel"
