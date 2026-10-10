@@ -418,14 +418,14 @@ const agentsDemoStateJson = r'''
       "slot": 8,
       "title": "mobile-app",
       "aiTitle": "Cart screen polish",
-      "tool": "codex",
+      "tool": "claude",
       "status": "running",
       "statusSince": "2026-10-08T00:51:00Z",
       "cwd": "/Users/sam/dev/mobile-app",
       "folder": "mobile-app",
       "branch": "main",
-      "model": "gpt-5-codex",
-      "modelLabel": "codex",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
       "activity": {
         "tool": "Read",
         "detail": "src/screens/Cart.tsx"
@@ -440,17 +440,17 @@ const agentsDemoStateJson = r'''
         "cacheWrite": 10000
       },
       "context": {
-        "used": 18000,
-        "window": 200000
+        "used": 94000,
+        "window": 1000000
       },
-      "costUsd": 0,
+      "costUsd": 0.86,
       "turns": 2,
       "focused": false,
       "attached": false,
       "startedAt": "2026-10-08T00:13:00Z",
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
-      "external": true,
+      "external": false,
       "hat": {
         "shape": "beret",
         "color": "pink",
