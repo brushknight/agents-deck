@@ -113,4 +113,5 @@ The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly
 | `backend/` | Go daemon and CLI (`agentctl`), with the web UI embedded. `go test -race ./...` |
 | `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
+| `panel-esp32/` | Firmware for a small ESP32-S3 board with a 1.47″ screen (PlatformIO). A read-only client of the `/v1` API: see [panel-esp32/README.md](panel-esp32/README.md). |
 | `docs/fixtures/state.json` | The sample fleet behind demo mode, the web fixture view and the tests. |

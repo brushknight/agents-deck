@@ -35,6 +35,7 @@ Tap a tile for its card:
 | **Browser** | `agentctl web` opens the dashboard with a one-time login link. It has a grid view and a panel view that mirrors the 720×720 desk panel. |
 | **Phone** | `agentctl set web lan` also serves the dashboard on your local network (port 7342); `agentctl web --phone` prints a 5-minute login link. On a phone it opens in the deck view; the panel view toggle switches to a list of agent rows. |
 | **Desk panel** | A 4″ 720×720 touch panel (Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi, TLS with a pinned certificate. Cards close with an edge swipe. |
+| **ESP32 board** | A 1.47″ 320×172 screen without touch (Waveshare ESP32-S3-LCD-1.47B) on the same Wi-Fi, TLS and pinned certificate. Read-only: one agent in detail and a mini-board of the fleet, with the same mascots and hats. See [panel-esp32](../panel-esp32/README.md). |
 | **Terminal** | `agentctl ls`, `sessions`, `resume`… Agent terminals are tmux sessions you attach to with `agentctl attach`, or jump to with **focus terminal**. |
 
 ## Codex sessions
