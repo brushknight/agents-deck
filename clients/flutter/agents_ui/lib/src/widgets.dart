@@ -238,6 +238,10 @@ class CardMorphState extends State<CardMorph>
   // the first time inside dispose() when no card was ever opened.
   late final AnimationController _t;
   final _area = GlobalKey();
+  // The open card takes keyboard focus (Esc closes it); whatever had it
+  // before (the deck, for its arrow keys) gets it back on close.
+  final _cardFocus = FocusNode(debugLabel: 'card');
+  FocusNode? _focusBefore;
   Rect? _from;
   Color _fill = DeckHud.bg;
   Widget Function(VoidCallback close)? _card;
@@ -271,10 +275,17 @@ class CardMorphState extends State<CardMorph>
       _fill = fill;
       _card = builder;
     });
+    _focusBefore = FocusManager.instance.primaryFocus;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && isOpen) _cardFocus.requestFocus();
+    });
     _t.forward(from: 0);
   }
 
   void close() {
+    final before = _focusBefore;
+    _focusBefore = null;
+    if (before != null && before.context != null) before.requestFocus();
     _t.reverse().whenComplete(() {
       if (mounted) setState(() => _card = null);
     });
@@ -283,6 +294,7 @@ class CardMorphState extends State<CardMorph>
   @override
   void dispose() {
     _t.dispose();
+    _cardFocus.dispose();
     super.dispose();
   }
 
@@ -320,7 +332,7 @@ class CardMorphState extends State<CardMorph>
                 },
                 // Esc closes the card (keyboard hosts: the menu bar app).
                 child: Focus(
-                  autofocus: true,
+                  focusNode: _cardFocus,
                   onKeyEvent: (_, e) {
                     if (e is KeyDownEvent &&
                         e.logicalKey == LogicalKeyboardKey.escape) {

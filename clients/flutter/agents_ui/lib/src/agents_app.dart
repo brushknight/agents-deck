@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'theme.dart';
 import 'widgets.dart';
@@ -68,12 +69,14 @@ class _AgentsAppState extends State<AgentsApp> {
   late final _cardClock = CritterClock(animate: widget.animate)
     ..running = false;
   int _page = 0;
+  final _pager = PageController();
 
   static const _cells = 16;
 
   @override
   void dispose() {
     widget.visible?.removeListener(_syncClocks);
+    _pager.dispose();
     _gridClock.dispose();
     _cardClock.dispose();
     super.dispose();
@@ -177,10 +180,7 @@ class _AgentsAppState extends State<AgentsApp> {
         codeLine: 1,
       );
     } else {
-      content = Padding(
-        padding: const EdgeInsets.all(8),
-        child: DeckGrid(cells: _cellsFor(state)),
-      );
+      content = _deck(state);
     }
     if (!offline) return content;
     return Stack(
@@ -244,19 +244,77 @@ class _AgentsAppState extends State<AgentsApp> {
     );
   }
 
-  List<Widget> _cellsFor(AgentsState state) {
-    final agents = state.agents;
-    final bySlot = {for (final a in agents) a.slot: a};
-    final last = agents.isEmpty
-        ? 0
-        : agents.map((a) => a.slot).reduce(math.max);
-    final paged = last >= _cells;
-    final perPage = paged ? _cells - 1 : _cells;
-    final pages = last ~/ perPage + 1;
-    final page = _page.clamp(0, pages - 1);
-    final start = page * perPage;
-    final cells = <Widget>[
-      for (var slot = start; slot < start + perPage; slot++)
+  /// Pages of 16 slots (page = slot ~/ 16), side by side: swipe between
+  /// them, use the arrow keys or click a bar. The bar row underneath is always
+  /// there, so the grid doesn't jump when a 17th agent arrives.
+  Widget _deck(AgentsState state) {
+    final last = state.agents.map((a) => a.slot).fold(0, math.max);
+    final pages = last ~/ _cells + 1;
+    if (_page >= pages) _page = pages - 1;
+    final hot = {
+      for (final a in state.agents)
+        if (a.needsYou) a.slot ~/ _cells,
+    };
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, e) {
+        if (e is! KeyDownEvent) return KeyEventResult.ignored;
+        final step = switch (e.logicalKey) {
+          LogicalKeyboardKey.arrowLeft => -1,
+          LogicalKeyboardKey.arrowRight => 1,
+          _ => 0,
+        };
+        if (step == 0) return KeyEventResult.ignored;
+        _goTo((_page + step).clamp(0, pages - 1));
+        return KeyEventResult.handled;
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        child: Column(
+          children: [
+            Expanded(
+              child: PageView.builder(
+                key: const Key('agents-pages'),
+                controller: _pager,
+                itemCount: pages,
+                onPageChanged: (p) => setState(() => _page = p),
+                itemBuilder: (context, p) =>
+                    DeckGrid(cells: _cellsFor(state, p)),
+              ),
+            ),
+            SizedBox(
+              height: _barsHeight,
+              child: pages < 2
+                  ? null
+                  : _PageBars(
+                      pages: pages,
+                      current: _page,
+                      hot: hot,
+                      onTap: _goTo,
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _barsHeight = 34.0;
+
+  void _goTo(int page) {
+    if (!_pager.hasClients || page == _page) return;
+    _pager.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  List<Widget> _cellsFor(AgentsState state, int page) {
+    final bySlot = {for (final a in state.agents) a.slot: a};
+    final start = page * _cells;
+    return [
+      for (var slot = start; slot < start + _cells; slot++)
         if (bySlot[slot] case final a?)
           _swapCell(
             state,
@@ -277,21 +335,6 @@ class _AgentsAppState extends State<AgentsApp> {
             child: _FreeCell(onOpen: (ctx, key) => _openPicker(ctx, key, slot)),
           ),
     ];
-    if (paged) {
-      final elsewhere = [
-        for (final a in agents)
-          if (a.needsYou && (a.slot < start || a.slot >= start + perPage)) a,
-      ].length;
-      cells.add(
-        _PagerTile(
-          page: page,
-          pages: pages,
-          waitingElsewhere: elsewhere,
-          onTap: () => setState(() => _page = (page + 1) % pages),
-        ),
-      );
-    }
-    return cells;
   }
 }
 
@@ -634,69 +677,58 @@ class AgentsEmptyTile extends StatelessWidget {
   }
 }
 
-/// Last cell when the fleet spans pages: segmented page bar + "next".
-/// Turns accent when someone on another page is waiting.
-class _PagerTile extends StatelessWidget {
-  const _PagerTile({
-    required this.page,
+/// One rounded bar per page under the deck: the current one wide and bright,
+/// another page's orange when an agent there needs you. Tap one to go there.
+class _PageBars extends StatelessWidget {
+  const _PageBars({
     required this.pages,
-    required this.waitingElsewhere,
+    required this.current,
+    required this.hot,
     required this.onTap,
   });
 
-  final int page;
   final int pages;
-  final int waitingElsewhere;
-  final VoidCallback onTap;
+  final int current;
+  final Set<int> hot;
+  final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
-    final alert = waitingElsewhere > 0;
-    return Pressable(
-      key: const Key('agents-pager'),
-      onTap: onTap,
-      builder: (context, pressed) {
-        final fill = pressed
-            ? DeckHud.ink
-            : (alert ? DeckHud.accent : DeckHud.panel);
-        final ink = pressed || alert ? DeckHud.bg : DeckHud.ink;
-        final dim = pressed || alert ? DeckHud.bg : DeckHud.dim;
-        return Container(
-          color: fill,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  for (var i = 0; i < pages; i++) ...[
-                    if (i > 0) const SizedBox(width: 4),
-                    Expanded(
-                      child: Container(
-                        height: 8,
-                        color: i == page ? ink : dim.withValues(alpha: 0.35),
-                      ),
-                    ),
-                  ],
-                ],
+    return Semantics(
+      label: 'page ${current + 1} of $pages',
+      child: Row(
+        key: const Key('agents-pager'),
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var p = 0; p < pages; p++)
+            GestureDetector(
+              key: Key('agents-page-$p'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onTap(p),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 12,
+                ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: p == current ? 56 : 30,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    // Where you are is always bright; other pages turn
+                    // orange when an agent there needs you.
+                    color: p == current
+                        ? DeckHud.ink
+                        : (hot.contains(p)
+                              ? DeckHud.accent
+                              : const Color(0xFF2A2925)),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'page ${page + 1}/$pages',
-                textAlign: TextAlign.center,
-                style: DeckHud.mono(size: 16, color: ink),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                alert ? '$waitingElsewhere need you ›' : 'next ›',
-                textAlign: TextAlign.center,
-                style: DeckHud.mono(size: 12.5, color: dim),
-              ),
-            ],
-          ),
-        );
-      },
+            ),
+        ],
+      ),
     );
   }
 }

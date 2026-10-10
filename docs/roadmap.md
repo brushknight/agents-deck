@@ -64,7 +64,9 @@ See the Claude sessions that agentctl didn't start (plain `claude` in any termin
 
 The Claude desktop app's sessions, some of them important. Pick which ones show on the deck, read-only like Codex threads: status and activity, focus opens them in the app. First step: find out what the app keeps locally and whether it can be read without touching it.
 
-### More than 16 agents: a paged deck
+### More than 16 agents: a paged deck — done
+
+Pages of 16 with a bar row under the grid, on the panel, in the menu bar app and in the web panel view.
 
 With every slot taken, the deck pages left and right instead of the pager tile:
 

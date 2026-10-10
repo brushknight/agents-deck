@@ -570,7 +570,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('more than 16 agents: 15 per page + pager tile', (tester) async {
+  testWidgets('more than 16 agents: pages of 16 with bars underneath', (
+    tester,
+  ) async {
     final fixture = FakeAgentsSource.demo().toJson();
     final base = (fixture['agents'] as List).cast<Map<String, dynamic>>();
     final agents = [
@@ -584,21 +586,34 @@ void main() {
     ];
     final source = FakeAgentsSource.fromState({...fixture, 'agents': agents});
     await _pumpApp(tester, source);
-    expect(find.byType(AgentTile), findsNWidgets(15));
-    expect(find.text('agent-0'), findsOneWidget);
-    expect(find.text('agent-15'), findsNothing);
-    expect(find.text('page 1/2'), findsOneWidget);
-    // Waiting agents on page 2 (slot 17, an auth-flow copy) light the pager.
-    expect(find.text('1 need you ›'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('agents-pager')));
-    await tester.pump();
+    expect(find.byType(AgentTile), findsNWidgets(16));
     expect(find.text('agent-15'), findsOneWidget);
+    expect(find.text('agent-16'), findsNothing);
+    expect(find.byKey(const Key('agents-page-0')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-1')), findsOneWidget);
+
+    // A bar takes you to its page; so do the arrow keys and a swipe.
+    await tester.tap(find.byKey(const Key('agents-page-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('agent-16'), findsOneWidget);
     expect(find.text('agent-0'), findsNothing);
-    expect(find.byType(AgentTile), findsNWidgets(5));
-    expect(find.byType(AgentsEmptyTile), findsNWidgets(10));
-    expect(find.text('page 2/2'), findsOneWidget);
+    expect(find.byType(AgentsEmptyTile), findsNWidgets(12));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('agent-0'), findsOneWidget);
+    await tester.fling(
+      find.byKey(const Key('agents-pages')),
+      const Offset(-500, 0),
+      1500,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('agent-16'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('16 agents or fewer: one page, no bars', (tester) async {
+    await _pumpApp(tester, FakeAgentsSource.demo());
+    expect(find.byKey(const Key('agents-pager')), findsNothing);
   });
 
   test('fixture copy under test/fixtures matches the demo fleet ids', () {

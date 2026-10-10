@@ -48,6 +48,31 @@ void main() {
     );
   });
 
+  testWidgets('agents paged golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final base = (fixture['agents'] as List).cast<Map<String, dynamic>>();
+    await pumpBoard(
+      tester,
+      FakeAgentsSource.fromState({
+        ...fixture,
+        'agents': [
+          for (var i = 0; i < 40; i++)
+            {
+              ...base[i % base.length],
+              'id': 'a${i.toString().padLeft(5, '0')}',
+              'slot': i,
+            },
+        ],
+      }),
+    );
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-paged.png'),
+    );
+  });
+
   for (final (title, golden) in [
     ('checkout-api', 'agents-detail-running'),
     ('infra-network', 'agents-permission'),

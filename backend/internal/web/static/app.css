@@ -566,9 +566,9 @@ body.offline .main { opacity: 0.4; }
 .tile[data-dragging] { opacity: 0.45; }
 
 /* ---------- panel view: the 720×720 device, 4×4, scaled to fit ---------- */
-body.panel-mode .main { display: flex; align-items: flex-start; justify-content: center; }
+body.panel-mode .main { display: flex; flex-direction: column; align-items: center; }
 body.panel-mode .grid {
-  --pv: min(100%, calc(100dvh - 130px));
+  --pv: min(100%, calc(100dvh - 160px)); /* room for the page bars */
   width: var(--pv);
   aspect-ratio: 1 / 1;
   max-width: none;
@@ -588,10 +588,12 @@ body.panel-mode .tile .meta { font-size: clamp(8px, 1.75cqi, 12.5px); }
 .tile-empty { background: #0B0B0B; border: 1px solid #262622; border-radius: var(--r-tile); }
 body:not(.panel-mode) .tile-empty { aspect-ratio: 1 / 1; background: transparent; border: 1px dashed #22221F; }
 .tile-empty[data-drop="swap"] { box-shadow: inset 0 0 0 3px var(--ink); }
-.tile.pager .name { font-size: clamp(10px, 2.4cqi, 18px); }
-.tile.pager .meta { letter-spacing: 2px; }
-.tile.pager.hot { --t-bg: var(--accent); --t-border: var(--accent); --label: var(--bg); --meta: var(--bg); }
 @media (max-width: 640px) { body.panel-mode .grid { border-radius: 12px; } }
+.pagebar { display: flex; justify-content: center; gap: 10px; margin: 14px auto 0; }
+.pagebar[hidden] { display: none; }
+.pagebar .page { width: 30px; height: 8px; padding: 0; border: 0; border-radius: 4px; background: #2A2925; cursor: pointer; transition: width .2s; }
+.pagebar .page.hot { background: var(--accent); }
+.pagebar .page.on { width: 56px; background: var(--ink); }
 
 /* hungry: finished, not yet reviewed — sliding orange zebra stripes */
 .tile.hungry { --body: var(--accent); --meta: var(--accent); --label: var(--ink);

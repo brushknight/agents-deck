@@ -365,6 +365,7 @@ function renderGrid() {
     updateTile(t, a);
   }
   for (const [id, t] of tiles) if (!seen.has(id)) { t.el.remove(); tiles.delete(id); }
+  if (!panelOn()) $('pagebar').hidden = true;
   const want = panelOn() ? panelCells(list) : needsFirst || onPhone() ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
   // Reconcile in place so running animations aren't restarted needlessly.
   want.forEach((el, i) => { if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null); });
@@ -396,31 +397,71 @@ function boardCells(list) {
 
 // Panel view: 16 cells like the device. While every agent sits in slots 0..15
 // it's one page; beyond that pages hold 15 slots each plus a pager cell.
-let pagerCell = null;
 function panelCells(list) {
   const bySlot = new Map(list.map((a) => [a.slot, a]));
   const last = list.length ? Math.max(...bySlot.keys()) : 0;
-  const paged = last >= 16;
-  const per = paged ? 15 : 16;
-  const pages = Math.floor(last / per) + 1;
-  if (panelPage >= pages) panelPage = 0;
-  const start = panelPage * per;
+  const pages = Math.floor(last / 16) + 1;
+  if (panelPage >= pages) panelPage = pages - 1;
+  const start = panelPage * 16;
   const cells = [];
-  for (let s = start; s < start + per; s++) cells.push(bySlot.has(s) ? tiles.get(bySlot.get(s).id).el : emptyCell(s));
-  if (paged) {
-    if (!pagerCell) {
-      pagerCell = h('button', { type: 'button', class: 'tile pager' });
-      pagerCell.addEventListener('click', () => { panelPage++; renderGrid(); });
-    }
-    const elsewhere = list.some((a) => (a.slot < start || a.slot >= start + per) && needsYou(a));
-    pagerCell.classList.toggle('hot', elsewhere);
-    const bar = Array.from({ length: pages }, (_, i) => (i === panelPage ? '■' : '□')).join(' ');
-    pagerCell.replaceChildren(h('span', { class: 'name', text: 'next ›' }), h('span', { class: 'meta', text: bar }));
-    pagerCell.setAttribute('aria-label', `page ${panelPage + 1} of ${pages}, next page`);
-    cells.push(pagerCell);
-  }
+  for (let s = start; s < start + 16; s++) cells.push(bySlot.has(s) ? tiles.get(bySlot.get(s).id).el : emptyCell(s));
+  const hot = new Set(list.filter(needsYou).map((a) => Math.floor(a.slot / 16)));
+  renderPageBar(pages, hot);
   return cells;
 }
+
+// Pages of 16 slots (page = slot / 16): one bar per page under the panel view,
+// the current one bright, others orange when an agent there needs you.
+// Swipe (touch), a sideways trackpad scroll, ←/→ or a click changes page.
+let panelPages = 1;
+function renderPageBar(pages, hot) {
+  panelPages = pages;
+  const bar = $('pagebar');
+  bar.hidden = pages < 2 || !panelOn();
+  if (bar.hidden) return;
+  const key = `${pages}|${panelPage}|${[...hot].join(',')}`;
+  if (bar.dataset.key === key) return;
+  bar.dataset.key = key;
+  bar.replaceChildren(...Array.from({ length: pages }, (_, p) => {
+    const b = h('button', { type: 'button', class: `page${p === panelPage ? ' on' : hot.has(p) ? ' hot' : ''}`, 'aria-label': `page ${p + 1} of ${pages}` });
+    b.addEventListener('click', () => goPage(p));
+    return b;
+  }));
+}
+
+function goPage(p) {
+  const next = Math.max(0, Math.min(panelPages - 1, p));
+  if (next === panelPage) return;
+  panelPage = next;
+  renderGrid();
+}
+
+(() => {
+  const grid = $('grid');
+  let x0 = null;
+  grid.addEventListener('pointerdown', (e) => { if (panelOn() && e.pointerType !== 'mouse') x0 = e.clientX; });
+  grid.addEventListener('pointerup', (e) => {
+    if (x0 == null) return;
+    const dx = e.clientX - x0; x0 = null;
+    if (Math.abs(dx) > 60) goPage(panelPage + (dx < 0 ? 1 : -1));
+  });
+  let acc = 0, quietUntil = 0;
+  grid.addEventListener('wheel', (e) => {
+    if (!panelOn() || panelPages < 2 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    if (Date.now() < quietUntil) return;
+    acc += e.deltaX;
+    if (Math.abs(acc) > 80) { goPage(panelPage + (acc > 0 ? 1 : -1)); acc = 0; quietUntil = Date.now() + 450; }
+  }, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if (!panelOn() || panelPages < 2 || e.altKey || e.metaKey || e.ctrlKey) return;
+    const t = e.target;
+    if (t instanceof HTMLElement && (t.classList.contains('tile') || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (!$('picker').hidden || selectedId) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); goPage(panelPage + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goPage(panelPage - 1); }
+  });
+})();
 
 function makeEmptyCell(slot) {
   const el = h('div', { class: 'tile-empty', title: 'add a session here' });
@@ -442,6 +483,7 @@ let pickerSlot = -1;
 
 async function openPicker(slot = -1) {
   pickerSlot = slot;
+  if (!$('picker-close').firstElementChild) $('picker-close').replaceChildren(closeIcon());
   $('picker').hidden = false;
   $('picker-close').focus();
   await refreshPicker();
@@ -475,7 +517,6 @@ async function refreshPicker() {
 }
 
 $('add-session').addEventListener('click', () => openPicker(-1));
-$('picker-close').replaceChildren(closeIcon());
 $('picker-close').addEventListener('click', closePicker);
 $('picker').addEventListener('click', (e) => { if (e.target === e.currentTarget) closePicker(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('picker').hidden) { e.stopPropagation(); closePicker(); } }, true);
@@ -949,6 +990,7 @@ async function start() {
 // ?fixture loads ./fixture.json and animates it locally. Extra dev flags:
 //   &open=<id>  open that agent's panel   &still  no simulation
 //   &picker     the "add a session" picker
+//   &many       40 agents (pages)
 //   &empty      no agents                 &offline  disconnected banner   &expired  401 screen
 let fx = null;
 const AGO = { 0: 38, 1: 2, 2: 12, 3: 4, 4: 3, 5: 63, 6: 5, 7: 60, 8: 9, 10: 7, 15: 190 }; // minutes since status change, by slot
@@ -985,6 +1027,7 @@ async function startFixture() {
     a.updatedAt = iso(t0 - 5000);
   }
   if (params.has('empty')) data.agents = [];
+  if (params.has('many')) data.agents = Array.from({ length: 40 }, (_, i) => ({ ...data.agents[i % data.agents.length], id: `m${String(i).padStart(5, '0')}`, slot: i }));
   if (params.has('picker')) setTimeout(() => openPicker(9), 300);
   if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
