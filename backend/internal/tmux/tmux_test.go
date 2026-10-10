@@ -60,6 +60,9 @@ func TestServerDefaultsMouseModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	show := func(args ...string) string { out, _ := run(append([]string{"show-options"}, args...)...); return out }
+	if v := show("-gv", "set-titles-string"); v != "#{pane_title}" || show("-gv", "set-titles") != "on" {
+		t.Errorf("terminal title should follow the pane title: %q", v)
+	}
 	if m := show("-gv", "mouse"); m != "off" {
 		t.Errorf("native: mouse = %q", m)
 	}

@@ -91,6 +91,10 @@ func ServerDefaults() {
 		{"bind-key", "-n", "MouseUp1Pane", `if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'` + self + `' open-link --link=#{q:mouse_hyperlink} --word=#{q:mouse_word}" }`},
 		{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
 		screen,
+		// The terminal tab shows the agent's name as Claude Code sets it
+		// ("✳ CMM server"), not just "tmux".
+		{"set-option", "-g", "set-titles", "on"},
+		{"set-option", "-g", "set-titles-string", "#{pane_title}"},
 		{"set-option", "-g", "escape-time", "10"},
 		{"set-option", "-g", "focus-events", "on"}, // lets us see which tab has focus
 		{"bind-key", "-n", "C-q", "detach-client"},
