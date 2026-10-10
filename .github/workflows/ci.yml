@@ -13,11 +13,11 @@ jobs:
   go:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache: false # standard library only: nothing to cache
       - run: brew install tmux # daemon tests drive a throwaway tmux server
       - name: vet and test
         working-directory: backend
@@ -34,7 +34,7 @@ jobs:
   flutter:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.6

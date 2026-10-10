@@ -49,13 +49,13 @@ jobs:
       HAVE_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
       HAVE_NOTARY: ${{ secrets.APPLE_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache: false # standard library only: nothing to cache
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -135,7 +135,7 @@ jobs:
           rm -rf agentctl "agents deck.app"
           ls -la
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-arm64
           path: dist/*
@@ -147,7 +147,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.meta.outputs.tag }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
