@@ -15,7 +15,7 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 - **Pages.** The deck holds 16 agents per page (page = slot ÷ 16). With more, the tiles get a little shorter (they keep their width) and a row of bars appears under the grid, in the same square: the current page bright, another page orange when an agent there needs you. Swipe left and right (touch or trackpad), use ← / →, or tap a bar.
 - **Arranging.** Drag a tile onto any free spot to move it there, or onto another tile to swap them (long-press on touch screens). The layout is shared by every view. `agentctl move <agent> <n>` does the same from the terminal.
 
-<p align="center"><img src="images/critters.png" alt="every pose of the Claude critter and the Codex onigiri" width="80%"><br><sub>Every pose, for the Claude critter and the Codex onigiri.</sub></p>
+<p align="center"><img src="images/critters-v2.png" alt="every pose of the Claude critter and the Codex onigiri" width="80%"><br><sub>Every pose, for the Claude critter and the Codex onigiri.</sub></p>
 
 ## Agent cards
 
@@ -25,7 +25,7 @@ Tap a tile for its card:
 - **Permission prompts** show the exact command with Claude's own options; **questions** show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
 - **Free-text input** can't be typed on the deck: the card sends you to the terminal.
 
-<p align="center"><img src="images/web-permission.png" alt="answering a permission prompt from the web" width="80%"></p>
+<p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>
 
 ## Where it shows up
 

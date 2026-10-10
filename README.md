@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/hero.png" alt="agents deck: a pixel-critter board of Claude Code and Codex agents in the macOS menu bar, with a 4-inch desk panel as a companion" width="100%"></p>
+<p align="center"><img src="docs/images/hero-v2.png" alt="agents deck: a pixel-critter board of Claude Code and Codex agents in the macOS menu bar, with a 4-inch desk panel as a companion" width="100%"></p>
 
 <p align="center">
   <a href="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml"><img src="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
@@ -18,9 +18,9 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 
 | | |
 |---|---|
-| <img src="docs/images/menubar-deck.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/web-board.png" alt="web dashboard"> |
+| <img src="docs/images/menubar-deck-v2.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/web-board-v2.png" alt="web dashboard"> |
 | **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. | **Browser and phone.** The same board, a panel view, and every agent's card. |
-| <img src="docs/images/panel-board.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
+| <img src="docs/images/panel-board-v2.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
 Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. It wears a pixel hat picked by its working folder, so a project's agents look alike; tap the critter to pick another. The full tour is in [docs/features.md](docs/features.md).
