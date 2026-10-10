@@ -63,6 +63,7 @@ class MenuBarDeck extends StatelessWidget {
                     builder: (context) => AgentsApp(
                       source: source,
                       visible: visible,
+                      backButton: true, // no edge swipe here
                       pairingCard: (problem) => _NotPaired(problem: problem),
                     ),
                   ),

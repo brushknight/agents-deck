@@ -34,6 +34,7 @@ class AgentDetail extends StatefulWidget {
     required this.agentId,
     required this.onClose,
     this.onVisible,
+    this.showBack = false,
   });
 
   final AgentsSource source;
@@ -43,6 +44,10 @@ class AgentDetail extends StatefulWidget {
   /// Mounted (true) / unmounted (false) — the grid pauses its critters
   /// while the card covers it.
   final ValueChanged<bool>? onVisible;
+
+  /// A back button left of the mascot, for hosts without an edge swipe
+  /// (the menu bar app). The desk panel closes cards with its swipe.
+  final bool showBack;
 
   @override
   State<AgentDetail> createState() => _AgentDetailState();
@@ -279,6 +284,10 @@ class _AgentDetailState extends State<AgentDetail> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  if (widget.showBack) ...[
+                    _BackButton(color: ink, onTap: widget.onClose),
+                    const SizedBox(width: 18),
+                  ],
                   CritterSprite(
                     pose: critterPoseOf(a, inStatus: state.inStatus(a)),
                     celebrateUntil: DateTime.now().add(
@@ -1079,4 +1088,61 @@ class SubagentCrew extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "‹ back": closes the card (hosts without an edge swipe).
+class _BackButton extends StatelessWidget {
+  const _BackButton({required this.color, required this.onTap});
+
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'back',
+      child: Pressable(
+        key: const Key('agent-back'),
+        onTap: onTap,
+        builder: (context, pressed) => Container(
+          width: 48,
+          height: 40,
+          decoration: BoxDecoration(
+            color: pressed ? color.withValues(alpha: 0.25) : null,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color, width: 2),
+          ),
+          child: CustomPaint(painter: _ChevronPainter(color)),
+        ),
+      ),
+    );
+  }
+}
+
+/// A square-capped "<", the deck's pixel style.
+class _ChevronPainter extends CustomPainter {
+  _ChevronPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    canvas.drawPath(
+      Path()
+        ..moveTo(c.dx + 4, c.dy - 8)
+        ..lineTo(c.dx - 4, c.dy)
+        ..lineTo(c.dx + 4, c.dy + 8),
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.square
+        ..strokeJoin = StrokeJoin.miter,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ChevronPainter old) => old.color != color;
 }

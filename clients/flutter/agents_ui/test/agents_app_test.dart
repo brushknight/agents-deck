@@ -108,6 +108,39 @@ void main() {
     expect(find.text('doing now'), findsNothing);
   });
 
+  testWidgets('no back button on the panel (it closes cards by swiping)', (
+    tester,
+  ) async {
+    await _pumpApp(tester, FakeAgentsSource.demo());
+    await _open(tester, 'checkout-api');
+    expect(find.text('doing now'), findsOneWidget);
+    expect(find.byKey(const Key('agent-back')), findsNothing);
+  });
+
+  testWidgets('the back button closes the card when asked for', (tester) async {
+    tester.view.physicalSize = const Size(720, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AgentsApp(
+            source: FakeAgentsSource.demo(),
+            animate: false,
+            backButton: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await _open(tester, 'checkout-api');
+    expect(find.text('doing now'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('agent-back')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('doing now'), findsNothing);
+  });
+
   testWidgets('idle and error cards: no interrupt, error message shown', (
     tester,
   ) async {
