@@ -47,6 +47,31 @@ Delivered by the menu bar app as native notifications. Clicking one opens that a
 - An install script: download, verify the checksum, put `agentctl` in `~/.local/bin`, run `agentctl install`.
 - Code signing: today's ad-hoc signature makes macOS re-ask for permissions after every build. Releases should be signed with a stable identity (a Developer ID with notarization, or at least one consistent certificate).
 
+## Next (after the first release)
+
+### Every Claude Code session on this machine
+
+See the Claude sessions that agentctl didn't start (plain `claude` in any terminal) and add the ones you want to the deck.
+
+- Discovery: running `claude` processes, matched to their session transcript by folder and recency. No second process on the session, so nothing gets forked.
+- Watch-only tiles until adopted: status, activity, context, cost and subagents from the transcript; the "needs you" state from what the transcript and terminal title show (no hooks there).
+- Focus: find the session's terminal by its TTY (the iTerm API already maps TTYs to tabs).
+- Adding to the deck is a choice per session (a picker on the web dashboard and in the menu bar app); the rest stay listed but off the board.
+
+### Claude desktop app sessions
+
+The Claude desktop app's sessions, some of them important. Pick which ones show on the deck, read-only like Codex threads: status and activity, focus opens them in the app. First step: find out what the app keeps locally and whether it can be read without touching it.
+
+### More than 16 agents: a paged deck
+
+With every slot taken, the deck pages left and right instead of the pager tile:
+
+- Tiles a little smaller so a row of page bars fits under the 4×4 grid: one rounded bar per page, the current one wider and bright, an orange bar where an agent on that page needs you.
+- Swipe left and right on the panel (the board follows your finger), trackpad swipes, arrow keys and clicks on the bars in the menu bar app and the browser.
+- Slots keep their meaning: page = slot / 16, so an arranged board stays arranged.
+
+<p align="center"><img src="images/backlog-paged-deck.png" alt="sketch of the paged deck: smaller tiles and page bars under the grid" width="90%"></p>
+
 ## Later
 
 - **Homebrew:** a tap with a formula for `agentctl` and a cask for the menu bar app, once the above has been used for a while.
