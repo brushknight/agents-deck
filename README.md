@@ -23,7 +23,7 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | <img src="docs/images/panel-board-v2.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
-**Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from.
+**Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from, and [`waveshare-lcd-147`](firmware/devices/waveshare-lcd-147) is a ready-made colour panel.
 
 Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. It wears a pixel hat picked by its working folder, so a project's agents look alike; tap the critter to pick another. The full tour is in [docs/features.md](docs/features.md).
 
@@ -118,4 +118,5 @@ The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
 | `proto/` | `link.proto`: the Deck Link contract for serial boards. |
 | `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
+| `firmware/devices` | Firmware for specific boards, built on the kit (`waveshare-lcd-147`: a colour panel). |
 | `docs/fixtures/state.json` | The sample fleet behind demo mode, the web fixture view and the tests. |

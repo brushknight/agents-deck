@@ -72,7 +72,14 @@ jobs:
       - name: generated C matches link.proto
         run: firmware/deck-link/tools/generate.sh --check
       - name: host tests
-        run: make -C firmware/deck-link/test/host test
+        run: |
+          make -C firmware/deck-link/test/host test
+          for t in firmware/devices/*/tests/run.sh; do
+            [ -x "$t" ] || continue
+            echo "::group::$t"
+            "$t"
+            echo "::endgroup::"
+          done
       - name: build every example and device
         run: |
           for d in firmware/deck-link/examples/*/ firmware/devices/*/; do

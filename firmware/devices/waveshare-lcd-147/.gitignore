@@ -1,0 +1,4 @@
+.pio/
+.venv/
+out/
+__pycache__/
