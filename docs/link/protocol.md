@@ -64,7 +64,8 @@ use the binary frames.
 
 ```
 board                                   deck
-  │ Hello {board_id, type, firmware, …} ──▶│  registers the board (pending if new)
+  │ Hello {board_id, type, firmware, …} ──▶│  registers the board (pending if new; on a
+  │                                         │  registered USB port, approved at once)
   │◀── Welcome {device_name, scope, approved}
   │      (approved = false: nothing more until `agentctl devices approve <name>`;
   │       then a new Welcome with approved = true)
@@ -83,6 +84,12 @@ board                                   deck
 
 - **Hello** must be the board's first frame and is sent again after every reset. A second `Hello`
   starts the conversation over (new `Welcome`, the board subscribes again).
+- **Approval.** A new board on a registered USB port (`agentctl link add`) is approved at once, scope
+  `act`: physical USB on a port you registered is treated as your consent. The audit log says
+  `approved automatically over USB on <port>`. It never happens over Wi-Fi or for `agentctl link sim`, a
+  revoked board stays revoked until `agentctl devices approve`, and `admin` is always given by hand.
+  `agentctl devices auto-approve usb off` makes new boards wait for `agentctl devices approve` again
+  (`--scope view` gives them view instead).
 - **Welcome** is sent again whenever the board's approval or scope changes: when you approve it, change
   its scope (`agentctl devices scope <name> act`) or revoke it (`approved: false`). Its `cert_serial`
   is the board's Wi-Fi certificate as the deck knows it (see below).
@@ -186,6 +193,46 @@ board                                   deck
 - There is no `/v1` endpoint for this: `/v1` is reachable from the network, and a Wi-Fi password
   shouldn't travel further than the Mac's unix socket and the board's USB cable. The web dashboard and
   a companion app get it only through local endpoints (`POST /local/link/wifi` on the unix socket).
+- A board given its own network this way keeps it: the default network below doesn't replace it.
+  `agentctl link wifi <board> --use-default` undoes that (and sends the default at once if the board is
+  on USB).
+
+### The default network
+
+Set once, every board gets it by itself:
+
+```bash
+agentctl link wifi --default --ssid "my network"      # asks for the password; --open for none
+agentctl link wifi --forget-default                   # boards keep what they have
+```
+
+The daemon keeps the default's password in the OS secret store (the macOS login Keychain, service
+`dev.agents-deck`, item `wifi-default`; a 0600 file under the data folder's `keys/` elsewhere), never in
+`config.json`, a log or the audit log (`wifi default set` / `wifi default cleared`, nothing more).
+When an approved board on a registered USB port has paired (`NetStatus.has_cert`) and reports no
+network (`WIFI_NOT_SET`) or another one than the default (`NetStatus.ssid`), the deck sends it
+`WifiConfig` with the default, as above:
+
+```
+board                                   deck
+  │ Hello ──▶│                                    (approved at once on a registered port)
+  │◀── Welcome {approved: true, cert_serial: ""}
+  │ CertRequest ──▶│◀── CertIssued
+  │ NetStatus {has_cert: true, wifi: NOT_SET} ──▶│
+  │◀── WifiConfig {ssid: default, password}
+  │ Result 204 ──▶│ NetStatus {JOINING} … {IDLE, ip} ──▶│   logged: "sent default network … ok"
+```
+
+- At most once per connection: a board that fails with it (`WRONG_PASSWORD`, `NO_NETWORK`, `FAILED`,
+  no answer) is not sent it again until it is plugged in again. One that has the default's SSID isn't
+  sent it again, unless it failed with it last time or the default changed since (a new password).
+- Never to a board with its own network (`agentctl link wifi <board> --ssid`; `devices.json` keeps
+  only that flag, no password), never over Wi-Fi, never to a board that isn't approved or paired, and
+  never to a board whose firmware has no Wi-Fi (`WIFI_UNSUPPORTED`).
+- `NetStatus` says only the board's SSID and state, not its password: a board holding the default's
+  SSID with an old password is resent only if this daemon saw it fail or sent an older default.
+- `agentctl link` shows the default and, per board, how sending it went (`default lab: ok`,
+  `default lab: wrong password`); `agentctl devices` too.
 
 ### Over Wi-Fi
 

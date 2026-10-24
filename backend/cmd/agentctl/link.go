@@ -70,8 +70,9 @@ func linkCmd(args []string) error {
 }
 
 type linkState struct {
-	Ports  []link.PortStatus
-	Boards []link.LinkInfo
+	Ports       []link.PortStatus
+	Boards      []link.LinkInfo
+	WifiDefault string
 }
 
 func linkStatus() error {
@@ -84,9 +85,19 @@ func linkStatus() error {
 		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI")
 		for _, b := range res.Boards {
 			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), netLine(b.Net))
+			wifi := netLine(b.Net)
+			if b.DefaultWifi != "" {
+				wifi += " · " + b.DefaultWifi
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), wifi)
 		}
 		_ = tw.Flush()
+		fmt.Println()
+	}
+	if res.WifiDefault != "" {
+		fmt.Printf("default Wi-Fi network: %s (sent to approved boards plugged in over USB)\n\n", res.WifiDefault)
+	} else {
+		fmt.Println("no default Wi-Fi network (agentctl link wifi --default --ssid NAME)")
 		fmt.Println()
 	}
 	if len(res.Ports) == 0 {
@@ -384,6 +395,9 @@ func linkWifi(args []string) error {
 	password := fs.String("password", "", "the password (leave out to be asked; \"\" with --open)")
 	open := fs.Bool("open", false, "an open network, no password")
 	forget := fs.Bool("forget", false, "make the board forget its Wi-Fi network")
+	def := fs.Bool("default", false, "set the default network: boards plugged in over USB get it by themselves")
+	forgetDef := fs.Bool("forget-default", false, "clear the default network (boards keep what they have)")
+	useDef := fs.Bool("use-default", false, "the board follows the default network again (undoes its own --ssid)")
 	var board string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		board, args = args[0], args[1:]
@@ -392,8 +406,33 @@ func linkWifi(args []string) error {
 	if board == "" && fs.NArg() > 0 {
 		board = fs.Arg(0)
 	}
-	if board == "" || (*ssid == "" && !*forget) {
-		return errors.New("usage: agentctl link wifi <board> --ssid NAME [--password PW | --open]   or   agentctl link wifi <board> --forget")
+	if *forgetDef {
+		if err := call("POST", "/local/link/wifi-default", map[string]any{"forget": true}, nil); err != nil {
+			return err
+		}
+		fmt.Println("default network cleared: boards keep the network they have, new ones get none.")
+		return nil
+	}
+	if *useDef {
+		if board == "" {
+			return errors.New("usage: agentctl link wifi <board> --use-default")
+		}
+		var res struct {
+			Sent    bool
+			Message string
+		}
+		if err := call("POST", "/local/link/wifi", map[string]any{"device": board, "useDefault": true}, &res); err != nil {
+			return err
+		}
+		fmt.Printf("%s follows the default network again: %s.\n", board, res.Message)
+		return nil
+	}
+	if *def && board != "" {
+		return errors.New("--default sets the deck's default network, for every board: leave out the board")
+	}
+	if (!*def && board == "") || (*ssid == "" && !*forget) || (*def && *forget) {
+		return errors.New("usage: agentctl link wifi <board> --ssid NAME [--password PW | --open]   or   agentctl link wifi <board> --forget\n" +
+			"       agentctl link wifi --default --ssid NAME [--open]   or   agentctl link wifi --forget-default   or   agentctl link wifi <board> --use-default")
 	}
 	pw := *password
 	passwordGiven := false
@@ -414,6 +453,14 @@ func linkWifi(args []string) error {
 		if err := server.CheckWifi(*ssid, pw); err != nil {
 			return err
 		}
+	}
+	if *def {
+		if err := call("POST", "/local/link/wifi-default", map[string]any{"ssid": *ssid, "password": pw}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("default network %s set (password in the secret store). Approved boards plugged in over USB and paired\n"+
+			"for Wi-Fi get it by themselves, unless one has its own (agentctl link wifi <board> --ssid); `agentctl link` shows how it went.\n", *ssid)
+		return nil
 	}
 	body := map[string]any{"device": board, "ssid": *ssid, "password": pw, "forget": *forget}
 	if err := call("POST", "/local/link/wifi", body, nil); err != nil {

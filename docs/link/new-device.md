@@ -40,7 +40,8 @@ Name the folder after what the device is (`desk-strip`, `eink-badge`), lowercase
 - Answer a prompt with `deck_answer(agent_id, prompt_id, key)`: always send the prompt's own `id` from
   `waiting.id`. If the prompt changed in the meantime you get `Result` 409; show the new one.
 - Show these states clearly: *not approved yet* (`Welcome.approved == false`: tell the person to run
-  `agentctl devices approve <name>`), *deck offline* (`on_offline`), and *needs you*
+  `agentctl devices approve <name>`; on a registered USB port this is rare, as new boards are approved
+  at once unless the owner turned that off), *deck offline* (`on_offline`), and *needs you*
   (`status == WAITING`), which is the point of most devices.
 - Keep the serial port for Deck Link. Text prints are ignored by the deck but waste bandwidth; never
   print from an interrupt while a frame may be going out.
@@ -81,9 +82,20 @@ Then use it for real:
 
 ```sh
 agentctl link add /dev/cu.usbmodem1101
+```
+
+Plugged into a port you registered, a new board is approved at once with scope `act` (the USB cable
+on your Mac counts as your consent; the audit log notes it). `admin` is given by hand
+(`agentctl devices scope <type>-<id> admin`). With `agentctl devices auto-approve usb off` it waits
+instead:
+
+```sh
 agentctl devices approve <type>-<id>
 agentctl devices scope <type>-<id> act    # if it answers prompts
 ```
+
+A board with Wi-Fi then pairs by itself, and gets the deck's default network if one is set
+(`agentctl link wifi --default --ssid NAME`, [protocol.md](protocol.md#the-default-network)).
 
 ## 6. Open the pull request
 

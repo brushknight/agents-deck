@@ -15,6 +15,8 @@ type Keystore interface {
 	// Load returns the stored secret, or ErrNoKey.
 	Load(name string) ([]byte, error)
 	Save(name string, secret []byte) error
+	// Delete removes a secret; a missing one is no error.
+	Delete(name string) error
 	// Where says where secrets live, for `agentctl devices`.
 	Where() string
 }
@@ -43,6 +45,14 @@ func (f FileKeystore) Save(name string, secret []byte) error {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(f.Dir, name))
+}
+
+func (f FileKeystore) Delete(name string) error {
+	err := os.Remove(filepath.Join(f.Dir, name))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (f FileKeystore) Where() string { return "file in " + f.Dir }

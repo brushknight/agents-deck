@@ -110,4 +110,39 @@ func TestKeychain(t *testing.T) {
 	if _, err := ks.Load("no-such-item"); err != ErrNoKey {
 		t.Errorf("missing item: %v", err)
 	}
+	if err := ks.Delete("test-item"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ks.Load("test-item"); err != ErrNoKey {
+		t.Errorf("deleted item: %v", err)
+	}
+	if err := ks.Delete("test-item"); err != nil {
+		t.Errorf("deleting a missing item: %v", err)
+	}
+}
+
+// A file keystore keeps its secrets 0600 in a 0700 folder, and forgets them.
+func TestFileKeystore(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "keys")
+	ks := FileKeystore{Dir: dir}
+	if err := ks.Save("wifi-default", []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]os.FileMode{dir: 0o700, filepath.Join(dir, "wifi-default"): 0o600} {
+		if st, err := os.Stat(p); err != nil || st.Mode().Perm() != want {
+			t.Fatalf("%s: %v %v, want %v", p, st.Mode().Perm(), err, want)
+		}
+	}
+	if b, err := ks.Load("wifi-default"); err != nil || string(b) != "secret" {
+		t.Fatalf("load: %q %v", b, err)
+	}
+	if err := ks.Delete("wifi-default"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ks.Load("wifi-default"); err != ErrNoKey {
+		t.Fatalf("after delete: %v", err)
+	}
+	if err := ks.Delete("wifi-default"); err != nil {
+		t.Fatalf("delete twice: %v", err)
+	}
 }

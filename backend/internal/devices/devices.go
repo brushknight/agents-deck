@@ -72,6 +72,10 @@ type Device struct {
 	Type     string `json:"type,omitempty"`     // device type, e.g. "oled-tile"
 	Firmware string `json:"firmware,omitempty"` // firmware version
 	Approved bool   `json:"approved,omitempty"`
+	// WifiOwn: the board was given its own network (`agentctl link wifi
+	// <board> --ssid`, or told to forget it): the deck's default network
+	// doesn't replace it. `--use-default` clears it. No password is kept.
+	WifiOwn bool `json:"wifiOwn,omitempty"`
 }
 
 // Active: may connect right now.
@@ -98,6 +102,29 @@ type Registry struct {
 	devices map[string]*Device
 	codes   map[string]pairCode
 	seenAt  map[string]time.Time // last saved LastSeen, to save at most once a minute
+	set     Settings
+}
+
+// Settings are the registry's own: how new boards are let in. They live
+// next to devices.json, in devices-settings.json.
+type Settings struct {
+	AutoApprove AutoApprove `json:"autoApprove"`
+}
+
+// AutoApprove: a new board saying Hello on a registered USB port (`agentctl
+// link add`) is approved at once with Scope. Plugging a board into this Mac
+// counts as the owner's consent. Never over Wi-Fi or the network listener,
+// and never a revoked board.
+type AutoApprove struct {
+	USB   bool  `json:"usb"`
+	Scope Scope `json:"scope"`
+}
+
+// DefaultSettings: boards plugged in over USB are approved with scope act.
+func DefaultSettings() Settings { return Settings{AutoApprove: AutoApprove{USB: true, Scope: Act}} }
+
+func (r *Registry) settingsPath() string {
+	return strings.TrimSuffix(r.Path, ".json") + "-settings.json"
 }
 
 type pairCode struct {
@@ -121,6 +148,70 @@ func (r *Registry) load() {
 	for _, d := range list {
 		r.devices[d.Name] = d
 	}
+	r.set = DefaultSettings()
+	if b, err := os.ReadFile(r.settingsPath()); err == nil {
+		_ = json.Unmarshal(b, &r.set)
+	}
+	if r.set.AutoApprove.Scope != View && r.set.AutoApprove.Scope != Act {
+		r.set.AutoApprove.Scope = Act
+	}
+}
+
+// Settings returns the registry's settings.
+func (r *Registry) Settings() Settings {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	return r.set
+}
+
+// SetAutoApprove turns approving boards plugged in over USB on or off, and
+// sets the scope they get: view or act (admin is always given by hand).
+func (r *Registry) SetAutoApprove(on bool, scope Scope) error {
+	if scope != View && scope != Act {
+		return errors.New("boards approved automatically get view or act; admin is given by hand (agentctl devices scope)")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	next := r.set
+	next.AutoApprove = AutoApprove{USB: on, Scope: scope}
+	b, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := r.settingsPath() + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, r.settingsPath()); err != nil {
+		return err
+	}
+	r.set = next
+	return nil
+}
+
+// AutoApproveUSB approves a board that said Hello on a registered USB port,
+// when the setting is on and the board has never been approved: a revoked
+// board stays revoked until `agentctl devices approve`. It returns the entry
+// and whether it approved it just now.
+func (r *Registry) AutoApproveUSB(name string) (Device, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	d, ok := r.devices[name]
+	if !ok {
+		return Device{}, false, ErrUnknown
+	}
+	if !r.set.AutoApprove.USB || d.Kind != Serial || d.Approved || d.Revoked {
+		return *d, false, nil
+	}
+	d.Approved, d.Scope = true, r.set.AutoApprove.Scope
+	if err := r.save(); err != nil {
+		d.Approved, d.Scope = false, View
+		return *d, false, err
+	}
+	return *d, true, nil
 }
 
 func (r *Registry) save() error {
@@ -307,6 +398,18 @@ func (r *Registry) Revoke(name string) error {
 		if d.Kind == Serial {
 			d.CertSerial, d.CertFingerprint = "", ""
 		}
+		return nil
+	})
+}
+
+// SetWifiOwn records whether a board keeps its own Wi-Fi network (see
+// Device.WifiOwn).
+func (r *Registry) SetWifiOwn(name string, own bool) error {
+	return r.update(name, func(d *Device) error {
+		if d.Kind != Serial {
+			return fmt.Errorf("%s is a %s device: only serial boards take Wi-Fi credentials", name, d.Kind)
+		}
+		d.WifiOwn = own
 		return nil
 	})
 }

@@ -2,6 +2,7 @@ package link
 
 import (
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strings"
 
@@ -30,6 +31,26 @@ func (d ServerDeck) Device(name string) (devices.Device, bool) { return d.S.Devi
 
 func (d ServerDeck) Do(dev devices.Device, method, path string, body []byte) (int, []byte) {
 	return d.S.Dispatch(dev, method, path, body)
+}
+
+// AutoApprove approves a new board plugged into a registered USB port, when
+// the registry's setting allows it, and audits it.
+func (d ServerDeck) AutoApprove(dev devices.Device, port string) (devices.Device, bool) {
+	nd, ok, err := d.S.Devices.AutoApproveUSB(dev.Name)
+	if err != nil {
+		log.Printf("link %s: approving %s automatically: %v", port, dev.Name, err)
+		return dev, false
+	}
+	if !ok {
+		return nd, false
+	}
+	d.S.Audit.Log(devices.AuditEntry{Device: nd.Name, Action: "approve", Status: http.StatusOK,
+		Detail: "approved automatically over USB on " + port + ", scope " + string(nd.Scope)})
+	log.Printf("link %s: %s approved automatically over USB (scope %s)", port, nd.Name, nd.Scope)
+	if d.S.Store != nil {
+		d.S.Store.Touch() // the devices list on the web dashboard
+	}
+	return nd, true
 }
 
 // Pair issues the board's Wi-Fi certificate (server.PairBoard) and says

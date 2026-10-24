@@ -1,6 +1,7 @@
 package devices
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -132,5 +133,58 @@ func TestBoardCert(t *testing.T) {
 	}
 	if err := r.SetBoardCert("panel", "x", "y"); err == nil {
 		t.Error("a network device paired as a board")
+	}
+}
+
+// Boards plugged in over USB: approved at once by default (scope act), never
+// when revoked, never with the setting off; the setting persists.
+func TestAutoApproveUSB(t *testing.T) {
+	dir := t.TempDir()
+	r := &Registry{Path: filepath.Join(dir, "devices.json")}
+	if s := r.Settings().AutoApprove; !s.USB || s.Scope != Act {
+		t.Fatalf("default: %+v", s)
+	}
+	d, _ := r.Board("AA:01", "round", "1")
+	got, ok, err := r.AutoApproveUSB(d.Name)
+	if err != nil || !ok || !got.Approved || got.Scope != Act {
+		t.Fatalf("new board: %+v %v %v", got, ok, err)
+	}
+	if _, ok, _ := r.AutoApproveUSB(d.Name); ok {
+		t.Fatal("approved twice")
+	}
+	_ = r.Revoke(d.Name)
+	if got, ok, _ := r.AutoApproveUSB(d.Name); ok || got.Active() {
+		t.Fatal("a revoked board was approved again")
+	}
+	if err := r.SetAutoApprove(false, View); err != nil {
+		t.Fatal(err)
+	}
+	d2, _ := r.Board("AA:02", "round", "1")
+	if _, ok, _ := r.AutoApproveUSB(d2.Name); ok {
+		t.Fatal("approved with the setting off")
+	}
+	if err := r.SetAutoApprove(true, Admin); err == nil {
+		t.Fatal("admin")
+	}
+	r2 := &Registry{Path: r.Path}
+	if s := r2.Settings().AutoApprove; s.USB || s.Scope != View {
+		t.Fatalf("reloaded: %+v", s)
+	}
+	if st, err := os.Stat(filepath.Join(dir, "devices-settings.json")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("settings file: %v %v", st, err)
+	}
+	if _, _, err := r.AutoApproveUSB("nobody"); err != ErrUnknown {
+		t.Fatalf("unknown: %v", err)
+	}
+	// A network device takes no Wi-Fi override.
+	_ = r.AddNetwork("panel", Act, "01", "fp")
+	if err := r.SetWifiOwn("panel", true); err == nil {
+		t.Fatal("wifi override on a network device")
+	}
+	if err := r.SetWifiOwn(d2.Name, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := (&Registry{Path: r.Path}).Get(d2.Name); !got.WifiOwn {
+		t.Fatal("override not saved")
 	}
 }

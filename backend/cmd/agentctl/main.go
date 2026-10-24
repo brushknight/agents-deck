@@ -844,6 +844,8 @@ func devicesCmd(args []string) error {
 		switch {
 		case action == "scope" && len(args) == 3:
 			return call("POST", "/local/devices/"+args[1]+"/scope", map[string]string{"scope": args[2]}, nil)
+		case action == "auto-approve":
+			return devicesAutoApprove(args[1:])
 		case (action == "revoke" || action == "approve" || action == "remove") && len(args) == 2:
 			if err := call("POST", "/local/devices/"+args[1]+"/"+action, nil, nil); err != nil {
 				return err
@@ -851,16 +853,19 @@ func devicesCmd(args []string) error {
 			fmt.Printf("%s: %s\n", args[1], map[string]string{"revoke": "revoked", "approve": "approved", "remove": "removed"}[action])
 			return nil
 		}
-		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin]")
+		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin | auto-approve usb on|off [--scope view|act]]")
 	}
 	var res struct {
-		Devices []devices.Device
-		CA, URL string
+		Devices     []devices.Device
+		CA, URL     string
+		AutoApprove devices.AutoApprove
 	}
 	if err := call("GET", "/local/devices", nil, &res); err != nil {
 		return err
 	}
-	fmt.Printf("listener %s · CA %s\n\n", res.URL, res.CA)
+	fmt.Printf("listener %s · CA %s\n", res.URL, res.CA)
+	fmt.Println(autoApproveLine(res.AutoApprove))
+	fmt.Println()
 	if len(res.Devices) == 0 {
 		fmt.Println("no devices yet: agentctl pair <name>")
 		return nil
@@ -869,7 +874,11 @@ func devicesCmd(args []string) error {
 	var ls linkState
 	_ = call("GET", "/local/link", nil, &ls)
 	via := map[string][]string{}
+	defWifi := map[string]string{}
 	for _, b := range ls.Boards {
+		if b.DefaultWifi != "" {
+			defWifi[b.Board] = b.DefaultWifi
+		}
 		v := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
 		if b.Transport == link.OverWifi && b.Net != nil && b.Net.IP != "" {
 			v += " " + b.Net.IP
@@ -899,6 +908,12 @@ func devicesCmd(args []string) error {
 			if d.CertSerial != "" {
 				detail += " · Wi-Fi certificate"
 			}
+			if d.WifiOwn {
+				detail += " · its own Wi-Fi network"
+			}
+			if dw := defWifi[d.Name]; dw != "" {
+				detail += " · " + dw
+			}
 		}
 		on := strings.Join(via[d.Name], ", ")
 		if on == "" {
@@ -907,6 +922,34 @@ func devicesCmd(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", d.Name, d.Kind, d.Scope, state, on, seen, detail)
 	}
 	return tw.Flush()
+}
+
+func autoApproveLine(a devices.AutoApprove) string {
+	if !a.USB {
+		return "boards plugged in over USB: wait for agentctl devices approve (auto-approve usb off)"
+	}
+	return "boards plugged in over USB: approved automatically, scope " + string(a.Scope) + " (agentctl devices auto-approve usb off)"
+}
+
+// devicesAutoApprove: agentctl devices auto-approve usb on|off [--scope view|act].
+func devicesAutoApprove(args []string) error {
+	usage := errors.New("usage: agentctl devices auto-approve usb on|off [--scope view|act]")
+	if len(args) < 2 || args[0] != "usb" || (args[1] != "on" && args[1] != "off") {
+		return usage
+	}
+	fs := flag.NewFlagSet("devices auto-approve", flag.ExitOnError)
+	scope := fs.String("scope", "", "the scope boards approved this way get: view or act (admin is given by hand)")
+	_ = fs.Parse(args[2:])
+	body := map[string]any{"usb": args[1] == "on"}
+	if *scope != "" {
+		body["scope"] = *scope
+	}
+	var res devices.AutoApprove
+	if err := call("POST", "/local/devices/auto-approve", body, &res); err != nil {
+		return err
+	}
+	fmt.Println(autoApproveLine(res))
+	return nil
 }
 
 func humanAgo(d time.Duration) string {
@@ -1021,12 +1064,25 @@ func serve(args []string) error {
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()}}
 	errc := make(chan error, 4)
-	hub := &link.Hub{}
-	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
+	// The default Wi-Fi network for boards plugged in over USB: its password in
+	// the OS secret store (the login Keychain on macOS), never in a file here.
+	wifiDefault := &link.WifiDefault{Store: pki.DefaultKeystore(paths.Data())}
+	hub := &link.Hub{Wifi: wifiDefault}
+	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
+		Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
 	go links.Run(context.Background())
 	srv.LinkUpgrade = link.UpgradeHandler(link.ServerDeck{S: srv}, hub)
-	srv.LinkStatus = func() any { return map[string]any{"ports": links.Status(), "boards": hub.Links()} }
+	srv.LinkStatus = func() any {
+		return map[string]any{"ports": links.Status(), "boards": hub.Links(), "wifiDefault": wifiDefault.SSID()}
+	}
 	srv.LinkWifi = hub.SendWifi
+	srv.LinkWifiDefault = func(ssid, password string, forget bool) error {
+		if forget {
+			return wifiDefault.Clear()
+		}
+		return wifiDefault.Set(ssid, password)
+	}
+	srv.LinkWifiUseDefault = hub.SendDefault
 	var deviceTLS *tls.Config
 	if cfg.DeviceAddr != "" {
 		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))

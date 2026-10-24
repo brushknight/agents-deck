@@ -111,10 +111,15 @@ If the board won't take an upload, hold BOOT while you plug it in.
 
 ```bash
 agentctl link ports                                         # find the board's port
-agentctl link add /dev/cu.usbmodem1101
-agentctl devices approve waveshare-touch-lcd-28c-<id>       # the screen shows the exact name
-agentctl devices scope waveshare-touch-lcd-28c-<id> act     # to answer, focus and interrupt
+agentctl link add /dev/cu.usbmodem1101                      # once per port
+agentctl link wifi --default --ssid "my network"            # once: every board gets it (asks for the password)
 ```
+
+On a registered port a new board is approved at once with scope `act` (answer, focus, interrupt);
+`agentctl devices scope waveshare-touch-lcd-28c-<id> admin` adds stop. Then it pairs for Wi-Fi and gets
+the default network, with no further commands. With `agentctl devices auto-approve usb off` it waits
+on "waiting for approval" for `agentctl devices approve waveshare-touch-lcd-28c-<id>` (the screen shows the exact
+name).
 
 The board says Hello as type `waveshare-touch-lcd-28c`, display 480×480 colour, input TOUCH. It
 subscribes to every agent with `TILE | CARD | PROMPT | NUMBERS` and keeps up to 64 agents. The
@@ -135,13 +140,22 @@ build (arduino-esp32 2.0.17) has no TLS 1.3, so it stays on USB.
 1. **Pair.** Nothing to do: plugged into the Mac and approved, the board makes a key on the chip and
    gets its certificate from the deck over USB (a toast says "paired for Wi-Fi"). `agentctl devices`
    then shows "Wi-Fi certificate" for it.
-2. **Give it your network**, while it is on USB:
+2. **Give it your network.** Set once on the deck, every approved board plugged in gets it by itself
+   (toast "trying Wi-Fi…", then the outcome; `agentctl link` shows `default my network: ok`):
+
+   ```bash
+   agentctl link wifi --default --ssid "my network"      # asks for the password; kept in the Keychain
+   ```
+
+   Or one board's own network, while it is on USB (the default then leaves it alone; `agentctl link
+   wifi <board> --use-default` undoes it):
 
    ```bash
    agentctl link wifi waveshare-touch-lcd-28c-<id> --ssid "my network"     # asks for the password
    ```
 
-   The password goes over the cable to the board's flash and nowhere else. The board tries the network
+   The password goes over the cable to the board's flash; the deck keeps only the default's, in the
+   Keychain. The board tries the network
    at once (toast: "trying Wi-Fi…", then "Wi-Fi works" or what went wrong) and the command prints the
    outcome. `--forget` drops it again.
 3. **Unplug it from the Mac** and power it anywhere (a USB charger). At boot it listens on USB for 4
@@ -216,8 +230,10 @@ The bottom line shows the draw and push time of each frame. The port prints the 
 1. **Self-test.** Flash `selftest` and go through the table above. Fix `ROUND_ROTATION` or
    `ROUND_PCLK_HZ` if needed, or move to `idf5-selftest`.
 2. **The firmware.** Flash `idf5` with the same settings. The screen shows
-   "connecting", then "waiting for approval" once `agentctl link add` has the port.
-3. **Approve.** Run `agentctl devices approve` with the name on the screen, then `scope … act`. The
+   "connecting" until `agentctl link add` has the port, then the spring ("waiting for approval" with
+   auto-approval off).
+3. **Approve.** Nothing to do on a registered port: it is approved at once (scope `act`). With
+   auto-approval off, run `agentctl devices approve` with the name on the screen, then `scope … act`. The
    spring appears. Optionally run `agentctl link check <port>` before `link add`: it plays a demo deck
    and reports on the handshake, pings and recovery.
 

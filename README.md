@@ -138,7 +138,7 @@ Each agent gets its own hook settings, so your global `~/.claude/settings.json` 
 - **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks.
 - **The menu bar app** uses the daemon's unix socket: nothing crosses the network.
 - **The desk panel** connects over TLS 1.3 with its own client certificate, signed by the deck's local CA (its key is in the macOS Keychain). Each device has a scope (view, act or admin), shows up in `agentctl devices`, can be revoked on its own, and every action it takes lands in an audit log.
-- **Serial boards** have to be registered (`agentctl link add`) and approved once (`agentctl devices approve`), start with view-only access, and are logged and revocable like the panel.
+- **Serial boards** are only heard on ports you registered (`agentctl link add`). A new board plugged into one is approved at once with scope `act` (physical USB on your Mac counts as your consent; `agentctl devices auto-approve usb off` makes them wait for `agentctl devices approve` with view-only access). Never over Wi-Fi, never a revoked board; `admin` is always given by hand. Boards are logged and revocable like the panel.
 - **Codex files are only read.** App control is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
 - **Secrets** live in `~/.local/share/agents-terminal/` (`0700` / `0600`).
 

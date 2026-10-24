@@ -35,6 +35,13 @@ type Deck interface {
 	Pair(d devices.Device, csr []byte) (*linkpb.CertIssued, int, string)
 }
 
+// AutoApprover is a Deck that approves boards plugged in over USB by itself
+// (devices.Registry.AutoApproveUSB): it returns the entry and whether it
+// approved it just now.
+type AutoApprover interface {
+	AutoApprove(d devices.Device, port string) (devices.Device, bool)
+}
+
 // Default timing; each Session has its own copy (tests and link check
 // shorten theirs).
 const (
@@ -66,6 +73,12 @@ type Session struct {
 	// IdleTimeout ends the session after this long without a frame from the
 	// board (0: never). A board answers every Ping, so 30 s is plenty.
 	IdleTimeout time.Duration
+	// USBPort is the registered serial port the session runs on (Manager
+	// sets it; never for `agentctl link sim` or Wi-Fi). A board there is in
+	// the owner's hands: a new one may be approved at once (AutoApprover),
+	// and an approved, paired one gets the default Wi-Fi network (Wifi).
+	USBPort string
+	Wifi    *WifiDefault
 
 	rw       io.ReadWriter
 	wmu      sync.Mutex
@@ -94,6 +107,8 @@ type Session struct {
 	reqSeq  atomic.Uint32
 	done    chan struct{}
 	lastRx  time.Time
+
+	wifiTried bool // the default network was offered in this session (once at most)
 }
 
 // Board is the connected board's device name ("" before its Hello).
@@ -184,6 +199,7 @@ func (s *Session) Run(ctx context.Context) error {
 		defer s.Hub.remove(s)
 	}
 	defer close(s.done)
+	defer s.wifiGone()
 	frames := make(chan Decoded, 16)
 	readErr := make(chan error, 1)
 	go func() {
@@ -359,6 +375,9 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 	if err != nil {
 		return fmt.Errorf("registering board: %w", err)
 	}
+	if a, ok := s.Deck.(AutoApprover); ok && s.USBPort != "" && s.Peer == nil && s.Transport == OverSerial && !d.Active() {
+		d, _ = a.AutoApprove(d, s.USBPort)
+	}
 	if s.hello == nil || s.hello.BoardId != h.BoardId {
 		state := "approved"
 		if !d.Active() {
@@ -413,6 +432,61 @@ func (s *Session) onNetStatus(n *linkpb.NetStatus) {
 			line += " " + n.Ip
 		}
 		log.Printf("link %s: %s Wi-Fi %s", s.Name, s.dev.Name, line)
+	}
+	s.defaultWifi(n)
+}
+
+// defaultWifi gives an approved board on a registered USB port the deck's
+// default Wi-Fi network once it is paired (NetStatus.has_cert) and lacks it,
+// at most once per session; and notes how the board's test of it went.
+func (s *Session) defaultWifi(n *linkpb.NetStatus) {
+	if s.Wifi == nil || s.USBPort == "" || s.Transport != OverSerial || !s.active() {
+		return
+	}
+	name := s.dev.Name
+	if ssid, gen, ok := s.Wifi.pending(name); ok {
+		if n.Ssid == ssid {
+			if state, failed := outcome(n); state != "" {
+				s.Wifi.note(name, ssid, gen, state, failed, true)
+			}
+		}
+		return
+	}
+	if s.wifiTried || s.dev.WifiOwn {
+		return
+	}
+	c, gen, ok := s.Wifi.wanted(name, n)
+	if !ok {
+		return
+	}
+	s.wifiTried = true
+	s.Wifi.note(name, c.SSID, gen, "sending", false, false)
+	go func() { // the answer comes through Run: wait for it elsewhere
+		ctx, cancel := context.WithTimeout(context.Background(), WifiTimeout)
+		defer cancel()
+		code, msg, err := s.SendWifi(ctx, c.SSID, c.Password, false)
+		switch {
+		case err != nil:
+			s.Wifi.note(name, c.SSID, gen, "no answer ("+err.Error()+")", true, true)
+		case code >= 300:
+			if msg == "" {
+				msg = http.StatusText(code)
+			}
+			s.Wifi.note(name, c.SSID, gen, fmt.Sprintf("refused: %d %s", code, msg), true, true)
+		default:
+			s.Wifi.note(name, c.SSID, gen, "stored, testing", false, false)
+		}
+	}()
+}
+
+// wifiGone: a board unplugged while it tested the default tries it again
+// next time.
+func (s *Session) wifiGone() {
+	if s.Wifi == nil || s.USBPort == "" || s.dev.Name == "" {
+		return
+	}
+	if ssid, gen, ok := s.Wifi.pending(s.dev.Name); ok {
+		s.Wifi.note(s.dev.Name, ssid, gen, "no answer: unplugged while testing", true, true)
 	}
 }
 

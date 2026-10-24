@@ -36,6 +36,8 @@ type Manager struct {
 	Deck  Deck
 	Ports func() []PortConfig
 	Hub   *Hub // optional: where `agentctl link wifi` finds the sessions
+	// Wifi is the default network for boards plugged in here (optional).
+	Wifi *WifiDefault
 
 	mu      sync.Mutex
 	running map[string]*portRun
@@ -164,8 +166,7 @@ func (m *Manager) check(ctx context.Context, p PortConfig, retry map[string]time
 		return
 	}
 	sctx, cancel := context.WithCancel(ctx)
-	s := NewSession(m.Deck, f, filepath.Base(p.Path))
-	s.Hub, s.Where = m.Hub, p.Path
+	s := m.portSession(f, p)
 	run := &portRun{cancel: cancel, file: f, session: s, done: make(chan struct{})}
 	m.mu.Lock()
 	m.running[p.Path] = run
@@ -180,6 +181,14 @@ func (m *Manager) check(ctx context.Context, p PortConfig, retry map[string]time
 			log.Printf("link %s: closed (%v)", p.Path, err)
 		}
 	}()
+}
+
+// portSession is the session on a registered port: USB in the owner's hands
+// (auto-approval, the default Wi-Fi network).
+func (m *Manager) portSession(rw io.ReadWriter, p PortConfig) *Session {
+	s := NewSession(m.Deck, rw, filepath.Base(p.Path))
+	s.Hub, s.Where, s.USBPort, s.Wifi = m.Hub, p.Path, p.Path, m.Wifi
+	return s
 }
 
 // Status lists every registered port.

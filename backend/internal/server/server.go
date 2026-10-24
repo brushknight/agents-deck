@@ -106,6 +106,12 @@ type Server struct {
 	// LinkWifi sends Wi-Fi credentials to a board connected over USB serial
 	// (POST /local/link/wifi); it returns the board's answer.
 	LinkWifi func(device, ssid, password string, forget bool) (int, string)
+	// LinkWifiDefault sets (or, with forget, clears) the default network that
+	// boards plugged in over USB get by themselves (POST
+	// /local/link/wifi-default); LinkWifiUseDefault sends it to a board on USB
+	// now (POST /local/link/wifi with "useDefault").
+	LinkWifiDefault    func(ssid, password string, forget bool) error
+	LinkWifiUseDefault func(device string) (int, string)
 	// LinkUpgrade turns POST /local/link into a Deck Link stream (a board
 	// without hardware: agentctl link sim); LinkStatus is GET /local/link:
 	// {"ports": serial ports, "boards": connected boards on either transport}.
@@ -462,6 +468,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
+	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
 	mux.HandleFunc("GET /local/link", func(w http.ResponseWriter, r *http.Request) {
 		if s.LinkStatus == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ports": []any{}, "boards": []any{}})

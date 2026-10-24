@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -15,6 +16,8 @@ import (
 // link` (who is connected, and how) and `agentctl link wifi` (which needs the
 // board on USB serial).
 type Hub struct {
+	Wifi *WifiDefault // the default network (optional): its status per board
+
 	mu   sync.Mutex
 	live map[*Session]bool
 }
@@ -42,6 +45,9 @@ type LinkInfo struct {
 	Since     time.Time `json:"since"`
 	Approved  bool      `json:"approved"`
 	Net       *NetInfo  `json:"net,omitempty"` // what the board reports
+	// DefaultWifi: what happened when the deck sent this board its default
+	// network ("default lab: ok", "default lab: wrong password"…).
+	DefaultWifi string `json:"defaultWifi,omitempty"`
 }
 
 // NetInfo is a board's NetStatus in words.
@@ -64,6 +70,9 @@ func (h *Hub) Links() []LinkInfo {
 			continue
 		}
 		li := LinkInfo{Board: name, Transport: s.Transport, Where: s.Where, Since: s.since, Approved: s.live.Load()}
+		if s.Transport == OverSerial {
+			li.DefaultWifi = h.Wifi.Status(name)
+		}
 		if n := s.Net(); n != nil {
 			li.Net = &NetInfo{Wifi: WifiStateName(n.Wifi), SSID: n.Ssid, IP: n.Ip, RSSI: int(n.Rssi), HasCert: n.HasCert}
 		}
@@ -115,6 +124,30 @@ func (h *Hub) SendWifi(board, ssid, password string, forget bool) (int, string) 
 		return http.StatusGatewayTimeout, board + " didn't answer (" + err.Error() + "): its firmware may not support Wi-Fi"
 	case code == http.StatusNotImplemented && msg == "":
 		msg = "this board's firmware has no Wi-Fi"
+	}
+	return code, msg
+}
+
+// SendDefault gives a board on USB serial the default network now (after
+// `agentctl link wifi <board> --use-default`). 409 when it isn't on USB, 404
+// when there is no default.
+func (h *Hub) SendDefault(board string) (int, string) {
+	if h.Wifi == nil {
+		return http.StatusNotFound, "no default network: agentctl link wifi --default --ssid NAME"
+	}
+	c, gen, ok := h.Wifi.get()
+	if !ok {
+		return http.StatusNotFound, "no default network: agentctl link wifi --default --ssid NAME"
+	}
+	if h.serial(board) == nil {
+		return http.StatusConflict, board + " isn't on USB right now: it gets the default network next time it is plugged in"
+	}
+	h.Wifi.note(board, c.SSID, gen, "sending", false, false)
+	code, msg := h.SendWifi(board, c.SSID, c.Password, false)
+	if code >= 300 {
+		h.Wifi.note(board, c.SSID, gen, fmt.Sprintf("refused: %d %s", code, msg), true, true)
+	} else {
+		h.Wifi.note(board, c.SSID, gen, "stored, testing", false, false)
 	}
 	return code, msg
 }

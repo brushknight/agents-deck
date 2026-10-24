@@ -44,4 +44,13 @@ func (Keychain) Save(name string, secret []byte) error {
 	return nil
 }
 
+func (Keychain) Delete(name string) error {
+	err := exec.Command("/usr/bin/security", "delete-generic-password", "-s", keychainService, "-a", name).Run()
+	var ee *exec.ExitError
+	if err == nil || errors.As(err, &ee) && ee.ExitCode() == 44 { // errSecItemNotFound
+		return nil
+	}
+	return fmt.Errorf("keychain: %v", err)
+}
+
 func (Keychain) Where() string { return "macOS Keychain (" + keychainService + ")" }

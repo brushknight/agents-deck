@@ -153,28 +153,39 @@ answer prompts with scope `act`. All three share
 ```sh
 agentctl link ports                      # USB serial ports that look like boards
 agentctl link add /dev/cu.usbmodem1101   # the daemon only ever opens registered ports
-agentctl devices approve oled-tile-3fa9c1
-agentctl devices scope oled-tile-3fa9c1 act   # to let it answer prompts
 agentctl link                            # what's connected
 ```
 
+A new board plugged into a registered port is approved at once with scope `act` (it can answer
+prompts): the USB cable on your Mac counts as your consent, and the audit log says so. `admin` is given
+by hand (`agentctl devices scope <name> admin`); `agentctl devices auto-approve usb off` makes new
+boards wait for `agentctl devices approve <name>` instead. A revoked board stays revoked until you
+approve it again, and nothing is ever approved over Wi-Fi.
+
 **Wi-Fi.** The round boards (on their `idf5` firmware) also work without the Mac's cable. Plugged in
-and approved, a board pairs by itself: it gets its own certificate from the deck. Give it your network
-from the Mac:
+and approved, a board pairs by itself: it gets its own certificate from the deck. Tell the deck your
+network once, and every board plugged in after that gets it by itself:
+
+```sh
+agentctl link wifi --default --ssid "my network"     # asks for the password; kept in the Keychain
+```
+
+Or give one board a network of its own (the default then leaves it alone; `--use-default` undoes it):
 
 ```sh
 agentctl link wifi waveshare-touch-lcd-21-3fa9c1 --ssid "my network"   # asks for the password
 ```
 
-The password goes over the USB cable to the board and nowhere else (the Mac keeps no copy). The board
-tries the network at once and `agentctl link wifi` tells you whether it worked. From then on, powered
+The password goes over the USB cable to the board; the Mac keeps only the default's, in the Keychain,
+and never logs it. The board tries the network at once; `agentctl link wifi` (or, for the default,
+`agentctl link`) tells you whether it worked. From then on, powered
 anywhere without the Mac on its USB port, the board joins the network and connects to the deck over
 TLS, as the same device: same name, scope and audit log. Plugged into the Mac again, it switches back
 to USB. `agentctl link` shows how each board is connected; `agentctl link wifi <board> --forget` drops
 the network, `agentctl devices revoke` cuts a board off on both. See
 [link/protocol.md](link/protocol.md#pairing-and-wi-fi).
 
-A new board waits for approval and starts with view-only access. The daemon lets go of a port while
+With auto-approval off, a new board waits for approval and starts with view-only access. The daemon lets go of a port while
 another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
 device, see [link/new-device.md](link/new-device.md).
