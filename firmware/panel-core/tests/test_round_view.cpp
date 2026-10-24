@@ -229,39 +229,57 @@ static void testAnswer() {
   assert(um.screen == RoundScreen::Home);
 }
 
+// The detail's row as it settles: kind and centre of each button, left to right.
+struct RowB { HitKind kind; int x, y; };
+static int rowOf(const DetailStyle& S, const Agent& a, RoundScope scope, RowB out[4]) {
+  const uint8_t m = detailRowMask(a, scope);
+  int n = 0;
+  for (int i = 0; i < 4; i++) {
+    const float ang = rowAngle(S, m, (uint8_t)(1 << i));
+    if (ang < 0) continue;
+    const RPoint p = polar(240, 240, S.btnArcR, ang);
+    out[n++] = RowB{kRowKinds[i], p.x, p.y};
+  }
+  return n;
+}
+
 static void testButtons() {
   uint32_t ms = 1000;
   Fleet f = fleetOf({mk("a", 0, Status::Running), mk("b", 1, Status::Idle)});
   const DetailStyle S = detailOrbit();
-  DetailButton b[3];
-  assert(detailButtons(S, f.agents[0], RoundScope::Admin, b) == 3);
-  assert(b[0].kind == HitKind::Focus && b[1].kind == HitKind::Interrupt && b[2].kind == HitKind::Stop);
-  assert(b[0].x > 240 && b[1].x == 240 && b[2].x < 240);   // focus right, stop left
-  assert(detailButtons(S, f.agents[1], RoundScope::Admin, b) == 2);   // no interrupt when idle
-  assert(detailButtons(S, f.agents[0], RoundScope::Act, b) == 2 && b[1].kind == HitKind::Interrupt);   // no stop
-  assert(detailButtons(S, f.agents[0], RoundScope::View, b) == 0);
+  RowB b[4];
+  // Close on the left, then focus, interrupt (running), stop (admin).
+  assert(rowOf(S, f.agents[0], RoundScope::Admin, b) == 4);
+  assert(b[0].kind == HitKind::Back && b[1].kind == HitKind::Focus && b[2].kind == HitKind::Interrupt &&
+         b[3].kind == HitKind::Stop);
+  assert(b[0].x < b[1].x && b[1].x < b[2].x && b[2].x < b[3].x);
+  assert(rowOf(S, f.agents[1], RoundScope::Admin, b) == 3);   // no interrupt when idle
+  assert(rowOf(S, f.agents[0], RoundScope::Act, b) == 3 && b[2].kind == HitKind::Interrupt);   // no stop
+  assert(rowOf(S, f.agents[0], RoundScope::View, b) == 1 && b[0].kind == HitKind::Back);       // close only
+  assert(rowOf(S, f.agents[0], RoundScope::View, b) == 1 && b[0].x == 240);                   // centred
 
   RoundUi ui;
   roundSync(ui, kOrbit, f, ms);
   roundOpen(ui, f, 0, RoundScreen::Detail);
-  detailButtons(S, f.agents[0], RoundScope::Admin, b);
-  RoundCommand cmd = tap(ui, kOrbit, f, b[0].x, b[0].y, ms);
+  rowOf(S, f.agents[0], RoundScope::Admin, b);
+  RoundCommand cmd = tap(ui, kOrbit, f, b[1].x, b[1].y, ms);
   assert(cmd.cmd == RoundCmd::Focus && !strcmp(cmd.agent, "a"));
-  cmd = tap(ui, kOrbit, f, b[1].x + 10, b[1].y - 10, ms);
+  cmd = tap(ui, kOrbit, f, b[2].x + 10, b[2].y - 10, ms);
   assert(cmd.cmd == RoundCmd::Interrupt);
-  cmd = tap(ui, kOrbit, f, b[0].x, b[0].y, ms, RoundScope::View);
+  cmd = tap(ui, kOrbit, f, b[1].x, b[1].y, ms, RoundScope::View);   // with view, focus isn't there
   assert(cmd.cmd == RoundCmd::None);
 
   // Stop: a tap only says "hold to stop".
-  cmd = tap(ui, kOrbit, f, b[2].x, b[2].y, ms);
+  roundOpen(ui, f, 0, RoundScreen::Detail);
+  cmd = tap(ui, kOrbit, f, b[3].x, b[3].y, ms);
   assert(cmd.cmd == RoundCmd::None && !strcmp(ui.toast, "hold to stop"));
   // Held 1 s: Dismiss, once.
   int fired = 0;
-  roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Admin, 0, ms);
+  roundTouch(ui, kOrbit, f, true, b[3].x, b[3].y, RoundScope::Admin, 0, ms);
   assert(roundHoldPermille(ui, ms) == 0);
   for (uint32_t t = 16; t <= 1500; t += 16) {
     if (t > 480 && t < 520) assert(roundHoldPermille(ui, ms + t) > 450 && roundHoldPermille(ui, ms + t) < 550);
-    if (roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Admin, 0, ms + t).cmd == RoundCmd::Dismiss) {
+    if (roundTouch(ui, kOrbit, f, true, b[3].x, b[3].y, RoundScope::Admin, 0, ms + t).cmd == RoundCmd::Dismiss) {
       fired++;
       assert(t >= kRoundHoldMs);
     }
@@ -270,37 +288,81 @@ static void testButtons() {
   assert(fired == 1);
   ms += 2000;
   // Let go early: nothing.
-  roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Admin, 0, ms);
-  assert(roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Admin, 0, ms + 900).cmd == RoundCmd::None);
+  roundTouch(ui, kOrbit, f, true, b[3].x, b[3].y, RoundScope::Admin, 0, ms);
+  assert(roundTouch(ui, kOrbit, f, true, b[3].x, b[3].y, RoundScope::Admin, 0, ms + 900).cmd == RoundCmd::None);
   assert(roundTouch(ui, kOrbit, f, false, 0, 0, RoundScope::Admin, 0, ms + 950).cmd == RoundCmd::None);
   // Slide off the button: cancelled.
   ms += 2000;
-  roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Admin, 0, ms);
-  roundTouch(ui, kOrbit, f, true, b[2].x + 40, b[2].y - 40, RoundScope::Admin, 0, ms + 100);
-  assert(roundTouch(ui, kOrbit, f, true, b[2].x + 40, b[2].y - 40, RoundScope::Admin, 0, ms + 1200).cmd == RoundCmd::None);
+  roundTouch(ui, kOrbit, f, true, b[3].x, b[3].y, RoundScope::Admin, 0, ms);
+  roundTouch(ui, kOrbit, f, true, b[3].x - 40, b[3].y - 40, RoundScope::Admin, 0, ms + 100);
+  assert(roundTouch(ui, kOrbit, f, true, b[3].x - 40, b[3].y - 40, RoundScope::Admin, 0, ms + 1200).cmd == RoundCmd::None);
   roundTouch(ui, kOrbit, f, false, 0, 0, RoundScope::Admin, 0, ms + 1300);
-  // Scope act: no stop to hold.
-  ms += 2000;
-  roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Act, 0, ms);
-  assert(roundTouch(ui, kOrbit, f, true, b[2].x, b[2].y, RoundScope::Act, 0, ms + 1200).cmd == RoundCmd::None);
-  roundTouch(ui, kOrbit, f, false, 0, 0, RoundScope::Act, 0, ms + 1300);
 
-  // The buttons sit inside the circle, apart, below the activity line, clear of the context bar.
+  // The row for 1 to 4 buttons, on both boards: inside the circle, apart, under
+  // the text, and the bar's ends clear of it (the bar grows with fewer buttons).
   for (const DetailStyle& st : {detailOrbit(), detailDial()}) {
-    const int n = detailButtons(st, f.agents[0], RoundScope::Admin, b);
-    for (int i = 0; i < n; i++) {
-      const float d = sqrtf((float)(b[i].x - 240) * (b[i].x - 240) + (float)(b[i].y - 240) * (b[i].y - 240));
-      assert(d + st.btnR + 7 + 3 <= 240);              // with the hold ring
-      assert(b[i].y - st.btnR > st.activityBase + 8);   // under the text
-      const float a = angleAt(240, 240, b[i].x, b[i].y);
-      const float halfDeg = asinf((st.btnR + 9) / d) * 180 / kRoundPi;
-      assert(!angleOnArc(a - halfDeg, st.arcStart, st.arcSweep) && !angleOnArc(a + halfDeg, st.arcStart, st.arcSweep));
-      for (int k = i + 1; k < n; k++) {
-        const float dx = (float)(b[i].x - b[k].x), dy = (float)(b[i].y - b[k].y);
-        assert(sqrtf(dx * dx + dy * dy) >= 2 * st.btnR + 8);
+    float lastExtent = 0;
+    for (uint8_t m : {(uint8_t)1, (uint8_t)3, (uint8_t)7, (uint8_t)15}) {
+      const int n = maskCount(m);
+      const float extent = barExtent(st, n);
+      assert(extent > lastExtent);
+      lastExtent = extent;
+      for (int i = 0; i < 4; i++) {
+        const float ang = rowAngle(st, m, (uint8_t)(1 << i));
+        if (ang < 0) continue;
+        const RPoint p = polar(240, 240, st.btnArcR, ang);
+        assert(st.btnArcR + st.btnR + 7 + 3 <= 240);              // with the hold ring
+        assert(p.y - st.btnR > st.modelBase + 10);                // under the text
+        const float halfDeg = asinf(st.btnR / st.btnArcR) * 180 / kRoundPi;
+        assert(fabsf(ang - 180) + halfDeg < extent);              // the bar stops short of it
+        for (int k = i + 1; k < 4; k++) {
+          const float ang2 = rowAngle(st, m, (uint8_t)(1 << k));
+          if (ang2 < 0) continue;
+          const RPoint q = polar(240, 240, st.btnArcR, ang2);
+          const float d = sqrtf((float)(p.x - q.x) * (p.x - q.x) + (float)(p.y - q.y) * (p.y - q.y));
+          assert(d >= 2 * st.btnR + 8);                           // apart
+          assert(d >= 2 * st.btnHit - 6);                         // hit circles barely touch
+        }
       }
     }
   }
+}
+
+// The row and the bar ease to a new set of buttons over kRowAnimMs.
+static void testRowAnimation() {
+  const DetailStyle S = detailOrbit();
+  Agent run = mk("a", 0, Status::Running), idle = mk("a", 0, Status::Idle);
+  RoundUi ui;
+  const uint8_t m4 = detailRowMask(run, RoundScope::Admin), m3 = detailRowMask(idle, RoundScope::Admin);
+  assert(maskCount(m4) == 4 && maskCount(m3) == 3);
+  roundRowSync(ui, "a", m4, 1000);
+  RowFrame f = rowFrame(S, ui, "a", m4, 1000);
+  assert(f.n == 4 && fabsf(f.arcSweep - (360 - 2 * barExtent(S, 4))) < 0.01f);   // a new agent: settled at once
+  // It goes idle: interrupt leaves, the others close up, the bar grows.
+  roundRowSync(ui, "a", m3, 2000);
+  f = rowFrame(S, ui, "a", m3, 2000);
+  assert(f.n == 4 && fabsf(f.arcSweep - (360 - 2 * barExtent(S, 4))) < 0.01f);   // the start
+  float lastSweep = f.arcSweep, lastR = 1e9f;
+  for (uint32_t t = 2016; t <= 2000 + kRowAnimMs; t += 16) {
+    f = rowFrame(S, ui, "a", m3, t);
+    assert(f.arcSweep >= lastSweep - 0.001f);   // grows steadily
+    lastSweep = f.arcSweep;
+    for (int i = 0; i < f.n; i++)
+      if (f.btn[i].kind == HitKind::Interrupt) { assert(f.btn[i].r <= lastR + 0.001f); lastR = f.btn[i].r; }
+  }
+  f = rowFrame(S, ui, "a", m3, 2000 + kRowAnimMs);
+  assert(f.n == 3 && fabsf(f.arcSweep - (360 - 2 * barExtent(S, 3))) < 0.01f);   // settled
+  // Half way it is more than half done (ease out).
+  roundRowSync(ui, "a", m4, 5000);
+  const float mid = rowProgress(ui, 5000 + kRowAnimMs / 2);
+  assert(mid > 0.6f && mid < 1);
+  // Unsynced state (a host render) draws the target settled.
+  RoundUi fresh;
+  f = rowFrame(S, fresh, "a", m3, 0);
+  assert(f.n == 3);
+  // Another agent: no animation.
+  roundRowSync(ui, "b", m3, 6000);
+  assert(rowProgress(ui, 6000) == 1);
 }
 
 static void testNewWaiting() {
@@ -511,26 +573,30 @@ static void testPills() {
   }
 }
 
-// The way back without a gesture: the "×" under the top edge on the detail
-// and the prompt, and the detail's big critter; clear of everything else.
+// The way back without a gesture: the detail's close button on the left of
+// its row, its big critter, and the prompt's "×" under the top edge.
 static void testBack() {
   for (const RoundLayout* L : {(const RoundLayout*)&kOrbit, (const RoundLayout*)&kDial}) {
     uint32_t ms = 1000;
     Fleet f = fleetOf({mk("a", 0, Status::Running), waiter("c", 1), mk("d", 2, Status::Idle)});
+    const DetailStyle S = L->kind() == RoundLayout::Kind::Orbit ? detailOrbit() : detailDial();
+    for (RoundScope sc : {RoundScope::View, RoundScope::Act, RoundScope::Admin}) {
+      RowB b[4];
+      rowOf(S, f.agents[0], sc, b);
+      assert(b[0].kind == HitKind::Back);
+      RoundUi ui;
+      roundSync(ui, *L, f, ms);
+      roundOpen(ui, f, 0, RoundScreen::Detail);
+      tap(ui, *L, f, b[0].x, b[0].y, ms, sc);
+      assert(ui.screen == RoundScreen::Home);
+      // The big critter: home too.
+      roundOpen(ui, f, 0, RoundScreen::Detail);
+      tap(ui, *L, f, 240, S.critterCy, ms, sc);
+      assert(ui.screen == RoundScreen::Home);
+    }
+    // The prompt's "×" goes back where it came from.
     RoundUi ui;
     roundSync(ui, *L, f, ms);
-    roundOpen(ui, f, 0, RoundScreen::Detail);
-    tap(ui, *L, f, kBackX, kBackY, ms);
-    assert(ui.screen == RoundScreen::Home);
-    roundOpen(ui, f, 0, RoundScreen::Detail);
-    tap(ui, *L, f, kBackX + 25, kBackY + 20, ms);   // the hit circle is bigger than the button
-    assert(ui.screen == RoundScreen::Home);
-    // The big critter: home too.
-    const DetailStyle S = L->kind() == RoundLayout::Kind::Orbit ? detailOrbit() : detailDial();
-    roundOpen(ui, f, 0, RoundScreen::Detail);
-    tap(ui, *L, f, 240, S.critterCy, ms);
-    assert(ui.screen == RoundScreen::Home);
-    // The prompt's "×" goes back where it came from.
     roundOpen(ui, f, 1, RoundScreen::Detail);
     roundOpen(ui, f, 1, RoundScreen::Prompt);
     assert(ui.promptFrom == RoundScreen::Detail);
@@ -538,22 +604,6 @@ static void testBack() {
     assert(ui.pressed.kind == HitKind::Back);   // drawn pressed
     roundTouch(ui, *L, f, false, 0, 0, RoundScope::Act, 0, ms + 60);
     assert(ui.screen == RoundScreen::Detail);
-    ms += 300;
-    // Clear of the round buttons, the context bar, the dots and the pills.
-    DetailButton b[3];
-    const int nb = detailButtons(S, f.agents[0], RoundScope::Admin, b);
-    for (int i = 0; i < nb; i++) {
-      const float dx = (float)(b[i].x - kBackX), dy = (float)(b[i].y - kBackY);
-      assert(sqrtf(dx * dx + dy * dy) > S.btnHit + kBackHit);
-    }
-    assert(kBackY - kBackR > 240 - (S.ringR - S.ringW / 2) + 2);   // under the bar's inner edge
-    if (S.dots)
-      for (int n : {1, 2, 3, 8, 22, 64})
-        for (int i = 0; i < n; i++) {
-          const RPoint p = detailDot(S, i, n);
-          const float dx = (float)(p.x - kBackX), dy = (float)(p.y - kBackY);
-          assert(sqrtf(dx * dx + dy * dy) > kBackR + 8 + 4);
-        }
     for (int n = 1; n <= 6; n++) {
       Agent a = waiter("p", 0);
       a.optCount = (uint8_t)n;
@@ -561,9 +611,50 @@ static void testBack() {
       const int k = promptPills(a, 0, pl);
       for (int i = 0; i < k; i++) assert(pl[i].y > kBackY + kBackHit);
     }
-    // The critter and the back button sit apart.
-    assert(S.critterCy - 11 * S.critterScale > kBackY + kBackR);
+    // The critter clears the bar, and the text clears the critter.
+    assert(S.critterCy - 11 * S.critterScale > 240 - (S.ringR - S.ringW / 2) + 4);
+    assert(S.titleBase - fontAscent(*S.titleFont) > S.critterCy + 6 * S.critterScale);
   }
+}
+
+// The dial's rim is a slider: a finger on the ring picks the dot under it,
+// follows it live, and leaves it selected; nothing else happens.
+static void testSlider() {
+  Fleet f = crowd(8);
+  RoundUi ui;
+  uint32_t ms = 1000;
+  roundSync(ui, kDial, f, ms);
+  assert(dial_detail::dotAt(8, 0) == 0 && dial_detail::dotAt(8, 44) == 1 && dial_detail::dotAt(8, 350) == 0 &&
+         dial_detail::dotAt(8, 200) == 4 && dial_detail::dotAt(0, 10) == -1);
+  // Down on the ring at 3 o'clock: agent 2 at once.
+  RPoint p = polar(240, 240, 220, 90);
+  roundTouch(ui, kDial, f, true, p.x, p.y, RoundScope::Act, 0, ms);
+  assert(ui.sliding && !strcmp(f.agents[roundFeatured(ui, f)].id, "a02"));
+  // Round to 6 o'clock: each dot in turn.
+  int seen = 2;
+  for (int a = 90; a <= 180; a += 5) {
+    p = polar(240, 240, 215, (float)a);
+    roundTouch(ui, kDial, f, true, p.x, p.y, RoundScope::Act, 0, ms += 10);
+    const int cur = roundFeatured(ui, f);
+    assert(cur == seen || cur == seen + 1);
+    seen = cur;
+  }
+  assert(seen == 4);
+  roundTouch(ui, kDial, f, false, 0, 0, RoundScope::Act, 0, ms += 10);
+  assert(!ui.sliding && ui.lastGesture == RoundGesture::Rim && ui.screen == RoundScreen::Home);
+  assert(!strcmp(f.agents[roundFeatured(ui, f)].id, "a04"));   // stays
+  // A tap in the middle still opens the detail; a swipe from the middle still changes agent.
+  swipe(ui, kDial, f, 300, 240, 160, 240, ms);
+  assert(!strcmp(f.agents[roundFeatured(ui, f)].id, "a05"));
+  tap(ui, kDial, f, 240, 240, ms);
+  assert(ui.screen == RoundScreen::Detail);
+  // The orbit's rim is no slider.
+  RoundUi uo;
+  roundSync(uo, kOrbit, f, ms);
+  p = polar(240, 240, 220, 90);
+  roundTouch(uo, kOrbit, f, true, p.x, p.y, RoundScope::Act, 0, ms);
+  assert(!uo.sliding);
+  roundTouch(uo, kOrbit, f, false, 0, 0, RoundScope::Act, 0, ms + 50);
 }
 
 // Gestures from the touch samples a board really gets: every direction, from
@@ -607,6 +698,8 @@ int main() {
   testDial();
   testPills();
   testBack();
+  testSlider();
+  testRowAnimation();
   testGestures();
   checkScreens(kOrbit);
   checkScreens(kDial);

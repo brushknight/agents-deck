@@ -194,6 +194,7 @@ int main(int argc, char** argv) {
       roundSync(ui, L, *f, ms);
       roundTick(ui, L, *f, ms);
       ui.wake = false;
+      roundAnimate(ui, *f, scope, ms);
     }
 
     // A person answering: tap the middle, then the first pill.

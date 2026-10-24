@@ -237,160 +237,216 @@ static inline void drawNotice(Canvas& c, const RoundTheme& T, const RoundInput& 
 
 // ---------------------------------------------------------------- the detail
 
-// How a layout draws an agent's detail. The context bar is an arc from
-// `arcStart` clockwise over `arcSweep` degrees (over the top, from about 8 to
-// 4 o'clock), so the bottom stays free for the buttons.
+// What an agent is doing, in a word, and for how long: "working · 12m",
+// "thinking · 3s", "waiting · 2m", "hungry · 12m", "idle · 1h", "error · 5m".
+// No commands or comments: the round screens say only the state.
+static inline const char* roundStateWord(const Agent& a) {
+  switch (a.status) {
+    case Status::Running:  return a.actTool[0] ? "working" : "thinking";
+    case Status::Waiting:  return "waiting";
+    case Status::Error:    return "error";
+    case Status::Idle:     return a.unseen ? "hungry" : "idle";
+    case Status::Starting: return "starting";
+    case Status::Exited:   return a.lost ? "lost" : "exited";
+    default:               return "idle";
+  }
+}
+
+static inline void roundStateLine(const Agent& a, int64_t now, char* out, size_t cap) {
+  if (!a.statusSince || a.status == Status::Starting || now < a.statusSince) {
+    snprintf(out, cap, "%s", roundStateWord(a));
+    return;
+  }
+  char age[8];
+  fmtAge(now - a.statusSince, age, sizeof age);
+  snprintf(out, cap, "%s" DECK_DOT "%s", roundStateWord(a), age);
+}
+
+// How a layout draws an agent's detail: the context bar round the top, the
+// critter, the name, the state, model · effort · context, and a row of
+// round buttons on the bottom arc (close on the left, then focus, interrupt
+// while it runs, stop). The bar ends a little short of the row, so it grows
+// when the row has fewer buttons; both move with a short ease.
 struct DetailStyle {
   float ringR, ringW;          // the context bar
-  float arcStart, arcSweep;
-  bool dots;                   // the fleet as dots inside the bar (the dial)
-  float dotsR;
-  int ctxLabelBase;            // "context 41%" (0: none)
   int critterScale, critterCy;
   const Font* titleFont;
   int titleBase;
   const Font* statusFont;
   int statusBase;
-  int modelBase;               // "opus 5.5 · high" (0: none)
-  int activityBase;
-  // The buttons (V1): circles of btnR on an arc of btnArcR round the centre,
-  // at 180° and ± btnSpread3 (three) or ± btnSpread2 (two).
-  float btnR, btnArcR, btnSpread3, btnSpread2;
-  float btnHit;                // the hit circle's radius
+  int modelBase;               // "opus 5.5 · high · 41%", or the prompt's question
+  float btnR, btnArcR, btnStep;   // the row: circles of btnR on an arc of btnArcR, btnStep degrees apart
+  float btnHit;                // a button's hit circle
+  float arcMargin;             // degrees between the bar's ends and the row
 };
 
-// The Orbit's (2.8″): the bar over two thirds of the circle.
+// The Orbit's (2.8″).
 static inline DetailStyle detailOrbit() {
   DetailStyle s{};
-  s.ringR = 226; s.ringW = 14; s.arcStart = 240; s.arcSweep = 240;
-  s.dots = false; s.dotsR = 0;
-  s.ctxLabelBase = 0;   // the share shows on the model line; the back button has the top
-  s.critterScale = 5; s.critterCy = 132;
-  s.titleFont = &FONT_R35; s.titleBase = 212;
-  s.statusFont = &FONT_XXL; s.statusBase = 246;
-  s.modelBase = 278; s.activityBase = 310;
-  s.btnR = 38; s.btnArcR = 168; s.btnSpread3 = 36; s.btnSpread2 = 22; s.btnHit = 44;
+  s.ringR = 226; s.ringW = 14;
+  s.critterScale = 6; s.critterCy = 134;
+  s.titleFont = &FONT_R35; s.titleBase = 226;
+  s.statusFont = &FONT_XXL; s.statusBase = 262;
+  s.modelBase = 294;
+  s.btnR = 34; s.btnArcR = 172; s.btnStep = 30; s.btnHit = 42; s.arcMargin = 6;
   return s;
 }
 
-// The Dial's (2.1″): a shorter bar (three fifths), the fleet's dots inside it,
-// bigger buttons for the denser screen.
+// The Dial's (2.1″): the same, with a thinner bar and bigger buttons.
 static inline DetailStyle detailDial() {
-  DetailStyle s{};
-  s.ringR = 228; s.ringW = 10; s.arcStart = 252; s.arcSweep = 216;
-  s.dots = true; s.dotsR = 205;
-  s.ctxLabelBase = 0;
-  s.critterScale = 5; s.critterCy = 132;
-  s.titleFont = &FONT_R35; s.titleBase = 222;
-  s.statusFont = &FONT_R30; s.statusBase = 258;
-  s.modelBase = 0; s.activityBase = 294;
-  s.btnR = 40; s.btnArcR = 170; s.btnSpread3 = 38; s.btnSpread2 = 23; s.btnHit = 46;
+  DetailStyle s = detailOrbit();
+  s.ringR = 228; s.ringW = 10;
+  s.statusFont = &FONT_R30; s.statusBase = 264;
+  s.modelBase = 298;
+  s.btnR = 36; s.btnStep = 32; s.btnHit = 44;
   return s;
 }
 
-struct DetailButton {
-  HitKind kind;
-  int x, y;
-};
+// The buttons, as bits, in the row's order from the left.
+constexpr uint8_t kBtnClose = 1, kBtnFocus = 2, kBtnInterrupt = 4, kBtnStop = 8;
+static const HitKind kRowKinds[4] = {HitKind::Back, HitKind::Focus, HitKind::Interrupt, HitKind::Stop};
 
-// The buttons the agent and the board's scope allow, right to left (focus,
-// interrupt while running, stop). Scope view: none.
-static inline int detailButtons(const DetailStyle& S, const Agent& a, RoundScope scope, DetailButton out[3]) {
-  HitKind k[3];
-  int n = 0;
-  if (!canAct(scope)) return 0;
-  k[n++] = HitKind::Focus;
-  if (a.status == Status::Running) k[n++] = HitKind::Interrupt;
-  if (scope == RoundScope::Admin) k[n++] = HitKind::Stop;
-  for (int i = 0; i < n; i++) {
-    float ang = 180;
-    if (n == 3) ang = 180 - S.btnSpread3 + i * S.btnSpread3;
-    else if (n == 2) ang = 180 - S.btnSpread2 + i * 2 * S.btnSpread2;
-    const RPoint p = polar(kRoundC, kRoundC, S.btnArcR, ang);
-    out[i] = DetailButton{k[i], p.x, p.y};
+// Which buttons an agent's detail has: close always; focus and interrupt
+// (while it runs) with scope act; stop with scope admin.
+static inline uint8_t detailRowMask(const Agent& a, RoundScope scope) {
+  uint8_t m = kBtnClose;
+  if (canAct(scope)) {
+    m |= kBtnFocus;
+    if (a.status == Status::Running) m |= kBtnInterrupt;
   }
+  if (scope == RoundScope::Admin) m |= kBtnStop;
+  return m;
+}
+
+static inline int maskCount(uint8_t m) {
+  int n = 0;
+  for (int i = 0; i < 4; i++) n += (m >> i) & 1;
   return n;
 }
 
-// One round button: idle (outlined), pressed (filled ink), stop held (filled
-// accent with the hold ring filling over 1 s). Drawn by ui_buttons.h.
-static inline void drawButton(Canvas& c, const RoundTheme& T, const DetailStyle& S, const DetailButton& b, bool pressed,
-                              int holdPermille) {
+// Where button `bit` of row `mask` sits: its angle (180 is 6 o'clock; the
+// row runs from the left, larger angles, to the right). -1 when not in the row.
+static inline float rowAngle(const DetailStyle& S, uint8_t mask, uint8_t bit) {
+  if (!(mask & bit)) return -1;
+  const int n = maskCount(mask);
+  int i = 0;
+  for (uint8_t b = 1; b < bit; b <<= 1) i += (mask & b) ? 1 : 0;
+  return 180 + (n - 1) * S.btnStep / 2 - i * S.btnStep;
+}
+
+// How far from 6 o'clock the bar keeps away, either side, for n buttons.
+static inline float barExtent(const DetailStyle& S, int n) {
+  if (n <= 0) return 0;
+  return (n - 1) * S.btnStep / 2 + asinf(S.btnR / S.btnArcR) * 180 / kRoundPi + S.arcMargin;
+}
+
+constexpr uint32_t kRowAnimMs = 250;
+
+// Keeps the row's animation state current: call before drawing with what the
+// detail shows. A new agent starts without animation; a change of buttons
+// eases from the old row to the new over kRowAnimMs.
+static inline void roundRowSync(RoundUi& ui, const char* agentId, uint8_t mask, uint32_t ms) {
+  if (strcmp(ui.row.agent, agentId)) {
+    snprintf(ui.row.agent, sizeof ui.row.agent, "%s", agentId);
+    ui.row.from = ui.row.to = mask;
+    ui.row.t0 = ms - kRowAnimMs;
+    return;
+  }
+  if (mask == ui.row.to) return;
+  ui.row.from = ui.row.to;
+  ui.row.to = mask;
+  ui.row.t0 = ms;
+}
+
+// The eased progress of the row's change, 0..1 (1 when settled).
+static inline float rowProgress(const RoundUi& ui, uint32_t ms) {
+  const uint32_t dt = ms - ui.row.t0;
+  if (dt >= kRowAnimMs || ui.row.from == ui.row.to) return 1;
+  const float t = (float)dt / kRowAnimMs;
+  const float u = 1 - t;
+  return 1 - u * u * u;   // ease out
+}
+
+struct RowButton {
+  HitKind kind;
+  float x, y, r;               // r shrinks to 0 as a button leaves, grows as one arrives
+};
+
+struct RowFrame {
+  RowButton btn[4];
+  int n;
+  float arcStart, arcSweep;    // the context bar
+};
+
+// The row and the bar at time ms. `mask` is what the detail should show now;
+// if the animation state is for something else, it is drawn settled.
+static inline RowFrame rowFrame(const DetailStyle& S, const RoundUi& ui, const char* agentId, uint8_t mask, uint32_t ms) {
+  uint8_t from = mask, to = mask;
+  float t = 1;
+  if (!strcmp(ui.row.agent, agentId) && ui.row.to == mask) {
+    from = ui.row.from;
+    t = rowProgress(ui, ms);
+  }
+  RowFrame f{};
+  for (int i = 0; i < 4; i++) {
+    const uint8_t bit = (uint8_t)(1 << i);
+    const float a0 = rowAngle(S, from, bit), a1 = rowAngle(S, to, bit);
+    if (a0 < 0 && a1 < 0) continue;
+    float ang, scale;
+    if (a0 >= 0 && a1 >= 0) { ang = a0 + (a1 - a0) * t; scale = 1; }
+    else if (a1 >= 0) { ang = a1; scale = t; }
+    else { ang = a0; scale = 1 - t; }
+    if (scale <= 0.01f) continue;
+    const float rad = ang * kRoundPi / 180;
+    f.btn[f.n++] = RowButton{kRowKinds[i], kRoundC + S.btnArcR * sinf(rad), kRoundC - S.btnArcR * cosf(rad), S.btnR * scale};
+  }
+  const float e0 = barExtent(S, maskCount(from)), e1 = barExtent(S, maskCount(to));
+  const float e = e0 + (e1 - e0) * t;
+  f.arcStart = 180 + e;
+  f.arcSweep = 360 - 2 * e;
+  return f;
+}
+
+static inline void drawRowButton(Canvas& c, const RoundTheme& T, const RowButton& b, bool pressed, int holdPermille) {
+  const int r = (int)lroundf(b.r);
+  if (r < 4) return;
+  if (b.r < 0.7f * 34) {          // arriving or leaving: a plain ring, no icon yet
+    strokeCircle(c, b.x, b.y, b.r - 1.5f, 3, b.kind == HitKind::Stop ? T.t.accent : T.t.ink);
+    return;
+  }
   const IconKind k = b.kind == HitKind::Focus ? IconKind::Focus
-                     : b.kind == HitKind::Interrupt ? IconKind::Interrupt : IconKind::Stop;
-  iconButton(c, b.x, b.y, S.btnR, k, pressed, holdPermille, T.t.bg, T.t.ink, T.t.accent, T.idle);
-}
-
-// The back button of the detail and the prompt: a round "×" under the top
-// edge, with a bigger hit circle. (Swipe down and the BOOT button go back too.)
-constexpr int kBackX = 240, kBackY = 50, kBackR = 24, kBackHit = 36;
-
-namespace round_detail {
-static const char* const kIconBack[] = {"#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#"};
-}  // namespace round_detail
-
-static inline void drawBackButton(Canvas& c, const RoundTheme& T, bool pressed) {
-  fillDisc(c, kBackX, kBackY, kBackR, pressed ? T.t.ink : T.t.bg);
-  if (!pressed) strokeCircle(c, kBackX, kBackY, kBackR - 1.5f, 3, T.t.ink);
-  const uint16_t col = pressed ? T.t.bg : T.t.ink;
-  for (int r = 0; r < 7; r++)
-    for (int k = 0; k < 7; k++)
-      if (round_detail::kIconBack[r][k] == '#') c.rect(kBackX - 10 + k * 3, kBackY - 10 + r * 3, 3, 3, col);
-}
-
-static inline bool backHit(int x, int y) { return inCircle(kBackX, kBackY, kBackHit, x, y); }
-
-// Where agent i of n sits on the detail's arc of dots.
-// The dots leave 12 o'clock (± kDotGap degrees) to the back button. The
-// detail's arc always runs over the top.
-constexpr float kDotGap = 14;
-static inline RPoint detailDot(const DetailStyle& S, int i, int n) {
-  const float pad = 4, start = S.arcStart + pad, span = S.arcSweep - 2 * pad - 2 * kDotGap;
-  float t = n > 1 ? span * i / (n - 1) : 0;
-  const float gapAt = normDeg(360 - kDotGap - start);   // where the gap begins, from the start
-  if (t >= gapAt) t += 2 * kDotGap;
-  return polar(kRoundC, kRoundC, S.dotsR, start + t);
-}
-
-static inline float dotRadius(int n, bool waiting) {
-  float r = waiting ? 8 : 5;
-  if (n > 20) r -= 2;
-  return r < 3 ? 3 : r;
+                     : b.kind == HitKind::Interrupt ? IconKind::Interrupt
+                     : b.kind == HitKind::Back ? IconKind::Close : IconKind::Stop;
+  iconButton(c, (int)lroundf(b.x), (int)lroundf(b.y), r, k, pressed, holdPermille, T.t.bg, T.t.ink, T.t.accent, T.idle);
 }
 
 static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle& S, const RoundInput& in,
-                              const Agent& a, int index) {
-  const Fleet& f = *in.fleet;
+                              const Agent& a, int /*index*/) {
   const RoundUi& ui = *in.ui;
   char buf[96];
+  const uint8_t mask = detailRowMask(a, in.scope);
+  const RowFrame row = rowFrame(S, ui, a.id, mask, in.ms);
+
   // The context bar: the track, then the share used, along the same arc.
-  strokeArc(c, kRoundC, kRoundC, S.ringR, S.ringW, S.arcStart, S.arcSweep, T.t.line);
+  strokeArc(c, kRoundC, kRoundC, S.ringR, S.ringW, row.arcStart, row.arcSweep, T.t.line);
   const int pct = ctxPct(a);
-  if (a.ctxWindow && pct > 0) strokeArc(c, kRoundC, kRoundC, S.ringR, S.ringW, S.arcStart, S.arcSweep * pct / 100, T.t.accent);
-  if (S.ctxLabelBase) {
-    if (a.ctxWindow) snprintf(buf, sizeof buf, "context %d%%", pct);
-    else snprintf(buf, sizeof buf, "context \xE2\x80\x93");
-    textOn(c, FONT_XXL, 240, S.ctxLabelBase, buf, T.t.dim);
-  }
-  if (S.dots) {
-    for (int i = 0; i < f.count; i++) {
-      const Agent& o = f.agents[i];
-      const RPoint p = detailDot(S, i, f.count);
-      const float r = dotRadius(f.count, o.status == Status::Waiting);
-      fillDisc(c, p.x, p.y, r, statusColor(T, o));
-      if (i == index) strokeCircle(c, p.x, p.y, r + 5, 2, T.t.ink);
-    }
-  }
+  if (a.ctxWindow && pct > 0)
+    strokeArc(c, kRoundC, kRoundC, S.ringR, S.ringW, row.arcStart, row.arcSweep * pct / 100, T.t.accent);
+
   const bool waiting = a.status == Status::Waiting;
-  if (waiting) fillDisc(c, 240, S.critterCy, 12 * S.critterScale, T.t.accent);
-  agentCritter(c, a, 240, S.critterCy, S.critterScale, bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms,
-               in.nowEpoch, !waiting);
+  const int s = S.critterScale;
+  if (waiting) fillDisc(c, 240, S.critterCy, 12.f * s, T.t.accent);
+  agentCritter(c, a, 240, S.critterCy, s, bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms, in.nowEpoch, !waiting);
   textOn(c, *S.titleFont, 240, S.titleBase, a.title[0] ? a.title : a.id, T.t.ink);
-  statusLine(a, in.nowEpoch, buf, sizeof buf);
-  const bool loud = a.status != Status::Idle || a.unseen;
-  textOn(c, *S.statusFont, 240, S.statusBase, buf, loud && a.status != Status::Exited ? T.t.accent : T.t.dim);
-  if (S.modelBase) {
-    // model · effort · context share
+  roundStateLine(a, in.nowEpoch, buf, sizeof buf);
+  const bool loud = a.status == Status::Running || waiting || a.status == Status::Error || hungry(a);
+  textOn(c, *S.statusFont, 240, S.statusBase, buf, loud ? T.t.accent : T.t.dim);
+
+  // The third line: model · effort · context; or the prompt's question; or "hold to stop".
+  uint16_t col = T.t.dim;
+  if (ui.pressed.kind == HitKind::Stop) { snprintf(buf, sizeof buf, "hold to stop"); col = T.t.accent; }
+  else if (waiting) { snprintf(buf, sizeof buf, "%s", a.waitTitle[0] ? a.waitTitle : "needs you"); col = T.t.accent; }
+  else {
     buf[0] = '\0';
     auto add = [&](const char* part) {
       if (!part[0]) return;
@@ -402,33 +458,50 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
     char ctx[12] = "";
     if (a.ctxWindow) snprintf(ctx, sizeof ctx, "%d%%", pct);
     add(ctx);
-    if (buf[0]) textOn(c, FONT_XXL, 240, S.modelBase, buf, T.t.dim);
   }
-  // The activity line, or what the finger is about to do.
-  DetailButton btn[3];
-  const int nb = detailButtons(S, a, in.scope, btn);
+  if (buf[0]) textOn(c, FONT_XXL, 240, S.modelBase, buf, col);
+
   const int hold = roundHoldPermille(ui, in.ms);
-  uint16_t actCol = S.modelBase ? T.t.ink : T.t.dim;
-  if (ui.pressed.kind == HitKind::Stop) { snprintf(buf, sizeof buf, "hold to stop"); actCol = T.t.accent; }
-  else if (waiting) { snprintf(buf, sizeof buf, "%s", canAct(in.scope) ? "tap to answer" : a.waitTitle); actCol = T.t.accent; }
-  else roundActivity(a, buf, sizeof buf);
-  textOn(c, FONT_XXL, 240, S.activityBase, buf, actCol);
-  for (int i = 0; i < nb; i++) drawButton(c, T, S, btn[i], ui.pressed.kind == btn[i].kind, hold);
-  drawBackButton(c, T, ui.pressed.kind == HitKind::Back);
+  for (int i = 0; i < row.n; i++) drawRowButton(c, T, row.btn[i], ui.pressed.kind == row.btn[i].kind, hold);
 }
 
-// What a touch on the detail lands on.
+// What a touch on the detail lands on: the row (where it will settle), the
+// big critter (home), then the middle (a waiter's prompt).
 static inline RoundHit detailHit(const DetailStyle& S, const Fleet& f, const Agent& a, int x, int y, RoundScope scope) {
-  RoundHit h;
-  DetailButton btn[3];
-  const int nb = detailButtons(S, a, scope, btn);
-  for (int i = 0; i < nb; i++)
-    if (inCircle(btn[i].x, btn[i].y, S.btnHit, x, y)) { h.kind = btn[i].kind; return h; }
   (void)f;
-  // The back button, and the big critter: home. Then the middle (a waiter's prompt).
-  if (backHit(x, y) || inCircle(240, S.critterCy, 9.f * S.critterScale, x, y)) { h.kind = HitKind::Back; return h; }
-  if (inCircle(240, (S.critterCy + S.activityBase) / 2.f, 130, x, y)) h.kind = HitKind::Middle;
+  RoundHit h;
+  const uint8_t mask = detailRowMask(a, scope);
+  for (int i = 0; i < 4; i++) {
+    const float ang = rowAngle(S, mask, (uint8_t)(1 << i));
+    if (ang < 0) continue;
+    const RPoint p = polar(kRoundC, kRoundC, S.btnArcR, ang);
+    if (inCircle(p.x, p.y, S.btnHit, x, y)) { h.kind = kRowKinds[i]; return h; }
+  }
+  if (inCircle(240, S.critterCy, 9.f * S.critterScale, x, y)) { h.kind = HitKind::Back; return h; }
+  if (inCircle(240, (S.critterCy + S.modelBase) / 2.f, 120, x, y)) h.kind = HitKind::Middle;
   return h;
+}
+
+// Before drawing a frame: keeps the detail's row animation current.
+static inline void roundAnimate(RoundUi& ui, const Fleet& f, RoundScope scope, uint32_t ms) {
+  if (ui.screen != RoundScreen::Detail) return;
+  const int i = findAgent(f, ui.openId);
+  if (i >= 0) roundRowSync(ui, f.agents[i].id, detailRowMask(f.agents[i], scope), ms);
+}
+
+// The prompt keeps its close button under the top edge (it has no row).
+constexpr int kBackX = 240, kBackY = 50, kBackR = 24, kBackHit = 36;
+
+static inline void drawBackButton(Canvas& c, const RoundTheme& T, bool pressed) {
+  iconButton(c, kBackX, kBackY, kBackR, IconKind::Close, pressed, 0, T.t.bg, T.t.ink, T.t.accent, T.idle);
+}
+
+static inline bool backHit(int x, int y) { return inCircle(kBackX, kBackY, kBackHit, x, y); }
+
+static inline float dotRadius(int n, bool waiting) {
+  float r = waiting ? 8 : 5;
+  if (n > 20) r -= 2;
+  return r < 3 ? 3 : r;
 }
 
 // ---------------------------------------------------------------- the prompt (P1)

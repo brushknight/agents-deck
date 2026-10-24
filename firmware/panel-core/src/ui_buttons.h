@@ -1,5 +1,5 @@
 #pragma once
-// The round icon buttons of an agent's card (focus, interrupt, stop), shared
+// The round icon buttons of an agent's card (focus, interrupt, stop, close), shared
 // by the round and the square layouts: pixel icons in 4 px cells, an
 // outline ring at rest, filled when pressed, and the 1 s hold ring on stop.
 #include <stdint.h>
@@ -8,7 +8,7 @@
 #include "canvas.h"
 #include "round_geom.h"
 
-enum class IconKind : uint8_t { Focus, Interrupt, Stop };
+enum class IconKind : uint8_t { Focus, Interrupt, Stop, Close };
 
 namespace ui_buttons {
 
@@ -16,6 +16,7 @@ static const char* const kIconFocus[] = {"#########", "#.......#", "#.#.....#", 
                                          "#..#....#", "#.#.###.#", "#.......#", "#########"};
 static const char* const kIconPause[] = {"##.##", "##.##", "##.##", "##.##", "##.##", "##.##", "##.##"};
 static const char* const kIconStop[] = {"#####", "#####", "#####", "#####", "#####"};
+static const char* const kIconClose[] = {"#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#"};
 
 static inline void icon(Canvas& c, const char* const* rows, int n, int cx, int cy, uint16_t col) {
   const int w = (int)strlen(rows[0]) * 4, h = n * 4;
@@ -40,6 +41,7 @@ static inline void iconButton(Canvas& c, int cx, int cy, int r, IconKind kind, b
   if (!pressed) strokeCircle(c, cx, cy, r - 1.5f, 3, line);
   if (kind == IconKind::Focus) icon(c, kIconFocus, 9, cx, cy, ico);
   else if (kind == IconKind::Interrupt) icon(c, kIconPause, 7, cx, cy, ico);
+  else if (kind == IconKind::Close) icon(c, kIconClose, 7, cx, cy, ico);
   else icon(c, kIconStop, 5, cx, cy, ico);
   if (stop && pressed) {
     strokeCircle(c, cx, cy, r + 7, 5, track);

@@ -285,7 +285,7 @@ static inline void roundSelftestLoop() {
   static uint32_t lastNote = 0;
   if (ms - lastNote > 2000) {
     lastNote = ms;
-    Serial.printf("selftest: page %d draw %u ms push %u ms light %u touches %u\n", state.page + 1,
+    Serial.printf("selftest: %s, page %d draw %u ms push %u ms light %u touches %u\n", state.found, state.page + 1,
                   (unsigned)state.frameMs, (unsigned)state.pushMs, (unsigned)level, (unsigned)state.touches);
   }
 }

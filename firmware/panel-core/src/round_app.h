@@ -13,6 +13,7 @@
 #include <new>
 
 #include "deck_model.h"
+#include "round_ui.h"
 #include "round_view.h"
 
 #ifdef PANEL_DEBUG
@@ -95,6 +96,7 @@ static void render() {
     roundSync(ui, *board.layout, *f, ms);
     roundTick(ui, *board.layout, *f, ms);
     if (ui.wake) { ui.wake = false; lastActiveMs = ms; }
+    roundAnimate(ui, *f, scope(), ms);
   }
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;

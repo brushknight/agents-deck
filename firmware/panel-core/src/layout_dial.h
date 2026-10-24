@@ -1,9 +1,9 @@
 #pragma once
 // Dial, the 2.1″ round board's home: the orbit, reduced. One agent fills the
-// face (the featured one first), every agent is a dot on an inner ring, and
-// the outer ring is the shown agent's context use. Swipe left / right to
-// change agent; the dots show where you are (the owner's call: no rim drag
-// and no dot taps for now). When an agent starts waiting
+// face (the featured one first) with its name and state; every agent is a
+// dot on a ring at the edge, and that ring is a slider: put a finger on it
+// and slide, and the face follows the dot under it. Swipe left / right
+// changes agent too. A small bar under the critter is its context use. When an agent starts waiting
 // the dial jumps to it and the whole face turns accent, like the deck's
 // needs-you tile; a tap on the middle then opens its prompt.
 //
@@ -20,55 +20,60 @@ static inline DialLayout layoutDial21() { return DialLayout{roundTheme(), detail
 
 namespace dial_detail {
 
-static inline RPoint dot(int i, int n) { return polar(kRoundC, kRoundC, 203, n ? 360.f * i / n : 0); }
+constexpr float kTrackR = 220;   // the slider: a ring at the edge, the fleet as dots on it
+
+static inline RPoint dot(int i, int n) { return polar(kRoundC, kRoundC, kTrackR, n ? 360.f * i / n : 0); }
+
+// The agent whose dot is nearest the angle.
+static inline int dotAt(int n, float ang) {
+  if (n <= 0) return -1;
+  const float per = 360.f / n;
+  return ((int)lroundf(normDeg(ang) / per)) % n;
+}
 
 }  // namespace dial_detail
 
 static inline void drawDialHome(Canvas& c, const DialLayout& L, const RoundInput& in) {
+  using namespace dial_detail;
   const RoundTheme& T = L.T;
   const Fleet& f = *in.fleet;
   const int cur = roundFeatured(*in.ui, f);
   if (cur < 0) return;
   const Agent& a = f.agents[cur];
   const bool waiting = a.status == Status::Waiting;
-  const uint16_t face = waiting ? T.t.accent : T.t.bg;
-  if (waiting) c.fill(face);
+  if (waiting) c.fill(T.t.accent);
+  const uint16_t ink = waiting ? T.t.bg : T.t.ink, dim = waiting ? T.t.bg : T.t.dim;
 
-  // The context ring.
-  strokeCircle(c, kRoundC, kRoundC, 228, 10, waiting ? T.darkAccent : T.t.line);
-  const int pct = ctxPct(a);
-  if (a.ctxWindow && pct > 0) strokeArc(c, kRoundC, kRoundC, 228, 10, 0, 3.6f * pct, waiting ? T.t.bg : T.t.ink);
-
-  // The fleet as dots.
+  // The slider: a thin track at the edge with a dot per agent; the shown one
+  // ringed (and ringed in accent while a finger slides).
+  strokeCircle(c, kRoundC, kRoundC, kTrackR, 2, waiting ? T.darkAccent : T.t.line);
   for (int i = 0; i < f.count; i++) {
     const Agent& o = f.agents[i];
-    const RPoint p = dial_detail::dot(i, f.count);
-    const float r = dotRadius(f.count, o.status == Status::Waiting);
+    const RPoint p = dot(i, f.count);
+    const float r = dotRadius(f.count, o.status == Status::Waiting) + (i == cur ? 2 : 0);
     fillDisc(c, p.x, p.y, r, waiting ? T.t.bg : statusColor(T, o));
-    if (i == cur) strokeCircle(c, p.x, p.y, r + 5, 2, waiting ? T.t.bg : T.t.ink);
+    if (i == cur) strokeCircle(c, p.x, p.y, r + 5, 2, in.ui->sliding ? (waiting ? T.t.bg : T.t.accent) : ink);
   }
 
-  // The agent.
-  agentCritter(c, a, 240, 172, 6, waiting ? T.t.bg : bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms,
+  // The agent: critter, a small context bar, the name, the state.
+  agentCritter(c, a, 240, 160, 6, waiting ? T.t.bg : bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms,
                in.nowEpoch, true);
-  const uint16_t ink = waiting ? T.t.bg : T.t.ink, dim = waiting ? T.t.bg : T.t.dim;
-  // Text stays inside the ring of dots.
-  auto fit = [](const Font& fo, int base) { return fitWidth(fo, base, 52); };
-  textOn(c, FONT_R35, 240, 282, a.title[0] ? a.title : a.id, ink, fit(FONT_R35, 282));
+  if (a.ctxWindow) {
+    const int w = 120, h = 6, x = 240 - w / 2, y = 214;
+    fillPill(c, x, y, w, h, waiting ? T.darkAccent : T.t.line);
+    const int fw = w * ctxPct(a) / 100;
+    if (fw >= h) fillPill(c, x, y, fw, h, waiting ? T.t.bg : T.t.ink);
+  }
+  auto fit = [](const Font& fo, int base) { return fitWidth(fo, base, 40); };
+  textOn(c, FONT_R35, 240, 272, a.title[0] ? a.title : a.id, ink, fit(FONT_R35, 272));
   char buf[96];
   if (waiting) {
-    textOn(c, FONT_R30, 240, 320, a.waitTitle[0] ? a.waitTitle : "needs you", ink, fit(FONT_R30, 320));
-    textOn(c, FONT_XXL, 240, 354, canAct(in.scope) ? "tap to answer" : "tap to see it", ink, fit(FONT_XXL, 354));
+    textOn(c, FONT_R30, 240, 312, a.waitTitle[0] ? a.waitTitle : "needs you", ink, fit(FONT_R30, 312));
+    textOn(c, FONT_XXL, 240, 348, canAct(in.scope) ? "tap to answer" : "tap to see it", ink, fit(FONT_XXL, 348));
   } else {
-    statusLine(a, in.nowEpoch, buf, sizeof buf);
-    textOn(c, FONT_XXL, 240, 320, buf, dim, fit(FONT_XXL, 320));
-    roundActivity(a, buf, sizeof buf);
-    textOn(c, FONT_XXL, 240, 354, buf, dim, fit(FONT_XXL, 354));
+    roundStateLine(a, in.nowEpoch, buf, sizeof buf);
+    textOn(c, FONT_XXL, 240, 310, buf, dim, fit(FONT_XXL, 310));
   }
-  snprintf(buf, sizeof buf, "\xE2\x80\xB9  %d / %d  \xE2\x80\xBA", cur + 1, (int)f.count);
-  if (textW(FONT_XXL, buf) > fitWidth(FONT_XXL, 414, 40))
-    snprintf(buf, sizeof buf, "\xE2\x80\xB9 %d/%d \xE2\x80\xBA", cur + 1, (int)f.count);
-  textOn(c, FONT_XXL, 240, 414, buf, dim, fitWidth(FONT_XXL, 414, 24));
 }
 
 static inline RoundHit dialHomeHit(const Fleet& f, const RoundUi& ui, int x, int y) {
@@ -91,6 +96,7 @@ class DialPanel : public RoundLayout {
   }
   int pages(const Fleet&) const override { return 1; }
   int pageOf(const Fleet&, int) const override { return 0; }
-  float rimInner() const override { return 1000; }   // no rim drag: swipes only
+  float rimInner() const override { return 175; }   // the slider: a finger on the outer ring
+  int sliderAt(const Fleet& f, float ang) const override { return dial_detail::dotAt(f.count, ang); }
   const DialLayout L;
 };

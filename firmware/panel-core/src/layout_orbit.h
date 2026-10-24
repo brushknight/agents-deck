@@ -118,7 +118,7 @@ static inline void drawOrbitHome(Canvas& c, const OrbitLayout& L, const RoundInp
     else snprintf(buf, sizeof buf, "%s", verb);
     textOn(c, FONT_XXL, 240, 342, buf, T.t.dim);
   } else {
-    statusLine(a, in.nowEpoch, buf, sizeof buf);
+    roundStateLine(a, in.nowEpoch, buf, sizeof buf);
     textOn(c, FONT_XXL, 240, 310, buf, T.t.dim);
   }
 }

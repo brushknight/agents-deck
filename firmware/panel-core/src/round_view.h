@@ -82,6 +82,15 @@ struct RoundUi {
   bool holdFired = false;      // the stop hold already sent its Dismiss
   RimDrag rim;
   RoundGesture lastGesture = RoundGesture::None;
+  bool sliding = false;        // the dial: a finger on the rim slider
+
+  // The detail's button row, animated when it changes (round_ui.h):
+  // bit masks of the buttons shown, and when the change began.
+  struct {
+    uint8_t from = 0, to = 0;
+    uint32_t t0 = 0;
+    char agent[12] = "";
+  } row;
 
   // Feedback.
   char toast[40] = "";
@@ -125,6 +134,8 @@ class RoundLayout {
   virtual int pageOf(const Fleet& f, int agent) const = 0;
   // Where a drag round the rim may start: radii from the centre.
   virtual float rimInner() const = 0;
+  // A rim that works as a slider (the dial): the agent at an angle, -1 for none.
+  virtual int sliderAt(const Fleet&, float /*ang*/) const { return -1; }
 };
 
 // The prompt shows up to three answers, or four at a time of a longer list,
@@ -406,11 +417,25 @@ static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const F
       if (ui.pressed.kind == HitKind::Option && !canAct(scope)) ui.pressed = RoundHit();
       rimBegin(ui.rim, cx, cy, L.rimInner(), cx + 8, x, y);
       if (ui.screen != RoundScreen::Home) ui.rim.active = false;
+      ui.sliding = false;
+      if (ui.rim.active) {
+        const int i = L.sliderAt(f, ui.rim.last);
+        if (i >= 0) {                     // the slider: the dot under the finger, at once
+          ui.sliding = true;
+          ui.pressed = RoundHit();
+          featureAgent(ui, L, f, i);
+        }
+      }
       return out;
     }
     ui.x = x;
     ui.y = y;
     rimMove(ui.rim, cx, cy, x, y);
+    if (ui.sliding) {                     // follow the finger round the ring
+      const int i = L.sliderAt(f, ui.rim.last);
+      if (i >= 0 && strcmp(f.agents[i].id, ui.featureId)) featureAgent(ui, L, f, i);
+      return out;
+    }
     const int dx = x - ui.x0, dy = y - ui.y0;
     if (dx * dx + dy * dy > kRoundSlop * kRoundSlop) ui.pressed = RoundHit();   // it became a drag
     // Stop: held long enough while still on the button.
@@ -430,6 +455,12 @@ static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const F
   ui.lastTouchMs = ms;
   const RoundHit pressed = ui.pressed;
   ui.pressed = RoundHit();
+  if (ui.sliding) {                       // let go of the slider: the agent stays
+    ui.sliding = false;
+    ui.rim.active = false;
+    ui.lastGesture = RoundGesture::Rim;
+    return out;
+  }
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
   const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   if (ui.rim.active && (ui.rim.turned >= kRimTurnMin || ui.rim.turned <= -kRimTurnMin)) {
