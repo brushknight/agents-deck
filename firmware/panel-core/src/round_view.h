@@ -135,6 +135,57 @@ struct RoundDamage {
   RoundRect r[kRoundMaxDamage];
 };
 
+// The damage as spans per row: what to clear, draw and copy, each pixel once.
+constexpr int kRoundRows = 480, kRoundRowSpans = 8;
+struct RoundSpans {
+  uint8_t n[kRoundRows];
+  int16_t x[kRoundRows][kRoundRowSpans][2];   // [x0, x1), in order, not touching
+
+  void build(const RoundRect* r, int count) {
+    memset(n, 0, sizeof n);
+    for (int i = 0; i < count; i++) {
+      if (r[i].w <= 0) continue;
+      const int y1 = r[i].y + r[i].h < kRoundRows ? r[i].y + r[i].h : kRoundRows;
+      for (int y = r[i].y < 0 ? 0 : r[i].y; y < y1; y++) add(y, r[i].x, (int16_t)(r[i].x + r[i].w));
+    }
+  }
+
+ private:
+  void add(int y, int16_t a, int16_t b) {
+    int16_t (*s)[2] = x[y];
+    int k = n[y];
+    // Swallow every span this one touches.
+    int at = 0;
+    while (at < k && s[at][1] < a) at++;
+    int end = at;
+    while (end < k && s[end][0] <= b) {
+      if (s[end][0] < a) a = s[end][0];
+      if (s[end][1] > b) b = s[end][1];
+      end++;
+    }
+    const int removed = end - at;
+    if (removed == 0 && k == kRoundRowSpans) {   // full: widen a neighbour (covers more, never less)
+      const int m = at < k ? at : k - 1;
+      if (a < s[m][0]) s[m][0] = a;
+      if (b > s[m][1]) s[m][1] = b;
+      // It may touch the next one now.
+      if (m + 1 < k && s[m][1] >= s[m + 1][0]) {
+        if (s[m + 1][1] > s[m][1]) s[m][1] = s[m + 1][1];
+        for (int j = m + 1; j + 1 < k; j++) { s[j][0] = s[j + 1][0]; s[j][1] = s[j + 1][1]; }
+        n[y] = (uint8_t)(k - 1);
+      }
+      return;
+    }
+    // Replace [at, end) with the one span.
+    const int shift = 1 - removed;
+    if (shift > 0) for (int j = k - 1; j >= end; j--) { s[j + 1][0] = s[j][0]; s[j + 1][1] = s[j][1]; }
+    else if (shift < 0) for (int j = end; j < k; j++) { s[j + shift][0] = s[j][0]; s[j + shift][1] = s[j][1]; }
+    s[at][0] = a;
+    s[at][1] = b;
+    n[y] = (uint8_t)(k + shift);
+  }
+};
+
 // The parts of row y that the rects cover, merged and in order: up to `max`
 // spans [x0, x1). Returns how many. (Rects overlap; a pixel is in one span.)
 static inline int roundRowSpans(const RoundRect* r, int n, int y, int16_t (*span)[2], int max) {
@@ -189,6 +240,13 @@ class RoundLayout {
   virtual const SpringGeom* spring() const { return nullptr; }
   // What the last draw() changed (only meaningful with RoundInput.partial).
   virtual void damage(RoundDamage& d) const { d.full = true; d.n = 0; }
+  // Draws the frame in strips of `rows` rows into `buf` (kRoundW x rows) and
+  // hands each to `put`, for a board that copies them straight to the panel.
+  // False when the layout can't for this frame: then draw().
+  virtual bool drawStrips(const RoundInput&, uint16_t* /*buf*/, int /*rows*/,
+                          void (*/*put*/)(const uint16_t* strip, int y0, int y1, const RoundSpans& s)) const {
+    return false;
+  }
 };
 
 // The prompt shows up to three answers, or four at a time of a longer list,

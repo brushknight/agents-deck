@@ -102,6 +102,14 @@ static void testGeometry() {
   assert(springSlot(G, 0, 19, 20) == 1 && springSlot(G, 19, 0, 20) == -1);
   assert(springIndex(-1, 20) == 19 && springIndex(20, 20) == 0);
   assert(springShortest(18, 2, 20) == 4 && springShortest(2, 18, 20) == -4);
+  // The 2.8″: nine to a turn at x3, the selected one x5 132 px up, a step per 40° round the rim.
+  const SpringGeom O = springOrbit28();
+  p = springPlace(O, 0, 20);
+  assert(p.scale == 5 && fabsf(p.y - 108) < 0.01f);
+  p = springPlace(O, 1, 20);
+  assert(p.scale == 3 && fabsf(hypotf(p.x - 240, p.y - 240) - 188) < 0.01f);
+  assert(springPlace(O, 8, 20).shown && !springPlace(O, 9, 20).shown);
+  assert(fabsf(springStepDeg(O, 20) - 40) < 0.01f && fabsf(springStepDeg(G, 20) - 51.43f) < 0.01f);
 }
 
 static void testTurning() {
@@ -216,11 +224,25 @@ static void testWaiters() {
   assert(spring_draw::arrowSide(G, f, 15) == -1 && spring_draw::arrowSide(G, f, 3) == 1);
 }
 
-// Draws the same sequence twice: once whole every frame, once in part over the last frame. They must match.
-static void testPartial() {
-  const SpringPanel whole(layoutSpring21()), part(layoutSpring21());
-  std::vector<uint16_t> a(480 * 480), b(480 * 480);
-  Canvas ca{a.data(), 480, 480}, cb{b.data(), 480, 480};
+// The panel of a board drawn to in strips: the strips' changed spans land here.
+static uint16_t* gPanel = nullptr;
+static int gStrips = 0;
+static void putStrip(const uint16_t* strip, int y0, int y1, const RoundSpans& sp) {
+  for (int y = y0; y < y1; y++)
+    for (int k = 0; k < sp.n[y]; k++)
+      memcpy(gPanel + y * 480 + sp.x[y][k][0], strip + (y - y0) * 480 + sp.x[y][k][0],
+             (size_t)(sp.x[y][k][1] - sp.x[y][k][0]) * 2);
+  gStrips++;
+}
+
+// Draws the same sequence three ways: whole every frame; in part over the
+// last frame; in strips onto a panel that keeps the last frame (falling back
+// to whole frames off home, as the board does). They must match.
+static void testPartial(const SpringLayout& lay) {
+  const SpringPanel whole(lay), part(lay), strips(lay);
+  std::vector<uint16_t> a(480 * 480), b(480 * 480), panel(480 * 480), canvas(480 * 480), strip(480 * 40, 0x1234);
+  Canvas ca{a.data(), 480, 480}, cb{b.data(), 480, 480}, cc{canvas.data(), 480, 480};
+  gPanel = panel.data();
   Fleet f = crowd(14);
   f.agents[3].unseen = true;
   wait(f.agents[9]);
@@ -239,9 +261,13 @@ static void testPartial() {
     RoundDamage d;
     part.damage(d);
     if (!d.full) partials++;
+    if (!strips.drawStrips(in, strip.data(), 40, putStrip)) {
+      strips.draw(cc, in);
+      memcpy(panel.data(), canvas.data(), panel.size() * 2);
+    }
     for (int i = 0; i < 480 * 480; i++)
-      if (a[i] != b[i]) {
-        fprintf(stderr, "partial frame differs at %d,%d (ms %u)\n", i % 480, i / 480, ms);
+      if (a[i] != b[i] || a[i] != panel[i]) {
+        fprintf(stderr, "%s frame differs at %d,%d (ms %u)\n", a[i] != b[i] ? "partial" : "strip", i % 480, i / 480, ms);
         assert(false);
       }
   };
@@ -280,13 +306,14 @@ static void testPartial() {
   f.count = 4;
   springStep(ui, f, 1, ms);
   for (int k = 0; k < 12; k++) { frame(); ms += 33; }
-  assert(partials > 40);
+  assert(partials > 40 && gStrips > 100);
 }
 
 int main() {
   testGeometry();
   testTurning();
   testWaiters();
-  testPartial();
+  testPartial(layoutSpring21());
+  testPartial(layoutSpring28());
   return 0;
 }

@@ -1,10 +1,12 @@
 #pragma once
-// The spring carousel, the 2.1″ round board's home (the Dial's successor).
+// The spring carousel, the round boards' home (on the 2.1″ it replaces the
+// Dial, on the 2.8″ the Orbit; one implementation, a SpringLayout per size).
 // The agents sit on a helix in deck slot order; the screen shows one turn of
 // it: the selected agent large at 12 o'clock under a small pointer, the next
-// six clockwise round the ring, a little smaller towards the end of the turn.
+// ones clockwise round the ring (6 on the 2.1″, 8 on the 2.8″), a little
+// closer in towards the end of the turn.
 // The middle is the selected agent: its name, a phrase in plain words, its
-// state and time, and its context bar. Past seven agents a short row of dots
+// state and time, and its context bar. Past one turn of agents a row of dots
 // at 6 o'clock says where in the spring you are, and an orange arc on the
 // rim points to a waiter you can't see. Geometry and motion: spring.h; touch:
 // round_view.h. The detail and the prompt are round_ui.h's.
@@ -15,6 +17,8 @@
 // drawn again (with everything that overlaps them); damage() lists them so
 // the board copies only those to the panel. The critters animate, so their
 // boxes are redrawn every frame; the middle only when its text changes.
+#include <stdlib.h>
+
 #include "round_ui.h"
 #include "spring.h"
 
@@ -22,9 +26,30 @@ struct SpringLayout {
   RoundTheme T;
   DetailStyle detail;
   SpringGeom G;
+  const Font* nameFont;      // the selected agent's name (bold)
+  const Font* phraseFont;    // its phrase; a long one drops to FONT_XXL
 };
 
-static inline SpringLayout layoutSpring21() { return SpringLayout{roundTheme(), detailDial(), springDial21()}; }
+// The 2.1″ (Dial board): name 35 px bold, phrase 30 px.
+static inline SpringLayout layoutSpring21() {
+  return SpringLayout{roundTheme(), detailDial(), springDial21(), &FONT_R35, &FONT_R30};
+}
+
+// The 2.8″ (Orbit board): name 30 px bold, phrase 30 px.
+static inline SpringLayout layoutSpring28() {
+  return SpringLayout{roundTheme(), detailOrbit(), springOrbit28(), &FONT_R30B, &FONT_R30};
+}
+
+// Profiling (the board's bench build defines SPRING_PROFILE and the clock).
+#ifdef SPRING_PROFILE
+extern uint32_t springProfUs[12], springProfPx;
+uint32_t springNowUs();
+#define SPRING_T0() const uint32_t prof_t0_ = springNowUs()
+#define SPRING_T1(k) springProfUs[k] += springNowUs() - prof_t0_
+#else
+#define SPRING_T0() do {} while (0)
+#define SPRING_T1(k) do {} while (0)
+#endif
 
 namespace spring_draw {
 
@@ -120,11 +145,13 @@ static inline RoundRect critterBox(int x, int y, int s, bool halo) {
 }
 
 // Fonts and widths of the middle's lines.
-// The phrase: 30 px while it fits between the ring's side critters, else 26 px.
+// The phrase: its font while it fits between the ring's side critters, else 26 px.
 constexpr int kPhraseMax = 256;
-static inline const Font& phraseFont(const char* s) { return textW(FONT_R30, s) <= 234 ? FONT_R30 : FONT_XXL; }
-static inline int nameMax(const SpringGeom& G) {
-  const int w = fitWidth(FONT_R35, G.nameBase, 40);
+static inline const Font& phraseFont(const SpringLayout& L, const char* s) {
+  return textW(*L.phraseFont, s) <= 234 ? *L.phraseFont : FONT_XXL;
+}
+static inline int nameMax(const SpringLayout& L) {
+  const int w = fitWidth(*L.nameFont, L.G.nameBase, 40);
   return w < 340 ? w : 340;
 }
 
@@ -256,12 +283,12 @@ static inline void build(const SpringLayout& L, const RoundInput& in, Frame& fr)
     e.agent = (int16_t)ids[k];
     e.alpha = (uint8_t)alphas[k];
     const char* title = a.title[0] ? a.title : a.id;
-    e.box = textBox(FONT_R35, G.nameBase, title, nameMax(G));
+    e.box = textBox(*L.nameFont, G.nameBase, title, nameMax(L));
     e.sig = fnvStr(h0, title);
     push(fr, e);
     e.kind = El::Phrase;
     const char* ph = phrase(a);
-    const Font& pf = phraseFont(ph);
+    const Font& pf = phraseFont(L, ph);
     e.box = textBox(pf, G.phraseBase, ph, kPhraseMax);
     e.sig = fnvStr(h0 ^ (loud(a) ? 1u : 0u), ph);
     push(fr, e);
@@ -307,6 +334,116 @@ static inline void build(const SpringLayout& L, const RoundInput& in, Frame& fr)
   }
 }
 
+// ---------------------------------------------------------------- stamps
+// The rings round critters and the rim arc, drawn once and kept as a list of
+// pixels with their coverage: a dashed ring drawn with strokeArc() costs an
+// atan2 per pixel per dash, too slow for 30 frames a second on the ESP32-S3.
+// A stamp draws the same pixels as the primitives it was made from.
+
+struct StampPx {
+  int16_t dx, dy;
+  uint8_t a;       // coverage, 1..15
+  uint8_t which;   // which colour
+};
+
+struct Stamp {
+  bool made = false;
+  int n = 0;
+  StampPx* px = nullptr;
+};
+
+// Records what `draw(canvas, cx, cy, which)` paints for which = 0..ways-1, in a box of
+// half-size `half` round (cx, cy) = (half, half).
+template <typename F>
+static inline void makeStamp(Stamp& st, int half, int ways, F draw) {
+  st.made = true;
+  const int size = 2 * half + 1;
+  uint16_t* buf = (uint16_t*)malloc((size_t)size * size * 2);
+  if (!buf) return;
+  // White over black at coverage a gives red (31a + 7) / 15: distinct for every a.
+  int8_t aOf[32];
+  for (int r = 0; r < 32; r++) aOf[r] = -1;
+  for (int a = 0; a < 16; a++) aOf[(31 * a + 7) / 15] = (int8_t)a;
+  Canvas t{buf, size, size};
+  int count = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    for (int w = 0; w < ways; w++) {
+      t.fill(0);
+      draw(t, half, half, w);
+      for (int i = 0; i < size * size; i++) {
+        const int a = aOf[buf[i] >> 11];
+        if (a <= 0) continue;
+        if (pass == 1) st.px[count] = StampPx{(int16_t)(i % size - half), (int16_t)(i / size - half), (uint8_t)a, (uint8_t)w};
+        count++;
+      }
+    }
+    if (pass == 0) {
+      st.px = (StampPx*)malloc(sizeof(StampPx) * (count ? count : 1));
+      if (!st.px) break;
+      st.n = count;
+      count = 0;
+    }
+  }
+  free(buf);
+  // In row order (stable: within a row, as drawn), so a strip finds its rows.
+  for (int i = 1; i < st.n; i++)
+    for (int k = i; k > 0 && st.px[k - 1].dy > st.px[k].dy; k--) {
+      const StampPx t = st.px[k];
+      st.px[k] = st.px[k - 1];
+      st.px[k - 1] = t;
+    }
+}
+
+static inline void drawStamp(Canvas& c, const Stamp& st, int cx, int cy, const uint16_t* cols) {
+  // The pixels are in row order: start at the canvas's first row, stop past its last.
+  int lo = 0, hi = st.n;
+  while (lo < hi) {
+    const int mid = (lo + hi) / 2;
+    if (cy + st.px[mid].dy < c.top) lo = mid + 1; else hi = mid;
+  }
+  for (int i = lo; i < st.n; i++) {
+    const StampPx& p = st.px[i];
+    const int x = cx + p.dx, y = cy + p.dy;
+    if (y >= c.h) break;
+    if (x < 0 || x >= c.w) continue;
+    uint16_t& d = c.px[y * c.w + x];
+    d = blend565(d, cols[p.which], p.a);
+  }
+}
+
+constexpr int kMaxStampScale = 8;
+
+// The waiting ring (solid, with a faint ring outside) and the hungry one (dashed) at scale s.
+static inline const Stamp& haloStamp(bool waiting, int s) {
+  static Stamp st[2][kMaxStampScale + 1];
+  Stamp& h = st[waiting ? 1 : 0][s];
+  if (!h.made) {
+    const float r = (float)haloR(s);
+    makeStamp(h, haloR(s) + 10, waiting ? 2 : 1, [&](Canvas& c, int cx, int cy, int w) {
+      if (!waiting) {
+        const float circ = 2 * kRoundPi * r;
+        dashedCircle(c, cx, cy, r, 3, (int)(circ / 11), 360.f * 5 / circ, 0xFFFF);
+      } else if (w == 0) {
+        strokeCircle(c, cx, cy, r, 4, 0xFFFF);
+      } else {
+        strokeCircle(c, cx, cy, r + 7, 2, 0xFFFF);
+      }
+    });
+  }
+  return h;
+}
+
+// The rim arc pointing to a waiter off the turn, one per side, round the screen's centre.
+static inline const Stamp& arcStamp(int side) {
+  static Stamp st[2];
+  Stamp& h = st[side > 0 ? 1 : 0];
+  if (!h.made)
+    makeStamp(h, 240, 1, [&](Canvas& c, int cx, int cy, int) {
+      strokeArc(c, cx, cy, kArrowR, 4, side > 0 ? 12 : 320, 28, 0xFFFF);
+    });
+  return h;
+}
+
 // ---------------------------------------------------------------- drawing one element
 
 // A filled triangle (no anti-aliasing: the pointer and the arrowhead are small and sharp).
@@ -330,14 +467,24 @@ static inline void fadedCritter(Canvas& c, const Agent& a, int cx, int cy, int s
   constexpr int kMaxS = 6, kW = 22 * kMaxS, kH = 17 * kMaxS;
   constexpr uint16_t kKey = 0xF81F;   // magenta: in no palette
   static uint16_t buf[kW * kH];
+  static const Agent* lastA = nullptr;     // what buf holds (a frame in strips asks again per strip)
+  static int lastS = -1;
+  static uint32_t lastMs = 0;
+  static uint16_t lastCol = 0;
   if (s > kMaxS) { agentCritter(c, a, cx, cy, s, col, cut, ms, now, false); return; }
   Canvas t{buf, 22 * s, 17 * s};
-  t.fill(kKey);
-  agentCritter(t, a, 10 * s, 11 * s, s, col, cut, ms, now, false);
+  if (lastA != &a || lastS != s || lastMs != ms || lastCol != col) {
+    t.fill(kKey);
+    agentCritter(t, a, 10 * s, 11 * s, s, col, cut, ms, now, false);
+    lastA = &a;
+    lastS = s;
+    lastMs = ms;
+    lastCol = col;
+  }
   const int ox = cx - 10 * s, oy = cy - 11 * s;
   for (int y = 0; y < t.h; y++) {
     const int yy = oy + y;
-    if (yy < 0 || yy >= c.h) continue;
+    if (yy < c.top || yy >= c.h) continue;
     for (int x = 0; x < t.w; x++) {
       const uint16_t p = buf[y * t.w + x];
       const int xx = ox + x;
@@ -359,16 +506,11 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
     case El::Critter: {
       const Agent& a = f.agents[e.agent];
       const int s = e.scale;
-      if (e.alpha >= 15 && e.z >= 2) {
-        const float r = (float)haloR(s);
-        if (a.status == Status::Waiting) {
-          strokeCircle(c, e.x, e.y, r + 7, 2, blend565(T.t.bg, T.t.accent, 5));   // the 35 % ring
-          strokeCircle(c, e.x, e.y, r, 4, T.t.accent);
-        } else if (hungry(a)) {
-          const float circ = 2 * kRoundPi * r;
-          const int count = (int)(circ / 11);
-          dashedCircle(c, e.x, e.y, r, 3, count, 360.f * 5 / circ, T.t.accent);
-        }
+      if (e.alpha >= 15 && e.z >= 2 && s <= kMaxStampScale) {
+        // Waiting: a solid ring and a faint (35 %) one outside it; done unseen: a dashed ring.
+        const uint16_t cols[2] = {T.t.accent, blend565(T.t.bg, T.t.accent, 5)};
+        if (a.status == Status::Waiting) drawStamp(c, haloStamp(true, s), e.x, e.y, cols);
+        else if (hungry(a)) drawStamp(c, haloStamp(false, s), e.x, e.y, cols);
       }
       if (e.alpha >= 15) agentCritter(c, a, e.x, e.y, s, body(T, a), T.t.bg, in.ms, in.nowEpoch, e.bubble);
       else fadedCritter(c, a, e.x, e.y, s, body(T, a), T.t.bg, in.ms, in.nowEpoch, e.alpha);
@@ -376,13 +518,13 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
     }
     case El::Name: {
       const Agent& a = f.agents[e.agent];
-      textOn(c, FONT_R35, 240, G.nameBase, a.title[0] ? a.title : a.id, blend565(T.t.bg, T.t.ink, e.alpha), nameMax(G));
+      textOn(c, *L.nameFont, 240, G.nameBase, a.title[0] ? a.title : a.id, blend565(T.t.bg, T.t.ink, e.alpha), nameMax(L));
       return;
     }
     case El::Phrase: {
       const Agent& a = f.agents[e.agent];
       const char* ph = phrase(a);
-      textOn(c, phraseFont(ph), 240, G.phraseBase, ph, blend565(T.t.bg, loud(a) ? T.t.accent : T.t.dim, e.alpha), kPhraseMax);
+      textOn(c, phraseFont(L, ph), 240, G.phraseBase, ph, blend565(T.t.bg, loud(a) ? T.t.accent : T.t.dim, e.alpha), kPhraseMax);
       return;
     }
     case El::Meta: {
@@ -408,7 +550,7 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
       return;
     case El::Arrow: {
       const int side = e.side;
-      strokeArc(c, kRoundC, kRoundC, kArrowR, 4, side > 0 ? 12 : 320, 28, T.t.accent);
+      drawStamp(c, arcStamp(side), 240, 240, &T.t.accent);
       const float t = (12.f * side - 90) * kRoundPi / 180;
       float x1, y1;
       springPolar(kArrowR, 12.f * side, x1, y1);
@@ -420,41 +562,26 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
   }
 }
 
-// The panel's round mask on part of the frame: the rects that reach past
-// the edge, each pixel once (a second pass would darken the edge).
-static inline void maskRects(Canvas& c, const RoundRect* r, int n) {
+// The panel's round mask on spans of one row (each pixel once: a second
+// pass would darken the edge).
+static inline void maskSpans(Canvas& c, int y, const int16_t (*span)[2], int n) {
   const float R = 240.f, in2 = (R - 0.5f) * (R - 0.5f);
-  int y0 = kRoundH, y1 = 0;
-  RoundRect edge[kRoundMaxDamage];
-  int ne = 0;
-  for (int i = 0; i < n; i++) {
-    bool inside = true;
-    for (int k = 0; k < 4 && inside; k++) {
-      const float dx = (k & 1 ? r[i].x + r[i].w : r[i].x) - kRoundC, dy = (k & 2 ? r[i].y + r[i].h : r[i].y) - kRoundC;
-      inside = dx * dx + dy * dy < in2;
-    }
-    if (inside) continue;
-    edge[ne++] = r[i];
-    if (r[i].y < y0) y0 = r[i].y;
-    if (r[i].y + r[i].h > y1) y1 = r[i].y + r[i].h;
-  }
-  int16_t span[kRoundMaxDamage][2];
-  for (int y = y0; y < y1; y++) {
-    const float dy = y + 0.5f - kRoundC;
-    const int ns = roundRowSpans(edge, ne, y, span, kRoundMaxDamage);
-    for (int s = 0; s < ns; s++)
-      for (int x = span[s][0]; x < span[s][1]; x++) {
-        const float dx = x + 0.5f - kRoundC;
-        const float d2 = dx * dx + dy * dy;
-        if (d2 < in2) continue;
-        const float out = sqrtf(d2) - (R - 0.5f);
-        const int a = out >= 1 ? 15 : (int)(out * 15.f + 0.5f);
-        if (a > 0) {
-          uint16_t& p = c.px[y * c.w + x];
-          p = blend565(p, 0, (uint8_t)a);
-        }
+  const float dy = y + 0.5f - kRoundC;
+  const float half = dy * dy < in2 ? sqrtf(in2 - dy * dy) : 0;   // pixels strictly inside this need nothing
+  const int xIn0 = (int)ceilf(kRoundC - half - 0.5f), xIn1 = (int)floorf(kRoundC + half - 0.5f);
+  for (int s = 0; s < n; s++)
+    for (int x = span[s][0]; x < span[s][1]; x++) {
+      if (x > xIn0 && x < xIn1) { x = xIn1 - 1; continue; }
+      const float dx = x + 0.5f - kRoundC;
+      const float d2 = dx * dx + dy * dy;
+      if (d2 < in2) continue;
+      const float out = sqrtf(d2) - (R - 0.5f);
+      const int a = out >= 1 ? 15 : (int)(out * 15.f + 0.5f);
+      if (a > 0) {
+        uint16_t& p = c.px[y * c.w + x];
+        p = blend565(p, 0, (uint8_t)a);
       }
-  }
+    }
 }
 
 // Whether two frames' elements are the same thing (to compare what they show).
@@ -466,35 +593,76 @@ static inline bool same(const Elem& a, const Elem& b) {
 
 class SpringPanel : public RoundLayout {
  public:
-  explicit SpringPanel(const SpringLayout& l) : L(l) {}
+  explicit SpringPanel(const SpringLayout& l) : L(l) {
+    // The rings and the rim arc, made now rather than mid-turn.
+    for (int sc = L.G.ring; sc <= L.G.sel && sc <= spring_draw::kMaxStampScale; sc++) {
+      spring_draw::haloStamp(true, sc);
+      spring_draw::haloStamp(false, sc);
+    }
+    spring_draw::arcStamp(1);
+    spring_draw::arcStamp(-1);
+  }
   Kind kind() const override { return Kind::Spring; }
   const SpringGeom* spring() const override { return &L.G; }
   void damage(RoundDamage& d) const override { d = dmg_; }
 
   void draw(Canvas& c, const RoundInput& in) const override {
     using namespace spring_draw;
-    const bool home = in.link == LinkState::Live && in.fleet && in.fleet->count > 0 && in.ui &&
-                      in.ui->screen == RoundScreen::Home;
-    const bool toast = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0;
     dmg_.full = true;
     dmg_.n = 0;
-    if (!home || toast) {
+    if (!homeFrame(in)) {
       if (!drawRoundCommon(c, L.T, L.detail, in)) drawHome(c, in);
       drawRoundOverlay(c, L.T, in);
       haveLast_ = false;
       return;
     }
     Frame& cur = frames_[which_ ^ 1];
-    build(L, in, cur);
-    if (!in.partial || !haveLast_ || !drawPartial(c, in, frames_[which_], cur)) {
-      c.fill(L.T.t.bg);
-      for (int i = 0; i < cur.n; i++) drawElem(c, L, in, cur.e[i]);
-      drawRoundOverlay(c, L.T, in);
-      dmg_.full = true;
-      dmg_.n = 0;
+    {
+      SPRING_T0();
+      build(L, in, cur);
+      SPRING_T1(11);
+    }
+    bool dirty[kMaxElems];
+    if (!in.partial || !haveLast_ || !findDamage(frames_[which_], cur, dirty)) fullDamage(cur, dirty);
+    c.top = 0;
+    spans_.build(dmg_.r, dmg_.n);
+    paint(c, in, cur, dirty, 0, kRoundH);
+    which_ ^= 1;
+    haveLast_ = true;
+  }
+
+  // The same frame drawn in strips of `rows` rows in `buf` (480 x rows), each
+  // handed to `put` with the rows it covers; only the strips with something
+  // changed. For a board whose panel keeps the last frame: the frame never
+  // needs a whole copy in memory. False when this frame isn't the spring's
+  // home: draw() it.
+  bool drawStrips(const RoundInput& in, uint16_t* buf, int rows,
+                  void (*put)(const uint16_t* strip, int y0, int y1, const RoundSpans& s)) const override {
+    using namespace spring_draw;
+    if (!homeFrame(in)) return false;
+    Frame& cur = frames_[which_ ^ 1];
+    {
+      SPRING_T0();
+      build(L, in, cur);
+      SPRING_T1(11);
+    }
+    bool dirty[kMaxElems];
+    if (!haveLast_ || !findDamage(frames_[which_], cur, dirty)) fullDamage(cur, dirty);
+    spans_.build(dmg_.r, dmg_.n);
+    for (int y0 = 0; y0 < kRoundH; y0 += rows) {
+      const int y1 = y0 + rows < kRoundH ? y0 + rows : kRoundH;
+      bool any = false;
+      for (int y = y0; y < y1 && !any; y++) any = spans_.n[y] > 0;
+      if (!any) continue;
+      Canvas c{buf - y0 * kRoundW, kRoundW, y1, y0};
+      paint(c, in, cur, dirty, y0, y1);
+      SPRING_T0();
+      put(buf, y0, y1, spans_);
+      SPRING_T1(8);
     }
     which_ ^= 1;
     haveLast_ = true;
+    return true;
   }
 
   RoundHit hit(const RoundUi& ui, const Fleet& f, int x, int y, RoundScope scope, int64_t) const override {
@@ -528,19 +696,35 @@ class SpringPanel : public RoundLayout {
   const SpringLayout L;
 
  private:
+  static bool homeFrame(const RoundInput& in) {
+    const bool home = in.link == LinkState::Live && in.fleet && in.fleet->count > 0 && in.ui &&
+                      in.ui->screen == RoundScreen::Home;
+    const bool toast = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0;
+    return home && !toast;
+  }
+
   void drawHome(Canvas& c, const RoundInput& in) const {
     spring_draw::Frame& fr = frames_[which_ ^ 1];
     spring_draw::build(L, in, fr);
     for (int i = 0; i < fr.n; i++) spring_draw::drawElem(c, L, in, fr.e[i]);
   }
 
-  // Redraws only what changed since `prev`. False when it can't (too much changed): draw it all.
-  bool drawPartial(Canvas& c, const RoundInput& in, const spring_draw::Frame& prev, const spring_draw::Frame& cur) const {
+  // Everything, everywhere.
+  void fullDamage(const spring_draw::Frame& cur, bool* dirty) const {
+    dmg_.full = true;
+    dmg_.n = 1;
+    dmg_.r[0] = RoundRect{0, 0, (int16_t)kRoundW, (int16_t)kRoundH};
+    for (int k = 0; k < cur.n; k++) dirty[k] = true;
+  }
+
+  // What changed since `prev`: the boxes to clear (dmg_) and the elements to
+  // draw again (dirty). False when too much changed: draw it all.
+  bool findDamage(const spring_draw::Frame& prev, const spring_draw::Frame& cur, bool* dirty) const {
     using namespace spring_draw;
     RoundDamage& d = dmg_;
     d.full = false;
     d.n = 0;
-    bool dirty[kMaxElems] = {};
+    for (int k = 0; k < cur.n; k++) dirty[k] = false;
     auto add = [&](const RoundRect& r) {
       if (r.w <= 0 || r.h <= 0) return true;
       if (d.n >= kRoundMaxDamage) return false;
@@ -581,15 +765,44 @@ class SpringPanel : public RoundLayout {
           }
       }
     }
-    for (int i = 0; i < d.n; i++) c.rect(d.r[i].x, d.r[i].y, d.r[i].w, d.r[i].h, L.T.t.bg);
-    for (int k = 0; k < cur.n; k++)
-      if (dirty[k]) drawElem(c, L, in, cur.e[k]);
-    maskRects(c, d.r, d.n);
     return true;
+  }
+
+  // Rows y0..y1 of the frame: the damage cleared, the dirty elements drawn, the round mask.
+  void paint(Canvas& c, const RoundInput& in, const spring_draw::Frame& cur, const bool* dirty, int y0, int y1) const {
+    using namespace spring_draw;
+    {
+      SPRING_T0();
+      const uint32_t bg2 = (uint32_t)L.T.t.bg * 0x10001u;
+      for (int y = y0; y < y1; y++) {
+        uint16_t* row = c.px + y * c.w;
+        for (int s = 0; s < spans_.n[y]; s++) {
+          int x = spans_.x[y][s][0];
+          const int x1 = spans_.x[y][s][1];
+          if (x < x1 && (x & 1)) row[x++] = L.T.t.bg;
+          for (; x + 1 < x1; x += 2) *(uint32_t*)(row + x) = bg2;   // two at a time
+          if (x < x1) row[x] = L.T.t.bg;
+#ifdef SPRING_PROFILE
+          springProfPx += x1 - spans_.x[y][s][0];
+#endif
+        }
+      }
+      SPRING_T1(9);
+    }
+    for (int k = 0; k < cur.n; k++) {
+      if (!dirty[k] || cur.e[k].box.y >= y1 || cur.e[k].box.y + cur.e[k].box.h <= y0) continue;
+      SPRING_T0();
+      drawElem(c, L, in, cur.e[k]);
+      SPRING_T1((int)cur.e[k].kind);
+    }
+    SPRING_T0();
+    for (int y = y0; y < y1; y++) maskSpans(c, y, spans_.x[y], spans_.n[y]);
+    SPRING_T1(10);
   }
 
   mutable spring_draw::Frame frames_[2];
   mutable int which_ = 0;            // frames_[which_] is the last frame drawn
   mutable bool haveLast_ = false;
   mutable RoundDamage dmg_;
+  mutable RoundSpans spans_;
 };

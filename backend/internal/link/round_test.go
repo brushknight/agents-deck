@@ -61,6 +61,7 @@ func TestRoundBoardAnswersThroughTheDeck(t *testing.T) {
 		{"orbit", "waveshare-touch-lcd-28c", "AA:BB:CC:00:28:0C", "waveshare-touch-lcd-28c-00280c"},
 		{"dial", "waveshare-touch-lcd-21", "AA:BB:CC:00:21:00", "waveshare-touch-lcd-21-002100"},
 		{"spring", "waveshare-touch-lcd-21", "AA:BB:CC:00:21:01", "waveshare-touch-lcd-21-002101"},
+		{"spring28", "waveshare-touch-lcd-28c", "AA:BB:CC:00:28:0D", "waveshare-touch-lcd-28c-00280d"},
 	} {
 		t.Run(tc.layout, func(t *testing.T) {
 			srv, ctl := testDeck(t)

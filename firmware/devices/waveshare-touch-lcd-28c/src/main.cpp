@@ -1,12 +1,13 @@
-// agents deck on the Waveshare ESP32-S3-Touch-LCD-2.8C: "Orbit", every agent
-// as a critter on a ring, the one that matters in the middle, on the round
-// 480 x 480 screen, with touch.
+// agents deck on the Waveshare ESP32-S3-Touch-LCD-2.8C: the spring carousel
+// on the round 480 x 480 screen (one turn of nine agents round the selected
+// one), with touch. Built with -DROUND_ORBIT_CLASSIC it shows the earlier
+// Orbit home instead: every agent on a ring, the one that matters in the middle.
 //
 // This file is what is particular to the board: the GT911 touch,
 // its ST7701 init and RGB timing. The wiring both round boards share (the
 // TCA9554 expander, the RGB bus, the backlight) is panel-core's
 // waveshare_round.h. Everything else (Deck Link, the fleet, the layout, the
-// touch UI) is panel-core's round_app.h with layout_orbit.h.
+// touch UI) is panel-core's round_app.h with layout_spring.h.
 //
 // Pins, timings and the panel's init sequence are from Waveshare's demo for
 // this board (ESP32-S3-Touch-LCD-2.8C-Demo.zip on the board's wiki:
@@ -18,11 +19,12 @@
 #include <Arduino.h>
 
 #include "layout_orbit.h"
+#include "layout_spring.h"
 #include "round_app.h"
 #include "round_selftest.h"
 #include "waveshare_round.h"
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 
 // Waveshare's Arduino demo runs 30 MHz with a bounce buffer; their ESP-IDF demo
 // runs 18 MHz without one, which is the default here.
@@ -217,9 +219,15 @@ void loop() { roundSelftestLoop(); }
 void setup() {
   RoundBoard b{};
   b.type = "waveshare-touch-lcd-28c";
+#ifdef ROUND_ORBIT_CLASSIC
   b.layout = new OrbitPanel(layoutOrbit28());
+#else
+  b.layout = new SpringPanel(layoutSpring28());
+#endif
   b.begin = boardBegin;
   b.push = ws_round::push;
+  b.pushDamage = ws_round::pushDamage;
+  b.pushStrip = ws_round::pushStrip;
   b.touch = touchRead;
   b.touchPoints = touchReadPoints;   // the GT911 reports two fingers: pinch in to go home
   b.brightness = ws_round::brightness;

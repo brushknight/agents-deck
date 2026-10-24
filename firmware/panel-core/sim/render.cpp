@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|orbit|dial|spring|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|orbit|dial|spring|spring28|selftest28|selftest21]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -165,17 +165,19 @@ int main(int argc, char** argv) {
     static const DialPanel dial(layoutDial21());
     return round_shots::render(dir, dial, "waveshare-touch-lcd-21-8e04d2", fleet, ms, now);
   }
-  if (layout == "spring") {
-    static const SpringPanel spring(layoutSpring21());
-    const int r = round_shots::render(dir, spring, "waveshare-touch-lcd-21-8e04d2", fleet, ms, now);
-    return r ? r : round_shots::renderSpring(dir, spring, "waveshare-touch-lcd-21-8e04d2", fleet, ms, now);
+  if (layout == "spring" || layout == "spring28") {
+    static const SpringPanel s21(layoutSpring21()), s28(layoutSpring28());
+    const SpringPanel& spring = layout == "spring" ? s21 : s28;
+    const char* dev = layout == "spring" ? "waveshare-touch-lcd-21-8e04d2" : "waveshare-touch-lcd-28c-3c71bf";
+    const int r = round_shots::render(dir, spring, dev, fleet, ms, now);
+    return r ? r : round_shots::renderSpring(dir, spring, dev, fleet, ms, now);
   }
   if (layout == "selftest28")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-28c", "tca9554 ok" DECK_DOT "gt911 0x5D", 18000000);
   if (layout == "selftest21")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-21", "tca9554 ok" DECK_DOT "cst820 ok", 16000000);
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, orbit, dial, spring, selftest28, selftest21)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
     return 2;
   }
 

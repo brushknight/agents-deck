@@ -1,12 +1,13 @@
-// agents deck on the Waveshare ESP32-S3-Touch-LCD-2.1: "Dial", one agent at
-// a time on the round 480 x 480 screen with the whole fleet as dots round
-// it, with touch.
+// agents deck on the Waveshare ESP32-S3-Touch-LCD-2.1: the spring carousel
+// on the round 480 x 480 screen (one turn of seven agents round the selected
+// one), with touch. Built with -DROUND_DIAL_CLASSIC it shows the earlier
+// Dial home instead: one agent at a time, the fleet as dots round it.
 //
 // This file is what is particular to the board: the CST820 touch,
 // its ST7701 init and RGB timing. The wiring both round boards share (the
 // TCA9554 expander, the RGB bus, the backlight) is panel-core's
 // waveshare_round.h. Everything else (Deck Link, the fleet, the layout, the
-// touch UI) is panel-core's round_app.h with layout_dial.h.
+// touch UI) is panel-core's round_app.h with layout_spring.h.
 //
 // Pins, timings and the panel's init sequence are from Waveshare's demo for
 // this board (ESP32-S3-Touch-LCD-2.1-Demo.zip on the board's wiki:
@@ -18,11 +19,12 @@
 #include <Arduino.h>
 
 #include "layout_dial.h"
+#include "layout_spring.h"
 #include "round_app.h"
 #include "round_selftest.h"
 #include "waveshare_round.h"
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 
 // 16 MHz as in Waveshare's Arduino demo (their ESP-IDF demo runs 18 MHz).
 #ifndef ROUND_PCLK_HZ
@@ -185,9 +187,15 @@ void loop() { roundSelftestLoop(); }
 void setup() {
   RoundBoard b{};
   b.type = "waveshare-touch-lcd-21";
+#ifdef ROUND_DIAL_CLASSIC
   b.layout = new DialPanel(layoutDial21());
+#else
+  b.layout = new SpringPanel(layoutSpring21());
+#endif
   b.begin = boardBegin;
   b.push = ws_round::push;
+  b.pushDamage = ws_round::pushDamage;
+  b.pushStrip = ws_round::pushStrip;
   b.touch = touchRead;
   b.brightness = ws_round::brightness;
   b.bootPin = ws_round::PIN_BOOT;

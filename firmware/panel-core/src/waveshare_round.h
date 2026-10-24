@@ -30,6 +30,7 @@
 #include <esp32s3/rom/cache.h>
 
 #include "round_rotate.h"
+#include "round_view.h"   // RoundDamage
 
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
 #define WS_ROUND_IDF5 1
@@ -248,6 +249,63 @@ static inline void push(const uint16_t* src) {
   if (!fb) return;
   rotateFrame(ROUND_ROTATION, kSize, src, fb);
   Cache_WriteBack_Addr((uint32_t)fb, kSize * kSize * 2);
+}
+
+// Only the parts of the frame that changed (round_view.h's RoundDamage):
+// row by row, each pixel once, then those rows out of the cache.
+static inline void pushDamage(const uint16_t* src, const RoundDamage& d) {
+  if (!fb) return;
+  int y0 = kSize, y1 = 0;
+  for (int i = 0; i < d.n; i++) {
+    if (d.r[i].y < y0) y0 = d.r[i].y;
+    if (d.r[i].y + d.r[i].h > y1) y1 = d.r[i].y + d.r[i].h;
+  }
+  if (y1 <= y0) return;
+  int16_t span[kRoundMaxDamage][2];
+  for (int y = y0; y < y1; y++) {
+    const int n = roundRowSpans(d.r, d.n, y, span, kRoundMaxDamage);
+    for (int s = 0; s < n; s++) {
+      const int x0 = span[s][0], x1 = span[s][1];
+      if (ROUND_ROTATION == 0) {
+        memcpy(fb + y * kSize + x0, src + y * kSize + x0, (size_t)(x1 - x0) * 2);
+        continue;
+      }
+      for (int x = x0; x < x1; x++) {
+        int px, py;
+        rotateToPanel(ROUND_ROTATION, kSize, x, y, px, py);
+        fb[py * kSize + px] = src[y * kSize + x];
+      }
+    }
+  }
+  if (ROUND_ROTATION == 0) Cache_WriteBack_Addr((uint32_t)(fb + y0 * kSize), (uint32_t)(y1 - y0) * kSize * 2);
+  else Cache_WriteBack_Addr((uint32_t)fb, kSize * kSize * 2);
+}
+
+// Rows y0..y1 of a frame drawn in a strip (row y0 first): their changed spans
+// onto the panel, then out of the cache.
+static inline void pushStrip(const uint16_t* strip, int y0, int y1, const RoundSpans& sp) {
+  if (!fb) return;
+  int first = -1, last = -1;
+  for (int y = y0; y < y1; y++) {
+    const uint16_t* row = strip + (y - y0) * kSize;
+    for (int s = 0; s < sp.n[y]; s++) {
+      const int x0 = sp.x[y][s][0], x1 = sp.x[y][s][1];
+      if (first < 0) first = y;
+      last = y;
+      if (ROUND_ROTATION == 0) {
+        memcpy(fb + y * kSize + x0, row + x0, (size_t)(x1 - x0) * 2);
+        continue;
+      }
+      for (int x = x0; x < x1; x++) {
+        int px, py;
+        rotateToPanel(ROUND_ROTATION, kSize, x, y, px, py);
+        fb[py * kSize + px] = row[x];
+      }
+    }
+  }
+  if (first < 0) return;
+  if (ROUND_ROTATION == 0) Cache_WriteBack_Addr((uint32_t)(fb + first * kSize), (uint32_t)(last + 1 - first) * kSize * 2);
+  else Cache_WriteBack_Addr((uint32_t)fb, kSize * kSize * 2);
 }
 
 // A touch in the panel's axes, in frame pixels.

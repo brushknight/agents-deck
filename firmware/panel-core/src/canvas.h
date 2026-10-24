@@ -47,15 +47,18 @@ static inline int utf8Len(const char* s) {
 struct Canvas {
   uint16_t* px;
   int w, h;
+  // The first row there is (rows top..h-1). A strip of a taller picture:
+  // px points where row 0 would be, and only rows top..h-1 are memory.
+  int top = 0;
 
   void fill(uint16_t c) {
-    for (int i = 0; i < w * h; i++) px[i] = c;
+    for (int i = top * w; i < w * h; i++) px[i] = c;
   }
 
   void rect(int x, int y, int rw, int rh, uint16_t c) {
     int x1 = x + rw, y1 = y + rh;
     if (x < 0) x = 0;
-    if (y < 0) y = 0;
+    if (y < top) y = top;
     if (x1 > w) x1 = w;
     if (y1 > h) y1 = h;
     for (int yy = y; yy < y1; yy++)
@@ -103,7 +106,7 @@ struct Canvas {
     const uint8_t* g = f.bits + (size_t)gi * stride * f.cellH;
     for (int gy = 0; gy < f.cellH; gy++) {
       const int yy = y + gy;
-      if (yy < 0 || yy >= h) continue;
+      if (yy < top || yy >= h) continue;
       for (int gx = 0; gx < f.cellW; gx++) {
         const int xx = x + gx;
         if (xx < 0 || xx >= w) continue;

@@ -28,7 +28,18 @@ struct SpringGeom {
   float dotsR, dotsSpread;                          // past K: the dots round 6 o'clock
 };
 
-// The Dial's (2.1″): seven to a turn at x4, the selected one x6.
+// The Orbit's (2.8″): nine to a turn at x3, the selected one x5; the middle
+// sits lower, between the ring's 80° and 120° slots, where it is widest.
+static inline SpringGeom springOrbit28() {
+  SpringGeom g{};
+  g.K = 9; g.sel = 5; g.ring = 3; g.peek = 1;
+  g.rSel = 132; g.rOut = 188; g.rIn = 178; g.rUnder = 104; g.peekAng = 14; g.loopR = 180;
+  g.nameBase = 268; g.phraseBase = 304; g.metaBase = 336; g.barY = 360; g.barW = 140;
+  g.dotsR = 233; g.dotsSpread = 30;
+  return g;
+}
+
+// The Dial's (2.1″): seven to a turn at x4, the selected one x6 (the same 7 mm critters).
 static inline SpringGeom springDial21() {
   SpringGeom g{};
   g.K = 7; g.sel = 6; g.ring = 4; g.peek = 2;
@@ -40,7 +51,7 @@ static inline SpringGeom springDial21() {
 
 namespace spring_detail {
 
-static inline float lerp(float a, float b, float u) { return a + (b - a) * u; }
+static inline float mixf(float a, float b, float u) { return a + (b - a) * u; }
 static inline int iround(float x) { return (int)floorf(x + 0.5f); }
 // Opacity in four steps (25, 50, 75, 100 %), as a 4-bit alpha (0..15).
 static inline int q4alpha(float x) {
@@ -75,7 +86,7 @@ static inline void springPolar(float r, float deg, float& x, float& y) {
 
 // The visible turn is a gentle spiral: widest just right of the seam, narrowest just left of it.
 static inline float springSpiral(const SpringGeom& g, float s) {
-  return spring_detail::lerp(g.rOut, g.rIn, (s - 1) / (g.K - 2));
+  return spring_detail::mixf(g.rOut, g.rIn, (s - 1) / (g.K - 2));
 }
 
 // Positions round a closed loop of n agents (n <= K): at least three, two face each other.
@@ -94,8 +105,8 @@ static inline SpringPlace springPlace(const SpringGeom& g, float s, int n) {
     const float d = s < m - s ? s : m - s;
     const float u = d < 1 ? d : 1;
     const float ang = s * springLoopAngle(n);
-    springPolar(lerp(g.rSel, g.loopR, u), ang, p.x, p.y);
-    p.scale = iround(lerp((float)g.sel, (float)g.ring, u));
+    springPolar(mixf(g.rSel, g.loopR, u), ang, p.x, p.y);
+    p.scale = iround(mixf((float)g.sel, (float)g.ring, u));
     p.alpha = 15;
     p.z = d < 0.5f ? 3 : 2;
     p.shown = true;
@@ -105,13 +116,13 @@ static inline SpringPlace springPlace(const SpringGeom& g, float s, int n) {
   const float pa = g.peekAng;
   if (s < 0) {                      // rising from under the seam
     const float u = s + 1;
-    springPolar(lerp(g.rUnder, g.rSel, u), lerp(pa, 0, u), p.x, p.y);
-    p.scale = iround(lerp((float)g.peek, (float)g.sel, u));
+    springPolar(mixf(g.rUnder, g.rSel, u), mixf(pa, 0, u), p.x, p.y);
+    p.scale = iround(mixf((float)g.peek, (float)g.sel, u));
     p.alpha = q4alpha(u);
     p.z = u > 0.6f ? 4 : 1;
   } else if (s <= 1) {              // the seam to the first ring slot
-    springPolar(lerp(g.rSel, springSpiral(g, 1), s), s * 360.f / K, p.x, p.y);
-    p.scale = iround(lerp((float)g.sel, (float)g.ring, s));
+    springPolar(mixf(g.rSel, springSpiral(g, 1), s), s * 360.f / K, p.x, p.y);
+    p.scale = iround(mixf((float)g.sel, (float)g.ring, s));
     p.alpha = 15;
     p.z = 3;
   } else if (s <= K - 1) {          // on the ring
@@ -121,8 +132,8 @@ static inline SpringPlace springPlace(const SpringGeom& g, float s, int n) {
     p.z = 2;
   } else {                          // diving under the seam
     const float u = s - (K - 1);
-    springPolar(lerp(springSpiral(g, (float)(K - 1)), g.rUnder, u), lerp((K - 1) * 360.f / K, 360 - pa, u), p.x, p.y);
-    p.scale = iround(lerp((float)g.ring, (float)g.peek, u));
+    springPolar(mixf(springSpiral(g, (float)(K - 1)), g.rUnder, u), mixf((K - 1) * 360.f / K, 360 - pa, u), p.x, p.y);
+    p.scale = iround(mixf((float)g.ring, (float)g.peek, u));
     p.alpha = q4alpha(1 - u);
     p.z = 1;
   }

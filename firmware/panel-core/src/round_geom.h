@@ -86,7 +86,7 @@ static inline float chordHalfSpan(float cy, float r, float y0, float y1) {
 namespace round_detail {
 
 static inline void blendPx(Canvas& c, int x, int y, uint16_t col, int a15) {
-  if (x < 0 || y < 0 || x >= c.w || y >= c.h || a15 <= 0) return;
+  if (x < 0 || y < c.top || x >= c.w || y >= c.h || a15 <= 0) return;
   uint16_t& p = c.px[y * c.w + x];
   p = blend565(p, col, (uint8_t)(a15 > 15 ? 15 : a15));
 }
@@ -117,7 +117,7 @@ static inline void fillArc(Canvas& c, float cx, float cy, float r0, float r1, fl
   if (r0 < 0) r0 = 0;
   const bool full = sweep >= 360.f;
   int yTop = (int)floorf(cy - r1 - 1), yBot = (int)ceilf(cy + r1 + 1);
-  if (yTop < 0) yTop = 0;
+  if (yTop < c.top) yTop = c.top;
   if (yBot > c.h - 1) yBot = c.h - 1;
   const float ro2 = (r1 + 0.5f) * (r1 + 0.5f);
   const float ri2 = r0 > 0.5f ? (r0 - 0.5f) * (r0 - 0.5f) : -1.f;
@@ -151,7 +151,7 @@ static inline void fillArc(Canvas& c, float cx, float cy, float r0, float r1, fl
 // ends follow the circle, anti-aliased along the curve.
 static inline void fillDiscRows(Canvas& c, float cx, float cy, float r, int y0, int y1, uint16_t col) {
   using namespace round_detail;
-  if (y0 < 0) y0 = 0;
+  if (y0 < c.top) y0 = c.top;
   if (y1 > c.h) y1 = c.h;
   for (int y = y0; y < y1; y++) {
     const float dy = y + 0.5f - cy;
@@ -196,7 +196,7 @@ static inline void dashedCircle(Canvas& c, float cx, float cy, float r, float t,
 // Paints everything outside the circle with `col`, anti-aliased on the edge:
 // the round panel's mask, so a frame looks on the host as it does on the glass.
 static inline void maskOutside(Canvas& c, float cx, float cy, float r, uint16_t col) {
-  for (int y = 0; y < c.h; y++) {
+  for (int y = c.top; y < c.h; y++) {
     const float dy = y + 0.5f - cy;
     for (int x = 0; x < c.w; x++) {
       const float dx = x + 0.5f - cx;

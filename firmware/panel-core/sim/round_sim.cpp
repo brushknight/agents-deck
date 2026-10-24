@@ -5,7 +5,7 @@
 // with the daemon's link.Session on the other end
 // (backend/internal/link/round_test.go).
 //
-//   out/round_sim [--layout orbit|dial|spring] [--board-id ID] [--type T] [--seconds N]
+//   out/round_sim [--layout orbit|dial|spring|spring28] [--board-id ID] [--type T] [--seconds N]
 //                 [--answer] [--ppm FILE]
 //
 // --answer plays a person answering the featured prompt: once the board is
@@ -148,10 +148,11 @@ int main(int argc, char** argv) {
   }
   static const OrbitPanel orbit(layoutOrbit28());
   static const DialPanel dial(layoutDial21());
-  static const SpringPanel spring(layoutSpring21());
-  const RoundLayout& L = layoutName == "dial"     ? (const RoundLayout&)dial
-                         : layoutName == "spring" ? (const RoundLayout&)spring
-                                                  : (const RoundLayout&)orbit;
+  static const SpringPanel spring(layoutSpring21()), spring28(layoutSpring28());
+  const RoundLayout& L = layoutName == "dial"       ? (const RoundLayout&)dial
+                         : layoutName == "spring"   ? (const RoundLayout&)spring
+                         : layoutName == "spring28" ? (const RoundLayout&)spring28
+                                                    : (const RoundLayout&)orbit;
   signal(SIGPIPE, SIG_IGN);
   setvbuf(stderr, nullptr, _IOLBF, 0);
 

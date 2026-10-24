@@ -2,9 +2,19 @@
 // The firmware of a round board, minus the board: Deck Link on the native
 // USB port, the fleet, the round UI (round_view.h) and the frame loop. A
 // device's main.cpp fills a RoundBoard with its display, touch and backlight
-// drivers and a layout (an OrbitPanel or a DialPanel), and calls
-// roundAppSetup() and roundAppLoop(). Arduino only (the rest of panel-core
-// runs on the host too). grid_app.h is the same for the square boards.
+// drivers and a layout (an OrbitPanel, a DialPanel or a SpringPanel), and
+// calls roundAppSetup() and roundAppLoop(). Arduino only (the rest of
+// panel-core runs on the host too). grid_app.h is the same for the square
+// boards.
+//
+// Frames: every 100 ms (the critters animate), at once after a touch or a
+// change, and back to back while the spring turns. The frame stays in PSRAM
+// between frames, so a layout may redraw only what changed; with
+// RoundBoard.pushDamage the board then copies only that to the panel.
+//
+// Built with -DROUND_BENCH it runs without Deck Link: a made-up fleet of 14
+// on the spring, turned by itself every second or so, with the frame times
+// on the USB port.
 #if defined(ARDUINO)
 #include <Arduino.h>
 #include <DeckLink.h>
@@ -27,6 +37,12 @@ struct RoundBoard {
   const RoundLayout* layout;               // e.g. new OrbitPanel(layoutOrbit28())
   bool (*begin)();                         // display, touch, backlight; false: the display didn't start
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of 480 x 480
+  // Optional: copies only the parts of the frame the layout says changed.
+  void (*pushDamage)(const uint16_t* frame, const RoundDamage& d);
+  // Optional: copies the changed parts of rows y0..y1 from a strip (row y0
+  // first, kRoundW wide) straight to the panel. With it, a layout that draws
+  // in strips (the spring) draws in internal RAM instead of the PSRAM frame.
+  void (*pushStrip)(const uint16_t* strip, int y0, int y1, const RoundSpans& s);
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
   // Multi-touch boards (optional): the fingers down, up to two, in frame
   // pixels. When set it is used instead of touch(), and a pinch in goes home.
@@ -35,6 +51,11 @@ struct RoundBoard {
   int bootPin;                             // the BOOT button (active low): back home; -1 for none
   uint8_t brightActive, brightIdle;
 };
+
+#ifdef SPRING_PROFILE
+uint32_t springProfUs[12], springProfPx;
+uint32_t springNowUs() { return micros(); }
+#endif
 
 namespace round_app {
 
@@ -45,6 +66,8 @@ static RoundBoard board;
 static DeckLink deck;
 static DeckFleet* fleet = nullptr;         // in PSRAM: up to PANEL_MAX_AGENTS agents, twice
 static uint16_t* frame = nullptr;          // in PSRAM
+constexpr int kStripRows = 40;
+static uint16_t* strip = nullptr;          // kStripRows rows, in internal RAM (pushStrip boards)
 static Canvas canvas{nullptr, 0, 0};
 static RoundUi ui;
 static char deviceName[40] = "";
@@ -52,7 +75,26 @@ static bool dirty = true;
 static uint32_t lastActiveMs = 0;          // a touch, or a new waiting agent
 static uint32_t lastHeardMs = 0;           // the last frame from the deck
 
+#ifdef ROUND_BENCH
+static LinkState linkState() { return LinkState::Live; }
+#else
 static LinkState linkState() { return linkStateOf(deck.state(), deck.approved()); }
+#endif
+
+// Frame timing (PANEL_DEBUG and ROUND_BENCH): draw and push, in microseconds.
+struct FrameStats {
+  uint32_t frames = 0, drawUs = 0, pushUs = 0, maxUs = 0, partial = 0;
+  void add(uint32_t d, uint32_t p, bool part) {
+    frames++;
+    drawUs += d;
+    pushUs += p;
+    if (d + p > maxUs) maxUs = d + p;
+    partial += part;
+  }
+};
+static FrameStats statsAll, statsTurn;   // every frame; frames while the spring turns
+static uint32_t turnMs = 0;              // time spent turning since the last report
+static uint32_t lastDrawUs = 0, lastPushUs = 0;
 
 static RoundScope scope() {
   switch (deck.scope()) {
@@ -105,8 +147,27 @@ static void render() {
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
   const uint32_t silent = (ms - lastHeardMs) / 1000;
   RoundInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent};
+  in.partial = true;   // the frame keeps the last one
+  const uint32_t t0 = micros();
+  if (strip && board.layout->drawStrips(in, strip, kStripRows, board.pushStrip)) {
+    // Drawn and pushed in strips: the PSRAM frame no longer holds the picture.
+    lastDrawUs = micros() - t0;
+    lastPushUs = 0;
+    statsAll.add(lastDrawUs, 0, true);
+    if (springMoving(ui.spring, ms)) statsTurn.add(lastDrawUs, 0, true);
+    return;
+  }
   board.layout->draw(canvas, in);
-  board.push(frame);
+  const uint32_t t1 = micros();
+  RoundDamage d;
+  board.layout->damage(d);
+  if (!d.full && board.pushDamage) board.pushDamage(frame, d);
+  else board.push(frame);
+  lastDrawUs = t1 - t0;
+  lastPushUs = micros() - t1;
+  const bool turning = springMoving(ui.spring, ms);
+  statsAll.add(lastDrawUs, lastPushUs, !d.full);
+  if (turning) statsTurn.add(lastDrawUs, lastPushUs, !d.full);
 }
 
 // Bright while something happens or someone touched it in the last 2 min.
@@ -206,6 +267,51 @@ static void buttonPump() {
   }
 }
 
+#ifdef ROUND_BENCH
+// A made-up fleet of 14: every state, both species, hats, some context used.
+static void benchFleet() {
+  static const char* const kNames[] = {"checkout-api", "infra-network", "docs-site", "api-tests", "infra-tf",
+                                       "k8s-nodes", "auth-flow", "search-index", "mobile-app", "billing-jobs",
+                                       "ledger", "scratch", "pdf-export", "rate-limit"};
+  Fleet& f = fleet->fleet;
+  memset(&f, 0, sizeof f);
+  for (int i = 0; i < 14; i++) {
+    Agent& a = f.agents[i];
+    snprintf(a.id, sizeof a.id, "b%02d", i);
+    snprintf(a.title, sizeof a.title, "%s", kNames[i]);
+    a.slot = (uint8_t)i;
+    a.species = i % 4 == 3 ? Species::Codex : Species::Claude;
+    a.hat = (uint8_t)(i % 6);
+    a.hatColor = (uint8_t)(i % 5);
+    a.ctxWindow = 200000;
+    a.ctxUsed = 20000 + i * 11000;
+    a.status = i % 5 == 4 ? Status::Idle : Status::Running;
+    if (i == 1 || i == 6) {
+      a.status = Status::Waiting;
+      snprintf(a.waitTitle, sizeof a.waitTitle, "allow bash?");
+    }
+    if (i == 2) { a.status = Status::Idle; a.unseen = true; }
+    if (i == 4) a.status = Status::Error;
+    if (i % 3 == 0 && a.status == Status::Running) snprintf(a.actTool, sizeof a.actTool, "Edit");
+  }
+  f.count = f.total = 14;
+  fleet->have = true;
+}
+
+// Turns the ring by itself: one step either way, then three at once, with pauses.
+static void benchScript() {
+  static const int kSteps[] = {-1, -1, 1, 1, 3, -3, 1, -1};
+  static int k = 0;
+  static uint32_t next = 3000;
+  const uint32_t ms = millis();
+  if (springMoving(ui.spring, ms) || (int32_t)(ms - next) < 0) return;
+  springStep(ui, fleet->fleet, kSteps[k++ % 8], ms);
+  ui.lastTouchMs = ms;   // keep it from turning to the waiters by itself
+  next = ms + 1200;
+  dirty = true;
+}
+#endif
+
 }  // namespace round_app
 
 static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
@@ -223,6 +329,8 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   const int W = b.layout->width(), H = b.layout->height();
   frame = (uint16_t*)heap_caps_calloc((size_t)W * H, 2, MALLOC_CAP_SPIRAM);
   canvas = Canvas{frame, W, H};
+  if (b.pushStrip)
+    strip = (uint16_t*)heap_caps_malloc((size_t)W * kStripRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
   const bool shown = frame && board.begin();
   ROUND_LOG("round: %s, display %s, fleet %u B, frame %s, psram free %u", b.type, shown ? "up" : "FAILED",
@@ -239,7 +347,12 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   cfg.on_result = onResult;
   cfg.on_online = onLink;
   cfg.on_offline = onLink;
+#ifdef ROUND_BENCH
+  (void)cfg;
+  benchFleet();
+#else
   deck.begin(Serial, cfg);
+#endif
   lastActiveMs = lastHeardMs = millis();
   ui.lastTouchMs = millis();
   if (shown && (board.touch || board.touchPoints)) {
@@ -251,43 +364,66 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
 
 static inline void roundAppLoop() {
   using namespace round_app;
+#ifdef ROUND_BENCH
+  benchScript();
+#else
   // Drain what arrived while the last frame was drawn (each loop() reads up to 4 KB).
   for (int i = 0; i < 16; i++) {
     deck.loop();
     if (Serial.available() <= 0) break;
   }
+#endif
   touchPump();
   buttonPump();
-  static uint32_t lastFrame = 0;
-#ifdef PANEL_DEBUG
-  static uint32_t lastNote = 0, frames = 0, drawMs = 0;
+  static uint32_t lastFrame = 0, turnFrom = 0;
+#if defined(PANEL_DEBUG) || defined(ROUND_BENCH)
+  static uint32_t lastNote = 0;
   if (millis() - lastNote > 5000) {
     lastNote = millis();
+    auto avg = [](uint32_t us, uint32_t n) { return n ? (unsigned)(us / n) : 0u; };
+    const FrameStats& a = statsAll;
+    const FrameStats& t = statsTurn;
+    Serial.printf("frames: %u in 5 s, draw %u us push %u us (avg), max %u us, partial %u; turning: %u frames in %u ms "
+                  "= %u fps, draw %u us push %u us\n",
+                  (unsigned)a.frames, avg(a.drawUs, a.frames), avg(a.pushUs, a.frames), (unsigned)a.maxUs,
+                  (unsigned)a.partial, (unsigned)t.frames, (unsigned)turnMs,
+                  turnMs ? (unsigned)(t.frames * 1000 / turnMs) : 0u, avg(t.drawUs, t.frames), avg(t.pushUs, t.frames));
+#ifdef SPRING_PROFILE
+    {
+      static const char* const kNames[12] = {"notch", "critter", "name", "phrase", "meta", "bar",
+                                             "dots", "arc", "-", "clear", "mask", "build"};
+      Serial.printf("  per frame (us):");
+      for (int k = 0; k < 12; k++)
+        if (springProfUs[k]) Serial.printf(" %s %u", kNames[k], a.frames ? (unsigned)(springProfUs[k] / a.frames) : 0u);
+      Serial.printf("; damage %u px\n", a.frames ? (unsigned)(springProfPx / a.frames) : 0u);
+      memset(springProfUs, 0, sizeof springProfUs);
+      springProfPx = 0;
+    }
+#endif
+#ifndef ROUND_BENCH
     const deck_link_stats_t* st = deck_link_stats(deck.core());
-    ROUND_LOG("status: link %d approved %d agents %u screen %d frames %u avg %u ms rx %u bad %u overflow %u "
-              "heap %u psram %u",
+    ROUND_LOG("status: link %d approved %d agents %u screen %d rx %u bad %u overflow %u heap %u psram %u",
               (int)deck.state(), (int)deck.approved(), fleet->have ? (unsigned)fleet->fleet.count : 0u,
-              (int)ui.screen, (unsigned)frames, frames ? (unsigned)(drawMs / frames) : 0u, (unsigned)st->rx_frames,
-              (unsigned)st->rx_bad, (unsigned)st->rx_overflow, (unsigned)ESP.getFreeHeap(),
-              (unsigned)ESP.getFreePsram());
-    frames = drawMs = 0;
+              (int)ui.screen, (unsigned)st->rx_frames, (unsigned)st->rx_bad, (unsigned)st->rx_overflow,
+              (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+#endif
+    statsAll = statsTurn = FrameStats();
+    turnMs = 0;
   }
 #endif
-  // Critters animate: a frame every 100 ms, and at once after a touch or new state.
-  if (frame && (dirty || millis() - lastFrame >= 100)) {
+  // Critters animate: a frame every 100 ms, at once after a touch or new state,
+  // and back to back while the spring turns.
+  const uint32_t now = millis();
+  const bool turning = springMoving(ui.spring, now);
+  if (frame && (dirty || turning || now - lastFrame >= 100)) {
     dirty = false;
-    lastFrame = millis();
+    if (turning && turnFrom) turnMs += now - turnFrom;
+    turnFrom = turning ? now : 0;
+    lastFrame = now;
     updateBrightness();
-#ifdef PANEL_DEBUG
-    const uint32_t t0 = millis();
     render();
-    drawMs += millis() - t0;
-    frames++;
-#else
-    render();
-#endif
   }
-  delay(2);
+  delay(turning ? 1 : 2);
 }
 
 #endif  // ARDUINO
