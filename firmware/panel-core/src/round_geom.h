@@ -233,6 +233,13 @@ static inline void strokePill(Canvas& c, int x, int y, int w, int h, int t, uint
   c.rect((int)lroundf(x + r), y + h - t, (int)lroundf(w - 2 * r), t, col);
 }
 
+// The Wi-Fi mark (a board on Wi-Fi shows it on home), its base at (cx, base):
+// a dot and two arcs over it, about 32 x 18 px. Every board draws the same mark.
+static inline void drawNetMark(Canvas& c, float cx, float base, uint16_t col) {
+  fillDisc(c, cx, base - 1, 2.5f, col);
+  for (int i = 1; i <= 2; i++) strokeArc(c, cx, base, 6.5f * i + 1, 2.5f, -45, 90, col);
+}
+
 // ---------------------------------------------------------------- rim drag
 
 // Follows a finger round the rim: feed every touch sample, read the turn so

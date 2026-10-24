@@ -371,6 +371,34 @@ int main() {
       assert(c.px[0] == 0 && c.px[A.w - 1] == 0 && c.px[(A.h - 1) * A.w] == 0 && c.px[A.h * A.w - 1] == 0);
     }
   }
+  // ---- on Wi-Fi: the grid keeps its bars' row (the mark's), hits follow the drawing; every notice and
+  // toast stays inside the frame, the AMOLED's corners black
+  {
+    const GridGeom w = gridGeom(L, 1, true);
+    assert(w.bars.w == L.w && w.bars.h == L.barsH && w.cellW == w.cellH);
+    assert(cellRect(L, w, 15).y + cellRect(L, w, 15).h <= w.bars.y);
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    for (const SquareSpec* S : {&A, &L}) {
+      std::vector<uint16_t> buf(S->w * S->h);
+      Canvas c{buf.data(), S->w, S->h};
+      PanelUi ui;
+      ui.wifi = true;
+      NetView net;
+      net.via = NetVia::Wifi;
+      snprintf(net.ssid, sizeof net.ssid, "%s", "a-network-name-of-32-characters!");
+      PanelInput in{&d.fleet, LinkState::Live, "x", DeckScope::Act, 0, d.fleet.serverTime, &ui, 0, &net};
+      SquarePanel(*S).draw(c, in);
+      uiToast(ui, "paired for Wi-Fi", 0);
+      in.link = LinkState::Connecting;
+      for (NetPhase ph : {NetPhase::Joining, NetPhase::Connecting, NetPhase::WrongPassword, NetPhase::NoNetwork,
+                          NetPhase::WifiFailed, NetPhase::DeckUnreachable, NetPhase::CertRejected}) {
+        net.phase = ph;
+        SquarePanel(*S).draw(c, in);
+        if (S == &A) assert(c.px[0] == 0 && c.px[A.w - 1] == 0 && c.px[(A.h - 1) * A.w] == 0 && c.px[A.h * A.w - 1] == 0);
+      }
+    }
+  }
   printf("ok  square layouts\n");
   return 0;
 }

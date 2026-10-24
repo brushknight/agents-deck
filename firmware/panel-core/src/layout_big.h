@@ -18,6 +18,11 @@
 //           card): the question, the detail, the options with their hint
 //           lines; tap one to choose it, "send" answers. A permission is the
 //           orange card, a question dark with the orange border.
+//   states  waiting for approval, connecting, deck offline, no agents; on
+//           Wi-Fi, where it is (joining, connecting, wrong password, network
+//           not found, deck not reachable, certificate rejected)
+//   Wi-Fi   on Wi-Fi a small mark at the right of the page bars' row, which
+//           then stays with one page too
 //
 // Back: swipe right, or BOOT. Pure C++ (no Arduino).
 #include <math.h>
@@ -87,12 +92,13 @@ struct BigGrid {
 };
 
 // DeckGrid: square cells with an 8 px gap inside 8 px padding; with more than
-// one page the bars take 34 px at the bottom and the cells get shorter.
-static inline BigGrid bigGrid(const BigSpec& S, int pages) {
+// one page the bars take 34 px at the bottom and the cells get shorter. On
+// Wi-Fi (wifi) that row stays with one page too: the Wi-Fi mark sits in it.
+static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false) {
   BigGrid g{};
-  const int pad = bk(S, 8), barsH = pages > 1 ? bk(S, 34) : 0;
+  const int pad = bk(S, 8), barsH = pages > 1 || wifi ? bk(S, 34) : 0;
   g.gap = bk(S, 8);
-  const int availW = S.w - 2 * pad, availH = S.h - pad - (pages > 1 ? 0 : pad) - barsH;
+  const int availW = S.w - 2 * pad, availH = S.h - pad - (barsH ? 0 : pad) - barsH;
   g.cell = (availW - 3 * g.gap) / 4;
   g.cellH = (availH - 3 * g.gap) / 4;
   if (pages < 2 && g.cellH > g.cell) g.cellH = g.cell;
@@ -100,7 +106,7 @@ static inline BigGrid bigGrid(const BigSpec& S, int pages) {
   const int gw = 4 * g.cell + 3 * g.gap, gh = 4 * g.cellH + 3 * g.gap;
   g.x0 = (S.w - gw) / 2;
   g.y0 = pad + (availH - gh) / 2;
-  g.bars = pages > 1 ? Rect{0, S.h - barsH, S.w, barsH} : Rect{0, 0, 0, 0};
+  g.bars = barsH ? Rect{0, S.h - barsH, S.w, barsH} : Rect{0, 0, 0, 0};
   return g;
 }
 
@@ -255,8 +261,8 @@ static inline PanelHit bigHit(const BigSpec& S, const PanelUi& ui, const Fleet& 
   PanelHit h;
   if (ui.screen == Screen::Home) {
     const int pages = bigPages(f);
-    const BigGrid g = bigGrid(S, pages);
-    if (g.bars.w && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
+    const BigGrid g = bigGrid(S, pages, ui.wifi);
+    if (pages > 1 && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
     for (int cell = 0; cell < 16; cell++)
       if (bigCell(g, cell).contains(x, y)) {
         const int i = bigAgentAt(f, ui.page < pages ? ui.page : 0, cell);
@@ -554,7 +560,7 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
   const PanelUi& ui = *in.ui;
   const int pages = bigPages(f);
   const int page = ui.page < pages ? ui.page : pages - 1;
-  const BigGrid g = bigGrid(S, pages);
+  const BigGrid g = bigGrid(S, pages, ui.wifi);
   for (int cell = 0; cell < 16; cell++) {
     const Rect r = bigCell(g, cell);
     const int i = bigAgentAt(f, page, cell);
@@ -564,7 +570,9 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
       c.frame(r.x, r.y, r.w, r.h, T.emptyOutline);
     }
   }
-  if (g.bars.w) {                                    // _PageBars
+  if (ui.wifi && g.bars.w)                           // the Wi-Fi mark (round_geom.h), right-aligned with the grid
+    drawNetMark(c, (float)(g.x0 + 4 * g.cell + 3 * g.gap - 18), (float)(g.bars.y + g.bars.h / 2 + 6), T.dim);
+  if (pages > 1) {                                   // _PageBars
     bool hot[64] = {};
     for (int i = 0; i < f.count; i++)
       if (f.agents[i].status == Status::Waiting && f.agents[i].slot / 16 < 64) hot[f.agents[i].slot / 16] = true;
@@ -898,10 +906,11 @@ static inline void notice(Canvas& c, const BigSpec& S, const Theme& T, Pose pose
   if (l2) { y += bk(S, 12); centred(lf, l2, T.dim); }
 }
 
-static inline void toast(Canvas& c, const BigSpec& S, const Theme& T, const char* s) {
+// A toast: in the middle; on a notice, low (bottom = true), clear of its text.
+static inline void toast(Canvas& c, const BigSpec& S, const Theme& T, const char* s, bool bottom = false) {
   const Font& f = *S.body;
   const int w = textW(f, s) + 2 * bk(S, 24), h = fontPx(f) + 2 * bk(S, 14);
-  const Rect r{(S.w - w) / 2, (S.h - h) / 2, w, h};
+  const Rect r{(S.w - w) / 2, bottom ? S.h - bk(S, 48) - h : (S.h - h) / 2, w, h};
   rrect(c, r, h / 2, T.ink);
   rrect(c, Rect{r.x + 2, r.y + 2, r.w - 4, r.h - 4}, h / 2 - 2, T.panel);
   textAt(c, f, r.x + bk(S, 24), r.y + bk(S, 14), s, T.ink);
@@ -913,14 +922,23 @@ static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const Pa
   using namespace big_detail;
   c.fill(T.bg);
   char buf[96];
+  const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
     case LinkState::Connecting:
-      notice(c, S, T, Pose::Think, "connecting to the deck", "plugged into the Mac?", "agentctl link add <port>", nullptr,
-             in.ms);
+      if (in.net && in.net->via == NetVia::Wifi) {   // where Wi-Fi is (net_model.h's words); a problem in orange
+        const NetNotice n = netNotice(*in.net);
+        if (n.problem) notice(c, S, T, Pose::Exit, n.title, nullptr, n.line1, n.line2, in.ms);
+        else notice(c, S, T, Pose::Think, n.title, n.line1, nullptr, n.line2, in.ms);
+      } else {
+        notice(c, S, T, Pose::Think, "connecting to the deck", "plugged into the Mac?", "agentctl link add <port>",
+               nullptr, in.ms);
+      }
+      if (tu) toast(c, S, T, tu->toast, true);
       return;
     case LinkState::Unapproved:
       snprintf(buf, sizeof buf, "agentctl devices approve %s", in.device && in.device[0] ? in.device : "<name>");
       notice(c, S, T, Pose::Wait, "waiting for approval", "on the Mac, run", buf, nullptr, in.ms);
+      if (tu) toast(c, S, T, tu->toast, true);
       return;
     default: break;
   }
@@ -934,6 +952,7 @@ static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const Pa
       notice(c, S, T, Pose::Idle, "no agents", in.fleet && in.fleet->server[0] ? in.fleet->server : nullptr,
              "agentctl new", nullptr, in.ms);
     }
+    if (tu) toast(c, S, T, tu->toast, true);
     return;
   }
   const PanelUi& ui = *in.ui;
@@ -941,7 +960,7 @@ static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const Pa
   if (open >= 0 && ui.screen == Screen::Card) card(c, S, T, in, in.fleet->agents[open]);
   else if (open >= 0) prompt(c, S, T, in, in.fleet->agents[open]);
   else home(c, S, T, in);
-  if (ui.toast[0] && (int32_t)(ui.toastUntil - in.ms) > 0) toast(c, S, T, ui.toast);
+  if (tu) toast(c, S, T, ui.toast);
 }
 
 // The big panels' PanelLayout.

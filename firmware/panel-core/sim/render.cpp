@@ -39,6 +39,44 @@ static void writePpm(const std::string& path, const Canvas& c) {
 
 static const char* const kDevice = "waveshare-lcd-147-a1b2c3";
 
+// The grid boards on Wi-Fi: home with its mark (and the "paired for Wi-Fi"
+// toast), then the connecting notice in every Wi-Fi phase. Leaves `in` live.
+template <class Shot>
+static void wifiShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f, uint32_t ms) {
+  static NetView net;
+  net = NetView();
+  net.via = NetVia::Wifi;
+  net.wifiCapable = true;
+  snprintf(net.ssid, sizeof net.ssid, "my network");
+  in.net = &net;
+  in.fleet = &f;
+  in.link = LinkState::Live;
+  ui.wifi = true;
+  shot("home-wifi");
+  uiToast(ui, "paired for Wi-Fi", ms);
+  shot("home-wifi-toast");
+  ui.toast[0] = '\0';
+  const struct { const char* name; NetPhase phase; } kWifi[] = {
+      {"wifi-joining", NetPhase::Joining},             {"wifi-connecting", NetPhase::Connecting},
+      {"wifi-wrong-password", NetPhase::WrongPassword}, {"wifi-no-network", NetPhase::NoNetwork},
+      {"wifi-unreachable", NetPhase::DeckUnreachable},  {"wifi-cert-rejected", NetPhase::CertRejected},
+  };
+  in.link = LinkState::Connecting;
+  in.fleet = nullptr;
+  for (const auto& w : kWifi) {
+    net.phase = w.phase;
+    shot(w.name);
+  }
+  net.phase = NetPhase::Joining;
+  uiToast(ui, "trying Wi-Fi\xE2\x80\xA6", ms);
+  shot("wifi-joining-toast");
+  ui.toast[0] = '\0';
+  in.link = LinkState::Live;
+  in.fleet = &f;
+  in.net = nullptr;
+  ui.wifi = false;
+}
+
 // The square boards: every screen of one spec.
 static int renderSquare(const std::string& dir, const SquareSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
                         int64_t now) {
@@ -120,6 +158,7 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
   uiToast(ui, "sent", ms);
   shot("toast");
   ui.toast[0] = '\0';
+  wifiShots(shot, in, ui, f, ms);
 
   in.link = LinkState::Lost;
   shot("home-offline");
@@ -199,6 +238,24 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   uiToast(ui, "sent", ms);
   shot("toast");
   ui.toast[0] = '\0';
+  wifiShots(shot, in, ui, f, ms);
+  {                                                // on Wi-Fi with two pages: the mark beside the bars
+    static DeckFleet more;
+    more = deck;
+    Agent a = f.agents[0];
+    snprintf(a.id, sizeof a.id, "p2more");
+    a.slot = 17;
+    deck_model_detail::upsert(more.fleet, a);
+    static NetView net;
+    net.via = NetVia::Wifi;
+    in.net = &net;
+    in.fleet = &more.fleet;
+    ui.wifi = true;
+    shot("home-wifi-paged");
+    ui.wifi = false;
+    in.net = nullptr;
+    in.fleet = &f;
+  }
   in.link = LinkState::Lost;
   shot("home-offline");
   static Fleet empty;

@@ -7,6 +7,7 @@
 
 #include "../sim/fixture.h"
 #include "layout_big.h"
+#include "layout_square.h"
 
 static Agent mk(const char* id, uint8_t slot, Status st) {
   Agent a;
@@ -232,6 +233,60 @@ int main() {
           }
         }
       }
+  }
+  // ---- the 4"'s card is the big panel's (the desk panel's detail, its "focus terminal" button), not
+  // the small boards' card that a 480 x 480 SquareSpec would draw
+  {
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    std::vector<uint16_t> big(S.w * S.h), small(S.w * S.h);
+    Canvas cb{big.data(), S.w, S.h}, cs{small.data(), S.w, S.h};
+    PanelUi ui;
+    const int i = findAgent(d.fleet, "k3f9a2");
+    assert(i >= 0);
+    bigOpen(ui, d.fleet, i);
+    PanelInput in{&d.fleet, LinkState::Live, "x", DeckScope::Act, 0, d.fleet.serverTime, &ui, 0};
+    const BigPanel B(S);
+    B.draw(cb, in);
+    SquarePanel(specLcd4()).draw(cs, in);
+    const BigButtons b = bigCardButtons(S, d.fleet.agents[i], DeckScope::Act);
+    assert(b.n == 2 && b.kind[0] == Hit::Focus);
+    const Theme T = deckTheme(false);
+    // The focus button's face, beside its label, is filled; the small card has its round buttons elsewhere.
+    const uint16_t face = big[(b.r[0].y + 6) * S.w + b.r[0].x + 12];
+    assert(face != T.bg && face == big[(b.r[0].y + b.r[0].h - 8) * S.w + b.r[0].x + b.r[0].w - 14]);
+    assert(memcmp(big.data(), small.data(), big.size() * 2) != 0);
+    assert(B.width() == 480 && B.height() == 480);
+  }
+
+  // ---- on Wi-Fi: the bars' row stays with one page (the mark's), hits follow the drawing, every notice fits
+  {
+    const BigGrid w = bigGrid(S, 1, true);
+    assert(w.bars.w == S.w && w.bars.h == bk(S, 34) && w.cell == w.cellH);
+    for (int cell = 0; cell < 16; cell++) assert(bigCell(w, cell).y + bigCell(w, cell).h <= w.bars.y);
+    Fleet f = fleetOf({mk("a", 0, Status::Idle), mk("b", 15, Status::Running)});
+    PanelUi ui;
+    ui.wifi = true;
+    PanelHit h = bigHit(S, ui, f, bigCell(w, 15).x + 3, bigCell(w, 15).y + 3, DeckScope::Act);
+    assert(h.kind == Hit::Tile && h.agent == 1);
+    h = bigHit(S, ui, f, S.w / 2, w.bars.y + w.bars.h / 2, DeckScope::Act);
+    assert(h.kind == Hit::None);                                 // no page bars with one page
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    std::vector<uint16_t> buf(S.w * S.h);
+    Canvas c{buf.data(), S.w, S.h};
+    NetView net;
+    net.via = NetVia::Wifi;
+    snprintf(net.ssid, sizeof net.ssid, "%s", "a-network-name-of-32-characters!");
+    PanelInput in{&d.fleet, LinkState::Live, "x", DeckScope::Act, 0, d.fleet.serverTime, &ui, 0, &net};
+    BigPanel(S).draw(c, in);
+    uiToast(ui, "paired for Wi-Fi", 0);
+    in.link = LinkState::Connecting;
+    for (NetPhase ph : {NetPhase::Joining, NetPhase::Connecting, NetPhase::WrongPassword, NetPhase::NoNetwork,
+                        NetPhase::WifiFailed, NetPhase::DeckUnreachable, NetPhase::CertRejected}) {
+      net.phase = ph;
+      BigPanel(S).draw(c, in);
+    }
   }
   printf("ok  big layout\n");
   return 0;

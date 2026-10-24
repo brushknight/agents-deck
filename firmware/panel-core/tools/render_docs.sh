@@ -18,6 +18,8 @@ for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18; do
     n=$(basename "$f" .ppm)
     "$PY" tools/ppm2png.py "$docs/$n.png" "$f" --gap 0 >/dev/null
   done
+  "$PY" tools/ppm2png.py "$docs/wifi.png" out/$layout/home-wifi.ppm out/$layout/wifi-joining.ppm \
+    out/$layout/wifi-wrong-password.ppm out/$layout/wifi-cert-rejected.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
 for spec in spring28:waveshare-touch-lcd-28c spring:waveshare-touch-lcd-21; do

@@ -13,7 +13,11 @@
 //           the whole question, the command box (permissions), the options
 //           with their hint lines; a permission is the orange card, a
 //           question dark with the orange border
-//   states  waiting for approval, connecting, deck offline, no agents
+//   states  waiting for approval, connecting, deck offline, no agents;
+//           on Wi-Fi, where it is (joining, connecting, wrong password,
+//           network not found, deck not reachable, certificate rejected)
+//   Wi-Fi   on Wi-Fi a small mark: in the list's header after "agents"; the
+//           grid keeps the page bars' row for it, at the right
 //
 // Back from a card or a prompt: swipe right, or BOOT. A tile's icons (tool
 // chip, subagent critter) keep to a band above the critter, so they never
@@ -116,9 +120,10 @@ struct GridGeom {
   Rect bars;                   // page bars; w = 0 when there are none
 };
 
-static inline GridGeom gridGeom(const SquareSpec& S, int pages) {
+// wifi: the row under the grid stays, for the Wi-Fi mark, with one page too.
+static inline GridGeom gridGeom(const SquareSpec& S, int pages, bool wifi = false) {
   GridGeom g{};
-  const int barsH = pages > 1 ? S.barsH : 0;
+  const int barsH = pages > 1 || wifi ? S.barsH : 0;
   const int top = S.pad, bottom = S.h - S.pad - barsH;
   const int availW = S.w - 2 * S.pad, availH = bottom - top;
   g.cellW = (availW - S.gap * (S.cols - 1)) / S.cols;
@@ -318,8 +323,8 @@ static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const F
   if (ui.screen == Screen::Home) {
     if (S.home == HomeKind::Grid) {
       const int pages = pageCount(S, f);
-      const GridGeom g = gridGeom(S, pages);
-      if (g.bars.w && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
+      const GridGeom g = gridGeom(S, pages, ui.wifi);
+      if (pages > 1 && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
       const int i = agentAt(S, f, ui.page < pages ? ui.page : 0, cellAt(S, g, x, y));
       if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
       return h;
@@ -726,10 +731,14 @@ static inline int pillText(Canvas& c, const Font& f, int x, int y, const char* s
   return w;
 }
 
-static inline void toastPill(Canvas& c, const SquareSpec& S, const Theme& T, const char* s) {
+// A toast: in the middle; on a notice, low (bottom = true), clear of its text
+// and of the glass's corners.
+static inline void toastPill(Canvas& c, const SquareSpec& S, const Theme& T, const char* s, bool bottom = false) {
   const Font& f = *S.label;
-  const int w = textW(f, s) + 32 > S.w - 2 * S.m ? S.w - 2 * S.m : textW(f, s) + 32;
-  const int h = f.cellH + 14, x = (S.w - w) / 2, y = S.h / 2 - h / 2;
+  const int room = S.w - 2 * S.m - (bottom ? S.cornerR : 0);
+  const int w = textW(f, s) + 32 > room ? room : textW(f, s) + 32;
+  const int h = f.cellH + 14, x = (S.w - w) / 2;
+  const int y = bottom ? S.h - S.m - h - S.cornerR / 4 : S.h / 2 - h / 2;
   fillPill(c, x, y, w, h, T.panel);
   strokePill(c, x, y, w, h, 2, T.ink);
   c.text(f, x + 16, y + 7, s, T.ink, w - 32);
@@ -758,11 +767,18 @@ static inline void notice(Canvas& c, const SquareSpec& S, const Theme& T, Pose p
 }
 
 // The list home's header: "agents", and who waits and runs (or the link's trouble).
-static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link) {
+// The Wi-Fi mark (round_geom.h's), centred on cx, its base at `base`.
+static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base) { drawNetMark(c, (float)cx, (float)base, T.dim); }
+
+static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link,
+                              bool wifi) {
   c.rect(0, 0, S.w, S.headerH, T.bg);
   const Font& hf = *S.question;
   const int x0 = S.m + S.cornerR / 4;
-  c.text(hf, x0, (S.headerH - hf.cellH) / 2 + 2, "agents", T.ink);
+  const int ty = (S.headerH - hf.cellH) / 2 + 2;
+  c.text(hf, x0, ty, "agents", T.ink);
+  // On Wi-Fi the mark follows the title, its base about on the title's baseline.
+  if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4);
   char buf[48];
   if (link == LinkState::Lost) snprintf(buf, sizeof buf, "offline");
   else {
@@ -784,7 +800,7 @@ static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i,
          S.headerH);
   }
-  listHeader(c, S, T, f, in.link);
+  listHeader(c, S, T, f, in.link, ui.wifi);
   // The position bar while the list moves, fading a second after it settles.
   const int alpha = posBarAlpha(ui, in.ms);
   const float mx = maxScroll(S, f);
@@ -824,7 +840,7 @@ static inline void gridHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
   const PanelUi& ui = *in.ui;
   const int pages = pageCount(S, f);
   const int page = ui.page < pages ? ui.page : pages - 1;
-  const GridGeom g = gridGeom(S, pages);
+  const GridGeom g = gridGeom(S, pages, ui.wifi);
   for (int cell = 0; cell < perPage(S); cell++) {
     const Rect r = cellRect(S, g, cell);
     const int i = agentAt(S, f, page, cell);
@@ -832,6 +848,7 @@ static inline void gridHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     else emptyCell(c, T, r);
   }
   pageBars(c, S, T, f, page, pages, g.bars);
+  if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6);
   if (in.link == LinkState::Lost) {
     const Font& lf = *S.label;
     const char* s = "deck offline" DECK_DOT "retrying";
@@ -1103,10 +1120,18 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   c.fill(T.bg);
   char buf[96];
   const char* name = in.device && in.device[0] ? in.device : "<name>";
+  const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
     case LinkState::Connecting:
-      notice(c, S, T, Pose::Think, T.dim, "connecting to the deck", "plugged into the Mac?", T.dim, "agentctl link add",
-             T.ink, "/dev/cu.usbmodem\xE2\x80\xA6", T.dim, in.ms);
+      if (in.net && in.net->via == NetVia::Wifi) {   // where Wi-Fi is (net_model.h's words)
+        const NetNotice n = netNotice(*in.net);
+        notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, T.dim, n.title, n.line1, n.problem ? T.accent : T.dim,
+               n.line2, T.dim, nullptr, T.dim, in.ms);
+      } else {
+        notice(c, S, T, Pose::Think, T.dim, "connecting to the deck", "plugged into the Mac?", T.dim,
+               "agentctl link add", T.ink, "/dev/cu.usbmodem\xE2\x80\xA6", T.dim, in.ms);
+      }
+      if (tu) toastPill(c, S, T, tu->toast, true);
       if (S.cornerR) cornerMask(c, S.cornerR);
       return;
     case LinkState::Unapproved:
@@ -1117,6 +1142,7 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
       else                                          // a long name gets a line of its own
         notice(c, S, T, Pose::Wait, T.ink, "waiting for approval", "on the Mac:", T.dim, "agentctl devices approve",
                T.ink, name, T.accent, in.ms);
+      if (tu) toastPill(c, S, T, tu->toast, true);
       if (S.cornerR) cornerMask(c, S.cornerR);
       return;
     default: break;
@@ -1132,6 +1158,7 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
       notice(c, S, T, Pose::Idle, T.dim, "no agents", in.fleet && in.fleet->server[0] ? in.fleet->server : nullptr, T.dim,
              "agentctl new", T.ink, nullptr, T.ink, in.ms);
     }
+    if (tu) toastPill(c, S, T, tu->toast, true);
     if (S.cornerR) cornerMask(c, S.cornerR);
     return;
   }
@@ -1141,7 +1168,7 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   else if (open >= 0) prompt(c, S, T, in, in.fleet->agents[open]);
   else if (S.home == HomeKind::List) listHome(c, S, T, in);
   else gridHome(c, S, T, in);
-  if (ui.toast[0] && (int32_t)(ui.toastUntil - in.ms) > 0) toastPill(c, S, T, ui.toast);
+  if (tu) toastPill(c, S, T, ui.toast);
   if (S.cornerR) cornerMask(c, S.cornerR);
 }
 

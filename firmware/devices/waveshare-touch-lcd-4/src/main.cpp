@@ -9,6 +9,10 @@
 // Pins and the panel's init sequence are from Waveshare's BSP for this board
 // (esp32_s3_touch_lcd_4 3.0.0 on the ESP component registry) and their
 // Arduino demos (github.com/waveshareteam/ESP32-S3-Touch-LCD-4).
+//
+// Two builds: arduino-esp32 2.0.17 (../platformio.ini, USB only) and 3.x
+// (idf5/platformio.ini: Wi-Fi with TLS 1.3, and an RGB bounce buffer so the
+// picture stays still while Wi-Fi and the CPU share the PSRAM).
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
@@ -32,7 +36,18 @@ constexpr uint8_t CH32_TP_RST = 1 << 1, CH32_LCD_RST = 1 << 3, CH32_SYS_EN = 1 <
 
 // ---------------------------------------------------------------- display
 // ST7701 init over 3-wire SPI (CS 42, SCK 2, SDA 1), then RGB565 on the
-// parallel bus. Timing as in Waveshare's Arduino demo.
+// parallel bus. Timing as in Waveshare's Arduino demo. On arduino-esp32 3.x
+// the panel can scan out of a bounce buffer in internal RAM (LCD4_BOUNCE_PX
+// pixels; 0, the default, scans straight from PSRAM as 2.0.17 does: with
+// 4800 the first test showed horizontal lines across the picture).
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+#ifndef LCD4_BOUNCE_PX
+#define LCD4_BOUNCE_PX 0
+#endif
+#define LCD4_RGB_EXTRA , 0 /* pclk on the rising edge */, GFX_NOT_DEFINED, false, 0, 0, LCD4_BOUNCE_PX
+#else
+#define LCD4_RGB_EXTRA
+#endif
 static Arduino_DataBus* spiBus = new Arduino_SWSPI(GFX_NOT_DEFINED, 42 /* CS */, 2 /* SCK */, 1 /* MOSI */, GFX_NOT_DEFINED);
 static Arduino_ESP32RGBPanel* rgbPanel = new Arduino_ESP32RGBPanel(
     40 /* DE */, 39 /* VSYNC */, 38 /* HSYNC */, 41 /* PCLK */,
@@ -40,7 +55,8 @@ static Arduino_ESP32RGBPanel* rgbPanel = new Arduino_ESP32RGBPanel(
     14, 13, 12, 11, 10, 9,       // G0..G5
     5, 45, 48, 47, 21,           // B0..B4
     1, 10, 8, 50,                // hsync polarity, front porch, pulse width, back porch
-    1, 10, 8, 20);               // vsync
+    1, 10, 8, 20                 // vsync
+    LCD4_RGB_EXTRA);
 static Arduino_RGB_Display* lcd = new Arduino_RGB_Display(
     480, 480, rgbPanel, 0, false /* we flush */, spiBus, GFX_NOT_DEFINED,
     st7701_type1_init_operations, sizeof(st7701_type1_init_operations));

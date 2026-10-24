@@ -12,6 +12,9 @@
 // scrolls and holds and returns a DeckCommand for the board to send (an
 // Answer, Focus, Interrupt or Dismiss). The board keeps the command's seq in
 // PanelUi::cmdSeq and passes the deck's Result to result(). BOOT is button().
+// On Wi-Fi (net_link.h) PanelInput.net says how the board is connected (the
+// connecting notice then says where Wi-Fi is), and PanelUi::wifi puts the
+// Wi-Fi mark on home.
 //
 // A device picks its layout by constructing it, e.g.
 // `static const SquarePanel layout(specLcd4());`, and putting it in its
@@ -22,6 +25,7 @@
 #include "canvas.h"
 #include "deck_cmd.h"
 #include "model.h"
+#include "net_model.h"
 
 constexpr uint32_t kToastMs = 3000;
 
@@ -73,6 +77,10 @@ struct PanelUi {
   int selected = -1;           // big panels: the prompt's chosen option (sent with "send")
   uint32_t stopArmedUntil = 0; // big panels: "tap again to stop" until then
 
+  // On Wi-Fi (the firmware sets it from net_link.h): home shows a small
+  // Wi-Fi mark, and a grid home keeps a row at the bottom for it.
+  bool wifi = false;
+
   // Feedback.
   char toast[48] = "";
   uint32_t toastUntil = 0;
@@ -94,6 +102,7 @@ struct PanelInput {
   int64_t nowEpoch;            // the deck's time
   const PanelUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
+  const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
 };
 
 class PanelLayout {

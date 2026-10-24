@@ -10,6 +10,10 @@
 // (esp32_s3_touch_amoled_1_8 2.0.3 on the ESP component registry) and their
 // Arduino demos (github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.8). The
 // AXP2101 PMU is left at its power-on defaults, as Waveshare's code does.
+//
+// Two builds: arduino-esp32 2.0.17 (../platformio.ini, USB only) and 3.x
+// (idf5/platformio.ini, Wi-Fi with TLS 1.3); only Arduino_GFX's CO5300
+// constructor differs between the two GFX versions they use.
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
@@ -91,9 +95,13 @@ static bool boardBegin() {
   expanderInit();
   touchAddr = i2cPresent(ADDR_CST820) ? ADDR_CST820 : i2cPresent(ADDR_FT3168) ? ADDR_FT3168 : 0;
   // The CO5300 boards (CST820 touch) start 16 columns in; the first SH8601
-  // revision (FT3168) at 0. GFX 1.5.x takes an `ips` flag after the rotation.
+  // revision (FT3168) at 0. GFX 1.5.x takes an `ips` flag after the rotation; 1.6 doesn't.
   const uint8_t colOffset = touchAddr == ADDR_FT3168 ? 0 : 16;
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  lcd = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, 368, 448, colOffset, 0, 0, 0);
+#else
   lcd = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, false, 368, 448, colOffset, 0, 0, 0);
+#endif
   const bool ok = lcd->begin(40000000);
   PANEL_LOG("amoled18: tca9554 %s, touch 0x%02X, col offset %u, display %s", haveTca ? "ok" : "NONE", touchAddr,
             colOffset, ok ? "ok" : "FAILED");

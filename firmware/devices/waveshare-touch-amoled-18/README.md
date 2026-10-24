@@ -1,7 +1,7 @@
 # waveshare-touch-amoled-18: the deck on a 1.8″ AMOLED
 
 The deck on a [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm)
-(368×448 AMOLED, touch), over USB with [Deck Link](../../../docs/link/protocol.md).
+(368×448 AMOLED, touch), over USB or Wi-Fi with [Deck Link](../../../docs/link/protocol.md).
 
 | home | scrolling | card | permission | question | approval |
 |---|---|---|---|---|---|
@@ -38,14 +38,65 @@ with the glass's rounded corners masked. Every screen is in `docs/`.)
 ## Connect it
 
 ```sh
-pio run -d firmware/devices/waveshare-touch-amoled-18 -t upload --upload-port /dev/cu.usbmodem<…>
+pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload --upload-port /dev/cu.usbmodem<…>   # or the 2.0.17 build, USB only
 agentctl link add /dev/cu.usbmodem<…>
-agentctl devices approve waveshare-touch-amoled-18-<id>
+agentctl devices approve waveshare-touch-amoled-18-<id>      # only with `agentctl devices auto-approve usb off`
 agentctl devices scope waveshare-touch-amoled-18-<id> act    # answer, focus, interrupt; admin to stop
 ```
 
 It subscribes to every agent with all fields and keeps up to 64 in PSRAM. The Hello says: display
 368×448 colour, inputs TOUCH and BUTTON.
+
+## Build and flash
+
+| env | what |
+|---|---|
+| `waveshare-touch-amoled-18` (`platformio.ini`) | arduino-esp32 2.0.17: USB only (no TLS 1.3, so no Wi-Fi) |
+| `debug` | the same with one-line notes on the USB port |
+| `idf5` (`idf5/platformio.ini`) | arduino-esp32 3.x: USB and Wi-Fi (TLS 1.3) |
+| `idf5-debug` | `idf5` with notes on the USB port (link, Wi-Fi phase, frame time, internal heap and PSRAM) |
+
+```sh
+pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload --upload-port /dev/cu.usbmodem<…>
+```
+
+The `idf5` project keeps its platform in `~/.platformio-pioarduino` (pioarduino and PlatformIO's own
+ESP32 platform clash in one home) and rebuilds arduino-esp32's libraries with
+`CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y`: about five minutes the first time, and again after another
+pioarduino project was built in between. If it fails with `No module named
+'SCons.Tool.FortranCommon'`, see the fix in [the 2.1″ board's README](../waveshare-touch-lcd-21/README.md#wi-fi).
+
+## Wi-Fi
+
+On the `idf5` firmware the board also works away from the Mac, as the same device (name, scope,
+audit log), over TLS 1.3 with a certificate of its own. It works as on the round boards
+([the 2.1″ board's README](../waveshare-touch-lcd-21/README.md#wi-fi) has the whole story):
+
+1. **Pair.** Plugged into the Mac and approved, it pairs by itself (toast "paired for Wi-Fi";
+   `agentctl devices` shows "Wi-Fi certificate").
+2. **The network.** The deck's default network (`agentctl link wifi --default --ssid "my network"`)
+   goes to it by itself over USB (toast "trying Wi-Fi…", then the outcome; `agentctl link` shows
+   `default my network: ok`). `agentctl link wifi waveshare-touch-amoled-18-<id> --ssid …` gives it a network of its
+   own.
+3. **Unplug it** and power it anywhere. At boot it listens on USB for 4 s; with no deck there it joins
+   the network and connects to the deck. Plugged into the Mac again, USB wins at once.
+
+![Wi-Fi screens](docs/wifi.png)
+
+Home on Wi-Fi with its mark, joining, a wrong password, a refused certificate. Text keeps clear of the glass's rounded corners; a toast on a notice sits low on the screen.
+
+| screen | meaning |
+|---|---|
+| joining Wi-Fi · the network's name | joining the network |
+| connecting · to the deck · over Wi-Fi | joined; reaching the deck |
+| Wi-Fi failed · wrong password | set it again with `agentctl link wifi` (on USB); retried every minute |
+| Wi-Fi failed · network not found | out of range or the name is wrong; retried every 15 s |
+| deck not reachable · over Wi-Fi | the Mac is asleep, or the daemon isn't running; retried with a growing pause |
+| certificate · rejected · pair again over USB | the board was revoked or paired again: plug it into the Mac |
+
+On Wi-Fi a small Wi-Fi mark sits after "agents" in the home header; on USB there is none. The key, the certificate and the
+Wi-Fi password are kept in the board's flash (NVS), not encrypted unless you turn on flash encryption:
+revoke a board you lose (`agentctl devices revoke waveshare-touch-amoled-18-<id>`).
 
 ## Hardware
 

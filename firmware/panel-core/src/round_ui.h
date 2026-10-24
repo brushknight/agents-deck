@@ -685,12 +685,7 @@ static inline bool drawRoundCommon(Canvas& c, const RoundTheme& T, const DetailS
 // cable says it). The notices say it in words.
 constexpr int kNetBadgeY = 398;   // the mark's base: below home's text, above the ring
 
-// The mark itself, its base at (cx, base): a dot and two arcs over it, about
-// 36 x 22 px (netMarkBox() holds it).
-static inline void drawNetMark(Canvas& c, float cx, float base, uint16_t col) {
-  fillDisc(c, cx, base - 1, 2.5f, col);
-  for (int i = 1; i <= 2; i++) strokeArc(c, cx, base, 6.5f * i + 1, 2.5f, -45, 90, col);
-}
+// The mark itself is drawNetMark() (round_geom.h; the square boards use it too).
 
 // Whether home shows the mark: on Wi-Fi and live.
 static inline bool netMarkShown(const RoundInput& in) {

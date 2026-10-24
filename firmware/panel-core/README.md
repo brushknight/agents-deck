@@ -71,7 +71,9 @@ swipes, drags round the rim, the stop hold, the timeout, a new waiting agent). I
 it pairs over USB by itself, keeps Wi-Fi credentials sent with `agentctl link wifi`, and when no deck
 answers on USB it joins the network and runs a second Deck Link core over TLS 1.3 (the kit's
 `deck_tls.h`). The app follows `net_link::active()` and sends its commands there; a deck on USB always
-wins. `round_app.h` uses it; the round boards' `idf5` builds have it.
+wins. `round_app.h` and `grid_app.h` wire it the same way (the Welcome, CertIssued and Result hooks,
+`active()` for commands and state, a fresh fleet when the link changes, toasts); the round and square
+boards' `idf5` builds have it.
 
 On the round screens the Wi-Fi notices are `round_ui.h`'s `drawNotice()` (`netNotice()` words), and
 home on Wi-Fi has a small Wi-Fi mark: the spring draws it as one of its elements under the context
@@ -84,12 +86,13 @@ It needs TLS 1.3 in mbedTLS, so arduino-esp32 3.x with its libraries rebuilt wit
 `idf5/platformio.ini`). On arduino-esp32 2.0.17 (ESP-IDF 4.4, mbedTLS 2.28) it compiles to the USB
 part only and the deck hears "no Wi-Fi" (501).
 
-The square boards (`grid_app.h`: the 4″, the 1.8″ AMOLED, the 1.47″) are on 2.0.17 and USB only for
-now. For Wi-Fi they need an `idf5` project like the round boards' (pioarduino, arduino-esp32 3.x,
-`custom_sdkconfig` for TLS 1.3, Arduino_GFX 1.6 or their own panel drivers, which changed between
-2.0 and 3.x for QSPI and RGB) and the same few calls in `grid_app.h`: `net_link::begin`, `loop`,
-`active()` for commands and state, the Welcome, CertIssued and Result hooks, and the Wi-Fi notices
-(`netNotice()`).
+On the square boards (`grid_app.h`) `PanelInput.net` carries the same `NetView`: `layout_square.h`
+and `layout_big.h` draw the Wi-Fi notices with `netNotice()` in their own notice style, and a toast on
+a notice sits low, clear of its text. `PanelUi::wifi` (set by `grid_app.h`) puts the Wi-Fi mark
+(`drawNetMark()`, `round_geom.h`) on home: after "agents" in the list's header (the 1.8″ AMOLED);
+at the right of the page bars' row in a grid (the 4″), which then stays with one page too, and
+hit-testing follows it. The 4″ and the 1.8″ AMOLED have `idf5` projects; the 1.47″ is on 2.0.17 and
+USB only.
 
 ## Tests and pictures
 

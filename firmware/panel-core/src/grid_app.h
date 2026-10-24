@@ -1,9 +1,10 @@
 #pragma once
 // The firmware of a grid board, minus the board: Deck Link on the native USB
-// port, the fleet, the touch UI and the frame loop. A device's main.cpp
-// fills a GridBoard with its display, touch and backlight drivers and calls
-// gridAppSetup() and gridAppLoop(). Arduino only (the rest of panel-core
-// runs on the host too).
+// port (or Wi-Fi, net_link.h), the fleet, the touch UI and the frame loop. A
+// device's main.cpp fills a GridBoard with its display, touch and backlight
+// drivers and calls gridAppSetup() and gridAppLoop(). Arduino only (the rest
+// of panel-core runs on the host too). round_app.h is the same for the round
+// boards, and wires net_link the same way.
 #if defined(ARDUINO)
 #include <Arduino.h>
 #include <DeckLink.h>
@@ -18,9 +19,11 @@
 // Deck Link frames (the deck ignores text). Release builds print nothing.
 #ifdef PANEL_DEBUG
 #define PANEL_LOG(...) do { Serial.printf(__VA_ARGS__); Serial.print("\n"); } while (0)
+#define NET_LOG(...) PANEL_LOG(__VA_ARGS__)
 #else
 #define PANEL_LOG(...) do {} while (0)
 #endif
+#include "net_link.h"
 
 struct GridBoard {
   const char* type;                        // Hello.type, e.g. "waveshare-touch-lcd-4"
@@ -49,39 +52,73 @@ static bool moving = false;               // the layout animates: draw at full r
 static uint32_t lastActiveMs = 0;
 static uint32_t lastHeardMs = 0;          // the last frame from the deck
 
-static LinkState linkState() { return linkStateOf(deck.state(), deck.approved()); }
+// The link the screen follows: USB, or Wi-Fi once that is up (net_link.h).
+static deck_link_t* link() { return net_link::active(); }
+
+static LinkState linkState() {
+  if (net_link::wifiPending()) return LinkState::Connecting;   // the notice says where Wi-Fi is
+  return linkStateOf(deck_link_state(link()), deck_link_approved(link()));
+}
 
 static DeckScope scope() {
-  switch (deck.scope()) {
+  switch (deck_link_scope(link())) {
     case agentsdeck_link_v1_Scope_SCOPE_ADMIN: return DeckScope::Admin;
     case agentsdeck_link_v1_Scope_SCOPE_ACT:   return DeckScope::Act;
     default:                                   return DeckScope::View;
   }
 }
 
-static void onFrame(deck_link_t*, const deck_frame_t* f) {
+static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
+  if (ctx != link()) return;               // the other link (USB while on Wi-Fi): not what the screen shows
   lastHeardMs = millis();
   if (deckApply(*fleet, *f, millis())) dirty = true;
   if (fleet->newWaiting) fleet->newWaiting = false;
 }
 
-static void onWelcome(deck_link_t*, const char* name, agentsdeck_link_v1_Scope, bool) {
-  snprintf(deviceName, sizeof deviceName, "%s", name);
+static void onWelcome(deck_link_t* ctx, const char* name, agentsdeck_link_v1_Scope, bool approved) {
+  // A deck on USB takes over at once (and pairs the board for Wi-Fi when it needs to).
+  if (ctx == deck.core()) net_link::usbWelcome(approved, name);
+  else net_link::wifiWelcome();
+  if (ctx == link()) snprintf(deviceName, sizeof deviceName, "%s", name);
   dirty = true;
 }
 
-static void onResult(deck_link_t*, uint32_t seq, uint32_t code, const char*) {
+static void onResult(deck_link_t* ctx, uint32_t seq, uint32_t code, const char*) {
+  net_link::result(seq, code);
+  if (ctx != link()) return;
   board.layout->result(ui, seq, code, millis());
+  dirty = true;
+}
+
+static void onCertIssued(deck_link_t*, uint32_t seq, const agentsdeck_link_v1_CertIssued* c) {
+  net_link::certIssued(seq, c);
+}
+
+// The screen's link changed (USB <-> Wi-Fi): start the fleet and the screen
+// over (home); the new link sends a snapshot. A toast stays.
+static void onSwitched(NetVia via) {
+  fleet->~DeckFleet();
+  new (fleet) DeckFleet();
+  PanelUi fresh;
+  memcpy(fresh.toast, ui.toast, sizeof fresh.toast);
+  fresh.toastUntil = ui.toastUntil;
+  ui = fresh;
+  dirty = true;
+  PANEL_LOG("panel: now on %s", via == NetVia::Wifi ? "Wi-Fi" : "USB");
+}
+
+static void onToast(const char* text) {
+  uiToast(ui, text, millis(), 2500);
   dirty = true;
 }
 
 static void send(const DeckCommand& c) {
   switch (c.cmd) {
-    case DeckCmd::Answer:    ui.cmdSeq = deck.answer(c.agent, c.prompt, c.key); break;
-    case DeckCmd::Focus:     ui.cmdSeq = deck.focus(c.agent); break;
-    case DeckCmd::Interrupt: ui.cmdSeq = deck.interrupt(c.agent); break;
-    case DeckCmd::Dismiss:   ui.cmdSeq = deck.dismiss(c.agent); break;
-    case DeckCmd::Resume:    ui.cmdSeq = deck.resume(c.agent); break;
+    case DeckCmd::Answer:    ui.cmdSeq = deck_answer(link(), c.agent, c.prompt, c.key); break;
+    case DeckCmd::Focus:     ui.cmdSeq = deck_focus(link(), c.agent); break;
+    case DeckCmd::Interrupt: ui.cmdSeq = deck_interrupt(link(), c.agent); break;
+    case DeckCmd::Dismiss:   ui.cmdSeq = deck_dismiss(link(), c.agent); break;
+    case DeckCmd::Resume:    ui.cmdSeq = deck_resume(link(), c.agent); break;
     default: return;
   }
   PANEL_LOG("command %d for %s, seq %u", (int)c.cmd, c.agent, (unsigned)ui.cmdSeq);
@@ -96,7 +133,10 @@ static void render() {
   moving = f && board.layout->tick(ui, *f, ms);
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
-  PanelInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000};
+  static NetView net;
+  net = net_link::view();
+  ui.wifi = net.via == NetVia::Wifi;       // home's Wi-Fi mark (and the grid's row for it; touch follows the last frame)
+  PanelInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
   board.layout->draw(canvas, in);
   board.push(frame);
 }
@@ -173,8 +213,11 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   cfg.on_result = onResult;
   cfg.on_online = onLink;
   cfg.on_offline = onLink;
+  cfg.on_cert_issued = onCertIssued;
+  cfg.on_wifi_config = net_link::wifiConfigHook();   // nullptr without Wi-Fi: the core answers 501
   deck.begin(Serial, cfg);
-  lastActiveMs = millis();
+  net_link::begin(deck.core(), cfg, net_link::Hooks{onSwitched, onToast});
+  lastActiveMs = lastHeardMs = millis();
   if (shown) render();
 }
 
@@ -185,6 +228,7 @@ static inline void gridAppLoop() {
     deck.loop();
     if (Serial.available() <= 0) break;
   }
+  net_link::loop();                        // Wi-Fi: the plan, the TLS link and its frames
   touchPump();
   buttonPump();
   static uint32_t lastFrame = 0;
@@ -192,11 +236,16 @@ static inline void gridAppLoop() {
   static uint32_t lastNote = 0, frames = 0, drawMs = 0;
   if (millis() - lastNote > 5000) {
     lastNote = millis();
-      const deck_link_stats_t* st = deck_link_stats(deck.core());
-    PANEL_LOG("status: link %d approved %d agents %u frames %u avg %u ms rx %u bad %u overflow %u heap %u psram %u",
-              (int)deck.state(), (int)deck.approved(), fleet->have ? (unsigned)fleet->fleet.count : 0u,
-              (unsigned)frames, frames ? (unsigned)(drawMs / frames) : 0u, (unsigned)st->rx_frames,
-              (unsigned)st->rx_bad, (unsigned)st->rx_overflow, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+    const deck_link_stats_t* st = deck_link_stats(deck.core());
+    const NetView nv = net_link::view();
+    PANEL_LOG("status: via %s phase %d link %d approved %d agents %u frames %u avg %u ms rx %u bad %u overflow %u "
+              "heap %u (min %u, largest %u) psram %u",
+              nv.via == NetVia::Wifi ? "wifi" : "usb", (int)nv.phase, (int)deck_link_state(link()),
+              (int)deck_link_approved(link()), fleet->have ? (unsigned)fleet->fleet.count : 0u, (unsigned)frames,
+              frames ? (unsigned)(drawMs / frames) : 0u, (unsigned)st->rx_frames, (unsigned)st->rx_bad,
+              (unsigned)st->rx_overflow, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)ESP.getFreePsram());
     frames = drawMs = 0;
   }
 #endif
