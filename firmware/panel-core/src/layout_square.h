@@ -93,7 +93,7 @@ static inline SquareSpec specLcd4() {
   s.home = HomeKind::Grid; s.cols = 4; s.rows = 4; s.pad = 8; s.gap = 8; s.barsH = 30;
   s.tileW = 0; s.tileH = 0; s.headerH = 0;
   s.tileTitle = &FONT_S; s.tileMeta = &FONT_XS; s.hud = &FONT_S;
-  s.tileScale = 2; s.subScale = 1;
+  s.tileScale = 3; s.subScale = 1;   // the critter at the deck's proportion: 54 px on a 110 px tile (Flutter: 92 on 170)
   s.cardScale = 4; s.promptScale = 2; s.noticeScale = 6;
   s.ctxPitch = 6; s.ctxTickW = 2; s.ctxTickH = 10; s.ctxFillH = 8;
   s.btnR = 36; s.btnGap = 26; s.btnFromBottom = 54;
@@ -660,10 +660,21 @@ static inline TileParts tileParts(const SquareSpec& S, const Rect& r, bool list)
   // The critter's box starts below the band (its hat rises one unit into it).
   const int textH = S.tileTitle->cellH + S.tileMeta->cellH;
   const int free = r.h - band - critterH - textH - barH - 6;
-  const int gapTop = free > 0 ? free / 3 : 0;
-  int y = r.y + band + gapTop - p.scale;
-  p.critter = Rect{r.x + r.w / 2 - 7 * p.scale, y, 18 * p.scale, critterH};
-  y += critterH + (free > 0 ? free / 3 : 0) + 2;
+  int y;
+  if (list) {
+    const int gapTop = free > 0 ? free / 3 : 0;
+    y = r.y + band + gapTop - p.scale;
+    p.critter = Rect{r.x + r.w / 2 - 7 * p.scale, y, 18 * p.scale, critterH};
+    y += critterH + (free > 0 ? free / 3 : 0) + 2;
+  } else {
+    // The deck's tile (Flutter, 170 px): 30 px down to the critter, 14 px from
+    // it to the name. Same proportions here, never above the icon band.
+    int top = r.h * 30 / 170;
+    if (top < band) top = band;
+    y = r.y + top;
+    p.critter = Rect{r.x + r.w / 2 - 7 * p.scale, y, 18 * p.scale, critterH};
+    y += critterH + r.h * 14 / 170;
+  }
   p.name = Rect{r.x + in / 2, y, r.w - in, S.tileTitle->cellH};
   y += S.tileTitle->cellH;
   p.meta = Rect{r.x + in / 2, y, r.w - in, S.tileMeta->cellH};
