@@ -31,3 +31,11 @@ for spec in orbit:waveshare-touch-lcd-28c dial:waveshare-touch-lcd-21; do
     out/$layout/offline.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
+for spec in selftest28:waveshare-touch-lcd-28c selftest21:waveshare-touch-lcd-21; do
+  layout=${spec%%:*}
+  docs=../devices/${spec#*:}/docs
+  rm -rf "out/$layout" && mkdir -p "out/$layout"
+  out/render ../../docs/fixtures/state.json "out/$layout" 0 "$layout"
+  "$PY" tools/ppm2png.py "$docs/selftest.png" out/$layout/selftest-1.ppm out/$layout/selftest-2.ppm \
+    out/$layout/selftest-3.ppm --cols 3 --gap 8 >/dev/null
+done

@@ -2,36 +2,36 @@
 // as a critter on a ring, the one that matters in the middle, on the round
 // 480 x 480 screen, with touch.
 //
-// This file is the board: the ST7701 panel on RGB parallel (its init over a
-// 3-wire SPI whose chip select sits on the IO expander), the GT911 touch,
-// the TCA9554 IO expander (resets, the LCD's chip select, the buzzer) and
-// the backlight PWM. Everything else (Deck Link, the fleet, the layout, the
+// This file is what is particular to the board: the GT911 touch,
+// its ST7701 init and RGB timing. The wiring both round boards share (the
+// TCA9554 expander, the RGB bus, the backlight) is panel-core's
+// waveshare_round.h. Everything else (Deck Link, the fleet, the layout, the
 // touch UI) is panel-core's round_app.h with layout_orbit.h.
 //
 // Pins, timings and the panel's init sequence are from Waveshare's demo for
 // this board (ESP32-S3-Touch-LCD-2.8C-Demo.zip on the board's wiki:
 // Arduino/examples/LVGL_Arduino, Display_ST7701.*, Touch_GT911.*,
 // TCA9554PWR.*), checked against its ESP-IDF demo.
+//
+// Built with -DROUND_SELFTEST (env selftest) it runs the hardware self-test
+// instead (round_selftest.h): no Deck Link.
 #include <Arduino.h>
-#include <Arduino_GFX_Library.h>
-#include <Wire.h>
-#include <esp32s3/rom/cache.h>
 
 #include "layout_orbit.h"
 #include "round_app.h"
+#include "round_selftest.h"
+#include "waveshare_round.h"
 
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.2.0"
 
-// ---------------------------------------------------------------- pins
-constexpr int PIN_SDA = 15, PIN_SCL = 7, PIN_BOOT = 0;
-constexpr int PIN_BACKLIGHT = 6, PIN_TOUCH_INT = 16;
-constexpr int BL_CHANNEL = 1, BL_FREQ = 20000, BL_BITS = 10;
-constexpr uint8_t ADDR_TCA9554 = 0x20, ADDR_GT911 = 0x5D, ADDR_GT911_ALT = 0x14;
+// Waveshare's Arduino demo runs 30 MHz with a bounce buffer; their ESP-IDF demo
+// runs 18 MHz without one, which is the default here.
+#ifndef ROUND_PCLK_HZ
+#define ROUND_PCLK_HZ 18000000
+#endif
 
-// The TCA9554's outputs (EXIO1..8 are bits 0..7).
-constexpr uint8_t EXIO_LCD_RST = 1 << 0, EXIO_TP_RST = 1 << 1, EXIO_LCD_CS = 1 << 2, EXIO_SD_CS = 1 << 3,
-                  EXIO_BUZZER = 1 << 7;
-constexpr uint8_t TCA_OUT = 0x01, TCA_CONFIG = 0x03;
+constexpr uint8_t ADDR_GT911 = 0x5D, ADDR_GT911_ALT = 0x14;
+static uint8_t gt911 = 0;
 
 // ---------------------------------------------------------------- display
 // The ST7701's init, verbatim from Waveshare's demo for this board. Arduino_GFX
@@ -91,79 +91,17 @@ static const uint8_t waveshare_28c_init_operations[] = {
     END_WRITE,
 };
 
-// The init goes over 9-bit 3-wire SPI (SCK 2, SDA 1); its chip select is EXIO3,
-// driven by hand around lcd->begin().
-static Arduino_DataBus* spiBus = new Arduino_SWSPI(GFX_NOT_DEFINED /* DC */, GFX_NOT_DEFINED /* CS */, 2 /* SCK */,
-                                                   1 /* MOSI */, GFX_NOT_DEFINED /* MISO */);
-// RGB565 on the parallel bus. Waveshare's demo runs the clock at 30 MHz with a
-// bounce buffer (arduino-esp32 3.x); without one (2.x, Arduino_GFX 1.5.0) we
-// take their ESP-IDF demo's 18 MHz.
-static Arduino_ESP32RGBPanel* rgbPanel = new Arduino_ESP32RGBPanel(
-    40 /* DE */, 39 /* VSYNC */, 38 /* HSYNC */, 41 /* PCLK */,
-    46, 3, 8, 18, 17,            // R0..R4
-    14, 13, 12, 11, 10, 9,       // G0..G5
-    5, 45, 48, 47, 21,           // B0..B4
-    1, 50, 8, 10,                // hsync polarity, front porch, pulse width, back porch
-    1, 8, 2, 18,                 // vsync
-    0 /* pclk on the rising edge */, 18000000 /* pclk Hz */);
-static Arduino_RGB_Display* lcd = new Arduino_RGB_Display(480, 480, rgbPanel, 0, false /* we flush */, spiBus,
-                                                          GFX_NOT_DEFINED, waveshare_28c_init_operations,
-                                                          sizeof(waveshare_28c_init_operations));
-static uint16_t* panelFb = nullptr;
-static bool haveTca = false;
-static uint8_t exio = 0;               // the expander's output register, as last written
-static uint8_t gt911 = 0;
-
-// ---------------------------------------------------------------- I2C
-static bool i2cWrite(uint8_t addr, const uint8_t* data, size_t n) {
-  Wire.beginTransmission(addr);
-  Wire.write(data, n);
-  return Wire.endTransmission() == 0;
-}
-
-static bool i2cPresent(uint8_t addr) {
-  Wire.beginTransmission(addr);
-  return Wire.endTransmission() == 0;
-}
-
-static bool tca(uint8_t reg, uint8_t value) {
-  const uint8_t d[2] = {reg, value};
-  return i2cWrite(ADDR_TCA9554, d, 2);
-}
-
-static void exioSet(uint8_t bits, bool high) {
-  exio = high ? (uint8_t)(exio | bits) : (uint8_t)(exio & ~bits);
-  tca(TCA_OUT, exio);
-}
-
-// All expander pins outputs; the buzzer off (it powers up on), LCD and touch
-// in reset, then the LCD out of reset.
-static void expanderInit() {
-  Wire.begin(PIN_SDA, PIN_SCL, 400000);
-  delay(120);
-  for (int tries = 0; tries < 5 && !haveTca; tries++) {
-    haveTca = i2cPresent(ADDR_TCA9554);
-    if (!haveTca) delay(50);
-  }
-  exio = EXIO_LCD_CS | EXIO_SD_CS;     // chip selects high (idle), resets low, buzzer off
-  tca(TCA_OUT, exio);
-  tca(TCA_CONFIG, 0x00);
-  delay(10);
-  exioSet(EXIO_LCD_RST, true);
-  delay(50);
-}
-
 // ---------------------------------------------------------------- GT911
 // Reset with INT held low picks address 0x5D.
 static void gtReset() {
-  pinMode(PIN_TOUCH_INT, OUTPUT);
-  digitalWrite(PIN_TOUCH_INT, LOW);
-  exioSet(EXIO_TP_RST, false);
+  pinMode(ws_round::PIN_TOUCH_INT, OUTPUT);
+  digitalWrite(ws_round::PIN_TOUCH_INT, LOW);
+  ws_round::exioSet(ws_round::EXIO_TP_RST, false);
   delay(10);
-  exioSet(EXIO_TP_RST, true);
+  ws_round::exioSet(ws_round::EXIO_TP_RST, true);
   delay(200);
-  digitalWrite(PIN_TOUCH_INT, HIGH);
-  pinMode(PIN_TOUCH_INT, INPUT);
+  digitalWrite(ws_round::PIN_TOUCH_INT, HIGH);
+  pinMode(ws_round::PIN_TOUCH_INT, INPUT);
   delay(50);
 }
 
@@ -179,11 +117,11 @@ static bool gtRead(uint16_t reg, uint8_t* out, size_t n) {
 
 static void gtWrite8(uint16_t reg, uint8_t v) {
   const uint8_t d[3] = {(uint8_t)(reg >> 8), (uint8_t)reg, v};
-  i2cWrite(gt911, d, 3);
+  ws_round::i2cWrite(gt911, d, 3);
 }
 
 // The first touch point, in screen pixels (the panel and the touch share axes).
-static bool touchRead(int& x, int& y) {
+static bool touchPanel(int& x, int& y) {
   static bool lastDown = false;
   static int lastX = 0, lastY = 0;
   static uint32_t lastPoll = 0;
@@ -208,44 +146,62 @@ static bool touchRead(int& x, int& y) {
   return lastDown;
 }
 
+// A touch in frame pixels (turned back by ROUND_ROTATION).
+static bool touchRead(int& x, int& y) {
+  if (!touchPanel(x, y)) return false;
+  ws_round::touchToFrame(x, y);
+  return true;
+}
+
 // ---------------------------------------------------------------- the board
+[[maybe_unused]] static const char* found() {
+  static char line[48];
+  snprintf(line, sizeof line, "tca9554 %s" DECK_DOT "gt911 %s", ws_round::haveTca ? "ok" : "MISSING",
+           gt911 == ADDR_GT911 ? "0x5D" : gt911 == ADDR_GT911_ALT ? "0x14" : "MISSING");
+  return line;
+}
+
 static bool boardBegin() {
-  expanderInit();
-  exioSet(EXIO_LCD_CS, false);
-  delay(10);
-  const bool ok = lcd->begin();
-  exioSet(EXIO_LCD_CS, true);
-  if (!ok) return false;
-  panelFb = lcd->getFramebuffer();
+  ws_round::expanderBegin();
+  const ws_round::Panel panel{waveshare_28c_init_operations, sizeof waveshare_28c_init_operations, 8, 10, 50, 2, 18, 8, ROUND_PCLK_HZ};
+  const bool ok = ws_round::displayBegin(panel);
   gtReset();
-  gt911 = i2cPresent(ADDR_GT911) ? ADDR_GT911 : i2cPresent(ADDR_GT911_ALT) ? ADDR_GT911_ALT : 0;
-  ledcSetup(BL_CHANNEL, BL_FREQ, BL_BITS);
-  ledcAttachPin(PIN_BACKLIGHT, BL_CHANNEL);
-  ROUND_LOG("lcd28c: tca9554 %s, gt911 0x%02X, framebuffer %p", haveTca ? "ok" : "MISSING", gt911, panelFb);
-  return panelFb != nullptr;
+  gt911 = ws_round::i2cPresent(ADDR_GT911) ? ADDR_GT911 : ws_round::i2cPresent(ADDR_GT911_ALT) ? ADDR_GT911_ALT : 0;
+  ws_round::backlightBegin();
+  ROUND_LOG("lcd28c: %s, framebuffer %p", found(), ws_round::fb);
+  return ok;
 }
 
-// One frame into the panel's own framebuffer (PSRAM), then out of the cache.
-static void push(const uint16_t* src) {
-  if (!panelFb) return;
-  memcpy(panelFb, src, 480 * 480 * 2);
-  Cache_WriteBack_Addr((uint32_t)panelFb, 480 * 480 * 2);
+#ifdef ROUND_SELFTEST
+void setup() {
+  SelftestBoard b{};
+  b.type = "waveshare-touch-lcd-28c";
+  b.begin = boardBegin;
+  b.push = ws_round::push;
+  b.touch = touchRead;
+  b.brightness = ws_round::brightness;
+  b.buzzer = ws_round::buzzer;
+  b.found = found;
+  b.pclkHz = ROUND_PCLK_HZ;
+  b.bouncePx = ROUND_BOUNCE_PX;
+  roundSelftestSetup(b);
 }
 
-static void brightness(uint8_t level) { ledcWrite(BL_CHANNEL, (uint32_t)level * ((1 << BL_BITS) - 1) / 255); }
-
+void loop() { roundSelftestLoop(); }
+#else
 void setup() {
   RoundBoard b{};
   b.type = "waveshare-touch-lcd-28c";
   b.layout = new OrbitPanel(layoutOrbit28());
   b.begin = boardBegin;
-  b.push = push;
+  b.push = ws_round::push;
   b.touch = touchRead;
-  b.brightness = brightness;
-  b.bootPin = PIN_BOOT;
+  b.brightness = ws_round::brightness;
+  b.bootPin = ws_round::PIN_BOOT;
   b.brightActive = 255;
   b.brightIdle = 50;
   roundAppSetup(b, FW_VERSION);
 }
 
 void loop() { roundAppLoop(); }
+#endif

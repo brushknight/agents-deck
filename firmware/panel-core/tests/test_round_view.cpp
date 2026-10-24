@@ -163,6 +163,10 @@ static void testOrbitNavigation() {
   roundSync(u2, kOrbit, calm, ms);
   tap(u2, kOrbit, calm, 240, 240, ms);
   assert(u2.screen == RoundScreen::Detail && !strcmp(u2.openId, "a"));
+  // A touch stamped a little ahead of the clock (a sample read during the frame) is not 49 days old.
+  u2.lastTouchMs = ms + 50;
+  roundTick(u2, kOrbit, calm, ms);
+  assert(u2.screen == RoundScreen::Detail);
 }
 
 static void testAnswer() {

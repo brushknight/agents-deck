@@ -280,7 +280,7 @@ static inline void roundSync(RoundUi& ui, const RoundLayout& L, const Fleet& f, 
 // Time passes: the "sent" toast ends, the screen times out home.
 static inline void roundTick(RoundUi& ui, const RoundLayout& L, const Fleet& f, uint32_t ms) {
   if (ui.backAfterToast && (int32_t)(ui.toastUntil - ms) <= 0) roundBack(ui, f);
-  if (!ui.down && (uint32_t)(ms - ui.lastTouchMs) >= kRoundIdleMs) {
+  if (!ui.down && (int32_t)(ms - ui.lastTouchMs) >= (int32_t)kRoundIdleMs) {   // signed: safe across a touch stamped just ahead
     if (ui.screen != RoundScreen::Home) roundHome(ui);
     // Home shows what matters again (a fresh waiter keeps its place on the orbit).
     if (L.kind() == RoundLayout::Kind::Dial) ui.featureId[0] = '\0';

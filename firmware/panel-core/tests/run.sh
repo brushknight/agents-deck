@@ -34,4 +34,8 @@ done
 # The board's logic on stdin/stdout (sim/panel_sim.cpp): build it so it keeps compiling.
 "$CXX" -std=c++17 -Wall -Wextra -Werror $SAN -Isrc -I"$KIT" -I"$KIT/proto" sim/panel_sim.cpp "${KIT_OBJS[@]}" -o out/panel_sim
 echo "ok  built out/panel_sim"
+# The round boards' logic the same way (sim/round_sim.cpp); backend/internal/link/round_test.go runs it.
+"$CXX" -std=c++17 -Wall -Wextra -Werror $SAN -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 -Isrc -I"$KIT" -I"$KIT/proto" \
+  sim/round_sim.cpp "${KIT_OBJS[@]}" -o out/round_sim
+echo "ok  built out/round_sim"
 echo "ALL TESTS PASSED"

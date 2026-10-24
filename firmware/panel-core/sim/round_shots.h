@@ -8,6 +8,7 @@
 #include "fixture.h"
 #include "layout_dial.h"
 #include "layout_orbit.h"
+#include "round_selftest.h"
 
 namespace round_shots {
 
@@ -175,6 +176,28 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
     in.link = n.link;
     if (n.empty) { memset(&f, 0, sizeof f); }
     shot(n.name);
+  }
+  return 0;
+}
+
+// The self-test's three pages, with a touch trail.
+static inline int renderSelftest(const std::string& dir, const char* type, const char* found, uint32_t pclk) {
+  std::vector<uint16_t> buf(480 * 480);
+  Canvas c{buf.data(), 480, 480};
+  SelftestState s;
+  s.type = type;
+  s.found = found;
+  s.pclkHz = pclk;
+  s.frameMs = 21;
+  s.pushMs = 4;
+  for (int k = 0; k <= 12; k++) selftestTouch(s, true, 150 + k * 15, 300 - (k * k) / 2, k * 16);
+  selftestTouch(s, false, 0, 0, 300);
+  for (int page = 0; page < kSelftestPages; page++) {
+    s.page = page;
+    drawSelftest(c, s, 1200);
+    char name[32];
+    snprintf(name, sizeof name, "/selftest-%d.ppm", page + 1);
+    writePpm(dir + name, c);
   }
   return 0;
 }

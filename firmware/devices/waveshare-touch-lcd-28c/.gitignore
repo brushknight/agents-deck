@@ -1,2 +1,4 @@
 .pio/
 out/
+# pioarduino (idf5/) writes these next to the sources
+src/idf_component.yml*
