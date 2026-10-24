@@ -473,7 +473,7 @@ static inline void drawPrompt(Canvas& c, const RoundTheme& T, const RoundInput& 
   }
   Pill p[4];
   const int n = promptPills(a, ui.optFirst, p);
-  char buf[64];
+  char buf[PANEL_OPTION_LABEL + 16];
   for (int i = 0; i < n; i++) {
     const Option& o = a.opts[p[i].option];
     const bool pressed = ui.pressed.kind == HitKind::Option && ui.pressed.option == p[i].option;
@@ -507,7 +507,7 @@ static inline void drawPrompt(Canvas& c, const RoundTheme& T, const RoundInput& 
         utf8Next(q);
       }
       if (!cut) cut = buf + strlen(buf) / 2;
-      char first[64];
+      char first[sizeof buf];
       snprintf(first, sizeof first, "%.*s", (int)(cut - buf), buf);
       const int mid = p[i].y + p[i].h / 2;
       textCentered(c, FONT_XXL, 240, mid - 4 - fontAscent(FONT_XXL), first, label, room);

@@ -35,6 +35,7 @@ struct RoundBoard {
 namespace round_app {
 
 constexpr uint32_t kCalmMs = 120000;       // dim after 2 min with nothing going on
+constexpr size_t kRxBuffer = 32768;        // see roundAppSetup()
 
 static RoundBoard board;
 static DeckLink deck;
@@ -149,6 +150,9 @@ static void buttonPump() {
 static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   using namespace round_app;
   board = b;
+  // The USB serial driver drops what doesn't fit in its RX queue (256 bytes
+  // by default) while a frame is drawn: give a snapshot or a busy deck room.
+  Serial.setRxBufferSize(kRxBuffer);
   Serial.begin(115200);                                     // native USB: the rate is ignored
   if (board.bootPin >= 0) pinMode(board.bootPin, INPUT_PULLUP);
 
@@ -182,7 +186,11 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
 
 static inline void roundAppLoop() {
   using namespace round_app;
-  deck.loop();
+  // Drain what arrived while the last frame was drawn (each loop() reads up to 4 KB).
+  for (int i = 0; i < 16; i++) {
+    deck.loop();
+    if (Serial.available() <= 0) break;
+  }
   touchPump();
   buttonPump();
   static uint32_t lastFrame = 0;
@@ -190,10 +198,13 @@ static inline void roundAppLoop() {
   static uint32_t lastNote = 0, frames = 0, drawMs = 0;
   if (millis() - lastNote > 5000) {
     lastNote = millis();
-    ROUND_LOG("status: link %d approved %d agents %u screen %d frames %u avg %u ms heap %u psram %u",
+    const deck_link_stats_t* st = deck_link_stats(deck.core());
+    ROUND_LOG("status: link %d approved %d agents %u screen %d frames %u avg %u ms rx %u bad %u overflow %u "
+              "heap %u psram %u",
               (int)deck.state(), (int)deck.approved(), fleet->have ? (unsigned)fleet->fleet.count : 0u,
-              (int)ui.screen, (unsigned)frames, frames ? (unsigned)(drawMs / frames) : 0u,
-              (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+              (int)ui.screen, (unsigned)frames, frames ? (unsigned)(drawMs / frames) : 0u, (unsigned)st->rx_frames,
+              (unsigned)st->rx_bad, (unsigned)st->rx_overflow, (unsigned)ESP.getFreeHeap(),
+              (unsigned)ESP.getFreePsram());
     frames = drawMs = 0;
   }
 #endif

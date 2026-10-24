@@ -1,6 +1,6 @@
 #!/bin/sh
-# Renders every screen of the grid boards from docs/fixtures/state.json into
-# their docs/ folders as PNG (and the 1.47" sheet into out/). Needs a C++
+# Renders every screen of the grid and round boards from docs/fixtures/state.json
+# into their docs/ folders as PNG (and the 1.47" sheet into out/). Needs a C++
 # compiler and Python with pillow (PYTHON=... to pick one).
 set -eu
 cd "$(dirname "$0")/.."
@@ -16,5 +16,18 @@ for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18; do
   for n in grid grid-page2 card prompt prompt-view question notice-connecting notice-unapproved offline; do
     "$PY" tools/ppm2png.py "$docs/$n.png" "out/$layout/$n.ppm" --gap 0 >/dev/null
   done
+  echo "$docs"
+done
+for spec in orbit:waveshare-touch-lcd-28c dial:waveshare-touch-lcd-21; do
+  layout=${spec%%:*}
+  docs=../devices/${spec#*:}/docs
+  rm -rf "out/$layout" && mkdir -p "out/$layout" "$docs"
+  out/render ../../docs/fixtures/state.json "out/$layout" 0 "$layout"
+  for n in home-3 home-8 home-22 waiting detail detail-stop-held prompt prompt-view not-approved offline connecting; do
+    "$PY" tools/ppm2png.py "$docs/$n.png" "out/$layout/$n.ppm" --gap 0 >/dev/null
+  done
+  "$PY" tools/ppm2png.py "$docs/screens.png" out/$layout/home-3.ppm out/$layout/home-8.ppm out/$layout/home-22.ppm \
+    out/$layout/waiting.ppm out/$layout/detail.ppm out/$layout/prompt.ppm out/$layout/not-approved.ppm \
+    out/$layout/offline.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
