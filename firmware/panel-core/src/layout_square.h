@@ -7,9 +7,11 @@
 //           the AMOLEDs: 2 tiles across in one vertical list that scrolls with
 //           momentum and settles on a row, a position bar while it moves
 //           (2 rows on screen on the 1.8", 3 on the T4-S3's 2.41")
-//   card    header (critter, name, status pill), doing now, context with the
-//           dotted bar, tokens / cost / turns (on the T4-S3 one to a line, with
-//           cache read), the last prompt, round buttons:
+//   card    header (critter; name over status pill, centred on it), doing
+//           now with the subagent count, the working subagents (critter posed
+//           by its tool, its task), context with the dotted bar, tokens /
+//           cost / turns (on the T4-S3 one to a line, with cache read), the
+//           last prompt where a line fits, round buttons:
 //           focus, interrupt while running, stop held for 1 s (admin)
 //   prompt  one layout for permissions and questions: a one-line header,
 //           the whole question, the command box (permissions), the options
@@ -938,33 +940,149 @@ static inline void doingNow(const Agent& a, char* out, size_t cap) {
   }
 }
 
+// Where the card's parts go, top to bottom: the header (the critter, and the
+// name over the pill as one block centred on the critter's box), "doing now"
+// (with the subagent count on its right), the working subagents one to a row,
+// context, the numbers, the last prompt (if a line of it fits) and the
+// buttons' rule. Live subagents come before the last prompt: on a short panel
+// the prompt gives way to them.
+struct CardGeom {
+  Rect critter;                // the critter's 18 x 13 unit box
+  Rect name, pill;             // the header's text block: name, then the pill under it
+  int doingY, doingValueY;
+  int subY, subPitch, subRows; // rows of working subagents (subRows may be fewer than kept)
+  int ctxY, statsY;
+  int lastY, lastLines;        // lastLines 0: no room for the last prompt
+  int ruleY;
+};
+
+static inline int cardStatsH(const SquareSpec& S) {
+  const Font& lf = *S.label;
+  return S.statLines ? 4 * (S.value->cellH - 4) + 8 : lf.cellH - 6 + S.value->cellH + 4;
+}
+
+// How far below a line's top its capitals start (Roboto Mono: the baseline at
+// 0.795 of the cell, capitals 0.711 em tall, 0.6 em to a character).
+static inline int capTop(const Font& f) { return (f.cellH * 795 + 500) / 1000 - (f.cellW * 711 + 300) / 600; }
+
+// The middle of what a critter draws in its box (scale s), from its hat (or
+// head) to its feet, standing still: the block and the onigiri, with and
+// without a hat, differ. Measured on a small drawing at scale 2.
+static inline int critterMid(const Rect& box, int s, Species sp, uint8_t hat, uint8_t hatColor) {
+  constexpr int kS = 2, kW = 26 * kS, kH = 20 * kS, kX = 4 * kS, kY = 3 * kS;
+  constexpr uint16_t kBlank = 0x1234;
+  static uint16_t px[kW * kH];
+  for (int i = 0; i < kW * kH; i++) px[i] = kBlank;
+  Canvas c{px, kW, kH};
+  drawSprite(c, kX, kY, kS, sp, Pose::Idle, 0xFFFF, 0x0001, 0, false, hat, hatColor);
+  int top = -1, bot = -1;
+  for (int y = 0; y < kH; y++)
+    for (int x = 0; x < kW; x++)
+      if (px[y * kW + x] != kBlank) { if (top < 0) top = y; bot = y + 1; break; }
+  if (top < 0) return box.y + box.h / 2;
+  return box.y + ((top - kY) + (bot - kY)) * s / (2 * kS);
+}
+
+static inline CardGeom cardGeom(const SquareSpec& S, const Agent& a, DeckScope scope) {
+  CardGeom g{};
+  const int m = S.m, s = S.cardScale;
+  const Font& nf = *S.title;
+  const Font& lf = *S.label;
+  const Font& bf = *S.body;
+  g.critter = Rect{m, 20, 18 * s, 13 * s};
+  const int tx = m + 18 * s + 14, tw = S.w - tx - m;
+  // The name and the pill as one block, from the name's capitals to the
+  // pill's foot, its middle on the drawn critter's.
+  const int pillH = lf.cellH + 2, gap = 2;
+  const int cap = capTop(nf);
+  const int blockH = nf.cellH - cap + gap + pillH;
+  const int top = critterMid(g.critter, s, a.species, a.hat, a.hatColor) - blockH / 2 - cap;
+  g.name = Rect{tx, top, tw, nf.cellH};
+  g.pill = Rect{tx, top + nf.cellH + gap, tw, pillH};
+  int y = g.pill.y + g.pill.h + 14;
+  if (y < g.critter.y + g.critter.h + 8) y = g.critter.y + g.critter.h + 8;
+
+  g.doingY = y;
+  y += lf.cellH - 4;
+  g.doingValueY = y;
+  y += bf.cellH + 2;
+
+  const CardButtons b = cardButtons(S, a, scope);
+  g.ruleY = b.n ? b.cy - S.btnR - 10 : S.h - m;
+  const int bottom = g.ruleY - 4;
+  const int ctxH = S.question->cellH + 2 + S.ctxTickH + 12;
+  // Subagent rows: as many as are kept and fit above context and the numbers.
+  g.subPitch = lf.cellH - 4;
+  g.subY = y;
+  const int room = bottom - y - ctxH - cardStatsH(S);
+  g.subRows = a.subCount < room / g.subPitch ? a.subCount : room / g.subPitch;
+  if (g.subRows < 0) g.subRows = 0;
+  if (!a.subagents) g.subRows = 0;
+  y += g.subRows * g.subPitch;
+
+  g.ctxY = y;
+  y += ctxH;
+  g.statsY = y;
+  y += cardStatsH(S);
+  g.lastY = y;
+  const int line = bf.cellH - 2;
+  g.lastLines = (bottom - 4 - (y + lf.cellH - 4)) / line;   // its descenders clear of the rule
+  if (g.lastLines < 0) g.lastLines = 0;
+  return g;
+}
+
+// "3 subagents", "1 subagent".
+static inline void subCountLabel(const Agent& a, char* out, size_t cap) {
+  snprintf(out, cap, "%u subagent%s", (unsigned)a.subagents, a.subagents == 1 ? "" : "s");
+}
+
 static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, const Agent& a) {
   const int m = S.m, s = S.cardScale;
   char buf[224];
   c.fill(T.bg);
-  // Header: the critter at (m, 20), the name with its baseline at 20 + 8s, the pill under it.
+  const CardGeom g = cardGeom(S, a, in.scope);
+  // Header: the critter, and beside it the name over the pill, centred on it.
   const Look k = lookOf(T, a);
   const uint16_t body = a.status == Status::Running || hungry(a) ? T.accent : k.body == T.bg ? T.ink : k.body;
-  drawSprite(c, m, 20, s, a.species, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true, a.hat, a.hatColor);
+  drawSprite(c, g.critter.x, g.critter.y, s, a.species, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true, a.hat, a.hatColor);
   const Font& nf = *S.title;
-  const int tx = m + 18 * s + 14, tw = S.w - tx - m;
-  const int nameTop = 20 + 8 * s - nf.cellH * 3 / 4;
-  c.text(nf, tx, nameTop, a.title[0] ? a.title : a.id, T.ink, tw);
+  c.text(nf, g.name.x, g.name.y, a.title[0] ? a.title : a.id, T.ink, g.name.w);
   pillLabel(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status == Status::Error || hungry(a);
-  pillText(c, *S.label, tx, nameTop + nf.cellH, buf, loud ? T.accent : T.ink, T.bg, tw);
-  int y = nameTop + nf.cellH + S.label->cellH + 14;
-  if (y < 20 + 13 * s + 8) y = 20 + 13 * s + 8;
+  pillText(c, *S.label, g.pill.x, g.pill.y, buf, loud ? T.accent : T.ink, T.bg, g.pill.w);
 
   const Font& lf = *S.label;
   const Font& bf = *S.body;
   const int lw = S.w - 2 * m;
-  // Doing now.
-  c.text(lf, m, y, "doing now", T.dim, lw);
-  y += lf.cellH - 4;
+  int y = g.doingY;
+  // Doing now, and how many subagents work for it on the right.
+  int cw = 0;
+  if (a.subagents) {
+    subCountLabel(a, buf, sizeof buf);
+    cw = textW(lf, buf);
+    c.text(lf, S.w - m - cw, y, buf, T.dim);
+  }
+  c.text(lf, m, y, "doing now", T.dim, lw - cw - 8);
   doingNow(a, buf, sizeof buf);
-  c.text(bf, m, y, buf, T.ink, lw);
-  y += bf.cellH + 2;
+  c.text(bf, m, g.doingValueY, buf, T.ink, lw);
+
+  // The working subagents: a small critter posed by its latest tool, its task, its type.
+  for (int i = 0; i < g.subRows; i++) {
+    const Subagent& sa = a.subs[i];
+    const int ss = S.subScale, ry = g.subY + i * g.subPitch;
+    const Pose p = sa.tool[0] ? poseOfTool(sa.tool) : Pose::Think;
+    // The body (units 0..9 of the box) in the middle of the row.
+    drawSprite(c, m, ry + (g.subPitch - 9 * ss) / 2 - 4 * ss, ss, Species::Claude, p, body, T.bg, in.ms, false);
+    const int x = m + 14 * ss + 10, w = S.w - m - x;
+    const char* title = sa.title[0] ? sa.title : sa.type[0] ? sa.type : "subagent";
+    const int ty = ry + (g.subPitch - lf.cellH) / 2 + 1;
+    const int used = c.text(lf, x, ty, title, T.ink, w);
+    if (sa.title[0] && sa.type[0]) {
+      snprintf(buf, sizeof buf, DECK_DOT "%s", sa.type);
+      if (used + textW(lf, buf) <= w) c.text(lf, x + used, ty, buf, T.dim);
+    }
+  }
+  y = g.ctxY;
 
   // Context: label, numbers, percent, and the dotted bar.
   const int pct = ctxPct(a);
@@ -1027,12 +1145,13 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 
   // The last prompt, as many lines as fit above the buttons' rule.
   const CardButtons b = cardButtons(S, a, in.scope);
-  const int ruleY = b.n ? b.cy - S.btnR - 10 : S.h - m;
-  c.text(lf, m, y, "last prompt", T.dim, lw);
-  y += lf.cellH - 4;
-  const int line = bf.cellH - 2;
-  const int lines = (ruleY - 4 - y) / line;
-  if (lines > 0) textWrapped(c, bf, m, y, a.lastPrompt[0] ? a.lastPrompt : "\xE2\x80\x94", T.ink, lw, lines, line);
+  const int ruleY = g.ruleY;
+  if (g.lastLines > 0) {
+    c.text(lf, m, g.lastY, "last prompt", T.dim, lw);
+    const int line = bf.cellH - 2;
+    textWrapped(c, bf, m, g.lastY + lf.cellH - 4, a.lastPrompt[0] ? a.lastPrompt : "\xE2\x80\x94", T.ink, lw,
+                g.lastLines, line);
+  }
 
   // The buttons.
   if (b.n) {

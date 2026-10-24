@@ -64,7 +64,8 @@ static inline const char* promptKindName(agentsdeck_link_v1_PromptKind k) {
 }
 
 // One Deck Link agent as the board keeps it. Field for field what the JSON
-// parser read: statusSince in epoch seconds, the hat by name, subagents as a count.
+// parser read: statusSince in epoch seconds, the hat by name, subagents as a count
+// and the first kMaxSubs of them.
 static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   memset(&a, 0, sizeof a);
   copyLine(a.id, sizeof a.id, in.id);
@@ -116,6 +117,12 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   a.lost = in.lost;
   a.resumable = in.resumable;
   if (in.subagents_count > 0) copyLine(a.subTool, sizeof a.subTool, in.subagents[0].tool);
+  for (pb_size_t i = 0; i < in.subagents_count && a.subCount < kMaxSubs; i++) {
+    Subagent& s = a.subs[a.subCount++];
+    copyLine(s.title, sizeof s.title, in.subagents[i].title);
+    copyLine(s.type, sizeof s.type, in.subagents[i].type);
+    copyLine(s.tool, sizeof s.tool, in.subagents[i].tool);
+  }
   copyLine(a.folder, sizeof a.folder, in.folder);
   copyLine(a.branch, sizeof a.branch, in.branch);
   // An unknown shape means no hat; an unknown colour falls back to ink, as in the web UI.

@@ -434,6 +434,80 @@ int main() {
       }
     }
   }
+  // ---- the card on the AMOLEDs: the name and the pill as one block centred on the critter; the working
+  // subagents under "doing now", their count beside it; the last prompt only where a line of it fits
+  {
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    const SquareSpec T4 = specT4S3();
+    for (const SquareSpec* S : {&A, &T4}) {
+      for (DeckScope sc : {DeckScope::Admin, DeckScope::View}) {
+        for (const char* id : {"k3f9a2", "scr4tc", "1nfr4t", "bare", "d0cs1t", "t3st5a"}) {
+          if (!strcmp(id, "bare") && findAgent(d.fleet, "bare") < 0) {   // a block critter without a hat
+            Agent& b = d.fleet.agents[findAgent(d.fleet, "k8sn0d")];
+            snprintf(b.id, sizeof b.id, "bare");
+            b.hat = 0;
+            b.species = Species::Claude;
+          }
+          const int ai = findAgent(d.fleet, id);
+          assert(ai >= 0);
+          const Agent& a = d.fleet.agents[ai];
+          const square_detail::CardGeom g = square_detail::cardGeom(*S, a, sc);
+          // The block (the name's capitals to the pill's foot) centred on the drawn critter, +-2 px.
+          const int blockTop = g.name.y + square_detail::capTop(*S->title), blockBot = g.pill.y + g.pill.h;
+          const int mid = square_detail::critterMid(g.critter, S->cardScale, a.species, a.hat, a.hatColor);
+          assert(abs((blockTop + blockBot) / 2 - mid) <= 2);
+          assert(g.name.y + g.name.h <= g.pill.y && blockTop >= g.critter.y - 4 && blockBot <= g.critter.y + g.critter.h + 6);
+          // And so it is drawn: the header's ink beside the critter, and the critter's own.
+          std::vector<uint16_t> buf(S->w * S->h);
+          Canvas c{buf.data(), S->w, S->h};
+          PanelUi ui;
+          ui.screen = Screen::Card;
+          snprintf(ui.openId, sizeof ui.openId, "%s", id);
+          PanelInput in{&d.fleet, LinkState::Live, "x", sc, 0, d.fleet.serverTime, &ui, 0};
+          SquarePanel(*S).draw(c, in);
+          const uint16_t bg = c.px[(S->h / 2) * S->w + 2];
+          auto inkRows = [&](int x0, int x1, int y0, int y1, int& top, int& bot) {
+            top = -1; bot = -1;
+            for (int y = y0; y < y1; y++)
+              for (int x = x0; x < x1; x++)
+                if (c.px[y * S->w + x] != bg) { if (top < 0) top = y; bot = y; break; }
+          };
+          int ct, cb, tt, tb;
+          inkRows(g.critter.x, g.critter.x + 14 * S->cardScale, 0, g.doingY, ct, cb);   // the body and hat, no bubble
+          inkRows(g.name.x, S->w - S->m, 0, g.doingY, tt, tb);
+          assert(ct >= 0 && tt >= 0);
+          assert(abs((ct + cb) / 2 - (tt + tb) / 2) <= 2);
+          // Subagents: a row each for those kept, as many as fit; none without them.
+          if (a.subagents) {
+            assert(g.subRows >= 2 && g.subRows <= a.subCount);
+            if (S == &T4 || sc == DeckScope::View) assert(g.subRows == a.subCount);
+            for (int r = 0; r < g.subRows; r++) {
+              int rt, rb;
+              const int y0 = g.subY + r * g.subPitch;
+              inkRows(S->m, S->m + 14 * S->subScale, y0, y0 + g.subPitch, rt, rb);   // its critter
+              assert(rt >= 0);
+              inkRows(S->m + 14 * S->subScale + 10, S->w - S->m, y0, y0 + g.subPitch, rt, rb);   // its task
+              assert(rt >= 0);
+            }
+            int rt, rb;
+            inkRows(S->w / 2, S->w - S->m, g.doingY, g.doingY + S->label->cellH - 4, rt, rb);   // "3 subagents"
+            assert(rt >= 0);
+          } else {
+            assert(g.subRows == 0 && g.ctxY == g.subY);
+            int rt, rb;
+            inkRows(S->w / 2, S->w - S->m, g.doingY, g.doingY + S->label->cellH - 4, rt, rb);
+            assert(rt < 0);
+          }
+          assert(g.subY + g.subRows * g.subPitch <= g.ctxY && g.ctxY < g.statsY && g.statsY < g.lastY);
+          assert(g.lastY <= g.ruleY);
+          if (g.lastLines) assert(g.lastY + S->label->cellH - 4 + g.lastLines * (S->body->cellH - 2) <= g.ruleY - 4);
+          // Without subagents the last prompt always has a line.
+          if (!a.subagents) assert(g.lastLines >= 1);
+        }
+      }
+    }
+  }
   printf("ok  square layouts\n");
   return 0;
 }
