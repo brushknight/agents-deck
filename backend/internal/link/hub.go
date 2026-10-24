@@ -139,15 +139,16 @@ func (h *Hub) SendDefault(board string) (int, string) {
 	if !ok {
 		return http.StatusNotFound, "no default network: agentctl link wifi --default --ssid NAME"
 	}
-	if h.serial(board) == nil {
+	s := h.serial(board)
+	if s == nil {
 		return http.StatusConflict, board + " isn't on USB right now: it gets the default network next time it is plugged in"
 	}
-	h.Wifi.note(board, c.SSID, gen, "sending", false, false)
+	h.Wifi.start(board, c.SSID, gen, s)
 	code, msg := h.SendWifi(board, c.SSID, c.Password, false)
 	if code >= 300 {
 		h.Wifi.note(board, c.SSID, gen, fmt.Sprintf("refused: %d %s", code, msg), true, true)
 	} else {
-		h.Wifi.note(board, c.SSID, gen, "stored, testing", false, false)
+		h.Wifi.stored(board, c.SSID, gen)
 	}
 	return code, msg
 }

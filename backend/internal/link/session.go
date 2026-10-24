@@ -460,7 +460,7 @@ func (s *Session) defaultWifi(n *linkpb.NetStatus) {
 		return
 	}
 	s.wifiTried = true
-	s.Wifi.note(name, c.SSID, gen, "sending", false, false)
+	s.Wifi.start(name, c.SSID, gen, s)
 	go func() { // the answer comes through Run: wait for it elsewhere
 		ctx, cancel := context.WithTimeout(context.Background(), WifiTimeout)
 		defer cancel()
@@ -474,7 +474,7 @@ func (s *Session) defaultWifi(n *linkpb.NetStatus) {
 			}
 			s.Wifi.note(name, c.SSID, gen, fmt.Sprintf("refused: %d %s", code, msg), true, true)
 		default:
-			s.Wifi.note(name, c.SSID, gen, "stored, testing", false, false)
+			s.Wifi.stored(name, c.SSID, gen)
 		}
 	}()
 }
@@ -485,9 +485,7 @@ func (s *Session) wifiGone() {
 	if s.Wifi == nil || s.USBPort == "" || s.dev.Name == "" {
 		return
 	}
-	if ssid, gen, ok := s.Wifi.pending(s.dev.Name); ok {
-		s.Wifi.note(s.dev.Name, ssid, gen, "no answer: unplugged while testing", true, true)
-	}
+	s.Wifi.gone(s.dev.Name, s)
 }
 
 // push sends the subscribed agents: everything (a snapshot) or only what

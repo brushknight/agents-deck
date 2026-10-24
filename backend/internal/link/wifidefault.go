@@ -39,6 +39,7 @@ type wifiOutcome struct {
 	failed  bool
 	settled bool
 	at      time.Time
+	owner   any // the session that sent it: only its unplugging counts
 }
 
 // wifiDefaultKey names the default network in the secret store.
@@ -174,6 +175,37 @@ func (w *WifiDefault) note(board, ssid string, gen int, state string, failed, se
 	if state != "sending" {
 		log.Printf("wifi: sent default network %q to %s: %s", ssid, board, state)
 	}
+}
+
+// start records that a session is sending the default to a board.
+func (w *WifiDefault) start(board, ssid string, gen int, owner any) {
+	w.mu.Lock()
+	w.boards[board] = &wifiOutcome{gen: gen, ssid: ssid, state: "sending", owner: owner, at: time.Now()}
+	w.mu.Unlock()
+}
+
+// stored: the board took the network and tests it. The board's own report
+// may have come first; that one stays.
+func (w *WifiDefault) stored(board, ssid string, gen int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if o := w.boards[board]; o != nil && !o.settled && o.ssid == ssid && o.gen == gen {
+		o.state = "stored, testing"
+	}
+}
+
+// gone: the session that sent the default ended before the board said how it
+// went; a later session's attempt is left alone.
+func (w *WifiDefault) gone(board string, owner any) {
+	w.mu.Lock()
+	o := w.boards[board]
+	if o == nil || o.settled || o.owner != owner {
+		w.mu.Unlock()
+		return
+	}
+	ssid, gen := o.ssid, o.gen
+	w.mu.Unlock()
+	w.note(board, ssid, gen, "no answer: unplugged while testing", true, true)
 }
 
 // pending: the board was sent the default and hasn't said how it went.
