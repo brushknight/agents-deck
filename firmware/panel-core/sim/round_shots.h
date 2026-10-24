@@ -1,5 +1,5 @@
 #pragma once
-// Host only: every screen of a round layout (layout_orbit.h, layout_dial.h),
+// Host only: every screen of a round layout (layout_orbit.h, layout_dial.h, layout_spring.h),
 // drawn from the sample fleet, for sim/render.cpp. Needs PANEL_MAX_AGENTS of
 // at least 22 (the 22-agent orbit).
 #include <string>
@@ -8,6 +8,7 @@
 #include "fixture.h"
 #include "layout_dial.h"
 #include "layout_orbit.h"
+#include "layout_spring.h"
 #include "round_selftest.h"
 
 namespace round_shots {
@@ -177,6 +178,78 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
     if (n.empty) { memset(&f, 0, sizeof f); }
     shot(n.name);
   }
+  return 0;
+}
+
+// The spring carousel's home in its states, and frames of a turn either way
+// (one step: 300 ms, 9 frames at 30 fps), into dir/spring-<name>.ppm.
+static inline int renderSpring(const std::string& dir, const SpringPanel& L, const char* device, const Fleet& all,
+                               uint32_t ms, int64_t now) {
+  std::vector<uint16_t> buf(480 * 480);
+  Canvas c{buf.data(), 480, 480};
+  RoundUi ui;
+  static Fleet f;
+  RoundInput in{&f, LinkState::Live, device, RoundScope::Act, ms, now, &ui, 0};
+  auto shot = [&](const std::string& name) {
+    roundSync(ui, L, f, in.ms);
+    ui.wake = false;
+    L.draw(c, in);
+    writePpm(dir + "/spring-" + name + ".ppm", c);
+  };
+  // A fleet with the ring on agent `sel` (by id), at rest.
+  auto fresh = [&](const Fleet& next, const char* sel) {
+    f = next;
+    withEffort(f);
+    ui = RoundUi();
+    for (int i = 0; i < f.count && ui.waitCount < kRoundWaitIds; i++)
+      if (f.agents[i].status == Status::Waiting) snprintf(ui.waitIds[ui.waitCount++], 12, "%s", f.agents[i].id);
+    if (sel) snprintf(ui.featureId, sizeof ui.featureId, "%s", sel);
+    in.ms = ms;
+    roundSync(ui, L, f, ms);
+  };
+  // The first agent thinking, as in the design.
+  Fleet think = all;
+  think.agents[idx(think, "k3f9a2")].actTool[0] = '\0';
+
+  fresh(pick(think, {"k3f9a2"}), "k3f9a2");
+  shot("1");
+  fresh(pick(think, {"k3f9a2", "d0cs1t", "t3st5a"}), "k3f9a2");
+  shot("3");
+  fresh(pick(think, {"k3f9a2", "h0m3l4", "d0cs1t", "t3st5a", "1nfr4t", "k8sn0d", "4uthfl"}), "k3f9a2");
+  shot("7");
+  fresh(think, "k3f9a2");
+  shot("11");
+  fresh(think, "h0m3l4");
+  shot("11-selected-waits");
+  fresh(think, "d0cs1t");
+  shot("11-selected-done");
+  fresh(big(think), "k3f9a2");
+  shot("22");
+  {
+    Fleet b = big(think);
+    fresh(b, b.agents[12].id);
+    shot("22-waiter-off-turn");
+  }
+
+  // One step each way from the thinking agent, 11 agents: frames 0, 2, 4, 5, 7, 9.
+  for (int dir_ : {-1, 1}) {
+    fresh(think, "k3f9a2");
+    const uint32_t t0 = ms + 1000;
+    springStep(ui, f, dir_, t0);
+    for (int fr : {0, 2, 4, 5, 7, 9}) {
+      in.ms = t0 + (uint32_t)(fr * 1000 / 30);
+      char name[32];
+      snprintf(name, sizeof name, "%s-f%d", dir_ < 0 ? "right" : "left", fr);
+      L.draw(c, in);
+      writePpm(dir + "/spring-" + name + ".ppm", c);
+    }
+  }
+  // The same with three agents: a closed loop, nothing dives.
+  fresh(pick(think, {"k3f9a2", "d0cs1t", "t3st5a"}), "k3f9a2");
+  springStep(ui, f, -1, ms + 1000);
+  in.ms = ms + 1000 + 150;
+  L.draw(c, in);
+  writePpm(dir + "/spring-3-turning.ppm", c);
   return 0;
 }
 

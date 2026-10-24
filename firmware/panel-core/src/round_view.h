@@ -1,8 +1,9 @@
 #pragma once
 // The round boards' UI state: which screen is up (home, an agent's detail,
 // a prompt), which agent is featured, the ring's page, and what a touch does.
-// Shared by the Orbit (layout_orbit.h) and the Dial (layout_dial.h); each
-// layout draws the screens and says what lies under a point (RoundLayout).
+// Shared by the Orbit (layout_orbit.h), the Dial (layout_dial.h) and the
+// spring carousel (layout_spring.h); each layout draws the screens and says
+// what lies under a point (RoundLayout).
 //
 //   home ──tap a critter / dot──▶ detail ──tap the middle (waits)──▶ prompt
 //   home ──tap the middle──▶ the featured agent's prompt when it waits, else its detail
@@ -25,6 +26,7 @@
 #include "model.h"
 #include "panel_layout.h"
 #include "round_geom.h"
+#include "spring.h"
 #include "touch_pinch.h"
 #include "view.h"
 
@@ -85,6 +87,7 @@ struct RoundUi {
   RoundGesture lastGesture = RoundGesture::None;
   bool sliding = false;        // the dial: a finger on the rim slider
   PinchTracker pinch;          // two fingers (multi-touch boards)
+  SpringMotion spring;         // the spring carousel's ring (spring.h)
 
   // The detail's button row, animated when it changes (round_ui.h):
   // bit masks of the buttons shown, and when the change began.
@@ -116,13 +119,57 @@ struct RoundInput {
   int64_t nowEpoch;            // the deck's time
   const RoundUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
+  // The board keeps the last frame: a layout may redraw only what changed
+  // (the spring carousel does), and says what with damage().
+  bool partial = false;
 };
+
+// What a frame changed, for a board that copies only that to the panel.
+struct RoundRect {
+  int16_t x, y, w, h;
+};
+constexpr int kRoundMaxDamage = 48;
+struct RoundDamage {
+  bool full = true;            // the whole frame (rects then unused)
+  int n = 0;
+  RoundRect r[kRoundMaxDamage];
+};
+
+// The parts of row y that the rects cover, merged and in order: up to `max`
+// spans [x0, x1). Returns how many. (Rects overlap; a pixel is in one span.)
+static inline int roundRowSpans(const RoundRect* r, int n, int y, int16_t (*span)[2], int max) {
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    if (y < r[i].y || y >= r[i].y + r[i].h || r[i].w <= 0) continue;
+    int16_t x0 = r[i].x, x1 = (int16_t)(r[i].x + r[i].w);
+    // Insert in order of x0, merging as we go.
+    int at = 0;
+    while (at < k && span[at][0] <= x0) at++;
+    if (k < max) {
+      for (int m = k; m > at; m--) { span[m][0] = span[m - 1][0]; span[m][1] = span[m - 1][1]; }
+      span[at][0] = x0;
+      span[at][1] = x1;
+      k++;
+    } else {   // out of room: widen the nearest span (covers more, never less)
+      const int m = at > 0 ? at - 1 : 0;
+      if (x0 < span[m][0]) span[m][0] = x0;
+      if (x1 > span[m][1]) span[m][1] = x1;
+    }
+    int w = 0;
+    for (int m = 1; m < k; m++) {
+      if (span[m][0] <= span[w][1]) { if (span[m][1] > span[w][1]) span[w][1] = span[m][1]; }
+      else { w++; span[w][0] = span[m][0]; span[w][1] = span[m][1]; }
+    }
+    k = k ? w + 1 : 0;
+  }
+  return k;
+}
 
 // A round layout: draws frames and says what is under a point. The state
 // machine below does the rest. Implementations are pure (no I/O).
 class RoundLayout {
  public:
-  enum class Kind : uint8_t { Orbit, Dial };
+  enum class Kind : uint8_t { Orbit, Dial, Spring };
   virtual ~RoundLayout() = default;
   virtual Kind kind() const = 0;
   virtual int width() const { return 480; }
@@ -138,6 +185,10 @@ class RoundLayout {
   virtual float rimInner() const = 0;
   // A rim that works as a slider (the dial): the agent at an angle, -1 for none.
   virtual int sliderAt(const Fleet&, float /*ang*/) const { return -1; }
+  // The spring carousel's geometry (Kind::Spring), else nullptr.
+  virtual const SpringGeom* spring() const { return nullptr; }
+  // What the last draw() changed (only meaningful with RoundInput.partial).
+  virtual void damage(RoundDamage& d) const { d.full = true; d.n = 0; }
 };
 
 // The prompt shows up to three answers, or four at a time of a longer list,
@@ -240,6 +291,75 @@ static inline int stepAgent(const Fleet& f, int i, int step) {
   return ((i + step) % f.count + f.count) % f.count;
 }
 
+// ---------------------------------------------------------------- the spring carousel
+
+static inline bool isSpring(const RoundLayout& L) { return L.kind() == RoundLayout::Kind::Spring && L.spring(); }
+
+// The featured agent follows where the ring is going.
+static inline void springFeature(RoundUi& ui, const Fleet& f) {
+  const int i = springIndex(ui.spring.to, f.count);
+  if (i >= 0) snprintf(ui.featureId, sizeof ui.featureId, "%s", f.agents[i].id);
+  else ui.featureId[0] = '\0';
+}
+
+// Turns the ring `steps` agents on from where it is going (positive: the next
+// agents come to the seam, the ring turns anticlockwise).
+static inline void springStep(RoundUi& ui, const Fleet& f, int steps, uint32_t ms) {
+  if (f.count < 2 || !steps) return;
+  SpringMotion& m = ui.spring;
+  const float to = (float)spring_detail::iround(m.to) + steps;
+  springGo(m, to, ms, springDuration(to - springPos(m, ms)));
+  springFeature(ui, f);
+}
+
+// Turns agent i to the seam the short way.
+static inline void springTurnTo(RoundUi& ui, const Fleet& f, int i, uint32_t ms) {
+  springStep(ui, f, springShortest(springIndex(ui.spring.to, f.count), i, f.count), ms);
+}
+
+// Keeps the ring on its agent while the fleet changes, and puts it on the
+// one that matters most the first time.
+static inline void springSync(RoundUi& ui, const Fleet& f, uint32_t ms) {
+  SpringMotion& m = ui.spring;
+  if (f.count == 0) { m.placed = false; m.dragging = false; return; }
+  if (!m.placed) {
+    springSet(m, (float)roundFeatured(ui, f));
+    springFeature(ui, f);
+    return;
+  }
+  if (m.dragging) return;
+  const int want = ui.featureId[0] ? findAgent(f, ui.featureId) : -1;
+  if (want < 0) springFeature(ui, f);                              // it left: whoever is there now
+  else if (want != springIndex(m.to, f.count)) springSet(m, (float)want);   // agents came or went before it
+  if (!springMoving(m, ms) && (m.to < 0 || m.to >= f.count)) springSet(m, (float)springIndex(m.to, f.count));
+}
+
+// Left alone for 10 s: the ring turns to a new waiter, or to a waiter off the turn.
+static inline void springTick(RoundUi& ui, const RoundLayout& L, const Fleet& f, uint32_t ms) {
+  SpringMotion& m = ui.spring;
+  if (!f.count || ui.down || springMoving(m, ms) || (int32_t)(ms - ui.lastTouchMs) < (int32_t)kSpringWaiterMs) return;
+  const int cur = springIndex(m.to, f.count);
+  int target = -1;
+  if (m.pendingId[0]) {
+    const int i = findAgent(f, m.pendingId);
+    if (i >= 0 && f.agents[i].status == Status::Waiting) target = i;
+    else m.pendingId[0] = '\0';
+  }
+  const int K = L.spring()->K;
+  if (target < 0 && cur >= 0 && f.agents[cur].status != Status::Waiting && f.count > K) {
+    int best = 0;
+    for (int j = 0; j < f.count; j++) {
+      if (f.agents[j].status != Status::Waiting || ((j - cur) % f.count + f.count) % f.count < K) continue;
+      const int d = springShortest(cur, j, f.count);
+      if (target < 0 || (d < 0 ? -d : d) < (best < 0 ? -best : best)) { target = j; best = d; }
+    }
+  }
+  if (target < 0) return;
+  m.pendingId[0] = '\0';
+  if (ui.screen != RoundScreen::Home) roundHome(ui);
+  if (target != cur) springTurnTo(ui, f, target, ms);
+}
+
 // Keeps the UI valid for a changed fleet, and wakes the screen to home when
 // an agent starts waiting. Call after every change and every frame.
 static inline void roundSync(RoundUi& ui, const RoundLayout& L, const Fleet& f, uint32_t ms) {
@@ -255,7 +375,11 @@ static inline void roundSync(RoundUi& ui, const RoundLayout& L, const Fleet& f, 
   ui.waitCount = 0;
   for (int i = 0; i < f.count && ui.waitCount < kRoundWaitIds; i++)
     if (f.agents[i].status == Status::Waiting) snprintf(ui.waitIds[ui.waitCount++], 12, "%s", f.agents[i].id);
-  if (fresh >= 0) {
+  if (fresh >= 0 && isSpring(L)) {
+    // The spring turns to it once the board is left alone (springTick).
+    snprintf(ui.spring.pendingId, sizeof ui.spring.pendingId, "%s", f.agents[fresh].id);
+    ui.wake = true;
+  } else if (fresh >= 0) {
     // Not while the finger is answering this very agent's prompt.
     const bool answering = ui.screen == RoundScreen::Prompt && !strcmp(ui.openId, f.agents[fresh].id);
     if (!answering) {
@@ -273,6 +397,8 @@ static inline void roundSync(RoundUi& ui, const RoundLayout& L, const Fleet& f, 
     else if (L.kind() == RoundLayout::Kind::Orbit && f.agents[i].status != Status::Waiting) ui.featureId[0] = '\0';
   }
 
+  if (isSpring(L)) springSync(ui, f, ms);
+
   const int pages = L.pages(f);
   if (ui.page >= pages) ui.page = pages - 1;
   if (ui.page < 0) ui.page = 0;
@@ -287,15 +413,16 @@ static inline void roundSync(RoundUi& ui, const RoundLayout& L, const Fleet& f, 
       if (ui.optFirst > last) ui.optFirst = last;
     }
   }
-  (void)ms;
 }
 
 // Time passes: the "sent" toast ends, the screen times out home.
 static inline void roundTick(RoundUi& ui, const RoundLayout& L, const Fleet& f, uint32_t ms) {
   if (ui.backAfterToast && (int32_t)(ui.toastUntil - ms) <= 0) roundBack(ui, f);
+  if (isSpring(L)) springTick(ui, L, f, ms);
   if (!ui.down && (int32_t)(ms - ui.lastTouchMs) >= (int32_t)kRoundIdleMs) {   // signed: safe across a touch stamped just ahead
     if (ui.screen != RoundScreen::Home) roundHome(ui);
     // Home shows what matters again (a fresh waiter keeps its place on the orbit).
+    // (The spring stays where it was turned: springTick turns it to waiters.)
     if (L.kind() == RoundLayout::Kind::Dial) ui.featureId[0] = '\0';
     const int fi = roundFeatured(ui, f);
     ui.page = fi >= 0 ? L.pageOf(f, fi) : 0;
@@ -310,7 +437,8 @@ static inline RoundCommand roundTap(RoundUi& ui, const RoundLayout& L, const Fle
   switch (ui.screen) {
     case RoundScreen::Home:
       if (h.kind == HitKind::Agent) {
-        if (L.kind() == RoundLayout::Kind::Dial) featureAgent(ui, L, f, h.agent);   // a dot: jump to it
+        if (isSpring(L)) springTurnTo(ui, f, h.agent, ms);                         // a ring agent: turn it to the seam
+        else if (L.kind() == RoundLayout::Kind::Dial) featureAgent(ui, L, f, h.agent);   // a dot: jump to it
         else roundOpen(ui, f, h.agent, RoundScreen::Detail);
       } else if (h.kind == HitKind::Middle) {
         const int i = roundFeatured(ui, f);
@@ -355,10 +483,12 @@ static inline RoundCommand roundTap(RoundUi& ui, const RoundLayout& L, const Fle
   return out;
 }
 
-static inline void roundSwipe(RoundUi& ui, const RoundLayout& L, const Fleet& f, Swipe s) {
+static inline void roundSwipe(RoundUi& ui, const RoundLayout& L, const Fleet& f, Swipe s, uint32_t ms = 0) {
   switch (ui.screen) {
     case RoundScreen::Home:
-      if (L.kind() == RoundLayout::Kind::Dial) {
+      if (isSpring(L)) {
+        if (s == Swipe::Left || s == Swipe::Right) springStep(ui, f, s == Swipe::Left ? 1 : -1, ms);
+      } else if (L.kind() == RoundLayout::Kind::Dial) {
         if (s == Swipe::Left || s == Swipe::Right)
           featureAgent(ui, L, f, stepAgent(f, roundFeatured(ui, f), s == Swipe::Left ? 1 : -1));
       } else if (L.pages(f) > 1 && (s == Swipe::Left || s == Swipe::Right)) {
@@ -400,10 +530,96 @@ static inline void roundRim(RoundUi& ui, const RoundLayout& L, const Fleet& f, f
   if (pages > 1) ui.page = (ui.page + (deg > 0 ? 1 : -1) + pages) % pages;
 }
 
+constexpr float kSpringFlingDegPerMs = 0.5f;   // a release faster than this round the rim keeps turning
+constexpr uint32_t kSpringFlingMs = 200;       // ... as far as the finger would go in this long
+
+// A touch on the spring's home: a drag round the rim turns the ring under
+// the finger and snaps to a slot on release (a fling keeps turning, at most
+// one turn); a swipe across the middle turns one step; a tap on a ring agent
+// turns it to the seam, a tap on the selected one or the middle opens it.
+static inline RoundCommand springHomeTouch(RoundUi& ui, const RoundLayout& L, const Fleet& f, bool touching, int x,
+                                           int y, RoundScope scope, int64_t nowEpoch, uint32_t ms) {
+  SpringMotion& m = ui.spring;
+  const SpringGeom& g = *L.spring();
+  const float c = L.width() / 2.f;
+  const float per = springStepDeg(g, f.count);
+  if (touching) {
+    ui.lastTouchMs = ms;
+    if (!ui.down) {
+      ui.down = true;
+      ui.x0 = ui.x = x;
+      ui.y0 = ui.y = y;
+      ui.downMs = ms;
+      ui.holdFired = false;
+      ui.pressed = RoundHit();
+      rimBegin(ui.rim, c, c, L.rimInner(), c + 8, x, y);
+      if (per <= 0) ui.rim.active = false;
+      ui.sliding = false;
+      m.vel = 0;
+      m.lastMoveMs = ms;
+      return RoundCommand();
+    }
+    const float step = rimMove(ui.rim, c, c, x, y);
+    ui.x = x;
+    ui.y = y;
+    const int dx = x - ui.x0, dy = y - ui.y0;
+    if (ui.rim.active && !m.dragging && dx * dx + dy * dy > kRoundSlop * kRoundSlop) {
+      m.dragBase = springPos(m, ms);   // catches the ring mid-turn too
+      m.dragging = true;
+      ui.sliding = true;
+    }
+    if (m.dragging) {
+      m.drag = m.dragBase - ui.rim.turned / per;   // clockwise turns back to earlier agents
+      const uint32_t dt = ms - m.lastMoveMs;
+      if (dt) {
+        const float v = step / dt;
+        m.vel = dt > 60 ? v : 0.5f * (v + m.vel);
+      }
+      m.lastMoveMs = ms;
+    }
+    return RoundCommand();
+  }
+  ui.down = false;
+  ui.lastTouchMs = ms;
+  ui.sliding = false;
+  if (m.dragging) {
+    ui.lastGesture = RoundGesture::Rim;
+    ui.rim.active = false;
+    float to = m.drag;
+    if (ms - m.lastMoveMs <= 60 && (m.vel >= kSpringFlingDegPerMs || m.vel <= -kSpringFlingDegPerMs))
+      to -= m.vel * kSpringFlingMs / per;
+    const float turn = (float)springTurn(g, f.count);   // at most one turn a gesture
+    if (to > m.dragBase + turn) to = m.dragBase + turn;
+    if (to < m.dragBase - turn) to = m.dragBase - turn;
+    const float slot = (float)spring_detail::iround(to);
+    springGo(m, slot, ms, springDuration(slot - m.drag));
+    springFeature(ui, f);
+    return RoundCommand();
+  }
+  RoundCommand out;
+  const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
+  const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+  if (adx <= kRoundSlop && ady <= kRoundSlop) {
+    if ((uint32_t)(ms - ui.downMs) <= kRoundTapMaxMs) {
+      ui.lastGesture = RoundGesture::Tap;
+      out = roundTap(ui, L, f, L.hit(ui, f, ui.x0, ui.y0, scope, nowEpoch), scope, ms);
+    }
+  } else if (adx >= kRoundSwipeMin || ady >= kRoundSwipeMin) {
+    const Swipe sw = adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down);
+    ui.lastGesture = sw == Swipe::Left ? RoundGesture::SwipeLeft : sw == Swipe::Right ? RoundGesture::SwipeRight
+                     : sw == Swipe::Up ? RoundGesture::SwipeUp : RoundGesture::SwipeDown;
+    roundSwipe(ui, L, f, sw, ms);
+  }
+  ui.rim.active = false;
+  return out;
+}
+
 // One touch sample: `touching` with the finger at (x, y), or lifted. Returns
 // what to send, if anything.
 static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const Fleet& f, bool touching, int x, int y,
                                       RoundScope scope, int64_t nowEpoch, uint32_t ms) {
+  if (isSpring(L) && ui.screen == RoundScreen::Home && (ui.down || touching))
+    return springHomeTouch(ui, L, f, touching, x, y, scope, nowEpoch, ms);
   RoundCommand out;
   const float cx = L.width() / 2.f, cy = L.height() / 2.f;
   if (touching) {
@@ -479,7 +695,7 @@ static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const F
     const Swipe sw = adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down);
     ui.lastGesture = sw == Swipe::Left ? RoundGesture::SwipeLeft : sw == Swipe::Right ? RoundGesture::SwipeRight
                      : sw == Swipe::Up ? RoundGesture::SwipeUp : RoundGesture::SwipeDown;
-    roundSwipe(ui, L, f, sw);
+    roundSwipe(ui, L, f, sw, ms);
   }
   ui.rim.active = false;
   return out;

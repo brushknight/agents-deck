@@ -53,13 +53,14 @@ func buildRoundSim(t *testing.T, dir string) string {
 // A round board end to end against the real session: it says Hello as a
 // 2.8" board with touch, is approved with scope act, features the waiting
 // agent in its middle, and a person taps the middle (the prompt opens) and
-// then the first pill. The deck's controller must get that Answer. Both
-// layouts.
+// then the first pill. The deck's controller must get that Answer. Every
+// layout.
 func TestRoundBoardAnswersThroughTheDeck(t *testing.T) {
 	bin := buildRoundSim(t, t.TempDir())
 	for _, tc := range []struct{ layout, typ, id, name string }{
 		{"orbit", "waveshare-touch-lcd-28c", "AA:BB:CC:00:28:0C", "waveshare-touch-lcd-28c-00280c"},
 		{"dial", "waveshare-touch-lcd-21", "AA:BB:CC:00:21:00", "waveshare-touch-lcd-21-002100"},
+		{"spring", "waveshare-touch-lcd-21", "AA:BB:CC:00:21:01", "waveshare-touch-lcd-21-002101"},
 	} {
 		t.Run(tc.layout, func(t *testing.T) {
 			srv, ctl := testDeck(t)

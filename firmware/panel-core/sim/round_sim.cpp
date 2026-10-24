@@ -1,11 +1,11 @@
 // A round board on the host: the Deck Link kit, the adapter, the round state
-// machine (round_view.h) and a layout (Orbit or Dial), with stdin as the
+// machine (round_view.h) and a layout (Orbit, Dial or the spring), with stdin as the
 // serial RX and stdout as TX (binary frames only). For running the round
 // boards' logic against a real deck without hardware, e.g. from a Go test
 // with the daemon's link.Session on the other end
 // (backend/internal/link/round_test.go).
 //
-//   out/round_sim [--layout orbit|dial] [--board-id ID] [--type T] [--seconds N]
+//   out/round_sim [--layout orbit|dial|spring] [--board-id ID] [--type T] [--seconds N]
 //                 [--answer] [--ppm FILE]
 //
 // --answer plays a person answering the featured prompt: once the board is
@@ -33,6 +33,7 @@
 #include "deck_model.h"
 #include "layout_dial.h"
 #include "layout_orbit.h"
+#include "layout_spring.h"
 
 static DeckFleet deckFleet;
 static RoundUi ui;
@@ -147,7 +148,10 @@ int main(int argc, char** argv) {
   }
   static const OrbitPanel orbit(layoutOrbit28());
   static const DialPanel dial(layoutDial21());
-  const RoundLayout& L = layoutName == "dial" ? (const RoundLayout&)dial : (const RoundLayout&)orbit;
+  static const SpringPanel spring(layoutSpring21());
+  const RoundLayout& L = layoutName == "dial"     ? (const RoundLayout&)dial
+                         : layoutName == "spring" ? (const RoundLayout&)spring
+                                                  : (const RoundLayout&)orbit;
   signal(SIGPIPE, SIG_IGN);
   setvbuf(stderr, nullptr, _IOLBF, 0);
 
@@ -222,6 +226,7 @@ int main(int argc, char** argv) {
     }
 
     RoundInput in{f, shown, device, scope, ms, now, &ui, 0};
+    in.partial = true;   // as the board: the canvas keeps the last frame
     L.draw(canvas, in);
 
     char line[160];
