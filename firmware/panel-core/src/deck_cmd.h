@@ -12,7 +12,7 @@ enum class DeckScope : uint8_t { View, Act, Admin };
 static inline bool canAct(DeckScope s) { return s != DeckScope::View; }
 
 // What the board should send.
-enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss };
+enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss, Resume };
 
 struct DeckCommand {
   DeckCmd cmd = DeckCmd::None;

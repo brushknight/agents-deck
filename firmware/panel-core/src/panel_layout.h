@@ -25,13 +25,19 @@
 
 constexpr uint32_t kToastMs = 3000;
 
+struct Rect {
+  int x, y, w, h;
+  bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
+  bool intersects(const Rect& o) const { return x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h; }
+};
+
 enum class Swipe : uint8_t { Left, Right, Up, Down };
 
 // The screens of a square board.
 enum class Screen : uint8_t { Home, Card, Prompt };
 
 // What lies under a point.
-enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option };
+enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume };
 
 struct PanelHit {
   Hit kind = Hit::None;
@@ -64,6 +70,8 @@ struct PanelUi {
   PanelHit pressed;            // drawn pressed until the finger moves or lifts
   bool holdFired = false;      // the stop hold already sent its Dismiss
   bool caught = false;         // the finger stopped a moving list: not a tap
+  int selected = -1;           // big panels: the prompt's chosen option (sent with "send")
+  uint32_t stopArmedUntil = 0; // big panels: "tap again to stop" until then
 
   // Feedback.
   char toast[48] = "";

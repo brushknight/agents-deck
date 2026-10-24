@@ -1,13 +1,15 @@
 # panel-core
 
-The shared core of the agents deck panels: one firmware core, a layout per screen. A device folder
+The shared core of the agents deck panels: one firmware core, three layout families. Small
+displays use `layout_square.h`, big panels use `layout_big.h`, and round boards use
+`layout_orbit.h` / `layout_dial.h`. A device folder
 under [`../devices`](../devices) holds only its board's drivers (display, touch, backlight) in a
 `main.cpp` and picks a layout.
 
 | board | layout | folder |
 |---|---|---|
 | Waveshare ESP32-S3-LCD-1.47B, 320×172 | `layout_147.h`: one agent in detail and a mini-board | `devices/waveshare-lcd-147` |
-| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_square.h`, `specLcd4()`: the 4×4 grid by slot, paged | `devices/waveshare-touch-lcd-4` |
+| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's UI at 2/3 | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
 | Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_spring.h`, `layoutSpring28()`: the spring carousel, nine to a turn | `devices/waveshare-touch-lcd-28c` |
 | Waveshare ESP32-S3-Touch-LCD-2.1, 480×480 round | `layout_spring.h`, `layoutSpring21()`: the spring carousel, seven to a turn | `devices/waveshare-touch-lcd-21` |
@@ -27,6 +29,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
 | `src/panel_layout.h` | the square boards' layout interface (`PanelLayout`) and UI state: screens, scroll, the finger |
 | `src/layout_147.h` | the 1.47" layout |
+| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel (grid, card, prompts) at a scale (`BigSpec`; 2/3 for 480×480); its fonts (`tools/make_font_big.py`) |
 | `src/layout_square.h` | the square boards' layout (`SquarePanel`), one system with per-board numbers (`SquareSpec`): home, card, prompt, notices, touch and scrolling |
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |

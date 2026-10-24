@@ -11,30 +11,36 @@ like the desk panel and the web board.
 (Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`.
 Every screen is in `docs/`.)
 
-- **Grid.** One tile per slot, 16 per page, as on the deck.
-  - Each tile shows the critter with its pose and hat, the title and a status line.
-  - An orange tile needs you. Orange stripes mean a turn finished that you haven't looked at. A dim
-    tile is idle.
-  - The border fills with the agent's context use.
-  - The small square is the tool, and a small critter means subagents are working. Both keep to a band
-    above the critter, clear of the name.
-- **Pages.** Swipe left and right, or tap a page bar. Another page's bar turns orange when an agent
-  there needs you. On the grid, BOOT goes to the next page.
-- **Card.** Tap a tile. The card shows:
-  - the critter, the name and the status pill;
-  - what the agent is doing now;
-  - context with the dotted bar;
-  - tokens, cost and turns;
-  - the last prompt.
+The board is the same size as the 4″ desk panel (720×720) at 480×480, so it draws the desk panel's
+Flutter UI with every size times 2/3 (`layout_big.h`).
 
-  Round buttons at the bottom: **focus**, **interrupt** (while running), and **stop**, which you hold
-  for 1 s. Focus and interrupt need scope `act`; stop needs `admin`.
-- **Prompts.** A waiting agent opens its prompt: a one-line header, the whole question, the command and
-  where it runs (for permissions), and the answers with their hint lines. A permission is the orange
-  card; a question is dark with an orange border. Answering needs scope `act`.
+- **Grid.** The deck's 4×4 board with square tiles by slot, paged (`DeckGrid`, `AgentTile`).
+  - Each tile shows the critter with its pose and hat, the title, a status line, the context along
+    the border, the tool chip, and the subagent critter.
+  - Orange means it needs you; stripes mean a finished turn you haven't looked at.
+  - Swipe or tap the page bars to change page; BOOT goes to the next page.
+- **Card.** Tap a tile for the desk panel's overview:
+  - the critter and its subagents, the title, the tool chip and the status pill;
+  - doing now;
+  - context with the tick bar;
+  - tokens out, cache read, cost, turns;
+  - the last prompt;
+  - model, folder and branch.
+
+  The button row underneath:
+  - **focus terminal**;
+  - **interrupt** while the agent runs;
+  - otherwise **stop**, which arms on the first tap ("tap again to stop", for 3 s);
+  - once the agent has exited, resume and remove.
+
+  Focus and interrupt need scope `act`; stop, resume and remove need `admin`.
+- **Prompts.** One layout for permissions and questions: the question, the command or detail, the
+  options with their hint lines. Tap one to choose it (the primary is chosen to start with), then
+  **send**. **Focus terminal** sits beside it. A permission is the orange card; a question is dark
+  with the orange border.
 - **Back.** Swipe right, or press BOOT.
-- **Other screens.** Waiting for approval (with the command and the board's name), connecting, deck
-  offline (`deck offline · retrying` over the grid once it has a fleet), no agents.
+- **Other screens.** Waiting for approval (with the command), connecting to the deck, deck offline,
+  no agents.
 - **Backlight.** Dims when every agent is idle and nobody has touched the screen for 30 s.
 
 ## Connect it
@@ -73,4 +79,4 @@ touch it found, frame time, Deck Link rx / bad / overflow counters, memory); the
 
 `src/main.cpp` is only the board: display, touch, expander, backlight. The layout, the touch UI and
 Deck Link are shared with the other panels in [`firmware/panel-core`](../../panel-core)
-(`layout_square.h`, `specLcd4()`).
+(`layout_big.h`, `specBig480()`).
