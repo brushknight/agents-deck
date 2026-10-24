@@ -205,4 +205,7 @@ func (c Client) Switch(handle string) error {
 }
 
 // Front brings the Orca app forward (macOS).
+func (Client) Front() error { return Front() }
+
+// Front brings the Orca app forward (macOS).
 func Front() error { return exec.Command("/usr/bin/open", "-b", BundleID).Run() }

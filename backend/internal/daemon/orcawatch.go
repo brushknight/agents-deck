@@ -31,6 +31,7 @@ type orcaAPI interface {
 	Screen(handle string) (string, error)
 	Send(handle, text string, enter bool) error
 	Switch(handle string) error
+	Front() error
 }
 
 func orcaAgentID(pane string) string {
@@ -330,7 +331,7 @@ func (d *Daemon) orcaFocus(e store.Entry) error {
 	if err := d.orcaClient().Switch(e.OrcaTerminal); err != nil {
 		return err
 	}
-	_ = orca.Front()
+	_ = d.orcaClient().Front()
 	log.Printf("focus %s: orca terminal", e.A.ID)
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 )
 
 type fakeOrca struct {
+	fronted  int // Front calls: the real one would open the Orca app
 	screen   string
 	sent     []string
 	switched []string
@@ -23,6 +24,7 @@ func (f *fakeOrca) Send(h, text string, _ bool) error {
 	return nil
 }
 func (f *fakeOrca) Switch(h string) error { f.switched = append(f.switched, h); return nil }
+func (f *fakeOrca) Front() error          { f.fronted++; return nil }
 
 const permissionScreen = `
  Bash command
@@ -90,7 +92,7 @@ func TestOrcaAgentsOnTheDeck(t *testing.T) {
 	if e.A.Status != model.Idle || !e.A.Unseen {
 		t.Fatalf("done: %+v", e.A)
 	}
-	if err := d.Focus(id); err != nil || len(f.switched) != 1 || f.switched[0] != "term_1" {
+	if err := d.Focus(id); err != nil || len(f.switched) != 1 || f.switched[0] != "term_1" || f.fronted != 1 {
 		t.Fatalf("focus: %v %v", err, f.switched)
 	}
 	if e, _ = d.Store.Get(id); e.A.Unseen {
