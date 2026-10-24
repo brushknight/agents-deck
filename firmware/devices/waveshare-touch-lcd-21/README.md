@@ -6,9 +6,9 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ![screens](docs/screens.png)
 
-> Not yet run on the board. Everything builds, the screens above come from the host renderer (the
-> same pixels), and the board's logic has answered a prompt through the real deck in a test. The
-> [first power-on](#first-power-on) takes about ten minutes.
+> Runs on the board. The self-test showed steady colour bars with the `idf5` build; on the default
+> build (arduino-esp32 2.0.17, no RGB bounce buffer) the picture flickers, so flash `idf5` on
+> this board. The screens above come from the host renderer, which draws the same pixels.
 
 ## Parts
 

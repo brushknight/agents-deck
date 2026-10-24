@@ -4,9 +4,10 @@
 //
 //   - TCA9554 IO expander (I2C 0x20): EXIO1 LCD reset, EXIO2 touch reset,
 //     EXIO3 the ST7701's SPI chip select, EXIO4 SD chip select, EXIO8 buzzer
-//     (it powers up on: the first thing we do is turn it off).
+//     (it powers up on: the first thing we do is turn it off). EXIO5-7 stay
+//     high, as the demo leaves them.
 //   - ST7701 480 x 480 on a 16-bit RGB bus, initialised over 9-bit 3-wire
-//     SPI (SCK 2, SDA 1, CS on EXIO3).
+//     SPI (SCK 2, SDA 1, CS on EXIO3), hardware SPI as in the demo.
 //   - Backlight PWM on GPIO 6. I2C on SDA 15 / SCL 7. BOOT on GPIO 0.
 //
 // Pins and timings: Waveshare's demos for both boards (the wiki's demo zips).
@@ -19,12 +20,13 @@
 // The RGB panel: on arduino-esp32 2.x (ESP-IDF 4.4) through Arduino_GFX's
 // Arduino_ESP32RGBPanel, like the square boards; on 3.x (ESP-IDF 5) through
 // esp_lcd directly, which is what can add a bounce buffer (Arduino_GFX
-// doesn't expose one). The ST7701's init goes through Arduino_GFX's
-// software SPI either way. Arduino only.
+// doesn't expose one). The ST7701's init goes over the hardware SPI the way
+// Waveshare's demo does it, on either platform. Arduino only.
 #if defined(ARDUINO)
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
+#include <driver/spi_master.h>
 #include <esp32s3/rom/cache.h>
 
 #include "round_rotate.h"
@@ -98,7 +100,10 @@ static inline void expanderBegin() {
     haveTca = i2cPresent(ADDR_TCA9554);
     if (!haveTca) delay(50);
   }
-  exio = EXIO_LCD_CS | EXIO_SD_CS;
+  // As Waveshare's demo leaves it: every pin high (the register's power-on
+  // state) but the buzzer. EXIO5-7 aren't documented, but the panel stays
+  // dark when they are driven low; the resets start low here and come up below.
+  exio = (uint8_t)(0xFF & ~EXIO_BUZZER & ~EXIO_LCD_RST & ~EXIO_TP_RST);
   tca(TCA_OUT, exio);                     // the output register first, so the buzzer never sounds
   tca(TCA_CONFIG, 0x00);
   delay(10);
@@ -160,18 +165,79 @@ static inline uint16_t* rgbBegin(const Panel& p) {
 }
 #endif
 
-// The ST7701's init over software SPI (its chip select held low on the
-// expander meanwhile), then the RGB bus. False when there is no framebuffer.
+// The ST7701's 3-wire SPI, as Waveshare's demo drives it: the hardware SPI
+// with a 1-bit command phase (0 = command, 1 = data) and an 8-bit address
+// phase carrying the byte, i.e. 9-bit frames, mode 0, chip select on the
+// expander held low for the whole init. (Arduino_GFX's software SPI sends
+// the same bits but left this panel dark.)
+static spi_device_handle_t st7701Spi = nullptr;
+
+static inline bool st7701SpiBegin() {
+  spi_bus_config_t bus = {};
+  bus.mosi_io_num = PIN_SPI_SDA;
+  bus.miso_io_num = -1;
+  bus.sclk_io_num = PIN_SPI_SCK;
+  bus.quadwp_io_num = -1;
+  bus.quadhd_io_num = -1;
+  bus.max_transfer_sz = 64;
+  if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK) return false;
+  spi_device_interface_config_t dev = {};
+  dev.command_bits = 1;
+  dev.address_bits = 8;
+  dev.mode = 0;
+  dev.clock_speed_hz = 40000000;
+  dev.spics_io_num = -1;
+  dev.queue_size = 1;
+  return spi_bus_add_device(SPI2_HOST, &dev, &st7701Spi) == ESP_OK;
+}
+
+static inline void st7701Write(bool data, uint8_t byte) {
+  spi_transaction_t t = {};
+  t.cmd = data ? 1 : 0;
+  t.addr = byte;
+  spi_device_transmit(st7701Spi, &t);
+}
+
+// Runs an init in Arduino_GFX's batch format (the arrays in the device mains).
+static inline void st7701Run(const uint8_t* ops, size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    switch (ops[i]) {
+      case BEGIN_WRITE:
+      case END_WRITE: break;
+      case WRITE_COMMAND_8: st7701Write(false, ops[++i]); break;
+      case WRITE_C8_D8:
+        st7701Write(false, ops[++i]);
+        st7701Write(true, ops[++i]);
+        break;
+      case WRITE_C8_D16:
+        st7701Write(false, ops[++i]);
+        st7701Write(true, ops[++i]);
+        st7701Write(true, ops[++i]);
+        break;
+      case WRITE_BYTES: {
+        const uint8_t n = ops[++i];
+        for (uint8_t k = 0; k < n; k++) st7701Write(true, ops[++i]);
+        break;
+      }
+      case DELAY: delay(ops[++i]); break;
+      default: break;
+    }
+  }
+}
+
+// LCD reset, the ST7701's init (its chip select held low on the expander
+// meanwhile), then the RGB bus. False when there is no framebuffer.
 static inline bool displayBegin(const Panel& p) {
-  static Arduino_DataBus* spi = new Arduino_SWSPI(GFX_NOT_DEFINED /* DC */, GFX_NOT_DEFINED /* CS */, PIN_SPI_SCK,
-                                                  PIN_SPI_SDA, GFX_NOT_DEFINED /* MISO */);
+  exioSet(EXIO_LCD_RST, false);           // the demo's ST7701_Reset()
+  delay(10);
+  exioSet(EXIO_LCD_RST, true);
+  delay(50);
+  if (!st7701Spi && !st7701SpiBegin()) return false;
   exioSet(EXIO_LCD_CS, false);
   delay(10);
-  spi->begin();
-  spi->sendCommand(0x01);                 // software reset, as Arduino_RGB_Display::begin()
-  delay(120);
-  spi->batchOperation(p.init, p.initLen);
+  st7701Run(p.init, p.initLen);
   exioSet(EXIO_LCD_CS, true);
+  delay(10);
   fb = rgbBegin(p);
   if (fb) memset(fb, 0, (size_t)kSize * kSize * 2);
   return fb != nullptr;
