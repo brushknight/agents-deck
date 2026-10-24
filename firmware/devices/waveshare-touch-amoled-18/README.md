@@ -10,7 +10,7 @@ The deck on a [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/es
 (Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`,
 with the glass's rounded corners masked. Every screen is in `docs/`.)
 
-- **Home.** 2×2 tiles in one continuous vertical list, as on the T4-S3 panel.
+- **Home.** 2×2 tiles in one continuous vertical list. The [LilyGO T4-S3](../lilygo-t4-s3) has the same UI, with a third row.
   - Each tile shows the critter with its pose and hat, the name, a status line, the context bar, the
     tool chip and the subagent critter.
   - Drag to scroll. Let go and the list settles on a row; a flick carries further.

@@ -1,4 +1,8 @@
-# t4s3-panel
+# t4s3-panel (earlier firmware)
+
+> **Superseded by [`../lilygo-t4-s3`](../lilygo-t4-s3)**, the current firmware for this board: the
+> same UI as the 1.8″ AMOLED from the shared `panel-core`, and Wi-Fi. It reports the same type and
+> board id, so the deck keeps the device. This LVGL firmware stays here for reference.
 
 The deck on a [LilyGo T4-S3](https://www.lilygo.cc/products/t4-s3): a 2.41″ AMOLED touch panel
 (450×600) on USB. Your agents in a 2×3 grid, each with its critter, hat and status line, as on the

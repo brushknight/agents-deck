@@ -34,6 +34,7 @@ struct GridBoard {
   void (*brightness)(uint8_t level);       // 0..255
   int bootPin;                             // the BOOT button (active low), -1 for none
   uint8_t brightActive, brightIdle;
+  const char* boardId;                     // Hello.board_id; nullptr: DeckLink::chipId() (the MAC, "AA:BB:...")
 };
 
 namespace grid_app {
@@ -207,7 +208,7 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   if (board.brightness) board.brightness(board.brightActive);
 
   DeckLinkConfig cfg = {};
-  panelConfig(cfg, DeckLink::chipId(), firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
+  panelConfig(cfg, b.boardId ? b.boardId : DeckLink::chipId(), firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
   cfg.on_frame = onFrame;
   cfg.on_welcome = onWelcome;
   cfg.on_result = onResult;

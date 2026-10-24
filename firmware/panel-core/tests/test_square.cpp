@@ -357,6 +357,40 @@ int main() {
   // ---- every screen of both boards stays inside the frame; the AMOLED's corners are black
   checkScreens(A);
   checkScreens(L);
+  checkScreens(specT4S3());
+
+  // ---- the T4-S3: the 1.8"'s layout, three rows of tiles on screen, bigger critters
+  {
+    const SquareSpec T = specT4S3();
+    assert(T.w == 450 && T.h == 600 && T.home == HomeKind::List && T.cols == 2 && T.statLines && !A.statLines);
+    assert(T.tileScale > A.tileScale && A.tileScale == 5 && T.cardScale > A.cardScale);
+    assert(T.label == A.label && T.body == A.body && T.title == A.title && T.tileTitle == A.tileTitle);
+    Fleet f = fleetOf(9);                                       // 5 rows of 2
+    assert(maxScroll(T, f) == 2 * rowPitch(T));                 // three rows show at once
+    assert(maxScroll(T, fleetOf(6)) == 0);
+    const Rect last = listTile(T, 5, 0);
+    assert(last.y + last.h <= T.h && listTile(T, 1, 0).x + T.tileW <= T.w);
+    // Each part of a tile inside it, the text above the bar, the critter above the name (both panels).
+    for (const SquareSpec* S : {&A, &T}) {
+      const Rect r = listTile(*S, 0, 0);
+      const square_detail::TileParts p = square_detail::tileParts(*S, r, true);
+      assert(p.critter.x >= r.x && p.critter.x + p.critter.w <= r.x + r.w && p.critter.y >= r.y);
+      assert(p.critter.y + p.critter.h <= p.name.y && p.meta.y + p.meta.h <= p.bar.y && p.bar.y + p.bar.h <= r.y + r.h);
+    }
+    // A tap on a third-row tile opens it; the card's focus button is an icon; swipe right goes back.
+    PanelUi ui;
+    const Rect t4 = listTile(T, 4, 0);
+    touchAt(T, ui, f, t4.x + t4.w / 2, t4.y + t4.h / 2, 0, DeckScope::Act);
+    assert(ui.screen == Screen::Card && !strcmp(ui.openId, "a4"));
+    const CardButtons b = cardButtons(T, f.agents[4], DeckScope::Act);
+    assert(b.n == 1 && b.kind[0] == IconKind::Focus && b.cy == T.h - T.btnFromBottom);
+    const DeckCommand c = touchAt(T, ui, f, b.cx[0], b.cy, 100, DeckScope::Act);
+    assert(c.cmd == DeckCmd::Focus);
+    squareTouch(ui, T, f, true, 60, 300, DeckScope::Act, 1000);
+    squareTouch(ui, T, f, true, 260, 305, DeckScope::Act, 1100);
+    squareTouch(ui, T, f, false, 0, 0, DeckScope::Act, 1110);
+    assert(ui.screen == Screen::Home);
+  }
   {
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
@@ -374,12 +408,13 @@ int main() {
   // ---- on Wi-Fi: the grid keeps its bars' row (the mark's), hits follow the drawing; every notice and
   // toast stays inside the frame, the AMOLED's corners black
   {
+    const SquareSpec T4 = specT4S3();
     const GridGeom w = gridGeom(L, 1, true);
     assert(w.bars.w == L.w && w.bars.h == L.barsH && w.cellW == w.cellH);
     assert(cellRect(L, w, 15).y + cellRect(L, w, 15).h <= w.bars.y);
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
-    for (const SquareSpec* S : {&A, &L}) {
+    for (const SquareSpec* S : {&A, &L, &T4}) {
       std::vector<uint16_t> buf(S->w * S->h);
       Canvas c{buf.data(), S->w, S->h};
       PanelUi ui;

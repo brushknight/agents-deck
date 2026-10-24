@@ -47,7 +47,7 @@ Both are optional: the menu bar and the browser show the same deck.
 | | |
 |---|---|
 | <img src="docs/images/panel-question-v2.png" alt="a question on the wall panel" width="320"> | <img src="firmware/devices/t4s3-panel/images/grid.png" alt="the deck on the LilyGo T4-S3" width="200"> |
-| **[Wall Panel](https://github.com/dotstartech/wall-panel)**: a 4″ 720×720 touch panel with a Raspberry Pi CM4 inside, running the deck's Flutter app. It talks to the daemon over Wi-Fi, with TLS 1.3 and its own device certificate (`agentctl pair`). | **[LilyGo T4-S3](https://lilygo.cc/products/t4-s3)**: a 2.41″ AMOLED touch board on USB, with no wiring. Flash [t4s3-panel](firmware/devices/t4s3-panel) and it shows your agents in a scrolling grid, with cards you can answer from. |
+| **[Wall Panel](https://github.com/dotstartech/wall-panel)**: a 4″ 720×720 touch panel with a Raspberry Pi CM4 inside, running the deck's Flutter app. It talks to the daemon over Wi-Fi, with TLS 1.3 and its own device certificate (`agentctl pair`). | **[LilyGo T4-S3](https://lilygo.cc/products/t4-s3)**: a 2.41″ AMOLED touch board on USB, with no wiring. Flash [lilygo-t4-s3](firmware/devices/lilygo-t4-s3) and it shows your agents in a scrolling grid, with cards you can answer from, over USB or Wi-Fi. |
 
 **Build your own.** Any board with a USB serial port (ESP32 and friends) gets the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from, and [docs/link/new-device.md](docs/link/new-device.md) says how to add a device.
 
@@ -157,6 +157,6 @@ The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
 | `proto/` | `link.proto`: the Deck Link contract for serial boards. |
 | `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
-| `firmware/devices` | Firmware for specific boards, built on the kit (`t4s3-panel`, and the Waveshare panels `waveshare-lcd-147`, `waveshare-touch-lcd-4`, `waveshare-touch-amoled-18`). |
+| `firmware/devices` | Firmware for specific boards, built on the kit (`lilygo-t4-s3` (the earlier `t4s3-panel` kept for reference), and the Waveshare panels `waveshare-lcd-147`, `waveshare-touch-lcd-4`, `waveshare-touch-amoled-18`). |
 | `firmware/panel-core` | The Waveshare panels' shared core: Deck Link adapter, critters, font, layouts. |
 | `docs/fixtures/state.json` | The sample fleet behind demo mode, the web fixture view and the tests. |

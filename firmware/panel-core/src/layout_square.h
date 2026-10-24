@@ -4,10 +4,12 @@
 // boards 22-26 of the design canvas):
 //
 //   home    the 4": the deck's 4 x 4 grid by slot, paged, as built
-//           the AMOLED: 2 x 2 tiles in one vertical list that scrolls with
+//           the AMOLEDs: 2 tiles across in one vertical list that scrolls with
 //           momentum and settles on a row, a position bar while it moves
+//           (2 rows on screen on the 1.8", 3 on the T4-S3's 2.41")
 //   card    header (critter, name, status pill), doing now, context with the
-//           dotted bar, tokens / cost / turns, the last prompt, round buttons:
+//           dotted bar, tokens / cost / turns (on the T4-S3 one to a line, with
+//           cache read), the last prompt, round buttons:
 //           focus, interrupt while running, stop held for 1 s (admin)
 //   prompt  one layout for permissions and questions: a one-line header,
 //           the whole question, the command box (permissions), the options
@@ -68,6 +70,9 @@ struct SquareSpec {
   int optH, optGap, optR;                       // prompt options
   // The list's position bar: x, width, between top and h - bottom.
   int posX, posW, posTop, posBottom;
+  // The card's numbers one to a line (tokens out, cache read, cost, turns)
+  // instead of three columns: a taller panel has the room.
+  bool statLines;
 };
 
 // The 1.8" AMOLED, 368 x 448, rounded glass.
@@ -79,12 +84,30 @@ static inline SquareSpec specAmoled18() {
   s.home = HomeKind::List; s.cols = 2; s.rows = 0; s.pad = 8; s.gap = 8; s.barsH = 0;
   s.tileW = 172; s.tileH = 192; s.headerH = 50;
   s.tileTitle = &FONT_XL; s.tileMeta = &FONT_XL; s.hud = &FONT_XL;
-  s.tileScale = 4; s.subScale = 2;
-  s.cardScale = 4; s.promptScale = 2; s.noticeScale = 5;
+  s.tileScale = 5; s.subScale = 2;     // critters 90 x 65 on a tile (x4 until the T4-S3 joined the family)
+  s.cardScale = 5; s.promptScale = 2; s.noticeScale = 6;
   s.ctxPitch = 8; s.ctxTickW = 2; s.ctxTickH = 12; s.ctxFillH = 10;
   s.btnR = 36; s.btnGap = 26; s.btnFromBottom = 54;
   s.optH = 76; s.optGap = 8; s.optR = 12;
   s.posX = 4; s.posW = 6; s.posTop = 90; s.posBottom = 48;
+  s.statLines = false;
+  return s;
+}
+
+// The LilyGO T4-S3's 2.41" AMOLED, 450 x 600 portrait: the 1.8"'s layout
+// (about the same pixel density, so the same type) with a third row of tiles
+// on screen, bigger critters, and the card's numbers one to a line.
+static inline SquareSpec specT4S3() {
+  SquareSpec s = specAmoled18();
+  s.name = "t4s3";
+  s.w = 450; s.h = 600; s.cornerR = 0;
+  s.tileW = 213; s.tileH = 178;           // 2 x 3 on screen: 50 + 3 x 178 + 2 x 8 = 600
+  s.tileScale = 6;                        // critters 108 x 78
+  s.cardScale = 6; s.promptScale = 3; s.noticeScale = 7;
+  s.btnR = 40; s.btnGap = 32; s.btnFromBottom = 60;
+  s.optH = 84; s.optGap = 10;
+  s.posTop = 100; s.posBottom = 40;
+  s.statLines = true;
   return s;
 }
 
@@ -103,6 +126,7 @@ static inline SquareSpec specLcd4() {
   s.btnR = 36; s.btnGap = 26; s.btnFromBottom = 54;
   s.optH = 72; s.optGap = 8; s.optR = 12;
   s.posX = 4; s.posW = 6; s.posTop = 90; s.posBottom = 48;
+  s.statLines = false;
   return s;
 }
 
@@ -677,7 +701,8 @@ static inline TileParts tileParts(const SquareSpec& S, const Rect& r, bool list)
   p.name = Rect{r.x + in / 2, y, r.w - in, S.tileTitle->cellH};
   y += S.tileTitle->cellH;
   p.meta = Rect{r.x + in / 2, y, r.w - in, S.tileMeta->cellH};
-  if (list) p.bar = Rect{r.x + 10, r.y + r.h - 14, r.w - 20, 4};
+  // A tile with no room to spare (the T4-S3's three rows) keeps its bar lower.
+  if (list) p.bar = Rect{r.x + 10, r.y + r.h - (free < 0 ? 10 : 14), r.w - 20, 4};
   return p;
 }
 
@@ -968,8 +993,24 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
     y += S.ctxTickH + 12;
   }
 
-  // Tokens, cost, turns.
-  {
+  // Tokens, cost, turns: one to a line on a tall panel, else three columns.
+  if (S.statLines) {
+    const char* labels[4] = {"tokens out", "cache read", "cost", "turns"};
+    char vals[4][16];
+    compact(a.tokensOut, vals[0], sizeof vals[0]);
+    compact(a.cacheRead, vals[1], sizeof vals[1]);
+    if (a.costUsd > 0) snprintf(vals[2], sizeof vals[2], "~$%.2f", (double)a.costUsd);
+    else snprintf(vals[2], sizeof vals[2], "\xE2\x80\x94");
+    snprintf(vals[3], sizeof vals[3], "%u", a.turns);
+    const Font& vf = *S.value;
+    const int pitch = vf.cellH - 4;
+    for (int i = 0; i < 4; i++) {
+      c.text(lf, m, y + (vf.cellH - lf.cellH) / 2 + 1, labels[i], T.dim, lw / 2);
+      c.text(vf, S.w - m - textW(vf, vals[i]), y, vals[i], T.ink, lw / 2);
+      y += pitch;
+    }
+    y += 8;
+  } else {
     const int colW = lw / 3;
     const char* labels[3] = {"tokens", "cost", "turns"};
     char vals[3][16];

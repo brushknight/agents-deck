@@ -1,0 +1,10 @@
+.pio/
+out/
+# pioarduino (idf5/) writes these next to the sources
+src/idf_component.yml*
+# pioarduino's library rebuild for TLS 1.3 (custom_sdkconfig in idf5/platformio.ini)
+idf5/.dummy/
+idf5/managed_components/
+idf5/sdkconfig.*
+idf5/dependencies.lock
+idf5/CMakeLists.txt
