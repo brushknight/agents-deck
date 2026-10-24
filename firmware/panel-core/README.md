@@ -34,6 +34,8 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/round_ui.h`, `src/font_round.h` | what Orbit and Dial share: notices, the detail, the prompt; 30 and 35 px fonts (`tools/make_font_round.py`) |
 | `src/layout_orbit.h`, `src/layout_dial.h` | the round layouts (`OrbitPanel`, `DialPanel`) |
 | `src/round_app.h` | the firmware of a round board minus its drivers (Arduino) |
+| `src/net_model.h` | USB or Wi-Fi: which link a board uses and when it retries, and what the screen says about it |
+| `src/net_link.h` | Wi-Fi for any touch board (Arduino, ESP32): pairing over USB, credentials and certificate in NVS, joining, the TLS 1.3 link to the deck |
 | `sim/` | `render.cpp` (every screen of a layout to PPM), `panel_sim.cpp`, `fixture.h` (host only) |
 | `tests/run.sh` | the host tests, with ASan and UBSan |
 
@@ -58,6 +60,26 @@ The round boards have their own interface, `RoundLayout` (`src/round_view.h`): a
 frame and says what lies under a point (`hit`), and the shared state machine does the rest (taps,
 swipes, drags round the rim, the stop hold, the timeout, a new waiting agent). Its devices call
 `roundAppSetup()` with a `RoundBoard`.
+
+## Wi-Fi
+
+`net_link.h` gives a board a second way to the deck (docs/link/protocol.md, "Pairing and Wi-Fi"):
+it pairs over USB by itself, keeps Wi-Fi credentials sent with `agentctl link wifi`, and when no deck
+answers on USB it joins the network and runs a second Deck Link core over TLS 1.3 (the kit's
+`deck_tls.h`). The app follows `net_link::active()` and sends its commands there; a deck on USB always
+wins. `round_app.h` uses it; the round boards' `idf5` builds have it.
+
+It needs TLS 1.3 in mbedTLS, so arduino-esp32 3.x with its libraries rebuilt with
+`CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y` (pioarduino's `custom_sdkconfig`, as in the round boards'
+`idf5/platformio.ini`). On arduino-esp32 2.0.17 (ESP-IDF 4.4, mbedTLS 2.28) it compiles to the USB
+part only and the deck hears "no Wi-Fi" (501).
+
+The square boards (`grid_app.h`: the 4″, the 1.8″ AMOLED, the 1.47″) are on 2.0.17 and USB only for
+now. For Wi-Fi they need an `idf5` project like the round boards' (pioarduino, arduino-esp32 3.x,
+`custom_sdkconfig` for TLS 1.3, Arduino_GFX 1.6 or their own panel drivers, which changed between
+2.0 and 3.x for QSPI and RGB) and the same few calls in `grid_app.h`: `net_link::begin`, `loop`,
+`active()` for commands and state, the Welcome, CertIssued and Result hooks, and the Wi-Fi notices
+(`netNotice()`).
 
 ## Tests and pictures
 

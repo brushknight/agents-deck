@@ -110,6 +110,68 @@ commands it sends:
 - `Answer`, `Focus` and `Interrupt` (scope act);
 - `Dismiss` for stop (scope admin).
 
+On `idf5` it also pairs for Wi-Fi (`CertRequest`), takes Wi-Fi credentials (`WifiConfig`) and reports
+how it is connected (`NetStatus`): see [Wi-Fi](#wi-fi).
+
+## Wi-Fi
+
+On the `idf5` firmware the board also works away from the Mac: on Wi-Fi it reaches the deck over TLS
+1.3 with a certificate of its own, as the same device (same name, scope and audit log). The default
+build (arduino-esp32 2.0.17) has no TLS 1.3, so it stays on USB.
+
+1. **Pair.** Nothing to do: plugged into the Mac and approved, the board makes a key on the chip and
+   gets its certificate from the deck over USB (a toast says "paired for Wi-Fi"). `agentctl devices`
+   then shows "Wi-Fi certificate" for it.
+2. **Give it your network**, while it is on USB:
+
+   ```bash
+   agentctl link wifi waveshare-touch-lcd-28c-<id> --ssid "my network"     # asks for the password
+   ```
+
+   The password goes over the cable to the board's flash and nowhere else. The board tries the network
+   at once (toast: "trying Wi-Fi…", then "Wi-Fi works" or what went wrong) and the command prints the
+   outcome. `--forget` drops it again.
+3. **Unplug it from the Mac** and power it anywhere (a USB charger). At boot it listens on USB for 4
+   seconds; when no deck answers there, it joins the network and connects to the deck.
+
+What the screen shows on the way (home on Wi-Fi with its mark, joining, a wrong password, a refused
+certificate):
+
+![Wi-Fi screens](docs/wifi.png)
+
+| screen | meaning |
+|---|---|
+| joining Wi-Fi · the network's name | joining the network |
+| connecting · to the deck · over Wi-Fi | joined; reaching the deck (its `.local` name, then its addresses) |
+| Wi-Fi failed · wrong password | set it again with `agentctl link wifi` (on USB); retried every minute |
+| Wi-Fi failed · network not found | out of range or the name is wrong; retried every 15 s |
+| deck not reachable · over Wi-Fi | the Mac is asleep, or the daemon isn't running; retried with a growing pause |
+| certificate rejected · pair again over USB | the board was revoked or paired again: plug it into the Mac |
+
+On Wi-Fi a small Wi-Fi mark sits under the middle of the home screen; on USB there is none. Plugged
+into the Mac again, the board switches to USB at once (USB always wins, so pairing and recovery work
+over the cable), and a board on USB whose deck goes quiet for 30 s tries Wi-Fi meanwhile.
+
+```bash
+agentctl link                       # every board: via usb or wifi, its address and signal
+agentctl link pair waveshare-touch-lcd-28c-<id>           # a new certificate (it pairs again over USB)
+agentctl devices revoke waveshare-touch-lcd-28c-<id>      # cut it off on USB and Wi-Fi
+```
+
+The key, the certificate and the Wi-Fi password are kept in the board's flash (NVS). It isn't
+encrypted unless you turn on flash encryption: revoke a board you lose.
+
+The `idf5` project rebuilds arduino-esp32's libraries with `CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y`
+(pioarduino's `custom_sdkconfig`; a few minutes the first time, per env). If that build fails with
+`No module named 'SCons.Tool.FortranCommon'`, pioarduino and PlatformIO Core disagree about their
+SCons package; once, give the platform PlatformIO's own:
+
+```bash
+rm -rf ~/.platformio-pioarduino/packages/tool-scons
+cp -R ~/.platformio/packages/tool-scons ~/.platformio-pioarduino/packages/tool-scons
+python3 -c "import json,os;p=os.path.expanduser('~/.platformio-pioarduino/packages/tool-scons/package.json');d=json.load(open(p));d['version']='4.40801.0';json.dump(d,open(p,'w'))"
+```
+
 ## The self-test
 
 ![self-test](docs/selftest.png)

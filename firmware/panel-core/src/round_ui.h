@@ -197,13 +197,16 @@ static inline void drawNotice(Canvas& c, const RoundTheme& T, const RoundInput& 
   const uint16_t ink = T.t.ink, dim = T.t.dim, acc = T.t.accent;
   char buf[64];
   switch (in.link) {
-    case LinkState::Connecting:
-      noticeRing(c, T.t.line, 6, 10, 6000, in.ms);
-      critterAt(c, 240, 186, 6, Species::Claude, Pose::Run, dim, T.t.bg, in.ms, false);
-      textOn(c, FONT_R30, 240, 288, "connecting", ink);
-      textOn(c, FONT_XXL, 240, 326, "waiting for the deck", dim);
-      textOn(c, FONT_XXL, 240, 360, "on USB", dim);
+    case LinkState::Connecting: {
+      // On USB: "connecting / waiting for the deck / on USB"; on Wi-Fi, where it is.
+      const NetNotice n = netNotice(in.net ? *in.net : NetView());
+      noticeRing(c, n.problem ? acc : T.t.line, n.problem ? 2 : 6, n.problem ? 12 : 10, n.problem ? 0 : 6000, in.ms);
+      critterAt(c, 240, 186, 6, Species::Claude, n.problem ? Pose::Exit : Pose::Run, dim, T.t.bg, in.ms, false);
+      textOn(c, FONT_R30, 240, 288, n.title, ink);
+      if (n.line1) textOn(c, FONT_XXL, 240, 326, n.line1, n.problem ? acc : dim);
+      if (n.line2) textOn(c, FONT_XXL, 240, 360, n.line2, dim);
       return;
+    }
     case LinkState::Unapproved: {
       noticeRing(c, acc, 2, 12, 0, in.ms);
       critterAt(c, 240, 166, 5, Species::Claude, Pose::Wait, ink, T.t.bg, in.ms, true);
@@ -651,8 +654,25 @@ static inline bool drawRoundCommon(Canvas& c, const RoundTheme& T, const DetailS
   return true;
 }
 
-// The finishing touches on any frame: the toast, and the round mask.
+// On Wi-Fi, a small Wi-Fi mark under home's middle (on USB, nothing: the
+// cable says it). The notices say it in words.
+constexpr int kNetBadgeY = 398;   // the mark's base: below home's text, above the ring
+
+static inline void drawNetBadge(Canvas& c, const RoundTheme& T, const RoundInput& in) {
+  if (!in.net || in.net->via != NetVia::Wifi || in.link != LinkState::Live || !in.fleet || !in.fleet->count ||
+      !in.ui || in.ui->screen != RoundScreen::Home)
+    return;
+  // Dark on an orange face (someone waits on the dial), dim otherwise.
+  const uint16_t under = c.px[(size_t)(kNetBadgeY - 8) * (size_t)c.w + (size_t)c.w / 2];
+  const uint16_t col = under == T.t.accent ? T.t.bg : T.t.dim;
+  const float cx = kRoundC, cy = kNetBadgeY;   // the arcs' common centre
+  fillDisc(c, cx, cy - 1, 2.5f, col);
+  for (int i = 1; i <= 2; i++) strokeArc(c, cx, cy, 6.5f * i + 1, 2.5f, -45, 90, col);
+}
+
+// The finishing touches on any frame: the Wi-Fi mark, the toast, and the round mask.
 static inline void drawRoundOverlay(Canvas& c, const RoundTheme& T, const RoundInput& in) {
+  drawNetBadge(c, T, in);
   if (in.ui) drawToast(c, T, *in.ui, in.ms);
   maskOutside(c, kRoundC, kRoundC, 240, rgb565(0, 0, 0));
 }

@@ -167,6 +167,29 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
   shot("toast");
   ui.toast[0] = '\0';
 
+  // Wi-Fi: the mark on home, and the notices on the way to the deck.
+  {
+    NetView net;
+    net.via = NetVia::Wifi;
+    net.phase = NetPhase::Online;
+    snprintf(net.ssid, sizeof net.ssid, "studio-net");
+    in.net = &net;
+    fresh(pick(all, {"k3f9a2", "d0cs1t", "t3st5a"}));
+    shot("home-wifi");
+    const struct { const char* name; NetPhase phase; } kWifi[] = {
+        {"wifi-joining", NetPhase::Joining},         {"wifi-connecting", NetPhase::Connecting},
+        {"wifi-wrong-password", NetPhase::WrongPassword}, {"wifi-no-network", NetPhase::NoNetwork},
+        {"wifi-unreachable", NetPhase::DeckUnreachable},  {"wifi-cert-rejected", NetPhase::CertRejected},
+    };
+    in.link = LinkState::Connecting;
+    for (const auto& w : kWifi) {
+      net.phase = w.phase;
+      shot(w.name);
+    }
+    in.link = LinkState::Live;
+    in.net = nullptr;
+  }
+
   // The full-screen states.
   const struct { const char* name; LinkState link; bool empty; } kNotices[] = {
       {"connecting", LinkState::Connecting, false}, {"not-approved", LinkState::Unapproved, false},

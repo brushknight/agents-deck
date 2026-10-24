@@ -23,6 +23,7 @@
 #include "deck_cmd.h"
 #include "deck_ui.h"
 #include "model.h"
+#include "net_model.h"
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "touch_pinch.h"
@@ -116,6 +117,7 @@ struct RoundInput {
   int64_t nowEpoch;            // the deck's time
   const RoundUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
+  const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
 };
 
 // A round layout: draws frames and says what is under a point. The state

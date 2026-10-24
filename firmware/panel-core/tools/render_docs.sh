@@ -31,6 +31,8 @@ for spec in orbit:waveshare-touch-lcd-28c dial:waveshare-touch-lcd-21; do
   "$PY" tools/ppm2png.py "$docs/screens.png" out/$layout/home-3.ppm out/$layout/home-8.ppm out/$layout/home-22.ppm \
     out/$layout/waiting.ppm out/$layout/detail.ppm out/$layout/prompt.ppm out/$layout/not-approved.ppm \
     out/$layout/offline.ppm --cols 4 --gap 8 >/dev/null
+  "$PY" tools/ppm2png.py "$docs/wifi.png" out/$layout/home-wifi.ppm out/$layout/wifi-joining.ppm \
+    out/$layout/wifi-wrong-password.ppm out/$layout/wifi-cert-rejected.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
 for spec in selftest28:waveshare-touch-lcd-28c selftest21:waveshare-touch-lcd-21; do
