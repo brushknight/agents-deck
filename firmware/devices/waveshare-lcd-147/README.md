@@ -91,49 +91,19 @@ The board then draws it like any other agent.
 
 ## Tests and the host renderer
 
-```bash
-tests/run.sh
-```
-
-It compiles the drawing, the view logic and the Deck Link adapter on the host with AddressSanitizer
-and UBSan (clang or gcc). It uses the kit in `../../deck-link` and the sample fleet in
-`docs/fixtures/state.json`.
-
-`tests/test_adapter.cpp` checks:
-
-- every field the screen uses;
-- snapshots, updates and removals;
-- the clock;
-- the whole path from wire bytes through the kit to the fleet.
+The drawing, the view logic, the Deck Link adapter, the tests and the host renderer are shared with
+the other panels in [`firmware/panel-core`](../../panel-core); this folder holds only the board's
+`main.cpp`. The 1.47" layout is `panel-core/src/layout_147.h`.
 
 ```bash
-c++ -std=c++17 -Ilib/core -I../../deck-link/src -I../../deck-link/src/proto sim/render.cpp -o out/render
-mkdir -p out/frames && out/render ../../../docs/fixtures/state.json out/frames 300
+firmware/panel-core/tests/run.sh
+cd firmware/panel-core
+c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
+mkdir -p out/frames && out/render ../../docs/fixtures/state.json out/frames 300
 python3 tools/ppm2png.py out/sheet.png out/frames/hero-*.ppm --cols 3    # needs pillow
 ```
 
-`sim/render` draws every frame of a State JSON file without the board. It turns the file into the
-Deck Link frames the deck would send (`sim/fixture.h`) and feeds them through the board's adapter, so
-the pictures are what the board would show. `docs/screen.png` is `hero-00` and `hero-01`
-(`--cols 2 --scale 2`).
-
-`sim/panel_sim` is the board's whole logic on the host (kit, adapter, view, screen), with stdin and
-stdout as the serial port; `tests/run.sh` builds it. Use it to run the board against a real deck
-without hardware: it logs its link state and hero to stderr and can write the last frame with `--ppm`.
-
-## Layout
-
-| Path | What |
-|---|---|
-| `src/main.cpp` | the Deck Link port, display, LED, button |
-| `lib/core/deck_model.h` | Deck Link frames into the `Fleet`; the board's Hello and Subscribe |
-| `lib/core/model.h` | `Fleet`, `Agent`, `LinkState` |
-| `lib/core/view.h` | hero choice, button hold, poses, text lines |
-| `lib/core/canvas.h`, `font_data.h` | RGB565 framebuffer, bitmap font |
-| `lib/core/sprites.h` | the block, the onigiri, 16 poses and 13 hats |
-| `lib/core/screen.h` | the frame layout |
-| `sim/` | `render.cpp`, `panel_sim.cpp`, `fixture.h` (host only) |
-| `tools/` | `make_font.py`, `ppm2png.py` |
+`docs/screen.png` is `hero-00` and `hero-01` (`--cols 2 --scale 2`).
 
 ## Limits
 
@@ -145,5 +115,5 @@ without hardware: it logs its link state and hero to stderr and can write the la
 
 ## Licences
 
-The bitmap font in `lib/core/font_data.h` is rendered from Roboto Mono (SIL Open Font License 1.1,
-`lib/core/OFL-robotomono.txt`).
+The bitmap font in `panel-core/src/font_data.h` is rendered from Roboto Mono (SIL Open Font License
+1.1, `panel-core/OFL-robotomono.txt`).

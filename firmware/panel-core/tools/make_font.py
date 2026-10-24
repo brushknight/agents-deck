@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Render Roboto Mono into fixed-cell 4-bpp bitmap fonts for lib/core/canvas.h.
+"""Render Roboto Mono into fixed-cell 4-bpp bitmap fonts for src/canvas.h.
 
 Usage: .venv/bin/python tools/make_font.py [--preview out/font.png]
 
 The source font ships with agents-deck (SIL OFL 1.1, see OFL-robotomono.txt).
-Two fonts are written to lib/core/font_data.h: FONT_S and FONT_L.
+The fonts are written to src/font_data.h: FONT_XS, FONT_S, FONT_L, FONT_XL
+and FONT_XXL (cells 6, 7, 9, 12 and 16 px wide). A layout uses the sizes that
+suit its screen; fonts nobody draws with are dropped by the linker.
 
 font_data.h is checked in. Run this only to change sizes or the glyph set.
 """
@@ -14,23 +16,25 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-# This folder lives inside the agents-deck repository, or next to a clone of it.
-_FONT = "backend/internal/web/static/fonts/RobotoMono.ttf"
-TTF = next((p / _FONT for p in (ROOT.parent, ROOT.parent / "agents-deck") if (p / _FONT).exists()),
-           ROOT.parent / _FONT)
-OUT = ROOT / "lib/core/font_data.h"
+# firmware/panel-core inside the agents deck repository.
+TTF = ROOT.parent.parent / "backend/internal/web/static/fonts/RobotoMono.ttf"
+OUT = ROOT / "src/font_data.h"
 
 # Roboto Mono advances 0.6 em, so these sizes give whole-pixel cells.
 FONTS = [
     # name, cell width, weight
     ("S", 7, 500),
     ("L", 9, 500),
+    ("XS", 6, 500),
+    ("XL", 12, 500),
+    ("XXL", 16, 600),
 ]
 
 CODES = (
     list(range(0x20, 0x7F))
     + [0x0401] + list(range(0x0410, 0x0450)) + [0x0451]
     + [0x00B7, 0x00AB, 0x00BB, 0x2013, 0x2014, 0x2026, 0x2192, 0x2116]
+    + [0x00D7, 0x2039, 0x203A, 0x2190]
 )
 
 

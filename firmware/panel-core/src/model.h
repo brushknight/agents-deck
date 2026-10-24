@@ -7,7 +7,13 @@
 
 #include "timeutil.h"
 
-constexpr int kMaxAgents = 16;
+// Agents kept in memory. The 1.47" board keeps 16; boards with PSRAM and a
+// paged grid set more with -DPANEL_MAX_AGENTS=64.
+#ifndef PANEL_MAX_AGENTS
+#define PANEL_MAX_AGENTS 16
+#endif
+constexpr int kMaxAgents = PANEL_MAX_AGENTS;
+constexpr int kMaxOptions = 6;   // link.options: Prompt.options max_count
 
 enum class Status : uint8_t { Starting, Running, Waiting, Idle, Error, Exited, Unknown };
 enum class Species : uint8_t { Claude, Codex };   // Codex is drawn as the onigiri
@@ -28,6 +34,16 @@ enum class LinkState : uint8_t {
   Lost,         // was live, nothing from the deck for 15 s ("deck offline")
 };
 
+// One answer of a waiting prompt.
+struct Option {
+  char key[8];
+  char label[40];
+  bool primary;
+};
+
+// Which harness runs the agent (Deck Link's Tool), for the tile's corner chip.
+enum class ToolKind : uint8_t { Other, Claude, Codex, Gemini };
+
 struct Agent {
   char id[12];              // Deck Link ids are at most 11 bytes (link.options)
   uint8_t slot;
@@ -40,8 +56,8 @@ struct Agent {
   char actTool[16];         // empty when the agent has no current tool
   char actDetail[72];
   char waitKind[12];
-  char waitTitle[32];
-  char waitDetail[72];
+  char waitTitle[96];
+  char waitDetail[192];
   char errMsg[56];
   uint32_t ctxUsed, ctxWindow;
   float costUsd;
@@ -50,6 +66,16 @@ struct Agent {
   uint8_t subagents;
   uint8_t hat;              // 0 = no hat, else 1 + index into kHatShapes
   uint8_t hatColor;         // index into kHatColors
+  // For the grid and the card (the 1.47" layout doesn't draw these).
+  ToolKind tool;
+  bool focused, lost, resumable;
+  char subTool[16];         // the first working subagent's tool, for its corner critter
+  char folder[32];
+  char branch[32];
+  char promptId[16];        // Agent.waiting.id, sent back in Answer
+  char promptCtx[32];       // Prompt.context, e.g. "bash · ~/dev/infra"
+  uint8_t optCount;
+  Option opts[kMaxOptions];
 };
 
 struct Fleet {

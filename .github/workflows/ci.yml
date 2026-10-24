@@ -74,7 +74,7 @@ jobs:
       - name: host tests
         run: |
           make -C firmware/deck-link/test/host test
-          for t in firmware/devices/*/tests/run.sh; do
+          for t in firmware/panel-core/tests/run.sh firmware/devices/*/tests/run.sh; do
             [ -x "$t" ] || continue
             echo "::group::$t"
             "$t"

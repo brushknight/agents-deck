@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "deck_model.h"
-#include "screen.h"
+#include "layout_147.h"
 
 static DeckFleet deckFleet;
 static ViewState view;

@@ -1,21 +1,25 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
-//   c++ -std=c++17 -Ilib/core -I../../deck-link/src -I../../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../../docs/fixtures/state.json out/frames
+//   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
 //
 // Writes PPM files: hero-<slot>.ppm (each agent as the hero), notice-*.ppm
 // (the full-screen states), poses.ppm (every pose of both species) and
-// hats.ppm (every hat).
-// tools/ppm2png.py turns them into PNG sheets.
+// hats.ppm (every hat). With the layout lcd4 or amoled18 it draws the grid
+// boards instead: grid.ppm, grid-page2.ppm, card.ppm (a running agent),
+// prompt.ppm (a waiting agent with its answers as buttons), prompt-view.ppm
+// (the same with scope view), question.ppm and the notices.
+// tools/ppm2png.py turns them into PNGs.
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "screen.h"
+#include "layout_147.h"
+#include "layout_grid.h"
 #include "fixture.h"
 
 static void writePpm(const std::string& path, const Canvas& c) {
@@ -30,6 +34,74 @@ static void writePpm(const std::string& path, const Canvas& c) {
 }
 
 static const char* const kDevice = "waveshare-lcd-147-a1b2c3";
+
+// The grid boards: every screen of one layout.
+static int renderGrid(const std::string& dir, const GridLayout& L, const char* device, DeckFleet& deck,
+                      uint32_t ms, int64_t now) {
+  const Theme T = deckTheme(L.trueBlack);
+  std::vector<uint16_t> buf(L.w * L.h);
+  Canvas c{buf.data(), L.w, L.h};
+  const Fleet& f = deck.fleet;
+  PanelUi ui;
+  PanelInput in{&f, LinkState::Live, device, true, ms, now, &ui};
+  auto shot = [&](const char* name) {
+    drawPanel(c, L, T, in);
+    writePpm(dir + "/" + name + ".ppm", c);
+  };
+  shot("grid");
+
+  // A second page: one more agent beyond the first page's slots.
+  static DeckFleet more;
+  more = deck;
+  {
+    Agent a = f.agents[0];
+    snprintf(a.id, sizeof a.id, "p2more");
+    snprintf(a.title, sizeof a.title, "release-notes");
+    a.slot = 17;
+    a.status = Status::Waiting;
+    a.subagents = 0;
+    deck_model_detail::upsert(more.fleet, a);
+    more.fleet.total++;
+  }
+  in.fleet = &more.fleet;
+  ui.page = 1;
+  shot("grid-page2");
+  ui.page = 0;
+  shot("grid-page1-of-2");
+  in.fleet = &f;
+
+  auto open = [&](const char* id) { snprintf(ui.openId, sizeof ui.openId, "%s", id); };
+  open("k3f9a2");
+  shot("card");
+  open("h0m3l4");
+  shot("prompt");
+  in.act = false;
+  shot("prompt-view");
+  in.act = true;
+  open("4uthfl");
+  shot("question");
+  open("1nfr4t");
+  shot("card-error");
+  ui.openId[0] = '\0';
+  uiToast(ui, "answered", ms);
+  shot("toast");
+  ui.toast[0] = '\0';
+
+  in.link = LinkState::Lost;
+  shot("offline");
+  static Fleet empty;
+  snprintf(empty.server, sizeof empty.server, "workstation");
+  const struct { const char* name; LinkState link; const Fleet* f; } kNotices[] = {
+      {"notice-connecting", LinkState::Connecting, nullptr}, {"notice-unapproved", LinkState::Unapproved, nullptr},
+      {"notice-noagents", LinkState::Live, &empty},           {"notice-offline", LinkState::Lost, nullptr},
+  };
+  for (const auto& n : kNotices) {
+    in.link = n.link;
+    in.fleet = n.f;
+    shot(n.name);
+  }
+  return 0;
+}
 
 int main(int argc, char** argv) {
   if (argc < 3) {
@@ -48,6 +120,13 @@ int main(int argc, char** argv) {
   // The sample fleet has every statusSince equal to server.time. Move the clock
   // on so the ages are not all "0s" and nobody is still celebrating.
   const int64_t now = (fleet.serverTime ? fleet.serverTime : 1791421323) + 754;
+  const std::string layout = argc > 4 ? argv[4] : "147";
+  if (layout == "lcd4") return renderGrid(dir, layoutLcd4(), "waveshare-touch-lcd-4-2a5390", deck, ms, now);
+  if (layout == "amoled18") return renderGrid(dir, layoutAmoled18(), "waveshare-touch-amoled-18-fea2ac", deck, ms, now);
+  if (layout != "147") {
+    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18)\n", layout.c_str());
+    return 2;
+  }
 
   std::vector<uint16_t> buf(kScreenW * kScreenH);
   Canvas c{buf.data(), kScreenW, kScreenH};

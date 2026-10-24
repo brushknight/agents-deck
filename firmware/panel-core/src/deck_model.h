@@ -19,7 +19,7 @@
 #include "model.h"
 #include "view.h"
 
-constexpr int kMaxKnown = 64;   // agent ids tracked for Fleet.total
+constexpr int kMaxKnown = kMaxAgents * 2 > 64 ? kMaxAgents * 2 : 64;   // agent ids tracked for Fleet.total
 
 // What the board subscribes to: every field the screen draws.
 constexpr uint32_t kPanelFields =
@@ -83,6 +83,14 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
     copyLine(a.waitKind, sizeof a.waitKind, promptKindName(in.waiting.kind));
     copyLine(a.waitTitle, sizeof a.waitTitle, in.waiting.title);
     copyLine(a.waitDetail, sizeof a.waitDetail, in.waiting.detail);
+    copyLine(a.promptId, sizeof a.promptId, in.waiting.id);
+    copyLine(a.promptCtx, sizeof a.promptCtx, in.waiting.context);
+    for (pb_size_t i = 0; i < in.waiting.options_count && a.optCount < kMaxOptions; i++) {
+      Option& o = a.opts[a.optCount++];
+      copyLine(o.key, sizeof o.key, in.waiting.options[i].key);
+      copyLine(o.label, sizeof o.label, in.waiting.options[i].label);
+      o.primary = in.waiting.options[i].primary;
+    }
   }
   copyLine(a.errMsg, sizeof a.errMsg, in.error);
   if (in.has_context) {
@@ -94,6 +102,18 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   a.unseen = in.unseen;
   a.external = in.external;
   a.subagents = in.subagent_count > 255 ? 255 : (uint8_t)in.subagent_count;
+  switch (in.tool) {
+    case agentsdeck_link_v1_Tool_TOOL_CLAUDE: a.tool = ToolKind::Claude; break;
+    case agentsdeck_link_v1_Tool_TOOL_CODEX:  a.tool = ToolKind::Codex; break;
+    case agentsdeck_link_v1_Tool_TOOL_GEMINI: a.tool = ToolKind::Gemini; break;
+    default:                                  a.tool = ToolKind::Other; break;
+  }
+  a.focused = in.focused;
+  a.lost = in.lost;
+  a.resumable = in.resumable;
+  if (in.subagents_count > 0) copyLine(a.subTool, sizeof a.subTool, in.subagents[0].tool);
+  copyLine(a.folder, sizeof a.folder, in.folder);
+  copyLine(a.branch, sizeof a.branch, in.branch);
   // An unknown shape means no hat; an unknown colour falls back to ink, as in the web UI.
   a.hatColor = kHatInk;
   if (in.has_hat) {
@@ -237,18 +257,32 @@ static inline bool deckApply(DeckFleet& d, const agentsdeck_link_v1_Frame& f, ui
 // every agent with the fields above. The caller adds the transport and callbacks.
 constexpr const char* kPanelType = "waveshare-lcd-147";
 
-static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, const char* firmware) {
+// What a board says about itself in Hello.
+struct PanelSpec {
+  const char* type;
+  uint32_t width, height;
+  bool touch;          // a touch screen besides the BOOT button
+};
+
+static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, const char* firmware,
+                               const PanelSpec& spec) {
   cfg.board_id = boardId;
-  cfg.type = kPanelType;
+  cfg.type = spec.type;
   cfg.firmware = firmware;
-  cfg.display_width = 320;
-  cfg.display_height = 172;
+  cfg.display_width = spec.width;
+  cfg.display_height = spec.height;
   cfg.display_color = true;
-  cfg.inputs[0] = agentsdeck_link_v1_Input_INPUT_BUTTON;
-  cfg.input_count = 1;
+  cfg.input_count = 0;
+  if (spec.touch) cfg.inputs[cfg.input_count++] = agentsdeck_link_v1_Input_INPUT_TOUCH;
+  cfg.inputs[cfg.input_count++] = agentsdeck_link_v1_Input_INPUT_BUTTON;
   cfg.first_slot = 0;
   cfg.slot_count = 0;   // every agent; the board keeps the kMaxAgents lowest slots
   cfg.fields = kPanelFields;
+}
+
+// The 1.47" board: 320 x 172, the BOOT button.
+static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, const char* firmware) {
+  panelConfig(cfg, boardId, firmware, PanelSpec{kPanelType, 320, 172, false});
 }
 
 // The screen's link state from the kit's.

@@ -208,6 +208,17 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
   a.unseen = j["unseen"].truthy();
   a.external = j["external"].truthy();
   a.subagent_count = (uint32_t)j["subagents"].a.size();
+  for (const Json& sj : j["subagents"].a) {
+    if (a.subagents_count >= 6) break;
+    agentsdeck_link_v1_Subagent& sa = a.subagents[a.subagents_count++];
+    FIXTURE_COPY(sa.id, sj["id"].str());
+    FIXTURE_COPY(sa.title, sj["title"].str());
+    FIXTURE_COPY(sa.type, sj["type"].str());
+    FIXTURE_COPY(sa.tool, sj["tool"].str());
+  }
+  a.lost = j["lost"].truthy();
+  a.resumable = j["resumable"].truthy();
+  a.attached = j["attached"].truthy();
   if (!j["hat"].isNull()) {
     a.has_hat = true;
     FIXTURE_COPY(a.hat.shape, j["hat"]["shape"].str());

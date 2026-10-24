@@ -5,7 +5,7 @@
 // sends Hello, Subscribe and Pong (the kit does all three) and never a
 // command, so the default view scope is enough.
 //
-// Everything that can run without hardware lives in lib/core and is tested on
+// Everything that can run without hardware lives in firmware/panel-core and is tested on
 // the host. This file is the I/O: the link on USB serial, the display, the
 // LED and the button. Nothing else is printed on the serial port: it carries
 // Deck Link frames only.
@@ -14,7 +14,7 @@
 #include <DeckLink.h>
 
 #include "deck_model.h"
-#include "screen.h"
+#include "layout_147.h"
 
 #define FW_VERSION "0.5.0"
 

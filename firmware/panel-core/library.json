@@ -1,0 +1,15 @@
+{
+  "name": "PanelCore",
+  "version": "0.1.0",
+  "description": "The agents deck panels' shared core: the Deck Link adapter, the fleet model, the critters and hats, a bitmap font, an RGB565 canvas, and the layouts (the 1.47\" bar, the touch grid). Header only.",
+  "frameworks": ["arduino"],
+  "platforms": "*",
+  "dependencies": [],
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  },
+  "export": {
+    "exclude": ["out", "tests", "sim", "tools"]
+  }
+}
