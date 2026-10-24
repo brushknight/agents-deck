@@ -45,8 +45,12 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
 
 ## Connect it
 
+> For now, flash the 2.0.17 build (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload`):
+> USB only, and the steadiest picture. The `idf5` build adds Wi-Fi but is experimental on this board:
+> an early test of it showed horizontal lines across the picture (see [Build and flash](#build-and-flash)).
+
 ```sh
-pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload --upload-port /dev/cu.usbmodem<…>   # or the 2.0.17 build, USB only
+pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload --upload-port /dev/cu.usbmodem<…>   # or idf5 (experimental) for Wi-Fi
 agentctl link add /dev/cu.usbmodem<…>
 agentctl devices approve waveshare-touch-lcd-4-<id>      # only with `agentctl devices auto-approve usb off`
 agentctl devices scope waveshare-touch-lcd-4-<id> act    # answer, focus, interrupt; admin to stop

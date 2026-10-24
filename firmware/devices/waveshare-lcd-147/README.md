@@ -61,10 +61,11 @@ You need [PlatformIO](https://platformio.org/) and the daemon on the Mac (`agent
 ```bash
 pio run -d firmware/devices/waveshare-lcd-147 -t upload
 agentctl link add /dev/cu.usbmodem1101        # the board's port: agentctl link ports
-agentctl devices approve waveshare-lcd-147-<id>
+agentctl devices approve waveshare-lcd-147-<id>   # only with `agentctl devices auto-approve usb off`
 ```
 
-The screen shows the exact `approve` command until you run it. There's no Wi-Fi, no pairing and no
+On a registered port a new board is approved at once. With auto-approval off, the screen shows the
+exact `approve` command until you run it. There's no Wi-Fi, no pairing and no
 token: the USB cable is the connection, and the deck decides what the board may see.
 
 No wiring is needed: the display, button and LED are on the board. Pins:

@@ -141,15 +141,11 @@ Small boards (ESP32 and the like) connect over USB serial with Deck Link, a prot
 same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The
 [firmware kit](../firmware/deck-link) does the protocol; its examples are a status LED, an OLED tile
 with a button, and a rotary-encoder knob. Ready-made devices are in
-[firmware/devices](../firmware/devices): [lilygo-t4-s3](../firmware/devices/lilygo-t4-s3) is the deck on the
-LilyGO T4-S3's 2.41″ AMOLED touch panel, with the 1.8″ AMOLED's UI (the earlier LVGL firmware,
-[t4s3-panel](../firmware/devices/t4s3-panel), is kept for reference), and
-[`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) is a read-only colour panel for the Waveshare ESP32-S3-LCD-1.47B: one agent in detail next to a mini-board of the fleet.
-[`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) (4″, 480×480) and
-[`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) (1.8″ AMOLED) show the deck's
-tiles with touch (a paged 4×4 grid on the 4″, a scrolling list on the AMOLED): tap one for its card,
-answer prompts with scope `act`. All three share
-[firmware/panel-core](../firmware/panel-core).
+[firmware/devices](../firmware/devices), and [devices.md](devices.md) tours them with screenshots: two
+round Waveshare screens (2.8″ and 2.1″) with the spring carousel, the Waveshare 4″ square with the desk
+panel's 4×4 grid, the Waveshare 1.8″ AMOLED and the LilyGO T4-S3 with scrolling tiles, and the
+read-only Waveshare 1.47″ strip. The touch boards answer prompts with scope `act`, and their `idf5`
+builds also work over Wi-Fi. They share [firmware/panel-core](../firmware/panel-core).
 
 ```sh
 agentctl link ports                      # USB serial ports that look like boards
