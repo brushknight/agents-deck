@@ -76,6 +76,8 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   a.statusSince = in.status_since_ms > 0 ? in.status_since_ms / 1000 : 0;
   copyLine(a.model, sizeof a.model, in.model_label);
   copyLine(a.effort, sizeof a.effort, in.effort);
+  copyLine(a.lastPrompt, sizeof a.lastPrompt, in.last_prompt);
+  a.tokensOut = in.has_tokens && in.tokens.output > 0 ? (uint64_t)in.tokens.output : 0;
   if (in.has_activity) {
     copyLine(a.actTool, sizeof a.actTool, in.activity.tool);
     copyLine(a.actDetail, sizeof a.actDetail, in.activity.detail);

@@ -24,7 +24,7 @@
 
 struct GridBoard {
   const char* type;                        // Hello.type, e.g. "waveshare-touch-lcd-4"
-  const PanelLayout* layout;               // e.g. new GridPanel(layoutLcd4())
+  const PanelLayout* layout;               // e.g. a static SquarePanel(specLcd4())
   bool (*begin)();                         // display, touch, backlight; false: the display didn't start
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of the layout's width x height
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
@@ -43,19 +43,24 @@ static DeckFleet* fleet = nullptr;         // in PSRAM: up to PANEL_MAX_AGENTS a
 static uint16_t* frame = nullptr;          // in PSRAM
 static Canvas canvas{nullptr, 0, 0};
 static PanelUi ui;
-static Gesture gesture;
 static char deviceName[40] = "";
 static bool dirty = true;
+static bool moving = false;               // the layout animates: draw at full rate
 static uint32_t lastActiveMs = 0;
+static uint32_t lastHeardMs = 0;          // the last frame from the deck
 
 static LinkState linkState() { return linkStateOf(deck.state(), deck.approved()); }
 
-static bool canAct() {
-  const agentsdeck_link_v1_Scope s = deck.scope();
-  return s == agentsdeck_link_v1_Scope_SCOPE_ACT || s == agentsdeck_link_v1_Scope_SCOPE_ADMIN;
+static DeckScope scope() {
+  switch (deck.scope()) {
+    case agentsdeck_link_v1_Scope_SCOPE_ADMIN: return DeckScope::Admin;
+    case agentsdeck_link_v1_Scope_SCOPE_ACT:   return DeckScope::Act;
+    default:                                   return DeckScope::View;
+  }
 }
 
 static void onFrame(deck_link_t*, const deck_frame_t* f) {
+  lastHeardMs = millis();
   if (deckApply(*fleet, *f, millis())) dirty = true;
   if (fleet->newWaiting) fleet->newWaiting = false;
 }
@@ -66,8 +71,19 @@ static void onWelcome(deck_link_t*, const char* name, agentsdeck_link_v1_Scope, 
 }
 
 static void onResult(deck_link_t*, uint32_t seq, uint32_t code, const char*) {
-  uiResult(ui, seq, code, millis());
+  board.layout->result(ui, seq, code, millis());
   dirty = true;
+}
+
+static void send(const DeckCommand& c) {
+  switch (c.cmd) {
+    case DeckCmd::Answer:    ui.cmdSeq = deck.answer(c.agent, c.prompt, c.key); break;
+    case DeckCmd::Focus:     ui.cmdSeq = deck.focus(c.agent); break;
+    case DeckCmd::Interrupt: ui.cmdSeq = deck.interrupt(c.agent); break;
+    case DeckCmd::Dismiss:   ui.cmdSeq = deck.dismiss(c.agent); break;
+    default: return;
+  }
+  PANEL_LOG("command %d for %s, seq %u", (int)c.cmd, c.agent, (unsigned)ui.cmdSeq);
 }
 
 static void onLink(deck_link_t*) { dirty = true; }
@@ -76,10 +92,10 @@ static void render() {
   const uint32_t ms = millis();
   const LinkState ls = linkState();
   const Fleet* f = fleet->have ? &fleet->fleet : nullptr;
-  if (f) board.layout->fix(ui, *f);
+  moving = f && board.layout->tick(ui, *f, ms);
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
-  PanelInput in{f, shown, deviceName, canAct(), ms, deckNowEpoch(*fleet, ms), &ui};
+  PanelInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000};
   board.layout->draw(canvas, in);
   board.push(frame);
 }
@@ -101,19 +117,11 @@ static void updateBrightness() {
 static void touchPump() {
   int x = 0, y = 0;
   const bool down = board.touch && board.touch(x, y);
+  if (!down && !ui.down) return;
   const uint32_t ms = millis();
-  const GestureEvent e = gestureFeed(gesture, down, x, y, ms);
-  if (down) lastActiveMs = ms;
-  if (e.kind != GestureKind::None)
-    PANEL_LOG("touch: %s at %d,%d", e.kind == GestureKind::Tap ? "tap" : "swipe", e.x, e.y);
-  if (e.kind == GestureKind::None || !fleet->have) return;
-  const Fleet& f = fleet->fleet;
-  if (e.kind == GestureKind::Tap) {
-    const UiAnswer a = board.layout->tap(ui, f, e.x, e.y, canAct(), ms);
-    if (a.send) ui.answerSeq = deck.answer(a.agent, a.prompt, a.key);
-  } else {
-    board.layout->swipe(ui, f, e.swipe);
-  }
+  lastActiveMs = ms;
+  if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; return; }
+  send(board.layout->touch(ui, fleet->fleet, down, x, y, scope(), ms));
   dirty = true;
 }
 
@@ -191,8 +199,9 @@ static inline void gridAppLoop() {
     frames = drawMs = 0;
   }
 #endif
-  // Critters animate: a frame every 100 ms, and at once after a touch or new state.
-  if (frame && (dirty || millis() - lastFrame >= 100)) {
+  // Critters animate: a frame every 100 ms; at once after a touch or new
+  // state, and as fast as it draws while the list scrolls.
+  if (frame && (dirty || moving || millis() - lastFrame >= 100)) {
     dirty = false;
     lastFrame = millis();
     updateBrightness();

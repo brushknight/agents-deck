@@ -174,6 +174,7 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
   FIXTURE_COPY(a.branch, j["branch"].str());
   FIXTURE_COPY(a.model, j["model"].str());
   FIXTURE_COPY(a.model_label, j["modelLabel"].str());
+  FIXTURE_COPY(a.last_prompt, j["lastPrompt"].str());
   FIXTURE_COPY(a.effort, j["effort"].str());
   if (!j["activity"].isNull()) {
     a.has_activity = true;

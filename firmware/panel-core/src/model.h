@@ -15,6 +15,10 @@
 constexpr int kMaxAgents = PANEL_MAX_AGENTS;
 constexpr int kMaxOptions = 6;   // link.options: Prompt.options max_count
 // Answer labels kept per option; big screens show them whole (link.options allows 96).
+// The card's "last prompt" (link.options allows 160).
+#ifndef PANEL_LAST_PROMPT
+#define PANEL_LAST_PROMPT 96
+#endif
 #ifndef PANEL_OPTION_LABEL
 #define PANEL_OPTION_LABEL 40
 #endif
@@ -64,6 +68,8 @@ struct Agent {
   char waitTitle[96];
   char waitDetail[192];
   char errMsg[56];
+  char lastPrompt[PANEL_LAST_PROMPT];   // CARD: the last prompt the agent was given
+  uint64_t tokensOut;       // NUMBERS: output tokens
   uint32_t ctxUsed, ctxWindow;
   float costUsd;
   uint16_t turns;

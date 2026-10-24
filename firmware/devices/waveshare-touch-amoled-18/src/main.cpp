@@ -15,7 +15,7 @@
 #include <Wire.h>
 
 #include "grid_app.h"
-#include "layout_grid.h"
+#include "layout_square.h"
 
 #define FW_VERSION "0.1.0"
 
@@ -109,7 +109,7 @@ static void brightness(uint8_t level) {
 }
 
 void setup() {
-  static const GridPanel layout(layoutAmoled18());
+  static const SquarePanel layout(specAmoled18());
   GridBoard b{};
   b.type = "waveshare-touch-amoled-18";
   b.layout = &layout;

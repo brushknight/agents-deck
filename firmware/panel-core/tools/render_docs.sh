@@ -13,8 +13,10 @@ for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18; do
   docs=../devices/${spec#*:}/docs
   rm -rf "out/$layout" && mkdir -p "out/$layout" "$docs"
   out/render ../../docs/fixtures/state.json "out/$layout" 300 "$layout"
-  for n in grid grid-page2 card prompt prompt-view question notice-connecting notice-unapproved offline; do
-    "$PY" tools/ppm2png.py "$docs/$n.png" "out/$layout/$n.ppm" --gap 0 >/dev/null
+  rm -f "$docs"/*.png
+  for f in out/$layout/*.ppm; do
+    n=$(basename "$f" .ppm)
+    "$PY" tools/ppm2png.py "$docs/$n.png" "$f" --gap 0 >/dev/null
   done
   echo "$docs"
 done

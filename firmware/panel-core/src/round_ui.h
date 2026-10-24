@@ -24,6 +24,7 @@
 #include "font_round.h"
 #include "model.h"
 #include "round_geom.h"
+#include "ui_buttons.h"
 #include "round_view.h"
 #include "sprites.h"
 #include "view.h"
@@ -311,41 +312,13 @@ static inline int detailButtons(const DetailStyle& S, const Agent& a, RoundScope
   return n;
 }
 
-namespace round_detail {
-
-// The buttons' icons: 4 px cells, centred on the button.
-static const char* const kIconFocus[] = {"#########", "#.......#", "#.#.....#", "#..#....#", "#...#...#",
-                                         "#..#....#", "#.#.###.#", "#.......#", "#########"};
-static const char* const kIconPause[] = {"##.##", "##.##", "##.##", "##.##", "##.##", "##.##", "##.##"};
-static const char* const kIconStop[] = {"#####", "#####", "#####", "#####", "#####"};
-
-static inline void icon(Canvas& c, const char* const* rows, int n, int cx, int cy, uint16_t col) {
-  const int w = (int)strlen(rows[0]) * 4, h = n * 4;
-  for (int r = 0; r < n; r++)
-    for (int k = 0; rows[r][k]; k++)
-      if (rows[r][k] == '#') c.rect(cx - w / 2 + k * 4, cy - h / 2 + r * 4, 4, 4, col);
-}
-
-}  // namespace round_detail
-
 // One round button: idle (outlined), pressed (filled ink), stop held (filled
-// accent with the hold ring filling over 1 s).
+// accent with the hold ring filling over 1 s). Drawn by ui_buttons.h.
 static inline void drawButton(Canvas& c, const RoundTheme& T, const DetailStyle& S, const DetailButton& b, bool pressed,
                               int holdPermille) {
-  using namespace round_detail;
-  const bool stop = b.kind == HitKind::Stop;
-  const uint16_t line = stop ? T.t.accent : T.t.ink;
-  uint16_t fill = T.t.bg, ico = line;
-  if (pressed) { fill = stop ? T.t.accent : T.t.ink; ico = T.t.bg; }
-  fillDisc(c, b.x, b.y, S.btnR, fill);
-  if (!pressed) strokeCircle(c, b.x, b.y, S.btnR - 1.5f, 3, line);
-  if (b.kind == HitKind::Focus) icon(c, kIconFocus, 9, b.x, b.y, ico);
-  else if (b.kind == HitKind::Interrupt) icon(c, kIconPause, 7, b.x, b.y, ico);
-  else icon(c, kIconStop, 5, b.x, b.y, ico);
-  if (stop && pressed) {
-    strokeCircle(c, b.x, b.y, S.btnR + 7, 5, T.idle);
-    if (holdPermille > 0) strokeArc(c, b.x, b.y, S.btnR + 7, 5, 0, 360.f * holdPermille / 1000, T.t.accent);
-  }
+  const IconKind k = b.kind == HitKind::Focus ? IconKind::Focus
+                     : b.kind == HitKind::Interrupt ? IconKind::Interrupt : IconKind::Stop;
+  iconButton(c, b.x, b.y, S.btnR, k, pressed, holdPermille, T.t.bg, T.t.ink, T.t.accent, T.idle);
 }
 
 // Where agent i of n sits on the detail's arc of dots.

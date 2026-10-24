@@ -48,7 +48,7 @@ static Fleet crowd(int n) {
   Fleet f;
   memset(&f, 0, sizeof f);
   for (int i = 0; i < n; i++) {
-    char id[8];
+    char id[16];
     snprintf(id, sizeof id, "a%02d", i);
     f.agents[f.count++] = mk(id, (uint8_t)i, i % 3 ? Status::Running : Status::Idle);
   }

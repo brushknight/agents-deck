@@ -1,139 +1,106 @@
 #pragma once
-// What every touch layout shares, and the interface a device's firmware
-// uses to drive one.
+// The interface between a touch board's firmware (grid_app.h) and its
+// layout, and the UI state they share. The square boards' layout,
+// SquarePanel in layout_square.h, implements it; the round boards have their
+// own (RoundLayout in round_view.h).
 //
-// A layout gets, every frame: a Canvas (an RGB565 framebuffer of its own
-// width x height) and a PanelInput (the fleet from deck_model.h, the link
-// state, the board's name, whether its scope allows answering, the animation
-// clock, the deck's time, and the PanelUi below). It draws the whole frame.
+// Every frame the firmware calls tick() (animations: a list settling on a
+// row, a toast ending) and draw() with a PanelInput: the fleet from
+// deck_model.h, the link state, the board's name, its scope, the animation
+// clock and the deck's time. Touch arrives as raw samples (finger down at
+// x, y, or lifted) through touch(), which turns them into taps, drags,
+// scrolls and holds and returns a DeckCommand for the board to send (an
+// Answer, Focus, Interrupt or Dismiss). The board keeps the command's seq in
+// PanelUi::cmdSeq and passes the deck's Result to result(). BOOT is button().
 //
-// Touch: grid_app.h turns touch samples into taps and swipes with Gesture
-// and hands them to the layout, which updates PanelUi (the page, the open
-// card, a toast) and may return a UiAnswer: an Answer for the board to send
-// to the deck. The board then stores the Answer's seq in PanelUi.answerSeq;
-// uiResult() turns the deck's Result into a toast.
-//
-// A device picks its layout by constructing one (e.g. GridPanel with
-// layoutLcd4()) and passing it to gridAppSetup() in its GridBoard. Layouts
-// live in layout_*.h: layout_147.h (the 1.47" bar, no touch, drawn by its own
-// main.cpp), layout_grid.h (the square touch boards). A new layout
-// implements PanelLayout; deck_ui.h has the shared tile look and text
-// helpers.
-//
-// Pure C++: runs on the host (tests, sim/render) as on the board.
+// A device picks its layout by constructing it, e.g.
+// `static const SquarePanel layout(specLcd4());`, and putting it in its
+// GridBoard (grid_app.h). Pure C++: runs on the host (tests, sim/render).
 #include <stdint.h>
 #include <stdio.h>
 
-#include "model.h"
-#include "view.h"
 #include "canvas.h"
+#include "deck_cmd.h"
+#include "model.h"
 
 constexpr uint32_t kToastMs = 3000;
 
-struct PanelUi {
-  int page = 0;
-  char openId[12] = "";        // the agent whose card is open, "" for the grid
-  char toast[40] = "";
-  uint32_t toastUntil = 0;
-  uint32_t answerSeq = 0;      // the Answer waiting for its Result
-};
-
-static inline void uiToast(PanelUi& ui, const char* text, uint32_t ms) {
-  snprintf(ui.toast, sizeof ui.toast, "%s", text);
-  ui.toastUntil = ms + kToastMs;
-}
-
-// What a tap asks the board to send: an Answer, or nothing.
-struct UiAnswer {
-  bool send = false;
-  char agent[12] = "", prompt[16] = "", key[8] = "";
-};
-
 enum class Swipe : uint8_t { Left, Right, Up, Down };
 
-// The Result of the Answer we sent.
-static inline void uiResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) {
-  if (!seq || seq != ui.answerSeq) return;
-  ui.answerSeq = 0;
-  if (code == 204) { uiToast(ui, "answered", ms); ui.openId[0] = '\0'; }
-  else if (code == 403) uiToast(ui, "needs scope act", ms);
-  else if (code == 409) uiToast(ui, "the prompt changed", ms);
-  else {
-    char b[24];
-    snprintf(b, sizeof b, "error %u", (unsigned)code);
-    uiToast(ui, b, ms);
-  }
-}
+// The screens of a square board.
+enum class Screen : uint8_t { Home, Card, Prompt };
 
-// ---------------------------------------------------------------- gestures
+// What lies under a point.
+enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option };
 
-// Turns touch samples into taps and swipes.
-struct Gesture {
+struct PanelHit {
+  Hit kind = Hit::None;
+  int agent = -1;    // Tile: index into Fleet.agents
+  int index = -1;    // PageBar: the page; Option: index into Agent.opts
+  bool operator==(const PanelHit& o) const { return kind == o.kind && agent == o.agent && index == o.index; }
+};
+
+struct PanelUi {
+  Screen screen = Screen::Home;
+  char openId[12] = "";        // the card's or the prompt's agent
+  int page = 0;                // grid homes: the page
+
+  // List homes: the scroll offset in pixels, and its settle animation.
+  float scroll = 0;
+  float scrollFrom = 0, scrollTo = 0;
+  uint32_t animStart = 0;
+  bool animating = false;
+  uint32_t settledMs = 0;      // when the list last came to rest (the position bar fades after it)
+
+  // The finger.
   bool down = false;
+  bool dragging = false;       // moving the list
   int x0 = 0, y0 = 0, x = 0, y = 0;
-  uint32_t t0 = 0;
+  uint32_t downMs = 0;
+  float scroll0 = 0;           // the list's offset when the finger went down
+  float velocity = 0;          // px per ms, smoothed
+  int lastY = 0;
+  uint32_t lastMs = 0;
+  PanelHit pressed;            // drawn pressed until the finger moves or lifts
+  bool holdFired = false;      // the stop hold already sent its Dismiss
+  bool caught = false;         // the finger stopped a moving list: not a tap
+
+  // Feedback.
+  char toast[48] = "";
+  uint32_t toastUntil = 0;
+  bool backAfterToast = false; // answered: home when "sent" ends
+  uint32_t cmdSeq = 0;         // the command waiting for its Result
 };
 
-enum class GestureKind : uint8_t { None, Tap, Swipe };
-
-struct GestureEvent {
-  GestureKind kind = GestureKind::None;
-  Swipe swipe = Swipe::Left;
-  int x = 0, y = 0;
-};
-
-constexpr int kTapSlop = 14, kSwipeMin = 40;
-constexpr uint32_t kTapMaxMs = 800;
-
-static inline GestureEvent gestureFeed(Gesture& g, bool touching, int x, int y, uint32_t ms) {
-  GestureEvent e;
-  if (touching) {
-    if (!g.down) { g.down = true; g.x0 = g.x = x; g.y0 = g.y = y; g.t0 = ms; }
-    else { g.x = x; g.y = y; }
-    return e;
-  }
-  if (!g.down) return e;
-  g.down = false;
-  const int dx = g.x - g.x0, dy = g.y - g.y0;
-  const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-  if (adx <= kTapSlop && ady <= kTapSlop && ms - g.t0 <= kTapMaxMs) {
-    e.kind = GestureKind::Tap;
-    e.x = g.x0;
-    e.y = g.y0;
-  } else if (adx >= kSwipeMin || ady >= kSwipeMin) {
-    e.kind = GestureKind::Swipe;
-    e.swipe = adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down);
-    e.x = g.x0;
-    e.y = g.y0;
-  }
-  return e;
+static inline void uiToast(PanelUi& ui, const char* text, uint32_t ms, uint32_t forMs = kToastMs) {
+  snprintf(ui.toast, sizeof ui.toast, "%s", text);
+  ui.toastUntil = ms + forMs;
 }
 
 struct PanelInput {
   const Fleet* fleet;          // nullptr before the first snapshot
   LinkState link;
   const char* device;          // the board's name on the deck
-  bool act;                    // scope act or admin: prompts get buttons
-  uint32_t ms;                 // animation clock
+  DeckScope scope;
+  uint32_t ms;                 // animation clock (millis)
   int64_t nowEpoch;            // the deck's time
   const PanelUi* ui;
+  uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
 };
 
-
-// A layout: draws frames and answers touch. Implementations keep their own
-// geometry; every method is pure (no I/O), so the host tests drive them.
 class PanelLayout {
  public:
   virtual ~PanelLayout() = default;
   virtual int width() const = 0;
   virtual int height() const = 0;
-  virtual bool trueBlack() const = 0;   // an AMOLED: black background, dims when idle
-  // The whole frame.
+  virtual bool trueBlack() const = 0;   // an AMOLED: black background
   virtual void draw(Canvas& c, const PanelInput& in) const = 0;
-  // Touch and the BOOT button. tap() may ask for an Answer.
-  virtual UiAnswer tap(PanelUi& ui, const Fleet& f, int x, int y, bool act, uint32_t ms) const = 0;
-  virtual void swipe(PanelUi& ui, const Fleet& f, Swipe s) const = 0;
+  // One touch sample; returns what to send.
+  virtual DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope,
+                            uint32_t ms) const = 0;
+  // Animations and timeouts; true while something moves (the board then draws often).
+  virtual bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const = 0;
   virtual void button(PanelUi& ui, const Fleet& f) const = 0;
-  // Keeps ui valid for a changed fleet (a page that exists, a card whose agent is there).
-  virtual void fix(PanelUi& ui, const Fleet& f) const = 0;
+  // The deck's Result for ui.cmdSeq.
+  virtual void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const = 0;
 };
