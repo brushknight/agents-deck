@@ -630,12 +630,28 @@ static inline RoundHit promptHit(const Agent& a, int first, int x, int y) {
 // ---------------------------------------------------------------- the frame
 
 // A short message in a pill near the bottom.
+// Where a toast's pill goes: low on the glass, raised until it fits inside the
+// circle (with a margin), and never wider than the circle allows there.
+struct ToastBox {
+  int x, y, w, h;
+};
+
+static inline ToastBox toastBox(const char* text) {
+  const Font& f = FONT_XXL;
+  const int h = 52, margin = 10;
+  int w = textW(f, text) + 40, y = 404;
+  auto room = [&](int yy) { return (int)(2 * chordHalfSpan(kRoundC, kRoundC - margin, (float)yy, (float)(yy + h))); };
+  while (y > 300 && room(y) < w) y -= 4;
+  if (w > room(y)) w = room(y);   // still too long: the text is cut with "…"
+  return ToastBox{240 - w / 2, y, w, h};
+}
+
 static inline void drawToast(Canvas& c, const RoundTheme& T, const RoundUi& ui, uint32_t ms) {
   if (!ui.toast[0] || (int32_t)(ui.toastUntil - ms) <= 0) return;
   const Font& f = FONT_XXL;
-  const int w = textW(f, ui.toast) + 40, h = 52, y = 404;
-  fillPill(c, 240 - w / 2, y, w, h, T.t.ink);
-  textCentered(c, f, 240, y + (h - f.cellH) / 2, ui.toast, T.t.bg, w - 20);
+  const ToastBox b = toastBox(ui.toast);
+  fillPill(c, b.x, b.y, b.w, b.h, T.t.ink);
+  textCentered(c, f, 240, b.y + (b.h - f.cellH) / 2, ui.toast, T.t.bg, b.w - 20);
 }
 
 // Everything but home: notices, the detail, the prompt. Returns false when

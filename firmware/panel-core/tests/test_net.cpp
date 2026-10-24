@@ -156,7 +156,26 @@ static void drawing() {
   }
 }
 
+// Every toast stays inside the round glass: its pill's corners are inside the circle.
+static void toasts() {
+  for (const char* t : {"sent", "focus", "interrupted", "hold to stop", "stopping\xE2\x80\xA6", "paired for Wi-Fi",
+                        "trying Wi-Fi\xE2\x80\xA6", "Wi-Fi works", "Wi-Fi forgotten", "Wi-Fi: wrong password",
+                        "Wi-Fi: network not found", "Wi-Fi failed", "a very long toast that cannot fit anywhere at all"}) {
+    const ToastBox b = toastBox(t);
+    for (int x : {b.x, b.x + b.w})
+      for (int y : {b.y, b.y + b.h}) {
+        // The pill's ends are round: test the corners of its straight part (inset by the radius).
+        const float px = x == b.x ? x + b.h / 2.f : x - b.h / 2.f;
+        const float dx = px - 240, dy = y - 240;
+        const float r = sqrtf(dx * dx + dy * dy);
+        assert(r <= 240 - 4);
+      }
+    assert(b.w > 0 && b.y >= 300);
+  }
+}
+
 int main() {
+  toasts();
   bootChoice();
   usbWinsLater();
   retries();

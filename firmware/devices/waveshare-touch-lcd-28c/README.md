@@ -162,7 +162,8 @@ The key, the certificate and the Wi-Fi password are kept in the board's flash (N
 encrypted unless you turn on flash encryption: revoke a board you lose.
 
 The `idf5` project rebuilds arduino-esp32's libraries with `CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y`
-(pioarduino's `custom_sdkconfig`; a few minutes the first time, per env). If that build fails with
+(pioarduino's `custom_sdkconfig`; about five minutes the first time, and again whenever another
+pioarduino project, such as the other round board's, was built in between: they share `~/.platformio-pioarduino`). If that build fails with
 `No module named 'SCons.Tool.FortranCommon'`, pioarduino and PlatformIO Core disagree about their
 SCons package; once, give the platform PlatformIO's own:
 

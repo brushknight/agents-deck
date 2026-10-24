@@ -176,6 +176,8 @@ static void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     evJoined = true;
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    // Our own disconnect (WiFi.begin starts with one) isn't a failure.
+    if (info.wifi_sta_disconnected.reason == WIFI_REASON_ASSOC_LEAVE) return;
     evReason = info.wifi_sta_disconnected.reason;
     evLost = true;
   }
@@ -302,8 +304,10 @@ static void apply(NetAction a) {
 static void usbWelcome(bool approved, const char* name) {
   if (name && name[0]) snprintf(boardName, sizeof boardName, "%s", name);
   apply(netStep(plan, millis(), true, canWifi()));
+  // A request nobody answered (an older deck ignores it, or the deck went away): forget it.
+  if (pairing.seq && millis() - lastPairAt > 10000) deck_pair_cancel(&pairing);
   if (approved && DECK_LINK_HAS_TLS13 && kvOk && !pairing.seq && deck_cert_needed(&cert, deck_link_cert_serial(usb)) &&
-      (!lastPairAt || millis() - lastPairAt > 30000)) {
+      (!lastPairAt || millis() - lastPairAt > 10000)) {
     lastPairAt = millis();
     const uint32_t seq = deck_pair_request(usb, &pairing, boardName);
     NET_LOG("net: pairing, seq %u", (unsigned)seq);
@@ -380,8 +384,8 @@ static void testDone(agentsdeck_link_v1_WifiState r) {
   wifiStop();
   if (hooks.toast)
     hooks.toast(r == agentsdeck_link_v1_WifiState_WIFI_CONNECTED       ? "Wi-Fi works"
-                : r == agentsdeck_link_v1_WifiState_WIFI_WRONG_PASSWORD ? "Wi-Fi: wrong password"
-                : r == agentsdeck_link_v1_WifiState_WIFI_NO_NETWORK     ? "Wi-Fi: network not found"
+                : r == agentsdeck_link_v1_WifiState_WIFI_WRONG_PASSWORD ? "wrong password"
+                : r == agentsdeck_link_v1_WifiState_WIFI_NO_NETWORK     ? "network not found"
                                                                         : "Wi-Fi failed");
   NET_LOG("net: test %s", testedIp[0] ? testedIp : "failed");
   sendStatus();

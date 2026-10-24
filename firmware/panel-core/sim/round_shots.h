@@ -165,6 +165,10 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
   roundHome(ui);
   roundToast(ui, "sent", ms, 1000);
   shot("toast");
+  roundToast(ui, "paired for Wi-Fi", ms, 1000);
+  shot("toast-paired");
+  roundToast(ui, "Wi-Fi: network not found", ms, 1000);
+  shot("toast-long");
   ui.toast[0] = '\0';
 
   // Wi-Fi: the mark on home, and the notices on the way to the deck.
