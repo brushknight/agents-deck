@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "deck_cmd.h"
 #include "deck_ui.h"
 #include "model.h"
 #include "panel_layout.h"
@@ -27,7 +28,7 @@
 #include "view.h"
 
 constexpr uint32_t kRoundIdleMs = 30000;   // untouched this long: back home
-constexpr uint32_t kRoundHoldMs = 1000;    // stop: press and hold this long
+constexpr uint32_t kRoundHoldMs = kStopHoldMs; // stop: press and hold this long
 constexpr uint32_t kRoundSentMs = 1000;    // "sent" after an answer, then back
 constexpr float kRimTurnMin = 25.f;        // degrees round the rim that make a drag
 constexpr int kRoundSlop = 14, kRoundSwipeMin = 40;
@@ -36,10 +37,8 @@ constexpr int kRoundWaitIds = 16;          // waiting agents remembered, to spot
 
 enum class RoundScreen : uint8_t { Home, Detail, Prompt };
 
-// What the board may do (Welcome.scope).
-enum class RoundScope : uint8_t { View, Act, Admin };
-
-static inline bool canAct(RoundScope s) { return s != RoundScope::View; }
+// What the board may do (Welcome.scope): deck_cmd.h's, shared with the square boards.
+using RoundScope = DeckScope;
 
 // What lies under a point.
 enum class HitKind : uint8_t {
@@ -58,13 +57,9 @@ struct RoundHit {
   bool operator==(const RoundHit& o) const { return kind == o.kind && agent == o.agent && option == o.option; }
 };
 
-// What the board should send.
-enum class RoundCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss };
-
-struct RoundCommand {
-  RoundCmd cmd = RoundCmd::None;
-  char agent[12] = "", prompt[16] = "", key[8] = "";
-};
+// What the board should send (deck_cmd.h).
+using RoundCmd = DeckCmd;
+using RoundCommand = DeckCommand;
 
 struct RoundUi {
   RoundScreen screen = RoundScreen::Home;
@@ -288,13 +283,6 @@ static inline void roundTick(RoundUi& ui, const RoundLayout& L, const Fleet& f, 
     ui.page = fi >= 0 ? L.pageOf(f, fi) : 0;
     ui.lastTouchMs = ms - kRoundIdleMs;   // don't redo this every tick
   }
-}
-
-static inline RoundCommand commandFor(RoundCmd cmd, const Agent& a) {
-  RoundCommand c;
-  c.cmd = cmd;
-  snprintf(c.agent, sizeof c.agent, "%s", a.id);
-  return c;
 }
 
 // A tap on `h`.

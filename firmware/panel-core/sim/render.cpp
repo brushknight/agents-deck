@@ -8,10 +8,9 @@
 //
 // Writes PPM files: hero-<slot>.ppm (each agent as the hero), notice-*.ppm
 // (the full-screen states), poses.ppm (every pose of both species) and
-// hats.ppm (every hat). With the layout lcd4 or amoled18 it draws the grid
-// boards instead: grid.ppm, grid-page2.ppm, card.ppm (a running agent),
-// prompt.ppm (a waiting agent with its answers as buttons), prompt-view.ppm
-// (the same with scope view), question.ppm and the notices.
+// hats.ppm (every hat). With lcd4 or amoled18 it draws the square boards'
+// screens (home, scrolling or paging, cards, prompts, notices); with orbit or
+// dial the round boards'.
 // With orbit or dial it draws the round boards (sim/round_shots.h): home
 // with 3, 8 and 22 agents, a new waiter, the detail, the prompt and the
 // full-screen states. Build with -DPANEL_MAX_AGENTS=64 for those.
@@ -22,7 +21,7 @@
 #include <vector>
 
 #include "layout_147.h"
-#include "layout_grid.h"
+#include "layout_square.h"
 #include "fixture.h"
 #include "round_shots.h"
 
@@ -39,25 +38,36 @@ static void writePpm(const std::string& path, const Canvas& c) {
 
 static const char* const kDevice = "waveshare-lcd-147-a1b2c3";
 
-// The grid boards: every screen of one layout.
-static int renderGrid(const std::string& dir, const GridLayout& L, const char* device, DeckFleet& deck,
-                      uint32_t ms, int64_t now) {
-  const Theme T = deckTheme(L.trueBlack);
-  std::vector<uint16_t> buf(L.w * L.h);
-  Canvas c{buf.data(), L.w, L.h};
+// The square boards: every screen of one spec.
+static int renderSquare(const std::string& dir, const SquareSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
+                        int64_t now) {
+  const SquarePanel P(S);
+  std::vector<uint16_t> buf(S.w * S.h);
+  Canvas c{buf.data(), S.w, S.h};
   const Fleet& f = deck.fleet;
   PanelUi ui;
-  PanelInput in{&f, LinkState::Live, device, true, ms, now, &ui};
+  PanelInput in{&f, LinkState::Live, device, DeckScope::Admin, ms, now, &ui, 0};
   auto shot = [&](const char* name) {
-    drawPanel(c, L, T, in);
+    P.draw(c, in);
     writePpm(dir + "/" + name + ".ppm", c);
   };
-  shot("grid");
+  shot("home");
 
-  // A second page: one more agent beyond the first page's slots.
-  static DeckFleet more;
-  more = deck;
-  {
+  if (S.home == HomeKind::List) {
+    // Mid-scroll, the finger down: the position bar shows.
+    ui.scroll = 150;
+    ui.dragging = true;
+    shot("home-scrolling");
+    ui.dragging = false;
+    ui.scroll = 2 * rowPitch(S);
+    ui.settledMs = ms;
+    shot("home-settled");
+    ui.scroll = 0;
+    ui.settledMs = 0;
+  } else {
+    // A second page: one more agent beyond the first page's slots.
+    static DeckFleet more;
+    more = deck;
     Agent a = f.agents[0];
     snprintf(a.id, sizeof a.id, "p2more");
     snprintf(a.title, sizeof a.title, "release-notes");
@@ -66,38 +76,58 @@ static int renderGrid(const std::string& dir, const GridLayout& L, const char* d
     a.subagents = 0;
     deck_model_detail::upsert(more.fleet, a);
     more.fleet.total++;
+    in.fleet = &more.fleet;
+    ui.page = 1;
+    shot("home-page2");
+    ui.page = 0;
+    in.fleet = &f;
   }
-  in.fleet = &more.fleet;
-  ui.page = 1;
-  shot("grid-page2");
-  ui.page = 0;
-  shot("grid-page1-of-2");
-  in.fleet = &f;
 
-  auto open = [&](const char* id) { snprintf(ui.openId, sizeof ui.openId, "%s", id); };
-  open("k3f9a2");
+  auto open = [&](const char* id, Screen s) {
+    snprintf(ui.openId, sizeof ui.openId, "%s", id);
+    ui.screen = s;
+  };
+  open("k3f9a2", Screen::Card);
   shot("card");
-  open("h0m3l4");
-  shot("prompt");
-  in.act = false;
-  shot("prompt-view");
-  in.act = true;
-  open("4uthfl");
-  shot("question");
-  open("1nfr4t");
+  ui.down = true;                                  // stop held half way
+  ui.pressed = PanelHit{Hit::Stop, findAgent(f, "k3f9a2"), -1};
+  ui.downMs = ms - 500;
+  shot("card-stop-held");
+  ui.down = false;
+  ui.pressed = PanelHit();
+  in.scope = DeckScope::Act;
+  open("scr4tc", Screen::Card);
+  shot("card-idle-act");
+  in.scope = DeckScope::View;
+  open("k3f9a2", Screen::Card);
+  shot("card-view");
+  in.scope = DeckScope::Admin;
+  open("1nfr4t", Screen::Card);
   shot("card-error");
+  open("h0m3l4", Screen::Prompt);
+  shot("permission");
+  ui.pressed = PanelHit{Hit::Option, findAgent(f, "h0m3l4"), 0};
+  shot("permission-pressed");
+  ui.pressed = PanelHit();
+  open("4uthfl", Screen::Prompt);
+  shot("question");
+  ui.pressed = PanelHit{Hit::Option, findAgent(f, "4uthfl"), 1};
+  shot("question-pressed");
+  ui.pressed = PanelHit();
+  ui.screen = Screen::Home;
   ui.openId[0] = '\0';
-  uiToast(ui, "answered", ms);
+  uiToast(ui, "sent", ms);
   shot("toast");
   ui.toast[0] = '\0';
 
   in.link = LinkState::Lost;
-  shot("offline");
+  shot("home-offline");
   static Fleet empty;
   snprintf(empty.server, sizeof empty.server, "workstation");
+  in.silentSec = 120;
   const struct { const char* name; LinkState link; const Fleet* f; } kNotices[] = {
-      {"notice-connecting", LinkState::Connecting, nullptr}, {"notice-unapproved", LinkState::Unapproved, nullptr},
-      {"notice-noagents", LinkState::Live, &empty},           {"notice-offline", LinkState::Lost, nullptr},
+      {"connecting", LinkState::Connecting, nullptr}, {"not-approved", LinkState::Unapproved, nullptr},
+      {"no-agents", LinkState::Live, &empty},           {"offline", LinkState::Lost, nullptr},
   };
   for (const auto& n : kNotices) {
     in.link = n.link;
@@ -125,8 +155,8 @@ int main(int argc, char** argv) {
   // on so the ages are not all "0s" and nobody is still celebrating.
   const int64_t now = (fleet.serverTime ? fleet.serverTime : 1791421323) + 754;
   const std::string layout = argc > 4 ? argv[4] : "147";
-  if (layout == "lcd4") return renderGrid(dir, layoutLcd4(), "waveshare-touch-lcd-4-2a5390", deck, ms, now);
-  if (layout == "amoled18") return renderGrid(dir, layoutAmoled18(), "waveshare-touch-amoled-18-fea2ac", deck, ms, now);
+  if (layout == "lcd4") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
+  if (layout == "amoled18") return renderSquare(dir, specAmoled18(), "waveshare-touch-amol-fea2ac", deck, ms, now);
   if (layout == "orbit") {
     static const OrbitPanel orbit(layoutOrbit28());
     return round_shots::render(dir, orbit, "waveshare-touch-lcd-28c-3c71bf", fleet, ms, now);

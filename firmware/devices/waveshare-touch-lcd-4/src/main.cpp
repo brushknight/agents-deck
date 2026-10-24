@@ -15,7 +15,7 @@
 #include <esp32s3/rom/cache.h>
 
 #include "grid_app.h"
-#include "layout_grid.h"
+#include "layout_square.h"
 
 #define FW_VERSION "0.1.0"
 
@@ -192,7 +192,7 @@ static void brightness(uint8_t level) {
 void setup() {
   GridBoard b{};
   b.type = "waveshare-touch-lcd-4";
-  static const GridPanel layout(layoutLcd4());
+  static const SquarePanel layout(specLcd4());
   b.layout = &layout;
   b.begin = boardBegin;
   b.push = push;

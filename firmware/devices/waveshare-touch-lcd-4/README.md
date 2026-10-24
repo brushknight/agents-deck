@@ -4,28 +4,37 @@ The deck's 4×4 board on a [Waveshare ESP32-S3-Touch-LCD-4](https://www.waveshar
 (480×480 ST7701 LCD, GT911 touch), over USB with [Deck Link](../../../docs/link/protocol.md). It looks
 like the desk panel and the web board.
 
-| grid | card | prompt | approval |
-|---|---|---|---|
-| <img src="docs/grid.png" width="200" alt="the 4x4 grid"> | <img src="docs/card.png" width="200" alt="a running agent's card"> | <img src="docs/prompt.png" width="200" alt="a permission prompt with its answers as buttons"> | <img src="docs/notice-unapproved.png" width="200" alt="waiting for approval"> |
+| grid | card | permission | question | approval |
+|---|---|---|---|---|
+| <img src="docs/home.png" width="180" alt="the 4x4 grid"> | <img src="docs/card.png" width="180" alt="an agent's card"> | <img src="docs/permission.png" width="180" alt="a permission prompt"> | <img src="docs/question.png" width="180" alt="a question with its options"> | <img src="docs/not-approved.png" width="180" alt="waiting for approval"> |
 
-(Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`.)
+(Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`.
+Every screen is in `docs/`.)
 
-- **Grid.** One tile per slot, 16 per page, as on the deck:
-  - Each tile has the critter with its pose and hat, the title, and a status line.
-  - An orange tile needs you. Orange stripes mean a turn finished that you haven't looked at. A dim tile is idle.
+- **Grid.** One tile per slot, 16 per page, as on the deck.
+  - Each tile shows the critter with its pose and hat, the title and a status line.
+  - An orange tile needs you. Orange stripes mean a turn finished that you haven't looked at. A dim
+    tile is idle.
   - The border fills with the agent's context use.
-  - The small square in the corner is the tool. A small critter top left means subagents are working.
+  - The small square is the tool, and a small critter means subagents are working. Both keep to a band
+    above the critter, clear of the name.
 - **Pages.** Swipe left and right, or tap a page bar. Another page's bar turns orange when an agent
-  there needs you. BOOT also goes to the next page.
-- **Card.** Tap a tile. The card shows status, model, what the agent is doing, context, turns and
-  cost. Tap **‹ back**, swipe right or press BOOT to return.
-- **Prompts.** A waiting agent's card shows the question and its answers. With scope `act` they are
-  buttons: a tap sends the answer, and the card closes when the deck confirms. With scope `view` the
-  answers are listed and the card says how to allow answering.
-- **Other screens:**
-  - `connecting` until the deck answers;
-  - `waiting for approval`, with the command to run and the board's name;
-  - `deck offline` after 15 s of silence.
+  there needs you. On the grid, BOOT goes to the next page.
+- **Card.** Tap a tile. The card shows:
+  - the critter, the name and the status pill;
+  - what the agent is doing now;
+  - context with the dotted bar;
+  - tokens, cost and turns;
+  - the last prompt.
+
+  Round buttons at the bottom: **focus**, **interrupt** (while running), and **stop**, which you hold
+  for 1 s. Focus and interrupt need scope `act`; stop needs `admin`.
+- **Prompts.** A waiting agent opens its prompt: a one-line header, the whole question, the command and
+  where it runs (for permissions), and the answers with their hint lines. A permission is the orange
+  card; a question is dark with an orange border. Answering needs scope `act`.
+- **Back.** Swipe right, or press BOOT.
+- **Other screens.** Waiting for approval (with the command and the board's name), connecting, deck
+  offline (`deck offline · retrying` over the grid once it has a fleet), no agents.
 - **Backlight.** Dims when every agent is idle and nobody has touched the screen for 30 s.
 
 ## Connect it
@@ -34,7 +43,7 @@ like the desk panel and the web board.
 pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload --upload-port /dev/cu.usbmodem<…>
 agentctl link add /dev/cu.usbmodem<…>
 agentctl devices approve waveshare-touch-lcd-4-<id>      # the screen shows the name
-agentctl devices scope waveshare-touch-lcd-4-<id> act    # to answer prompts from the panel
+agentctl devices scope waveshare-touch-lcd-4-<id> act    # answer, focus, interrupt; admin to stop
 ```
 
 It subscribes to every agent with all fields (`TILE | CARD | PROMPT | NUMBERS`) and keeps up to 64 in
@@ -58,10 +67,10 @@ touch by 180°. The backlight PWM on the CH32V003 is inverted (0 is brightest), 
 V1–V3 boards can only switch the backlight on and off.
 
 `pio run -e debug` builds the same firmware with one-line notes on the USB port (which expander and
-touch it found, frame time, memory); the deck ignores them.
+touch it found, frame time, Deck Link rx / bad / overflow counters, memory); the deck ignores them.
 
 ## Code
 
 `src/main.cpp` is only the board: display, touch, expander, backlight. The layout, the touch UI and
 Deck Link are shared with the other panels in [`firmware/panel-core`](../../panel-core)
-(`layout_grid.h`, `layoutLcd4()`).
+(`layout_square.h`, `specLcd4()`).
