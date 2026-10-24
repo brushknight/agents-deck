@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "layout_147.h"
+#include "layout_big.h"
 #include "layout_square.h"
 #include "fixture.h"
 #include "round_shots.h"
@@ -137,6 +138,84 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
   return 0;
 }
 
+// The big panels: every screen at one scale.
+static int renderBig(const std::string& dir, const BigSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
+                     int64_t now) {
+  const BigPanel P(S);
+  std::vector<uint16_t> buf(S.w * S.h);
+  Canvas c{buf.data(), S.w, S.h};
+  const Fleet& f = deck.fleet;
+  PanelUi ui;
+  PanelInput in{&f, LinkState::Live, device, DeckScope::Admin, ms, now, &ui, 0};
+  auto shot = [&](const char* name) {
+    P.draw(c, in);
+    writePpm(dir + "/" + name + ".ppm", c);
+  };
+  shot("home");
+  {
+    static DeckFleet more;
+    more = deck;
+    Agent a = f.agents[0];
+    snprintf(a.id, sizeof a.id, "p2more");
+    snprintf(a.title, sizeof a.title, "release-notes");
+    a.slot = 17;
+    a.status = Status::Waiting;
+    a.subagents = 0;
+    deck_model_detail::upsert(more.fleet, a);
+    more.fleet.total++;
+    in.fleet = &more.fleet;
+    shot("home-paged");
+    ui.page = 1;
+    shot("home-page2");
+    ui.page = 0;
+    in.fleet = &f;
+  }
+  auto open = [&](const char* id) { bigOpen(ui, f, findAgent(f, id)); };
+  open("k3f9a2");
+  shot("card");
+  ui.pressed = PanelHit{Hit::Focus, findAgent(f, "k3f9a2"), -1};
+  shot("card-focus-pressed");
+  ui.pressed = PanelHit();
+  open("scr4tc");
+  shot("card-idle");
+  ui.stopArmedUntil = ms + 2000;
+  shot("card-stop-armed");
+  in.scope = DeckScope::Act;
+  open("scr4tc");
+  shot("card-idle-act");
+  in.scope = DeckScope::View;
+  open("k3f9a2");
+  shot("card-view");
+  in.scope = DeckScope::Admin;
+  open("1nfr4t");
+  shot("card-error");
+  open("h0m3l4");
+  shot("permission");
+  open("4uthfl");
+  shot("question");
+  ui.selected = 1;
+  shot("question-selected");
+  bigHome(ui);
+  uiToast(ui, "sent", ms);
+  shot("toast");
+  ui.toast[0] = '\0';
+  in.link = LinkState::Lost;
+  shot("home-offline");
+  static Fleet empty;
+  snprintf(empty.server, sizeof empty.server, "workstation");
+  in.silentSec = 120;
+  const struct { const char* name; LinkState link; const Fleet* f; } kNotices[] = {
+      {"connecting", LinkState::Connecting, nullptr}, {"not-approved", LinkState::Unapproved, nullptr},
+      {"no-agents", LinkState::Live, &empty},           {"offline", LinkState::Lost, nullptr},
+  };
+  for (const auto& n : kNotices) {
+    in.link = n.link;
+    in.fleet = n.f;
+    shot(n.name);
+  }
+  return 0;
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "usage: render <state.json> <outdir> [ms]\n");
@@ -155,7 +234,8 @@ int main(int argc, char** argv) {
   // on so the ages are not all "0s" and nobody is still celebrating.
   const int64_t now = (fleet.serverTime ? fleet.serverTime : 1791421323) + 754;
   const std::string layout = argc > 4 ? argv[4] : "147";
-  if (layout == "lcd4") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
+  if (layout == "lcd4") return renderBig(dir, specBig480(), "waveshare-touch-lcd-2a5390", deck, ms, now);
+  if (layout == "lcd4-small") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
   if (layout == "amoled18") return renderSquare(dir, specAmoled18(), "waveshare-touch-amol-fea2ac", deck, ms, now);
   if (layout == "orbit") {
     static const OrbitPanel orbit(layoutOrbit28());

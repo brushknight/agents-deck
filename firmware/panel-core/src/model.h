@@ -70,6 +70,7 @@ struct Agent {
   char errMsg[56];
   char lastPrompt[PANEL_LAST_PROMPT];   // CARD: the last prompt the agent was given
   uint64_t tokensOut;       // NUMBERS: output tokens
+  uint64_t cacheRead;       // NUMBERS: cache-read tokens
   uint32_t ctxUsed, ctxWindow;
   float costUsd;
   uint16_t turns;
@@ -84,7 +85,7 @@ struct Agent {
   char folder[32];
   char branch[32];
   char promptId[16];        // Agent.waiting.id, sent back in Answer
-  char promptCtx[32];       // Prompt.context, e.g. "bash · ~/dev/infra"
+  char promptCtx[96];       // Prompt.context, e.g. "bash · ~/dev/infra"
   uint8_t optCount;
   Option opts[kMaxOptions];
 };

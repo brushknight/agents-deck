@@ -6,7 +6,7 @@ set -eu
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
 mkdir -p out
-c++ -std=c++17 -O2 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 \
+c++ -std=c++17 -O2 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 -DPANEL_LAST_PROMPT=160 \
   sim/render.cpp -o out/render
 for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18; do
   layout=${spec%%:*}

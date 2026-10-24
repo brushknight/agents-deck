@@ -81,6 +81,7 @@ static void send(const DeckCommand& c) {
     case DeckCmd::Focus:     ui.cmdSeq = deck.focus(c.agent); break;
     case DeckCmd::Interrupt: ui.cmdSeq = deck.interrupt(c.agent); break;
     case DeckCmd::Dismiss:   ui.cmdSeq = deck.dismiss(c.agent); break;
+    case DeckCmd::Resume:    ui.cmdSeq = deck.resume(c.agent); break;
     default: return;
   }
   PANEL_LOG("command %d for %s, seq %u", (int)c.cmd, c.agent, (unsigned)ui.cmdSeq);

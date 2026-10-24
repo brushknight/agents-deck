@@ -102,12 +102,6 @@ static inline SquareSpec specLcd4() {
   return s;
 }
 
-struct Rect {
-  int x, y, w, h;
-  bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
-  bool intersects(const Rect& o) const { return x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h; }
-};
-
 // ---------------------------------------------------------------- the home: grid (4")
 
 static inline int perPage(const SquareSpec& S) { return S.cols * S.rows; }

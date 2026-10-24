@@ -78,6 +78,7 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   copyLine(a.effort, sizeof a.effort, in.effort);
   copyLine(a.lastPrompt, sizeof a.lastPrompt, in.last_prompt);
   a.tokensOut = in.has_tokens && in.tokens.output > 0 ? (uint64_t)in.tokens.output : 0;
+  a.cacheRead = in.has_tokens && in.tokens.cache_read > 0 ? (uint64_t)in.tokens.cache_read : 0;
   if (in.has_activity) {
     copyLine(a.actTool, sizeof a.actTool, in.activity.tool);
     copyLine(a.actDetail, sizeof a.actDetail, in.activity.detail);

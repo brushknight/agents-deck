@@ -201,6 +201,7 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
   a.has_tokens = true;
   a.tokens.input = (int64_t)j["tokens"]["input"].num();
   a.tokens.output = (int64_t)j["tokens"]["output"].num();
+  a.tokens.cache_read = (int64_t)j["tokens"]["cacheRead"].num();
   a.has_context = true;
   a.context.used = (int64_t)j["context"]["used"].num();
   a.context.window = (int64_t)j["context"]["window"].num();
