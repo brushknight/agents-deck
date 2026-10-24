@@ -20,6 +20,7 @@
 #define FW_VERSION "0.1.0"
 
 // ---------------------------------------------------------------- pins
+constexpr int kW = 480, kH = 480;
 constexpr int PIN_SDA = 15, PIN_SCL = 7, PIN_BOOT = 0;
 constexpr uint8_t ADDR_EXPANDER = 0x24;        // CH32V003 (board V4); V1-V3 have a TCA9554 at 0x20
 constexpr uint8_t ADDR_TCA9554 = 0x20;
@@ -147,6 +148,14 @@ static bool touchRead(int& x, int& y) {
   return lastDown;
 }
 
+// Touch in frame pixels: turned 180 degrees like the image.
+static bool touch(int& x, int& y) {
+  if (!touchRead(x, y)) return false;
+  x = kW - 1 - x;
+  y = kH - 1 - y;
+  return true;
+}
+
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
@@ -158,11 +167,19 @@ static bool boardBegin() {
   return panelFb != nullptr;
 }
 
-// One frame into the panel's own framebuffer (PSRAM), then out of the cache.
+// The panel is mounted upside down relative to its scan order: the board
+// is upright with the image turned 180 degrees, i.e. the frame reversed.
+// The touch reports in the panel's own orientation, so it turns the same way.
+// One frame into the panel's own framebuffer (PSRAM), turned, then out of the cache.
 static void push(const uint16_t* src) {
   if (!panelFb) return;
-  memcpy(panelFb, src, 480 * 480 * 2);
-  Cache_WriteBack_Addr((uint32_t)panelFb, 480 * 480 * 2);
+  const uint32_t* in = (const uint32_t*)src;
+  uint32_t* out = (uint32_t*)panelFb + kW * kH / 2 - 1;
+  for (int i = 0; i < kW * kH / 2; i++, out--) {
+    const uint32_t two = in[i];
+    *out = two >> 16 | two << 16;                // two pixels at a time, swapped
+  }
+  Cache_WriteBack_Addr((uint32_t)panelFb, kW * kH * 2);
 }
 
 // Backlight: the CH32V003's PWM, inverted (0 is brightest, as in the BSP);
@@ -179,7 +196,7 @@ void setup() {
   b.layout = &layout;
   b.begin = boardBegin;
   b.push = push;
-  b.touch = touchRead;
+  b.touch = touch;
   b.brightness = brightness;
   b.bootPin = PIN_BOOT;
   b.brightActive = 255;
