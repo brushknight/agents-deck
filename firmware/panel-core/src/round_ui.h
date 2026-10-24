@@ -342,6 +342,11 @@ static inline float barExtent(const DetailStyle& S, int n) {
 
 constexpr uint32_t kRowAnimMs = 250;
 
+// The name keeps 10 px clear of the context bar's inner edge on either side.
+static inline int detailTitleWidth(const DetailStyle& S) {
+  return fitWidth(*S.titleFont, S.titleBase, (int)(240 - (S.ringR - S.ringW / 2)) + 10);
+}
+
 // Keeps the row's animation state current: call before drawing with what the
 // detail shows. A new agent starts without animation; a change of buttons
 // eases from the old row to the new over kRowAnimMs.
@@ -437,7 +442,7 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   const int s = S.critterScale;
   if (waiting) fillDisc(c, 240, S.critterCy, 12.f * s, T.t.accent);
   agentCritter(c, a, 240, S.critterCy, s, bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms, in.nowEpoch, !waiting);
-  textOn(c, *S.titleFont, 240, S.titleBase, a.title[0] ? a.title : a.id, T.t.ink);
+  textOn(c, *S.titleFont, 240, S.titleBase, a.title[0] ? a.title : a.id, T.t.ink, detailTitleWidth(S));
   roundStateLine(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status == Status::Running || waiting || a.status == Status::Error || hungry(a);
   textOn(c, *S.statusFont, 240, S.statusBase, buf, loud ? T.t.accent : T.t.dim);

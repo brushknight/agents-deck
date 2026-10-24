@@ -614,6 +614,11 @@ static void testBack() {
     // The critter clears the bar, and the text clears the critter.
     assert(S.critterCy - 11 * S.critterScale > 240 - (S.ringR - S.ringW / 2) + 4);
     assert(S.titleBase - fontAscent(*S.titleFont) > S.critterCy + 6 * S.critterScale);
+    // The name stays 10 px inside the context bar on both sides.
+    const float inner = S.ringR - S.ringW / 2;
+    const float half = detailTitleWidth(S) / 2.f;
+    const float top = S.titleBase - 0.74f * (S.titleFont->cellW / 0.6f);   // the capitals' top
+    assert(sqrtf(half * half + (240 - top) * (240 - top)) <= inner - 10 + 0.5f);
   }
 }
 
@@ -648,6 +653,17 @@ static void testSlider() {
   assert(!strcmp(f.agents[roundFeatured(ui, f)].id, "a05"));
   tap(ui, kDial, f, 240, 240, ms);
   assert(ui.screen == RoundScreen::Detail);
+  // The dots (twice the detail's) stay inside the glass, under the critter's hat; the bar sits at the centre.
+  for (int n : {1, 3, 8, 16, 22, 64})
+    for (int i = 0; i < n; i++) {
+      const RPoint d = dial_detail::dot(i, n);
+      const float r = dial_detail::homeDotRadius(n, true) + 5 + 3;   // with the selection ring
+      assert(sqrtf((float)(d.x - 240) * (d.x - 240) + (float)(d.y - 240) * (d.y - 240)) + r <= 240);
+    }
+  assert(dial_detail::kDialBarY == 240);
+  assert(dial_detail::kDialCritterCy + 6 * dial_detail::kDialCritterScale < dial_detail::kDialBarY - 8);
+  assert(dial_detail::kDialCritterCy - 11 * dial_detail::kDialCritterScale > 240 - 212 + 16 + 8);
+  assert(dial_detail::kDialNameBase - fontAscent(FONT_R35) > dial_detail::kDialBarY + 8);
   // The orbit's rim is no slider.
   RoundUi uo;
   roundSync(uo, kOrbit, f, ms);
