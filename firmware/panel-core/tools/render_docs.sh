@@ -20,7 +20,7 @@ for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18; do
   done
   echo "$docs"
 done
-for spec in orbit:waveshare-touch-lcd-28c dial:waveshare-touch-lcd-21; do
+for spec in spring28:waveshare-touch-lcd-28c spring:waveshare-touch-lcd-21; do
   layout=${spec%%:*}
   docs=../devices/${spec#*:}/docs
   rm -rf "out/$layout" && mkdir -p "out/$layout" "$docs"
@@ -31,6 +31,9 @@ for spec in orbit:waveshare-touch-lcd-28c dial:waveshare-touch-lcd-21; do
   "$PY" tools/ppm2png.py "$docs/screens.png" out/$layout/home-3.ppm out/$layout/home-8.ppm out/$layout/home-22.ppm \
     out/$layout/waiting.ppm out/$layout/detail.ppm out/$layout/prompt.ppm out/$layout/not-approved.ppm \
     out/$layout/offline.ppm --cols 4 --gap 8 >/dev/null
+  # The spring turning one step clockwise: frames 0, 2, 4, 7 and 9 of 9.
+  "$PY" tools/ppm2png.py "$docs/turning.png" out/$layout/spring-right-f0.ppm out/$layout/spring-right-f2.ppm \
+    out/$layout/spring-right-f4.ppm out/$layout/spring-right-f7.ppm out/$layout/spring-right-f9.ppm --cols 5 --gap 8 >/dev/null
   echo "$docs"
 done
 for spec in selftest28:waveshare-touch-lcd-28c selftest21:waveshare-touch-lcd-21; do

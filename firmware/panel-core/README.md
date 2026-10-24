@@ -32,7 +32,8 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |
 | `src/round_view.h` | the round boards' screens and touch: home, detail, prompt, featured agent, timeout (`RoundLayout`) |
 | `src/round_ui.h`, `src/font_round.h` | what Orbit and Dial share: notices, the detail, the prompt; 30 and 35 px fonts (`tools/make_font_round.py`) |
-| `src/layout_orbit.h`, `src/layout_dial.h` | the round layouts (`OrbitPanel`, `DialPanel`) |
+| `src/layout_spring.h`, `src/spring.h` | the round boards' home, the spring carousel (`SpringPanel`; `layoutSpring21()`, `layoutSpring28()`), drawn in strips |
+| `src/layout_orbit.h`, `src/layout_dial.h` | the earlier round homes (`OrbitPanel`, `DialPanel`), behind `ROUND_ORBIT_CLASSIC` / `ROUND_DIAL_CLASSIC` |
 | `src/round_app.h` | the firmware of a round board minus its drivers (Arduino) |
 | `sim/` | `render.cpp` (every screen of a layout to PPM), `panel_sim.cpp`, `fixture.h` (host only) |
 | `tests/run.sh` | the host tests, with ASan and UBSan |

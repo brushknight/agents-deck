@@ -1,7 +1,7 @@
-# waveshare-touch-lcd-28c: Orbit, the deck on a round 2.8″ screen
+# waveshare-touch-lcd-28c: the deck on a round 2.8″ screen
 
 Firmware for the [Waveshare ESP32-S3-Touch-LCD-2.8C](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8C):
-the whole fleet on a ring, the agent that matters in the middle. It plugs into the Mac over USB and
+the agents on a spring, one turn of nine round the selected one. It plugs into the Mac over USB and
 talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ![screens](docs/screens.png)
@@ -18,16 +18,24 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ## What the screen shows
 
-- **Home, the orbit.** Every agent is a critter on a ring near the edge, in deck slot order. Under
-  each one, the rim shows its status: a thin orange arc while it works, is hungry or has failed; a
-  thick orange bar when it needs you; grey when idle. The middle holds the agent that matters most:
-  the one waiting longest, then hungry, then failed, then the busiest. It is circled on the ring
-  too.
-- **Someone waits.** The rim gets an orange halo, the waiter sits on an orange disc, and the middle
-  shows its question with "tap to answer". A newly waiting agent wakes the screen to home with it in
-  the middle. It never opens the prompt by itself, so a stray touch can't answer.
-- **More than 16 agents.** The ring shows 15 and a "+N" chip. Drag round the rim, or tap the chip,
-  to page.
+- **Home, the spring.** The agents sit on a spring, in deck slot order, and the screen shows one
+  turn of it: the selected agent large at 12 o'clock under a small pointer, the next 8 clockwise
+  round the ring (×3; the selected one ×5). The middle is the selected agent: its name, a
+  phrase ("one moment…" while it thinks, "on it…" while it works, its question when it waits, "done ·
+  your turn" when it finished and you haven't looked, "resting", "hit an error"), its state and age,
+  and its context bar. Turning the ring one step brings the next agent up from under the pointer and
+  sends the last one on the turn down under it; after the last agent comes the first again.
+  - A waiting agent has a solid orange ring round it; a finished one you haven't seen, a dashed one.
+    Working critters move; idle ones are grey.
+  - Up to 9 agents the ring is a closed loop, spread evenly, and nothing goes under the pointer.
+  - More than 9: a short row of dots at 6 o'clock, one per agent. The ones on screen are white,
+    the selected one larger, waiting ones orange.
+  - Someone waits where you can't see them: an orange arc on the rim points to the side to pull up.
+    Leave the board alone for 10 s and the ring turns to them by itself. It never opens the prompt
+    by itself, so a stray touch can't answer.
+
+  The screen starts on the agent that matters most: the one waiting longest, then hungry, then
+  failed, then the busiest.
 - **Detail.** The context bar runs over the top, from 8 to 4 o'clock. Below it: the critter, the
   name, status and age, model and effort, and what the agent is doing. Round buttons on the bottom
   arc: focus (brings its terminal to the front), interrupt (only while it runs), and stop (orange:
@@ -39,17 +47,22 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
   (with when it was last heard); no agents.
 - **Backlight**: dims after 2 minutes with nothing going on.
 
-| home, 3 agents | 8, two waiting | 22, paged | detail | prompt | waiting for approval |
+| home, 3 agents | 8, two waiting | 22 | detail | prompt | waiting for approval |
 |---|---|---|---|---|---|
 | ![](docs/home-3.png) | ![](docs/home-8.png) | ![](docs/home-22.png) | ![](docs/detail.png) | ![](docs/prompt.png) | ![](docs/not-approved.png) |
+
+One step clockwise, 300 ms (frames 0, 2, 4, 7 and 9 of 9):
+
+![turning](docs/turning.png)
 
 ## Gestures
 
 | where | gesture | does |
 |---|---|---|
-| home | tap a critter | its detail |
-| home | tap the middle | the featured agent's prompt when it waits, else its detail |
-| home | drag round the rim, or tap "+N" | the next page of the ring (more than 16 agents) |
+| home | drag a finger round the ring | the ring follows it, one agent per 40°, and settles on the nearest when you let go; flick it and it keeps turning (at most one turn) |
+| home | swipe left / right across the middle | the next / previous agent |
+| home | tap an agent on the ring | turns it to the top, the short way |
+| home | tap the selected agent or the middle | its prompt when it waits, else its detail |
 | detail | swipe left / right | the next / previous agent in slot order |
 | detail | tap the middle (when it waits) | its prompt |
 | detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
@@ -170,7 +183,8 @@ The panel's init sequence is Waveshare's, byte for byte (`src/main.cpp`).
 
 ## Tests and the host renderer
 
-- The layout is `panel-core/src/layout_orbit.h`.
+- The home is `panel-core/src/layout_spring.h` (`layoutSpring28()`), its geometry and motion
+  `spring.h`. Build with `-DROUND_ORBIT_CLASSIC` for the earlier Orbit home (`layout_orbit.h`).
 - The detail, prompt and notices it shares with the 2.1″ Dial are in `round_ui.h`.
 - The state machine is in `round_view.h`.
 - `sim/round_sim.cpp` runs it all against a deck over stdin and stdout; the Go test

@@ -1,7 +1,7 @@
-# waveshare-touch-lcd-21: Dial, the deck on a round 2.1″ screen
+# waveshare-touch-lcd-21: the deck on a round 2.1″ screen
 
 Firmware for the [Waveshare ESP32-S3-Touch-LCD-2.1](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.1):
-one agent at a time, the whole fleet as dots round it. It plugs into the Mac over USB and
+the agents on a spring, one turn of seven round the selected one. It plugs into the Mac over USB and
 talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ![screens](docs/screens.png)
@@ -18,18 +18,24 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ## What the screen shows
 
-- **Home, the dial**: the orbit, reduced. One agent fills the face with its critter, name, status
-  and age, and what it is doing. Every agent is a dot on an inner ring:
-  - orange: working, hungry or failed;
-  - a bigger orange dot: waiting;
-  - grey: idle.
+- **Home, the spring.** The agents sit on a spring, in deck slot order, and the screen shows one
+  turn of it: the selected agent large at 12 o'clock under a small pointer, the next 6 clockwise
+  round the ring (×4; the selected one ×6). The middle is the selected agent: its name, a
+  phrase ("one moment…" while it thinks, "on it…" while it works, its question when it waits, "done ·
+  your turn" when it finished and you haven't looked, "resting", "hit an error"), its state and age,
+  and its context bar. Turning the ring one step brings the next agent up from under the pointer and
+  sends the last one on the turn down under it; after the last agent comes the first again.
+  - A waiting agent has a solid orange ring round it; a finished one you haven't seen, a dashed one.
+    Working critters move; idle ones are grey.
+  - Up to 7 agents the ring is a closed loop, spread evenly, and nothing goes under the pointer.
+  - More than 7: a short row of dots at 6 o'clock, one per agent. The ones on screen are white,
+    the selected one larger, waiting ones orange.
+  - Someone waits where you can't see them: an orange arc on the rim points to the side to pull up.
+    Leave the board alone for 10 s and the ring turns to them by itself. It never opens the prompt
+    by itself, so a stray touch can't answer.
 
-  The shown agent's dot is circled, with "‹ 2 / 8 ›" under the face. The outer ring is the shown
-  agent's context use. The dial starts on the agent that matters most: the one waiting longest, then
-  hungry, then failed, then the busiest.
-- **Someone waits.** The dial jumps to it and the whole face turns orange, like the deck's
-  needs-you tile, with its question and "tap to answer". It never opens the prompt by itself, so a
-  stray touch can't answer.
+  The screen starts on the agent that matters most: the one waiting longest, then hungry, then
+  failed, then the busiest.
 - **Detail.** The context bar runs over the top (three fifths of the circle, leaving room for the
   buttons), with the fleet's dots inside it. Below it: the critter, the name, status and age, and
   what the agent is doing. Round buttons on the bottom
@@ -46,20 +52,25 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 |---|---|---|---|---|---|
 | ![](docs/home-3.png) | ![](docs/home-8.png) | ![](docs/home-22.png) | ![](docs/detail.png) | ![](docs/prompt.png) | ![](docs/not-approved.png) |
 
+One step clockwise, 300 ms (frames 0, 2, 4, 7 and 9 of 9):
+
+![turning](docs/turning.png)
+
 ## Gestures
 
 | where | gesture | does |
 |---|---|---|
-| home | slide a finger round the outer ring | the agent under the finger, live; it stays when you let go |
-| home | swipe left / right | the next / previous agent |
-| home | tap the middle | the shown agent's prompt when it waits, else its detail |
+| home | drag a finger round the ring | the ring follows it, one agent per 51°, and settles on the nearest when you let go; flick it and it keeps turning (at most one turn) |
+| home | swipe left / right across the middle | the next / previous agent |
+| home | tap an agent on the ring | turns it to the top, the short way |
+| home | tap the selected agent or the middle | its prompt when it waits, else its detail |
 | detail | swipe left / right | the next / previous agent in slot order |
 | detail | tap the middle (when it waits) | its prompt |
 | detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
 | prompt | tap a pill | answers; swipe up / down scrolls a long list |
 | detail, prompt | swipe down, or tap "×" (the detail's bottom row, the prompt's top) | back |
 | detail | tap the big critter | home |
-| anywhere | 30 s untouched, or the BOOT button | home, on the agent that matters most |
+| anywhere | 30 s untouched, or the BOOT button | home |
 
 ## Scope
 
@@ -82,6 +93,7 @@ You need [PlatformIO](https://platformio.org/). From the repository's root:
 | `idf5` | the firmware on arduino-esp32 3.x with an RGB bounce buffer: the fallback if the picture drifts | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5 -t upload` |
 | `idf5-debug` | `idf5` with the debug lines | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5-debug -t upload` |
 | `idf5-selftest` | the self-test on that platform | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5-selftest -t upload` |
+| `idf5-bench` | without Deck Link: a made-up fleet on the spring, turned by itself, with the frame times on the USB port (`pio device monitor`) | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5-bench -t upload` |
 
 The `idf5` project keeps its platform in `~/.platformio-pioarduino`. pioarduino and PlatformIO's own
 ESP32 platform clash in one PlatformIO home. Its first build downloads about 1 GB.
@@ -172,8 +184,9 @@ The panel's init sequence is Waveshare's, byte for byte (`src/main.cpp`).
 
 ## Tests and the host renderer
 
-- The layout is `panel-core/src/layout_dial.h`.
-- The detail, prompt and notices it shares with the 2.8″ Orbit are in `round_ui.h`.
+- The home is `panel-core/src/layout_spring.h` (`layoutSpring21()`), its geometry and motion
+  `spring.h`. Build with `-DROUND_DIAL_CLASSIC` for the earlier Dial home (`layout_dial.h`).
+- The detail, prompt and notices it shares with the 2.8″ are in `round_ui.h`.
 - The state machine is in `round_view.h`.
 - `sim/round_sim.cpp` runs it all against a deck over stdin and stdout; the Go test
   `backend/internal/link/round_test.go` does that with the real deck code.
