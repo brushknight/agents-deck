@@ -264,8 +264,8 @@ static inline DetailStyle detailOrbit() {
   DetailStyle s{};
   s.ringR = 226; s.ringW = 14; s.arcStart = 240; s.arcSweep = 240;
   s.dots = false; s.dotsR = 0;
-  s.ctxLabelBase = 58;
-  s.critterScale = 5; s.critterCy = 122;
+  s.ctxLabelBase = 0;   // the share shows on the model line; the back button has the top
+  s.critterScale = 5; s.critterCy = 132;
   s.titleFont = &FONT_R35; s.titleBase = 212;
   s.statusFont = &FONT_XXL; s.statusBase = 246;
   s.modelBase = 278; s.activityBase = 310;
@@ -321,11 +321,35 @@ static inline void drawButton(Canvas& c, const RoundTheme& T, const DetailStyle&
   iconButton(c, b.x, b.y, S.btnR, k, pressed, holdPermille, T.t.bg, T.t.ink, T.t.accent, T.idle);
 }
 
+// The back button of the detail and the prompt: a round "×" under the top
+// edge, with a bigger hit circle. (Swipe down and the BOOT button go back too.)
+constexpr int kBackX = 240, kBackY = 50, kBackR = 24, kBackHit = 36;
+
+namespace round_detail {
+static const char* const kIconBack[] = {"#.....#", ".#...#.", "..#.#..", "...#...", "..#.#..", ".#...#.", "#.....#"};
+}  // namespace round_detail
+
+static inline void drawBackButton(Canvas& c, const RoundTheme& T, bool pressed) {
+  fillDisc(c, kBackX, kBackY, kBackR, pressed ? T.t.ink : T.t.bg);
+  if (!pressed) strokeCircle(c, kBackX, kBackY, kBackR - 1.5f, 3, T.t.ink);
+  const uint16_t col = pressed ? T.t.bg : T.t.ink;
+  for (int r = 0; r < 7; r++)
+    for (int k = 0; k < 7; k++)
+      if (round_detail::kIconBack[r][k] == '#') c.rect(kBackX - 10 + k * 3, kBackY - 10 + r * 3, 3, 3, col);
+}
+
+static inline bool backHit(int x, int y) { return inCircle(kBackX, kBackY, kBackHit, x, y); }
+
 // Where agent i of n sits on the detail's arc of dots.
+// The dots leave 12 o'clock (± kDotGap degrees) to the back button. The
+// detail's arc always runs over the top.
+constexpr float kDotGap = 14;
 static inline RPoint detailDot(const DetailStyle& S, int i, int n) {
-  const float pad = 4, span = S.arcSweep - 2 * pad;
-  const float ang = n > 1 ? S.arcStart + pad + span * i / (n - 1) : S.arcStart + S.arcSweep / 2;
-  return polar(kRoundC, kRoundC, S.dotsR, ang);
+  const float pad = 4, start = S.arcStart + pad, span = S.arcSweep - 2 * pad - 2 * kDotGap;
+  float t = n > 1 ? span * i / (n - 1) : 0;
+  const float gapAt = normDeg(360 - kDotGap - start);   // where the gap begins, from the start
+  if (t >= gapAt) t += 2 * kDotGap;
+  return polar(kRoundC, kRoundC, S.dotsR, start + t);
 }
 
 static inline float dotRadius(int n, bool waiting) {
@@ -365,10 +389,20 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   statusLine(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status != Status::Idle || a.unseen;
   textOn(c, *S.statusFont, 240, S.statusBase, buf, loud && a.status != Status::Exited ? T.t.accent : T.t.dim);
-  if (S.modelBase && (a.model[0] || a.effort[0])) {
-    if (a.model[0] && a.effort[0]) snprintf(buf, sizeof buf, "%s" DECK_DOT "%s", a.model, a.effort);
-    else snprintf(buf, sizeof buf, "%s", a.model[0] ? a.model : a.effort);
-    textOn(c, FONT_XXL, 240, S.modelBase, buf, T.t.dim);
+  if (S.modelBase) {
+    // model · effort · context share
+    buf[0] = '\0';
+    auto add = [&](const char* part) {
+      if (!part[0]) return;
+      const size_t n = strlen(buf);
+      snprintf(buf + n, sizeof buf - n, "%s%s", n ? DECK_DOT : "", part);
+    };
+    add(a.model);
+    add(a.effort);
+    char ctx[12] = "";
+    if (a.ctxWindow) snprintf(ctx, sizeof ctx, "%d%%", pct);
+    add(ctx);
+    if (buf[0]) textOn(c, FONT_XXL, 240, S.modelBase, buf, T.t.dim);
   }
   // The activity line, or what the finger is about to do.
   DetailButton btn[3];
@@ -380,6 +414,7 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   else roundActivity(a, buf, sizeof buf);
   textOn(c, FONT_XXL, 240, S.activityBase, buf, actCol);
   for (int i = 0; i < nb; i++) drawButton(c, T, S, btn[i], ui.pressed.kind == btn[i].kind, hold);
+  drawBackButton(c, T, ui.pressed.kind == HitKind::Back);
 }
 
 // What a touch on the detail lands on.
@@ -390,6 +425,8 @@ static inline RoundHit detailHit(const DetailStyle& S, const Fleet& f, const Age
   for (int i = 0; i < nb; i++)
     if (inCircle(btn[i].x, btn[i].y, S.btnHit, x, y)) { h.kind = btn[i].kind; return h; }
   (void)f;
+  // The back button, and the big critter: home. Then the middle (a waiter's prompt).
+  if (backHit(x, y) || inCircle(240, S.critterCy, 9.f * S.critterScale, x, y)) { h.kind = HitKind::Back; return h; }
   if (inCircle(240, (S.critterCy + S.activityBase) / 2.f, 130, x, y)) h.kind = HitKind::Middle;
   return h;
 }
@@ -428,7 +465,7 @@ static inline void drawPrompt(Canvas& c, const RoundTheme& T, const RoundInput& 
   const RoundUi& ui = *in.ui;
   const bool act = canAct(in.scope);
   strokeCircle(c, kRoundC, kRoundC, 234, 8, T.t.accent);
-  critterAt(c, 240, 62, 3, a.species, Pose::Wait, T.t.accent, T.t.bg, in.ms, false, a.hat, a.hatColor);
+  drawBackButton(c, T, ui.pressed.kind == HitKind::Back);
   const char* title = a.waitTitle[0] ? a.waitTitle : "needs you";
   const char* detail = a.waitDetail[0] ? a.waitDetail : a.promptCtx;
   // A title too long for 34 px drops to 26 px; one too long for a line takes
@@ -497,6 +534,7 @@ static inline void drawPrompt(Canvas& c, const RoundTheme& T, const RoundInput& 
 
 static inline RoundHit promptHit(const Agent& a, int first, int x, int y) {
   RoundHit h;
+  if (backHit(x, y)) { h.kind = HitKind::Back; return h; }
   Pill p[4];
   const int n = promptPills(a, first, p);
   for (int i = 0; i < n; i++)

@@ -511,6 +511,92 @@ static void testPills() {
   }
 }
 
+// The way back without a gesture: the "×" under the top edge on the detail
+// and the prompt, and the detail's big critter; clear of everything else.
+static void testBack() {
+  for (const RoundLayout* L : {(const RoundLayout*)&kOrbit, (const RoundLayout*)&kDial}) {
+    uint32_t ms = 1000;
+    Fleet f = fleetOf({mk("a", 0, Status::Running), waiter("c", 1), mk("d", 2, Status::Idle)});
+    RoundUi ui;
+    roundSync(ui, *L, f, ms);
+    roundOpen(ui, f, 0, RoundScreen::Detail);
+    tap(ui, *L, f, kBackX, kBackY, ms);
+    assert(ui.screen == RoundScreen::Home);
+    roundOpen(ui, f, 0, RoundScreen::Detail);
+    tap(ui, *L, f, kBackX + 25, kBackY + 20, ms);   // the hit circle is bigger than the button
+    assert(ui.screen == RoundScreen::Home);
+    // The big critter: home too.
+    const DetailStyle S = L->kind() == RoundLayout::Kind::Orbit ? detailOrbit() : detailDial();
+    roundOpen(ui, f, 0, RoundScreen::Detail);
+    tap(ui, *L, f, 240, S.critterCy, ms);
+    assert(ui.screen == RoundScreen::Home);
+    // The prompt's "×" goes back where it came from.
+    roundOpen(ui, f, 1, RoundScreen::Detail);
+    roundOpen(ui, f, 1, RoundScreen::Prompt);
+    assert(ui.promptFrom == RoundScreen::Detail);
+    roundTouch(ui, *L, f, true, kBackX, kBackY, RoundScope::Act, 0, ms);
+    assert(ui.pressed.kind == HitKind::Back);   // drawn pressed
+    roundTouch(ui, *L, f, false, 0, 0, RoundScope::Act, 0, ms + 60);
+    assert(ui.screen == RoundScreen::Detail);
+    ms += 300;
+    // Clear of the round buttons, the context bar, the dots and the pills.
+    DetailButton b[3];
+    const int nb = detailButtons(S, f.agents[0], RoundScope::Admin, b);
+    for (int i = 0; i < nb; i++) {
+      const float dx = (float)(b[i].x - kBackX), dy = (float)(b[i].y - kBackY);
+      assert(sqrtf(dx * dx + dy * dy) > S.btnHit + kBackHit);
+    }
+    assert(kBackY - kBackR > 240 - (S.ringR - S.ringW / 2) + 2);   // under the bar's inner edge
+    if (S.dots)
+      for (int n : {1, 2, 3, 8, 22, 64})
+        for (int i = 0; i < n; i++) {
+          const RPoint p = detailDot(S, i, n);
+          const float dx = (float)(p.x - kBackX), dy = (float)(p.y - kBackY);
+          assert(sqrtf(dx * dx + dy * dy) > kBackR + 8 + 4);
+        }
+    for (int n = 1; n <= 6; n++) {
+      Agent a = waiter("p", 0);
+      a.optCount = (uint8_t)n;
+      Pill pl[4];
+      const int k = promptPills(a, 0, pl);
+      for (int i = 0; i < k; i++) assert(pl[i].y > kBackY + kBackHit);
+    }
+    // The critter and the back button sit apart.
+    assert(S.critterCy - 11 * S.critterScale > kBackY + kBackR);
+  }
+}
+
+// Gestures from the touch samples a board really gets: every direction, from
+// dense samples (a 10 ms touch task) and from just two (down and one move).
+static void testGestures() {
+  Fleet f = fleetOf({mk("a", 0, Status::Running), mk("b", 1, Status::Idle), mk("c", 2, Status::Idle)});
+  struct Case { int x0, y0, x1, y1; RoundGesture want; } cases[] = {
+      {330, 240, 150, 240, RoundGesture::SwipeLeft}, {150, 240, 330, 240, RoundGesture::SwipeRight},
+      {240, 330, 240, 150, RoundGesture::SwipeUp},   {240, 150, 240, 330, RoundGesture::SwipeDown},
+  };
+  for (const Case& k : cases)
+    for (int samples : {2, 20}) {
+      RoundUi ui;
+      uint32_t ms = 1000;
+      roundSync(ui, kDial, f, ms);
+      roundOpen(ui, f, 0, RoundScreen::Detail);
+      for (int i = 0; i < samples; i++) {
+        const int x = k.x0 + (k.x1 - k.x0) * i / (samples - 1), y = k.y0 + (k.y1 - k.y0) * i / (samples - 1);
+        roundTouch(ui, kDial, f, true, x, y, RoundScope::Act, 0, ms);
+        ms += samples == 2 ? 120 : 10;
+      }
+      roundTouch(ui, kDial, f, false, 0, 0, RoundScope::Act, 0, ms);
+      assert(ui.lastGesture == k.want);
+      if (k.want == RoundGesture::SwipeDown) assert(ui.screen == RoundScreen::Home);
+    }
+  // One sample only (the finger already gone at the next read) is a tap, not a swipe.
+  RoundUi ui;
+  roundSync(ui, kDial, f, 1000);
+  roundTouch(ui, kDial, f, true, 240, 150, RoundScope::Act, 0, 1000);
+  roundTouch(ui, kDial, f, false, 0, 0, RoundScope::Act, 0, 1100);
+  assert(ui.lastGesture == RoundGesture::Tap);
+}
+
 int main() {
   testFeatured();
   testOrbitNavigation();
@@ -520,6 +606,8 @@ int main() {
   testPaging();
   testDial();
   testPills();
+  testBack();
+  testGestures();
   checkScreens(kOrbit);
   checkScreens(kDial);
   printf("round view: ok\n");

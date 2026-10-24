@@ -117,16 +117,66 @@ static void updateBrightness() {
   if (level != last && board.brightness) { board.brightness((uint8_t)level); last = level; }
 }
 
+// Touch is sampled in its own task every 10 ms, not once per frame: a frame
+// takes ~90 ms to draw and push, and a swipe sampled that rarely is one or
+// two points, often read as a tap. The task queues the samples (every move
+// while down, and the lift); the loop feeds them all to roundTouch().
+struct TouchSample {
+  int16_t x, y;
+  bool down;
+  uint32_t ms;
+};
+static QueueHandle_t touchQueue = nullptr;
+
+static void touchTask(void*) {
+  bool was = false;
+  int lx = -1, ly = -1;
+  for (;;) {
+    int x = 0, y = 0;
+    const bool down = board.touch(x, y);
+    if (down != was || (down && (x != lx || y != ly))) {
+      const TouchSample t{(int16_t)x, (int16_t)y, down, millis()};
+      xQueueSend(touchQueue, &t, 0);   // a full queue drops a sample, never blocks
+      was = down;
+      lx = x;
+      ly = y;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+#ifdef PANEL_DEBUG
+static const char* gestureName(RoundGesture g) {
+  switch (g) {
+    case RoundGesture::Tap:        return "tap";
+    case RoundGesture::SwipeLeft:  return "swipe left";
+    case RoundGesture::SwipeRight: return "swipe right";
+    case RoundGesture::SwipeUp:    return "swipe up";
+    case RoundGesture::SwipeDown:  return "swipe down";
+    case RoundGesture::Rim:        return "rim drag";
+    case RoundGesture::Hold:       return "hold";
+    default:                       return "none";
+  }
+}
+#endif
+
 static void touchPump() {
-  int x = 0, y = 0;
-  const bool down = board.touch && board.touch(x, y);
-  if (!down && !ui.down) return;
-  const uint32_t ms = millis();
-  lastActiveMs = ms;
-  if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; return; }
-  const RoundCommand c = roundTouch(ui, *board.layout, fleet->fleet, down, x, y, scope(), deckNowEpoch(*fleet, ms), ms);
-  send(c);
-  dirty = true;
+  if (!touchQueue) return;
+  TouchSample t;
+  while (xQueueReceive(touchQueue, &t, 0) == pdTRUE) {
+    lastActiveMs = millis();
+    if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; continue; }
+    const bool was = ui.down;
+    ui.lastGesture = RoundGesture::None;
+    const RoundCommand c =
+        roundTouch(ui, *board.layout, fleet->fleet, t.down, t.x, t.y, scope(), deckNowEpoch(*fleet, t.ms), t.ms);
+    if (!was && t.down) ROUND_LOG("touch: down at %d,%d", t.x, t.y);
+    if (ui.lastGesture != RoundGesture::None)
+      ROUND_LOG("touch: %s from %d,%d to %d,%d, screen %d", gestureName(ui.lastGesture), ui.x0, ui.y0, ui.x, ui.y,
+                (int)ui.screen);
+    send(c);
+    dirty = true;
+  }
 }
 
 static void buttonPump() {
@@ -181,6 +231,10 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   deck.begin(Serial, cfg);
   lastActiveMs = lastHeardMs = millis();
   ui.lastTouchMs = millis();
+  if (shown && board.touch) {
+    touchQueue = xQueueCreate(64, sizeof(TouchSample));
+    xTaskCreatePinnedToCore(touchTask, "touch", 3072, nullptr, 2, nullptr, 0);
+  }
   if (shown) render();
 }
 

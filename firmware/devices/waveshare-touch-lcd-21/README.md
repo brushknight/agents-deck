@@ -56,7 +56,8 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 | detail | tap the middle (when it waits) | its prompt |
 | detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
 | prompt | tap a pill | answers; swipe up / down scrolls a long list |
-| detail, prompt | swipe down | back |
+| detail, prompt | swipe down, or tap the "×" at the top | back |
+| detail | tap the big critter | home |
 | anywhere | 30 s untouched, or the BOOT button | home, on the agent that matters most |
 
 ## Scope
@@ -76,8 +77,9 @@ You need [PlatformIO](https://platformio.org/). From the repository's root:
 |---|---|---|
 | `selftest` | the hardware self-test, no Deck Link | `pio run -d firmware/devices/waveshare-touch-lcd-21 -e selftest -t upload` |
 | `waveshare-touch-lcd-21` | the firmware (default) | `pio run -d firmware/devices/waveshare-touch-lcd-21 -t upload` |
-| `debug` | the firmware, plus a status line every 5 s on the USB port | `pio run -d firmware/devices/waveshare-touch-lcd-21 -e debug -t upload` |
+| `debug` | the firmware, plus a line per touch and gesture and a status line every 5 s on the USB port | `pio run -d firmware/devices/waveshare-touch-lcd-21 -e debug -t upload` |
 | `idf5` | the firmware on arduino-esp32 3.x with an RGB bounce buffer: the fallback if the picture drifts | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5 -t upload` |
+| `idf5-debug` | `idf5` with the debug lines | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5-debug -t upload` |
 | `idf5-selftest` | the self-test on that platform | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5-selftest -t upload` |
 
 The `idf5` project keeps its platform in `~/.platformio-pioarduino`. pioarduino and PlatformIO's own

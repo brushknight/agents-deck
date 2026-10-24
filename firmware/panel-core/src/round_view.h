@@ -37,6 +37,9 @@ constexpr int kRoundWaitIds = 16;          // waiting agents remembered, to spot
 
 enum class RoundScreen : uint8_t { Home, Detail, Prompt };
 
+// What the last touch was taken for (for the debug log and the tests).
+enum class RoundGesture : uint8_t { None, Tap, SwipeLeft, SwipeRight, SwipeUp, SwipeDown, Rim, Hold };
+
 // What the board may do (Welcome.scope): deck_cmd.h's, shared with the square boards.
 using RoundScope = DeckScope;
 
@@ -45,6 +48,7 @@ enum class HitKind : uint8_t {
   None,
   Agent,       // a ring critter or a dial dot: `agent`
   Middle,      // the featured agent in the middle (home), or the detail's middle
+  Back,        // the detail's and the prompt's back button, or the detail's critter
   More,        // the orbit's "+N" chip
   Option,      // a prompt band: `option` (index into Agent.opts)
   Focus, Interrupt, Stop,   // the detail's buttons
@@ -77,6 +81,7 @@ struct RoundUi {
   RoundHit pressed;            // what it went down on (drawn pressed until it moves or lifts)
   bool holdFired = false;      // the stop hold already sent its Dismiss
   RimDrag rim;
+  RoundGesture lastGesture = RoundGesture::None;
 
   // Feedback.
   char toast[40] = "";
@@ -306,6 +311,7 @@ static inline RoundCommand roundTap(RoundUi& ui, const RoundLayout& L, const Fle
       const int i = findAgent(f, ui.openId);
       if (i < 0) return out;
       const Agent& a = f.agents[i];
+      if (h.kind == HitKind::Back) { roundHome(ui); return out; }
       if (h.kind == HitKind::Middle && a.status == Status::Waiting) roundOpen(ui, f, i, RoundScreen::Prompt);
       else if (h.kind == HitKind::Agent) snprintf(ui.openId, sizeof ui.openId, "%s", f.agents[h.agent].id);
       else if (h.kind == HitKind::Focus && canAct(scope)) {
@@ -321,6 +327,7 @@ static inline RoundCommand roundTap(RoundUi& ui, const RoundLayout& L, const Fle
     }
     case RoundScreen::Prompt: {
       const int i = findAgent(f, ui.openId);
+      if (h.kind == HitKind::Back) { roundBack(ui, f); return out; }
       if (i < 0 || h.kind != HitKind::Option || !canAct(scope) || ui.backAfterToast) return out;
       const Agent& a = f.agents[i];
       if (h.option < 0 || h.option >= a.optCount) return out;
@@ -409,6 +416,7 @@ static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const F
     // Stop: held long enough while still on the button.
     if (ui.pressed.kind == HitKind::Stop && !ui.holdFired && (uint32_t)(ms - ui.downMs) >= kRoundHoldMs) {
       ui.holdFired = true;
+      ui.lastGesture = RoundGesture::Hold;
       const int i = findAgent(f, ui.openId);
       if (i >= 0) {
         out = commandFor(RoundCmd::Dismiss, f.agents[i]);
@@ -425,15 +433,20 @@ static inline RoundCommand roundTouch(RoundUi& ui, const RoundLayout& L, const F
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
   const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   if (ui.rim.active && (ui.rim.turned >= kRimTurnMin || ui.rim.turned <= -kRimTurnMin)) {
+    ui.lastGesture = RoundGesture::Rim;
     roundRim(ui, L, f, ui.rim.turned);
   } else if (adx <= kRoundSlop && ady <= kRoundSlop) {
     if (pressed.kind == HitKind::Stop) {
       if (!ui.holdFired) roundToast(ui, "hold to stop", ms);
     } else if ((uint32_t)(ms - ui.downMs) <= kRoundTapMaxMs || pressed.kind != HitKind::None) {
+      ui.lastGesture = RoundGesture::Tap;
       out = roundTap(ui, L, f, L.hit(ui, f, ui.x0, ui.y0, scope, nowEpoch), scope, ms);
     }
   } else if (adx >= kRoundSwipeMin || ady >= kRoundSwipeMin) {
-    roundSwipe(ui, L, f, adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down));
+    const Swipe sw = adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down);
+    ui.lastGesture = sw == Swipe::Left ? RoundGesture::SwipeLeft : sw == Swipe::Right ? RoundGesture::SwipeRight
+                     : sw == Swipe::Up ? RoundGesture::SwipeUp : RoundGesture::SwipeDown;
+    roundSwipe(ui, L, f, sw);
   }
   ui.rim.active = false;
   return out;
