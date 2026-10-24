@@ -368,6 +368,128 @@ func (PromptKind) EnumDescriptor() ([]byte, []int) {
 	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{5}
 }
 
+type Transport int32
+
+const (
+	Transport_TRANSPORT_UNSPECIFIED Transport = 0
+	Transport_TRANSPORT_SERIAL      Transport = 1 // USB serial
+	Transport_TRANSPORT_WIFI        Transport = 2 // Wi-Fi, TLS 1.3 to the deck's network listener
+)
+
+// Enum value maps for Transport.
+var (
+	Transport_name = map[int32]string{
+		0: "TRANSPORT_UNSPECIFIED",
+		1: "TRANSPORT_SERIAL",
+		2: "TRANSPORT_WIFI",
+	}
+	Transport_value = map[string]int32{
+		"TRANSPORT_UNSPECIFIED": 0,
+		"TRANSPORT_SERIAL":      1,
+		"TRANSPORT_WIFI":        2,
+	}
+)
+
+func (x Transport) Enum() *Transport {
+	p := new(Transport)
+	*p = x
+	return p
+}
+
+func (x Transport) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Transport) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentsdeck_link_v1_link_proto_enumTypes[6].Descriptor()
+}
+
+func (Transport) Type() protoreflect.EnumType {
+	return &file_agentsdeck_link_v1_link_proto_enumTypes[6]
+}
+
+func (x Transport) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Transport.Descriptor instead.
+func (Transport) EnumDescriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{6}
+}
+
+type WifiState int32
+
+const (
+	WifiState_WIFI_UNSPECIFIED      WifiState = 0
+	WifiState_WIFI_UNSUPPORTED      WifiState = 1 // this firmware has no Wi-Fi (or no TLS 1.3)
+	WifiState_WIFI_NOT_SET          WifiState = 2 // no credentials
+	WifiState_WIFI_IDLE             WifiState = 3 // credentials kept, Wi-Fi off (on USB)
+	WifiState_WIFI_JOINING          WifiState = 4
+	WifiState_WIFI_CONNECTED        WifiState = 5 // joined: ip and rssi are set
+	WifiState_WIFI_WRONG_PASSWORD   WifiState = 6
+	WifiState_WIFI_NO_NETWORK       WifiState = 7  // the network wasn't found
+	WifiState_WIFI_FAILED           WifiState = 8  // another failure
+	WifiState_WIFI_DECK_UNREACHABLE WifiState = 9  // joined, but the deck didn't answer
+	WifiState_WIFI_CERT_REJECTED    WifiState = 10 // the deck refused the certificate (revoked): pair again over USB
+)
+
+// Enum value maps for WifiState.
+var (
+	WifiState_name = map[int32]string{
+		0:  "WIFI_UNSPECIFIED",
+		1:  "WIFI_UNSUPPORTED",
+		2:  "WIFI_NOT_SET",
+		3:  "WIFI_IDLE",
+		4:  "WIFI_JOINING",
+		5:  "WIFI_CONNECTED",
+		6:  "WIFI_WRONG_PASSWORD",
+		7:  "WIFI_NO_NETWORK",
+		8:  "WIFI_FAILED",
+		9:  "WIFI_DECK_UNREACHABLE",
+		10: "WIFI_CERT_REJECTED",
+	}
+	WifiState_value = map[string]int32{
+		"WIFI_UNSPECIFIED":      0,
+		"WIFI_UNSUPPORTED":      1,
+		"WIFI_NOT_SET":          2,
+		"WIFI_IDLE":             3,
+		"WIFI_JOINING":          4,
+		"WIFI_CONNECTED":        5,
+		"WIFI_WRONG_PASSWORD":   6,
+		"WIFI_NO_NETWORK":       7,
+		"WIFI_FAILED":           8,
+		"WIFI_DECK_UNREACHABLE": 9,
+		"WIFI_CERT_REJECTED":    10,
+	}
+)
+
+func (x WifiState) Enum() *WifiState {
+	p := new(WifiState)
+	*p = x
+	return p
+}
+
+func (x WifiState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WifiState) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentsdeck_link_v1_link_proto_enumTypes[7].Descriptor()
+}
+
+func (WifiState) Type() protoreflect.EnumType {
+	return &file_agentsdeck_link_v1_link_proto_enumTypes[7]
+}
+
+func (x WifiState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WifiState.Descriptor instead.
+func (WifiState) EnumDescriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{7}
+}
+
 type Frame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Seq   uint32                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
@@ -402,6 +524,10 @@ type Frame struct {
 	//	*Frame_LiveSessions
 	//	*Frame_RestoreResult
 	//	*Frame_AccountList
+	//	*Frame_CertRequest
+	//	*Frame_CertIssued
+	//	*Frame_WifiConfig
+	//	*Frame_NetStatus
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -712,6 +838,42 @@ func (x *Frame) GetAccountList() *AccountList {
 	return nil
 }
 
+func (x *Frame) GetCertRequest() *CertRequest {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_CertRequest); ok {
+			return x.CertRequest
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetCertIssued() *CertIssued {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_CertIssued); ok {
+			return x.CertIssued
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetWifiConfig() *WifiConfig {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_WifiConfig); ok {
+			return x.WifiConfig
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetNetStatus() *NetStatus {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_NetStatus); ok {
+			return x.NetStatus
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -836,6 +998,24 @@ type Frame_AccountList struct {
 	AccountList *AccountList `protobuf:"bytes,54,opt,name=account_list,json=accountList,proto3,oneof"` // reply to ListAccounts
 }
 
+type Frame_CertRequest struct {
+	// Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
+	// web API commands: they set up the board itself.
+	CertRequest *CertRequest `protobuf:"bytes,60,opt,name=cert_request,json=certRequest,proto3,oneof"` // board → deck, over USB serial only: a certificate for my own key
+}
+
+type Frame_CertIssued struct {
+	CertIssued *CertIssued `protobuf:"bytes,61,opt,name=cert_issued,json=certIssued,proto3,oneof"` // deck → board: the reply to CertRequest (or a Result on failure)
+}
+
+type Frame_WifiConfig struct {
+	WifiConfig *WifiConfig `protobuf:"bytes,62,opt,name=wifi_config,json=wifiConfig,proto3,oneof"` // deck → board, over USB serial only: join this network; the board answers with a Result
+}
+
+type Frame_NetStatus struct {
+	NetStatus *NetStatus `protobuf:"bytes,63,opt,name=net_status,json=netStatus,proto3,oneof"` // board → deck: how it is connected, after each Welcome and whenever that changes
+}
+
 func (*Frame_Hello) isFrame_Body() {}
 
 func (*Frame_Welcome) isFrame_Body() {}
@@ -893,6 +1073,14 @@ func (*Frame_LiveSessions) isFrame_Body() {}
 func (*Frame_RestoreResult) isFrame_Body() {}
 
 func (*Frame_AccountList) isFrame_Body() {}
+
+func (*Frame_CertRequest) isFrame_Body() {}
+
+func (*Frame_CertIssued) isFrame_Body() {}
+
+func (*Frame_WifiConfig) isFrame_Body() {}
+
+func (*Frame_NetStatus) isFrame_Body() {}
 
 type Hello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1053,7 +1241,8 @@ type Welcome struct {
 	ServerVersion string                 `protobuf:"bytes,3,opt,name=server_version,json=serverVersion,proto3" json:"server_version,omitempty"` // agentctl version
 	DeviceName    string                 `protobuf:"bytes,4,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"`          // the board's name on the deck (agentctl devices)
 	Scope         Scope                  `protobuf:"varint,5,opt,name=scope,proto3,enum=agentsdeck.link.v1.Scope" json:"scope,omitempty"`
-	Approved      bool                   `protobuf:"varint,6,opt,name=approved,proto3" json:"approved,omitempty"` // false: waiting for `agentctl devices approve`; nothing else is sent until then
+	Approved      bool                   `protobuf:"varint,6,opt,name=approved,proto3" json:"approved,omitempty"`                      // false: waiting for `agentctl devices approve`; nothing else is sent until then
+	CertSerial    string                 `protobuf:"bytes,7,opt,name=cert_serial,json=certSerial,proto3" json:"cert_serial,omitempty"` // the board's current certificate (CertIssued.cert_serial), "" for none:
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1128,6 +1317,13 @@ func (x *Welcome) GetApproved() bool {
 		return x.Approved
 	}
 	return false
+}
+
+func (x *Welcome) GetCertSerial() string {
+	if x != nil {
+		return x.CertSerial
+	}
+	return ""
 }
 
 type Ping struct {
@@ -3545,11 +3741,302 @@ func (x *Restored) GetError() string {
 	return ""
 }
 
+// A certificate signing request for a key the board made itself (EC P-256),
+// DER (or PEM). Only an approved board gets a certificate; the deck answers
+// CertIssued, or a Result (403 not approved or not over USB, 400 bad request,
+// 503 network listener off).
+type CertRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Csr           []byte                 `protobuf:"bytes,1,opt,name=csr,proto3" json:"csr,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertRequest) Reset() {
+	*x = CertRequest{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertRequest) ProtoMessage() {}
+
+func (x *CertRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertRequest.ProtoReflect.Descriptor instead.
+func (*CertRequest) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *CertRequest) GetCsr() []byte {
+	if x != nil {
+		return x.Csr
+	}
+	return nil
+}
+
+// The board's client certificate and where to use it: the deck's network
+// listener (TLS 1.3), host by host (the Mac's .local name first, then its LAN
+// addresses) on port.
+type CertIssued struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Cert              []byte                 `protobuf:"bytes,1,opt,name=cert,proto3" json:"cert,omitempty"`                                                    // DER, signed by the deck's CA, for the board's key
+	Ca                []byte                 `protobuf:"bytes,2,opt,name=ca,proto3" json:"ca,omitempty"`                                                        // DER: the deck's CA, to verify the listener
+	Hosts             []string               `protobuf:"bytes,3,rep,name=hosts,proto3" json:"hosts,omitempty"`                                                  // the .local name, then IP addresses
+	Port              uint32                 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`                                                   // e.g. 7341
+	ServerFingerprint []byte                 `protobuf:"bytes,5,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"` // SHA-256 of the listener's certificate: accepted when
+	// the host dialled isn't one its names cover
+	DeviceName    string `protobuf:"bytes,6,opt,name=device_name,json=deviceName,proto3" json:"device_name,omitempty"` // the board's name on the deck
+	CertSerial    string `protobuf:"bytes,7,opt,name=cert_serial,json=certSerial,proto3" json:"cert_serial,omitempty"` // the certificate's serial (hex), as Welcome.cert_serial
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertIssued) Reset() {
+	*x = CertIssued{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertIssued) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertIssued) ProtoMessage() {}
+
+func (x *CertIssued) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertIssued.ProtoReflect.Descriptor instead.
+func (*CertIssued) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *CertIssued) GetCert() []byte {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
+func (x *CertIssued) GetCa() []byte {
+	if x != nil {
+		return x.Ca
+	}
+	return nil
+}
+
+func (x *CertIssued) GetHosts() []string {
+	if x != nil {
+		return x.Hosts
+	}
+	return nil
+}
+
+func (x *CertIssued) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *CertIssued) GetServerFingerprint() []byte {
+	if x != nil {
+		return x.ServerFingerprint
+	}
+	return nil
+}
+
+func (x *CertIssued) GetDeviceName() string {
+	if x != nil {
+		return x.DeviceName
+	}
+	return ""
+}
+
+func (x *CertIssued) GetCertSerial() string {
+	if x != nil {
+		return x.CertSerial
+	}
+	return ""
+}
+
+// Wi-Fi credentials for the board to keep (forget: drop them). Sent by
+// `agentctl link wifi` over USB serial only; never stored on the Mac.
+type WifiConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ssid          string                 `protobuf:"bytes,1,opt,name=ssid,proto3" json:"ssid,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"` // "" for an open network
+	Forget        bool                   `protobuf:"varint,3,opt,name=forget,proto3" json:"forget,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WifiConfig) Reset() {
+	*x = WifiConfig{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WifiConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WifiConfig) ProtoMessage() {}
+
+func (x *WifiConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WifiConfig.ProtoReflect.Descriptor instead.
+func (*WifiConfig) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *WifiConfig) GetSsid() string {
+	if x != nil {
+		return x.Ssid
+	}
+	return ""
+}
+
+func (x *WifiConfig) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *WifiConfig) GetForget() bool {
+	if x != nil {
+		return x.Forget
+	}
+	return false
+}
+
+// How the board is connected, for `agentctl link` and `agentctl devices`.
+type NetStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Transport     Transport              `protobuf:"varint,1,opt,name=transport,proto3,enum=agentsdeck.link.v1.Transport" json:"transport,omitempty"` // the one this frame came over
+	Wifi          WifiState              `protobuf:"varint,2,opt,name=wifi,proto3,enum=agentsdeck.link.v1.WifiState" json:"wifi,omitempty"`
+	Ssid          string                 `protobuf:"bytes,3,opt,name=ssid,proto3" json:"ssid,omitempty"`
+	Ip            string                 `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`                           // on Wi-Fi
+	Rssi          int32                  `protobuf:"varint,5,opt,name=rssi,proto3" json:"rssi,omitempty"`                      // dBm, 0 = unknown
+	HasCert       bool                   `protobuf:"varint,6,opt,name=has_cert,json=hasCert,proto3" json:"has_cert,omitempty"` // it holds a client certificate
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NetStatus) Reset() {
+	*x = NetStatus{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetStatus) ProtoMessage() {}
+
+func (x *NetStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetStatus.ProtoReflect.Descriptor instead.
+func (*NetStatus) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *NetStatus) GetTransport() Transport {
+	if x != nil {
+		return x.Transport
+	}
+	return Transport_TRANSPORT_UNSPECIFIED
+}
+
+func (x *NetStatus) GetWifi() WifiState {
+	if x != nil {
+		return x.Wifi
+	}
+	return WifiState_WIFI_UNSPECIFIED
+}
+
+func (x *NetStatus) GetSsid() string {
+	if x != nil {
+		return x.Ssid
+	}
+	return ""
+}
+
+func (x *NetStatus) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *NetStatus) GetRssi() int32 {
+	if x != nil {
+		return x.Rssi
+	}
+	return 0
+}
+
+func (x *NetStatus) GetHasCert() bool {
+	if x != nil {
+		return x.HasCert
+	}
+	return false
+}
+
 var File_agentsdeck_link_v1_link_proto protoreflect.FileDescriptor
 
 const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\n" +
-	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\xf8\r\n" +
+	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\x84\x10\n" +
 	"\x05Frame\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\rR\x03seq\x121\n" +
 	"\x05hello\x18\n" +
@@ -3581,7 +4068,14 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\bhat_list\x183 \x01(\v2\x1b.agentsdeck.link.v1.HatListH\x00R\ahatList\x12G\n" +
 	"\rlive_sessions\x184 \x01(\v2 .agentsdeck.link.v1.LiveSessionsH\x00R\fliveSessions\x12J\n" +
 	"\x0erestore_result\x185 \x01(\v2!.agentsdeck.link.v1.RestoreResultH\x00R\rrestoreResult\x12D\n" +
-	"\faccount_list\x186 \x01(\v2\x1f.agentsdeck.link.v1.AccountListH\x00R\vaccountListB\x06\n" +
+	"\faccount_list\x186 \x01(\v2\x1f.agentsdeck.link.v1.AccountListH\x00R\vaccountList\x12D\n" +
+	"\fcert_request\x18< \x01(\v2\x1f.agentsdeck.link.v1.CertRequestH\x00R\vcertRequest\x12A\n" +
+	"\vcert_issued\x18= \x01(\v2\x1e.agentsdeck.link.v1.CertIssuedH\x00R\n" +
+	"certIssued\x12A\n" +
+	"\vwifi_config\x18> \x01(\v2\x1e.agentsdeck.link.v1.WifiConfigH\x00R\n" +
+	"wifiConfig\x12>\n" +
+	"\n" +
+	"net_status\x18? \x01(\v2\x1d.agentsdeck.link.v1.NetStatusH\x00R\tnetStatusB\x06\n" +
 	"\x04body\"\xf5\x01\n" +
 	"\x05Hello\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\rR\bprotocol\x12\x19\n" +
@@ -3594,7 +4088,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\aDisplay\x12\x14\n" +
 	"\x05width\x18\x01 \x01(\rR\x05width\x12\x16\n" +
 	"\x06height\x18\x02 \x01(\rR\x06height\x12\x14\n" +
-	"\x05color\x18\x03 \x01(\bR\x05color\"\xdb\x01\n" +
+	"\x05color\x18\x03 \x01(\bR\x05color\"\xfc\x01\n" +
 	"\aWelcome\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\rR\bprotocol\x12\x1f\n" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
@@ -3603,7 +4097,9 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\vdevice_name\x18\x04 \x01(\tR\n" +
 	"deviceName\x12/\n" +
 	"\x05scope\x18\x05 \x01(\x0e2\x19.agentsdeck.link.v1.ScopeR\x05scope\x12\x1a\n" +
-	"\bapproved\x18\x06 \x01(\bR\bapproved\"\x1f\n" +
+	"\bapproved\x18\x06 \x01(\bR\bapproved\x12\x1f\n" +
+	"\vcert_serial\x18\a \x01(\tR\n" +
+	"certSerial\"\x1f\n" +
 	"\x04Ping\x12\x17\n" +
 	"\atime_ms\x18\x01 \x01(\x04R\x06timeMs\"\x1f\n" +
 	"\x04Pong\x12\x17\n" +
@@ -3777,7 +4273,32 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x16\n" +
 	"\x06action\x18\x03 \x01(\tR\x06action\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error*d\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\x1f\n" +
+	"\vCertRequest\x12\x10\n" +
+	"\x03csr\x18\x01 \x01(\fR\x03csr\"\xcb\x01\n" +
+	"\n" +
+	"CertIssued\x12\x12\n" +
+	"\x04cert\x18\x01 \x01(\fR\x04cert\x12\x0e\n" +
+	"\x02ca\x18\x02 \x01(\fR\x02ca\x12\x14\n" +
+	"\x05hosts\x18\x03 \x03(\tR\x05hosts\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\rR\x04port\x12-\n" +
+	"\x12server_fingerprint\x18\x05 \x01(\fR\x11serverFingerprint\x12\x1f\n" +
+	"\vdevice_name\x18\x06 \x01(\tR\n" +
+	"deviceName\x12\x1f\n" +
+	"\vcert_serial\x18\a \x01(\tR\n" +
+	"certSerial\"T\n" +
+	"\n" +
+	"WifiConfig\x12\x12\n" +
+	"\x04ssid\x18\x01 \x01(\tR\x04ssid\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x16\n" +
+	"\x06forget\x18\x03 \x01(\bR\x06forget\"\xce\x01\n" +
+	"\tNetStatus\x12;\n" +
+	"\ttransport\x18\x01 \x01(\x0e2\x1d.agentsdeck.link.v1.TransportR\ttransport\x121\n" +
+	"\x04wifi\x18\x02 \x01(\x0e2\x1d.agentsdeck.link.v1.WifiStateR\x04wifi\x12\x12\n" +
+	"\x04ssid\x18\x03 \x01(\tR\x04ssid\x12\x0e\n" +
+	"\x02ip\x18\x04 \x01(\tR\x02ip\x12\x12\n" +
+	"\x04rssi\x18\x05 \x01(\x05R\x04rssi\x12\x19\n" +
+	"\bhas_cert\x18\x06 \x01(\bR\ahasCert*d\n" +
 	"\x05Input\x12\x15\n" +
 	"\x11INPUT_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fINPUT_BUTTON\x10\x01\x12\x11\n" +
@@ -3821,7 +4342,24 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x12PROMPT_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11PROMPT_PERMISSION\x10\x01\x12\x13\n" +
 	"\x0fPROMPT_QUESTION\x10\x02\x12\x10\n" +
-	"\fPROMPT_INPUT\x10\x03BAZ?github.com/brushknight/agents-deck/backend/internal/link/linkpbb\x06proto3"
+	"\fPROMPT_INPUT\x10\x03*P\n" +
+	"\tTransport\x12\x19\n" +
+	"\x15TRANSPORT_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10TRANSPORT_SERIAL\x10\x01\x12\x12\n" +
+	"\x0eTRANSPORT_WIFI\x10\x02*\xf0\x01\n" +
+	"\tWifiState\x12\x14\n" +
+	"\x10WIFI_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10WIFI_UNSUPPORTED\x10\x01\x12\x10\n" +
+	"\fWIFI_NOT_SET\x10\x02\x12\r\n" +
+	"\tWIFI_IDLE\x10\x03\x12\x10\n" +
+	"\fWIFI_JOINING\x10\x04\x12\x12\n" +
+	"\x0eWIFI_CONNECTED\x10\x05\x12\x17\n" +
+	"\x13WIFI_WRONG_PASSWORD\x10\x06\x12\x13\n" +
+	"\x0fWIFI_NO_NETWORK\x10\a\x12\x0f\n" +
+	"\vWIFI_FAILED\x10\b\x12\x19\n" +
+	"\x15WIFI_DECK_UNREACHABLE\x10\t\x12\x16\n" +
+	"\x12WIFI_CERT_REJECTED\x10\n" +
+	"BAZ?github.com/brushknight/agents-deck/backend/internal/link/linkpbb\x06proto3"
 
 var (
 	file_agentsdeck_link_v1_link_proto_rawDescOnce sync.Once
@@ -3835,8 +4373,8 @@ func file_agentsdeck_link_v1_link_proto_rawDescGZIP() []byte {
 	return file_agentsdeck_link_v1_link_proto_rawDescData
 }
 
-var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(Input)(0),            // 0: agentsdeck.link.v1.Input
 	(Scope)(0),            // 1: agentsdeck.link.v1.Scope
@@ -3844,107 +4382,119 @@ var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(Tool)(0),             // 3: agentsdeck.link.v1.Tool
 	(Status)(0),           // 4: agentsdeck.link.v1.Status
 	(PromptKind)(0),       // 5: agentsdeck.link.v1.PromptKind
-	(*Frame)(nil),         // 6: agentsdeck.link.v1.Frame
-	(*Hello)(nil),         // 7: agentsdeck.link.v1.Hello
-	(*Display)(nil),       // 8: agentsdeck.link.v1.Display
-	(*Welcome)(nil),       // 9: agentsdeck.link.v1.Welcome
-	(*Ping)(nil),          // 10: agentsdeck.link.v1.Ping
-	(*Pong)(nil),          // 11: agentsdeck.link.v1.Pong
-	(*Subscribe)(nil),     // 12: agentsdeck.link.v1.Subscribe
-	(*SnapshotBegin)(nil), // 13: agentsdeck.link.v1.SnapshotBegin
-	(*SnapshotEnd)(nil),   // 14: agentsdeck.link.v1.SnapshotEnd
-	(*Server)(nil),        // 15: agentsdeck.link.v1.Server
-	(*AgentChanged)(nil),  // 16: agentsdeck.link.v1.AgentChanged
-	(*AgentRemoved)(nil),  // 17: agentsdeck.link.v1.AgentRemoved
-	(*Agent)(nil),         // 18: agentsdeck.link.v1.Agent
-	(*Activity)(nil),      // 19: agentsdeck.link.v1.Activity
-	(*Prompt)(nil),        // 20: agentsdeck.link.v1.Prompt
-	(*Option)(nil),        // 21: agentsdeck.link.v1.Option
-	(*Tokens)(nil),        // 22: agentsdeck.link.v1.Tokens
-	(*Context)(nil),       // 23: agentsdeck.link.v1.Context
-	(*Hat)(nil),           // 24: agentsdeck.link.v1.Hat
-	(*Account)(nil),       // 25: agentsdeck.link.v1.Account
-	(*Subagent)(nil),      // 26: agentsdeck.link.v1.Subagent
-	(*Answer)(nil),        // 27: agentsdeck.link.v1.Answer
-	(*Focus)(nil),         // 28: agentsdeck.link.v1.Focus
-	(*Interrupt)(nil),     // 29: agentsdeck.link.v1.Interrupt
-	(*Dismiss)(nil),       // 30: agentsdeck.link.v1.Dismiss
-	(*Resume)(nil),        // 31: agentsdeck.link.v1.Resume
-	(*Move)(nil),          // 32: agentsdeck.link.v1.Move
-	(*Order)(nil),         // 33: agentsdeck.link.v1.Order
-	(*Restore)(nil),       // 34: agentsdeck.link.v1.Restore
-	(*SetHat)(nil),        // 35: agentsdeck.link.v1.SetHat
-	(*ListHats)(nil),      // 36: agentsdeck.link.v1.ListHats
-	(*ListLive)(nil),      // 37: agentsdeck.link.v1.ListLive
-	(*AddLive)(nil),       // 38: agentsdeck.link.v1.AddLive
-	(*GetState)(nil),      // 39: agentsdeck.link.v1.GetState
-	(*Handoff)(nil),       // 40: agentsdeck.link.v1.Handoff
-	(*ListAccounts)(nil),  // 41: agentsdeck.link.v1.ListAccounts
-	(*Result)(nil),        // 42: agentsdeck.link.v1.Result
-	(*HatList)(nil),       // 43: agentsdeck.link.v1.HatList
-	(*HatOverride)(nil),   // 44: agentsdeck.link.v1.HatOverride
-	(*LiveSessions)(nil),  // 45: agentsdeck.link.v1.LiveSessions
-	(*LiveSession)(nil),   // 46: agentsdeck.link.v1.LiveSession
-	(*AccountList)(nil),   // 47: agentsdeck.link.v1.AccountList
-	(*AccountInfo)(nil),   // 48: agentsdeck.link.v1.AccountInfo
-	(*RestoreResult)(nil), // 49: agentsdeck.link.v1.RestoreResult
-	(*Restored)(nil),      // 50: agentsdeck.link.v1.Restored
+	(Transport)(0),        // 6: agentsdeck.link.v1.Transport
+	(WifiState)(0),        // 7: agentsdeck.link.v1.WifiState
+	(*Frame)(nil),         // 8: agentsdeck.link.v1.Frame
+	(*Hello)(nil),         // 9: agentsdeck.link.v1.Hello
+	(*Display)(nil),       // 10: agentsdeck.link.v1.Display
+	(*Welcome)(nil),       // 11: agentsdeck.link.v1.Welcome
+	(*Ping)(nil),          // 12: agentsdeck.link.v1.Ping
+	(*Pong)(nil),          // 13: agentsdeck.link.v1.Pong
+	(*Subscribe)(nil),     // 14: agentsdeck.link.v1.Subscribe
+	(*SnapshotBegin)(nil), // 15: agentsdeck.link.v1.SnapshotBegin
+	(*SnapshotEnd)(nil),   // 16: agentsdeck.link.v1.SnapshotEnd
+	(*Server)(nil),        // 17: agentsdeck.link.v1.Server
+	(*AgentChanged)(nil),  // 18: agentsdeck.link.v1.AgentChanged
+	(*AgentRemoved)(nil),  // 19: agentsdeck.link.v1.AgentRemoved
+	(*Agent)(nil),         // 20: agentsdeck.link.v1.Agent
+	(*Activity)(nil),      // 21: agentsdeck.link.v1.Activity
+	(*Prompt)(nil),        // 22: agentsdeck.link.v1.Prompt
+	(*Option)(nil),        // 23: agentsdeck.link.v1.Option
+	(*Tokens)(nil),        // 24: agentsdeck.link.v1.Tokens
+	(*Context)(nil),       // 25: agentsdeck.link.v1.Context
+	(*Hat)(nil),           // 26: agentsdeck.link.v1.Hat
+	(*Account)(nil),       // 27: agentsdeck.link.v1.Account
+	(*Subagent)(nil),      // 28: agentsdeck.link.v1.Subagent
+	(*Answer)(nil),        // 29: agentsdeck.link.v1.Answer
+	(*Focus)(nil),         // 30: agentsdeck.link.v1.Focus
+	(*Interrupt)(nil),     // 31: agentsdeck.link.v1.Interrupt
+	(*Dismiss)(nil),       // 32: agentsdeck.link.v1.Dismiss
+	(*Resume)(nil),        // 33: agentsdeck.link.v1.Resume
+	(*Move)(nil),          // 34: agentsdeck.link.v1.Move
+	(*Order)(nil),         // 35: agentsdeck.link.v1.Order
+	(*Restore)(nil),       // 36: agentsdeck.link.v1.Restore
+	(*SetHat)(nil),        // 37: agentsdeck.link.v1.SetHat
+	(*ListHats)(nil),      // 38: agentsdeck.link.v1.ListHats
+	(*ListLive)(nil),      // 39: agentsdeck.link.v1.ListLive
+	(*AddLive)(nil),       // 40: agentsdeck.link.v1.AddLive
+	(*GetState)(nil),      // 41: agentsdeck.link.v1.GetState
+	(*Handoff)(nil),       // 42: agentsdeck.link.v1.Handoff
+	(*ListAccounts)(nil),  // 43: agentsdeck.link.v1.ListAccounts
+	(*Result)(nil),        // 44: agentsdeck.link.v1.Result
+	(*HatList)(nil),       // 45: agentsdeck.link.v1.HatList
+	(*HatOverride)(nil),   // 46: agentsdeck.link.v1.HatOverride
+	(*LiveSessions)(nil),  // 47: agentsdeck.link.v1.LiveSessions
+	(*LiveSession)(nil),   // 48: agentsdeck.link.v1.LiveSession
+	(*AccountList)(nil),   // 49: agentsdeck.link.v1.AccountList
+	(*AccountInfo)(nil),   // 50: agentsdeck.link.v1.AccountInfo
+	(*RestoreResult)(nil), // 51: agentsdeck.link.v1.RestoreResult
+	(*Restored)(nil),      // 52: agentsdeck.link.v1.Restored
+	(*CertRequest)(nil),   // 53: agentsdeck.link.v1.CertRequest
+	(*CertIssued)(nil),    // 54: agentsdeck.link.v1.CertIssued
+	(*WifiConfig)(nil),    // 55: agentsdeck.link.v1.WifiConfig
+	(*NetStatus)(nil),     // 56: agentsdeck.link.v1.NetStatus
 }
 var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
-	7,  // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
-	9,  // 1: agentsdeck.link.v1.Frame.welcome:type_name -> agentsdeck.link.v1.Welcome
-	10, // 2: agentsdeck.link.v1.Frame.ping:type_name -> agentsdeck.link.v1.Ping
-	11, // 3: agentsdeck.link.v1.Frame.pong:type_name -> agentsdeck.link.v1.Pong
-	12, // 4: agentsdeck.link.v1.Frame.subscribe:type_name -> agentsdeck.link.v1.Subscribe
-	13, // 5: agentsdeck.link.v1.Frame.snapshot_begin:type_name -> agentsdeck.link.v1.SnapshotBegin
-	16, // 6: agentsdeck.link.v1.Frame.agent_changed:type_name -> agentsdeck.link.v1.AgentChanged
-	17, // 7: agentsdeck.link.v1.Frame.agent_removed:type_name -> agentsdeck.link.v1.AgentRemoved
-	14, // 8: agentsdeck.link.v1.Frame.snapshot_end:type_name -> agentsdeck.link.v1.SnapshotEnd
-	27, // 9: agentsdeck.link.v1.Frame.answer:type_name -> agentsdeck.link.v1.Answer
-	28, // 10: agentsdeck.link.v1.Frame.focus:type_name -> agentsdeck.link.v1.Focus
-	29, // 11: agentsdeck.link.v1.Frame.interrupt:type_name -> agentsdeck.link.v1.Interrupt
-	30, // 12: agentsdeck.link.v1.Frame.dismiss:type_name -> agentsdeck.link.v1.Dismiss
-	32, // 13: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
-	33, // 14: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
-	31, // 15: agentsdeck.link.v1.Frame.resume:type_name -> agentsdeck.link.v1.Resume
-	34, // 16: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
-	35, // 17: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
-	36, // 18: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
-	37, // 19: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
-	38, // 20: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
-	39, // 21: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
-	40, // 22: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
-	41, // 23: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
-	42, // 24: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
-	43, // 25: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
-	45, // 26: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
-	49, // 27: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
-	47, // 28: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
-	8,  // 29: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
-	0,  // 30: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
-	1,  // 31: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
-	15, // 32: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
-	18, // 33: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
-	3,  // 34: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
-	4,  // 35: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
-	19, // 36: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
-	20, // 37: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
-	22, // 38: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
-	23, // 39: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
-	24, // 40: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
-	26, // 41: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
-	25, // 42: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
-	5,  // 43: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
-	21, // 44: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
-	44, // 45: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
-	46, // 46: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
-	48, // 47: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
-	50, // 48: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
-	49, // [49:49] is the sub-list for method output_type
-	49, // [49:49] is the sub-list for method input_type
-	49, // [49:49] is the sub-list for extension type_name
-	49, // [49:49] is the sub-list for extension extendee
-	0,  // [0:49] is the sub-list for field type_name
+	9,  // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
+	11, // 1: agentsdeck.link.v1.Frame.welcome:type_name -> agentsdeck.link.v1.Welcome
+	12, // 2: agentsdeck.link.v1.Frame.ping:type_name -> agentsdeck.link.v1.Ping
+	13, // 3: agentsdeck.link.v1.Frame.pong:type_name -> agentsdeck.link.v1.Pong
+	14, // 4: agentsdeck.link.v1.Frame.subscribe:type_name -> agentsdeck.link.v1.Subscribe
+	15, // 5: agentsdeck.link.v1.Frame.snapshot_begin:type_name -> agentsdeck.link.v1.SnapshotBegin
+	18, // 6: agentsdeck.link.v1.Frame.agent_changed:type_name -> agentsdeck.link.v1.AgentChanged
+	19, // 7: agentsdeck.link.v1.Frame.agent_removed:type_name -> agentsdeck.link.v1.AgentRemoved
+	16, // 8: agentsdeck.link.v1.Frame.snapshot_end:type_name -> agentsdeck.link.v1.SnapshotEnd
+	29, // 9: agentsdeck.link.v1.Frame.answer:type_name -> agentsdeck.link.v1.Answer
+	30, // 10: agentsdeck.link.v1.Frame.focus:type_name -> agentsdeck.link.v1.Focus
+	31, // 11: agentsdeck.link.v1.Frame.interrupt:type_name -> agentsdeck.link.v1.Interrupt
+	32, // 12: agentsdeck.link.v1.Frame.dismiss:type_name -> agentsdeck.link.v1.Dismiss
+	34, // 13: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
+	35, // 14: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
+	33, // 15: agentsdeck.link.v1.Frame.resume:type_name -> agentsdeck.link.v1.Resume
+	36, // 16: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
+	37, // 17: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
+	38, // 18: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
+	39, // 19: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
+	40, // 20: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
+	41, // 21: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
+	42, // 22: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
+	43, // 23: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
+	44, // 24: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
+	45, // 25: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
+	47, // 26: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
+	51, // 27: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
+	49, // 28: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
+	53, // 29: agentsdeck.link.v1.Frame.cert_request:type_name -> agentsdeck.link.v1.CertRequest
+	54, // 30: agentsdeck.link.v1.Frame.cert_issued:type_name -> agentsdeck.link.v1.CertIssued
+	55, // 31: agentsdeck.link.v1.Frame.wifi_config:type_name -> agentsdeck.link.v1.WifiConfig
+	56, // 32: agentsdeck.link.v1.Frame.net_status:type_name -> agentsdeck.link.v1.NetStatus
+	10, // 33: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
+	0,  // 34: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
+	1,  // 35: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
+	17, // 36: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
+	20, // 37: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
+	3,  // 38: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
+	4,  // 39: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
+	21, // 40: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
+	22, // 41: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
+	24, // 42: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
+	25, // 43: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
+	26, // 44: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
+	28, // 45: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
+	27, // 46: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
+	5,  // 47: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
+	23, // 48: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
+	46, // 49: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
+	48, // 50: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
+	50, // 51: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
+	52, // 52: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
+	6,  // 53: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
+	7,  // 54: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_agentsdeck_link_v1_link_proto_init() }
@@ -3982,14 +4532,18 @@ func file_agentsdeck_link_v1_link_proto_init() {
 		(*Frame_LiveSessions)(nil),
 		(*Frame_RestoreResult)(nil),
 		(*Frame_AccountList)(nil),
+		(*Frame_CertRequest)(nil),
+		(*Frame_CertIssued)(nil),
+		(*Frame_WifiConfig)(nil),
+		(*Frame_NetStatus)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentsdeck_link_v1_link_proto_rawDesc), len(file_agentsdeck_link_v1_link_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   45,
+			NumEnums:      8,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1,6 +1,7 @@
 # Deck Link protocol v1
 
-Deck Link connects small boards (ESP32 and similar) to the agents deck over USB serial. A board sees
+Deck Link connects small boards (ESP32 and similar) to the agents deck over USB serial, and, once
+paired, over Wi-Fi (see [Pairing and Wi-Fi](#pairing-and-wi-fi)). A board sees
 the same agents, statuses and prompts as the web dashboard and can take the same actions, within the
 scope you give it. The messages are defined in
 [`proto/agentsdeck/link/v1/link.proto`](../../proto/agentsdeck/link/v1/link.proto); size limits are in
@@ -35,7 +36,7 @@ COBS( 0xDE 0xC1 | 0x01 | <Frame, protobuf> | CRC16 hi | CRC16 lo ) 0x00
   removes every zero byte, so `0x00` ends a frame. After any noise or a corrupt frame, a reader
   resynchronises at the next `0x00`.
 - A frame is at most **4096 bytes** before COBS, unless the board asks for less in `Hello.max_frame`
-  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3323 bytes.
+  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3375 bytes.
 
 Anything that isn't a valid frame is ignored, including the ESP32's boot log. Since `0xDE 0xC1` never
 occurs in UTF-8 text, printing text on the same port is harmless.
@@ -83,7 +84,8 @@ board                                   deck
 - **Hello** must be the board's first frame and is sent again after every reset. A second `Hello`
   starts the conversation over (new `Welcome`, the board subscribes again).
 - **Welcome** is sent again whenever the board's approval or scope changes: when you approve it, change
-  its scope (`agentctl devices scope <name> act`) or revoke it (`approved: false`).
+  its scope (`agentctl devices scope <name> act`) or revoke it (`approved: false`). Its `cert_serial`
+  is the board's Wi-Fi certificate as the deck knows it (see below).
 - **Subscribe** chooses agents by board position (`first_slot`, `slot_count`; `0` = all) and fields by
   group bits. Sending it again replaces the subscription and resends the snapshot:
 
@@ -128,6 +130,112 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 board's scope (or not approved yet), 404 no such agent, 409 the prompt changed, 501 not available,
 500 failed. Commands run through the same code as the web API and are logged in the deck's audit log
 under the board's name.
+
+## Pairing and Wi-Fi
+
+A board that pairs over USB can later connect over Wi-Fi, as the same device: the same name, scope,
+approval, revocation and audit log. Over Wi-Fi it speaks the same frames, so everything above works
+unchanged.
+
+### Pairing (over USB serial only)
+
+```
+board                                   deck
+  │◀── Welcome {approved: true, cert_serial: ""}
+  │ CertRequest {seq: 9, csr} ──▶│  approved boards only, USB only
+  │◀── CertIssued {seq: 9, cert, ca, hosts, port, server_fingerprint, device_name, cert_serial}
+```
+
+- The board makes an EC P-256 key **on the chip** (it never leaves it) and sends a certificate signing
+  request for it, `CertRequest.csr` (DER, or PEM; at most 600 bytes).
+- Only an approved board gets a certificate, and only over USB serial: anything else gets a `Result`
+  (403 not approved or not on USB, 400 a bad request, 503 the network listener is off). The deck signs
+  it with its CA (the one in the Keychain, [protocol.md](../protocol.md#devices-and-security)) and
+  records it on the board's own entry in `devices.json`.
+- `CertIssued` says where to use it: `hosts` are the Mac's `.local` name, then its LAN addresses (at
+  most 4); `port` is the network listener's (7341); `server_fingerprint` is the SHA-256 of the
+  listener's certificate (32 bytes); `ca` is the deck's CA (DER). The board keeps all of it with the
+  key.
+- `Welcome.cert_serial` is the certificate the deck holds for the board (`""` for none). A board whose
+  stored certificate has the same serial doesn't ask again; one with none or another asks, with a
+  new key. `agentctl link pair <board>` makes the deck forget it: the board pairs again the next time it
+  is on USB. Revoking a board (`agentctl devices revoke`) also drops its certificate for good;
+  approved again, it pairs again over USB.
+- The board's key and certificate live in its flash (NVS on an ESP32). NVS isn't encrypted unless you
+  enable flash encryption (and NVS encryption): someone holding the board can read them, and the Wi-Fi
+  password. Revoke a lost board.
+
+### Wi-Fi credentials (over USB serial only)
+
+`agentctl link wifi <board> --ssid <name>` asks for the password (without echo; `--password` also
+works) and the daemon sends it to the board over USB:
+
+```
+board                                   deck
+  │◀── WifiConfig {seq, ssid, password}    (forget: true to drop them)
+  │ Result {same seq, code: 204} ──▶│
+  │ NetStatus {wifi: JOINING} … {wifi: IDLE, ip, rssi} ──▶│   the board tries the network once
+```
+
+- Only a board on USB serial right now gets them: otherwise the command says so and nothing is kept.
+  The Mac never stores the password; the daemon doesn't log or audit it (the audit log records
+  `wifi <board>` with `set` or `forget`).
+- The board answers with a `Result` (204 kept, 400 bad, 501 no Wi-Fi in this firmware), then tries the
+  network while staying on USB and reports the outcome in `NetStatus` (`IDLE` with its address when
+  it worked, or `WRONG_PASSWORD`, `NO_NETWORK`, `FAILED`). `agentctl link wifi` waits for it.
+- There is no `/v1` endpoint for this: `/v1` is reachable from the network, and a Wi-Fi password
+  shouldn't travel further than the Mac's unix socket and the board's USB cable. The web dashboard and
+  a companion app get it only through local endpoints (`POST /local/link/wifi` on the unix socket).
+
+### Over Wi-Fi
+
+The board connects to the network listener with **TLS 1.3** and its client certificate, verifies the
+deck against `ca` (when the host it dialled isn't one the listener's certificate names, the
+fingerprint from pairing stands in, as for the desk panel), and asks for a Deck Link stream:
+
+```
+GET /v1/link HTTP/1.1
+Host: my-mac.local
+Upgrade: deck-link
+Connection: Upgrade
+
+HTTP/1.1 101 Switching Protocols
+```
+
+From then on the connection carries the same binary frames as USB (Hello, Welcome, Subscribe …).
+
+- The certificate is the board's identity: its `Hello.board_id` must be the board id of the device the
+  certificate belongs to (otherwise `Result 403` and the connection closes), and the session ends as
+  soon as the device is revoked or pairs again. A revoked board fails the TLS handshake; the board
+  shows "certificate rejected · pair again over USB".
+- `CertRequest` and `WifiConfig` are refused over Wi-Fi: pairing and credentials go over USB only.
+- The deck pings every 5 s as usual and closes a Wi-Fi session that has been silent for 30 s.
+- `hosts` are tried in order: the `.local` name (mDNS on the board), then the addresses.
+
+### Which transport a board uses
+
+At boot a board listens on USB for a few seconds. A deck that answers there (a `Welcome` after its
+`Hello`) wins. If nobody does, and the board has a network and a certificate, it joins the network and
+connects over TLS. A deck that appears on USB later takes over at once (the board drops Wi-Fi): USB
+is preferred, so pairing, new credentials and recovery always work over the cable. A board on USB
+whose deck goes quiet for 30 s tries Wi-Fi meanwhile.
+
+### NetStatus
+
+After each `Welcome`, and whenever it changes, a board may say how it is connected: `transport`
+(`SERIAL` or `WIFI`), `wifi` (`UNSUPPORTED`, `NOT_SET`, `IDLE`, `JOINING`, `CONNECTED`,
+`WRONG_PASSWORD`, `NO_NETWORK`, `FAILED`, `DECK_UNREACHABLE`, `CERT_REJECTED`), `ssid`, `ip`, `rssi` and
+`has_cert`. `agentctl link` and `agentctl devices` show it. It is never the password.
+
+| message | direction | field | over |
+|---|---|---|---|
+| `CertRequest` | board → deck | 60 | USB serial |
+| `CertIssued` | deck → board, reply | 61 | USB serial |
+| `WifiConfig` | deck → board, answered with `Result` | 62 | USB serial |
+| `NetStatus` | board → deck | 63 | either |
+
+These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49
+and checks these are documented here.
 
 ## Limits
 

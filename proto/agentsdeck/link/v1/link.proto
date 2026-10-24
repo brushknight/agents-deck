@@ -52,6 +52,13 @@ message Frame {
     LiveSessions live_sessions = 52;  // reply to ListLive
     RestoreResult restore_result = 53;  // reply to Restore
     AccountList account_list = 54;  // reply to ListAccounts
+
+    // Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
+    // web API commands: they set up the board itself.
+    CertRequest cert_request = 60;  // board → deck, over USB serial only: a certificate for my own key
+    CertIssued cert_issued = 61;    // deck → board: the reply to CertRequest (or a Result on failure)
+    WifiConfig wifi_config = 62;    // deck → board, over USB serial only: join this network; the board answers with a Result
+    NetStatus net_status = 63;      // board → deck: how it is connected, after each Welcome and whenever that changes
   }
 }
 
@@ -88,6 +95,8 @@ message Welcome {
   string device_name = 4;     // the board's name on the deck (agentctl devices)
   Scope scope = 5;
   bool approved = 6;          // false: waiting for `agentctl devices approve`; nothing else is sent until then
+  string cert_serial = 7;     // the board's current certificate (CertIssued.cert_serial), "" for none:
+                              // a board that holds another one asks again (CertRequest)
 }
 
 enum Scope {
@@ -369,4 +378,66 @@ message Restored {
   string title = 2;
   string action = 3;  // resumed | relaunched | removed | failed
   string error = 4;
+}
+
+// ---- pairing and Wi-Fi -----------------------------------------------------
+
+// A certificate signing request for a key the board made itself (EC P-256),
+// DER (or PEM). Only an approved board gets a certificate; the deck answers
+// CertIssued, or a Result (403 not approved or not over USB, 400 bad request,
+// 503 network listener off).
+message CertRequest {
+  bytes csr = 1;
+}
+
+// The board's client certificate and where to use it: the deck's network
+// listener (TLS 1.3), host by host (the Mac's .local name first, then its LAN
+// addresses) on port.
+message CertIssued {
+  bytes cert = 1;                // DER, signed by the deck's CA, for the board's key
+  bytes ca = 2;                  // DER: the deck's CA, to verify the listener
+  repeated string hosts = 3;     // the .local name, then IP addresses
+  uint32 port = 4;               // e.g. 7341
+  bytes server_fingerprint = 5;  // SHA-256 of the listener's certificate: accepted when
+                                 // the host dialled isn't one its names cover
+  string device_name = 6;        // the board's name on the deck
+  string cert_serial = 7;        // the certificate's serial (hex), as Welcome.cert_serial
+}
+
+// Wi-Fi credentials for the board to keep (forget: drop them). Sent by
+// `agentctl link wifi` over USB serial only; never stored on the Mac.
+message WifiConfig {
+  string ssid = 1;
+  string password = 2;  // "" for an open network
+  bool forget = 3;
+}
+
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_SERIAL = 1;  // USB serial
+  TRANSPORT_WIFI = 2;    // Wi-Fi, TLS 1.3 to the deck's network listener
+}
+
+enum WifiState {
+  WIFI_UNSPECIFIED = 0;
+  WIFI_UNSUPPORTED = 1;     // this firmware has no Wi-Fi (or no TLS 1.3)
+  WIFI_NOT_SET = 2;         // no credentials
+  WIFI_IDLE = 3;            // credentials kept, Wi-Fi off (on USB)
+  WIFI_JOINING = 4;
+  WIFI_CONNECTED = 5;       // joined: ip and rssi are set
+  WIFI_WRONG_PASSWORD = 6;
+  WIFI_NO_NETWORK = 7;      // the network wasn't found
+  WIFI_FAILED = 8;          // another failure
+  WIFI_DECK_UNREACHABLE = 9;  // joined, but the deck didn't answer
+  WIFI_CERT_REJECTED = 10;  // the deck refused the certificate (revoked): pair again over USB
+}
+
+// How the board is connected, for `agentctl link` and `agentctl devices`.
+message NetStatus {
+  Transport transport = 1;  // the one this frame came over
+  WifiState wifi = 2;
+  string ssid = 3;
+  string ip = 4;            // on Wi-Fi
+  int32 rssi = 5;           // dBm, 0 = unknown
+  bool has_cert = 6;        // it holds a client certificate
 }

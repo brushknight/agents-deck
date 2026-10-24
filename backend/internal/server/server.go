@@ -96,8 +96,19 @@ type Server struct {
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
 	ServerFingerprint string
+	// DeviceHosts and DevicePort are where boards reach the network listener
+	// over Wi-Fi: the Mac's .local name first, then its LAN addresses.
+	DeviceHosts []string
+	DevicePort  int
+	// DeviceLink serves GET /v1/link on the network listener: a paired
+	// board's Deck Link session over TLS (link.DeviceUpgradeHandler).
+	DeviceLink func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// LinkWifi sends Wi-Fi credentials to a board connected over USB serial
+	// (POST /local/link/wifi); it returns the board's answer.
+	LinkWifi func(device, ssid, password string, forget bool) (int, string)
 	// LinkUpgrade turns POST /local/link into a Deck Link stream (a board
-	// without hardware: agentctl link sim); LinkStatus lists serial ports.
+	// without hardware: agentctl link sim); LinkStatus is GET /local/link:
+	// {"ports": serial ports, "boards": connected boards on either transport}.
 	LinkUpgrade http.HandlerFunc
 	LinkStatus  func() any
 	logins      loginCodes
@@ -450,12 +461,13 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
+	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("GET /local/link", func(w http.ResponseWriter, r *http.Request) {
-		var ports any = []any{}
-		if s.LinkStatus != nil {
-			ports = s.LinkStatus()
+		if s.LinkStatus == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ports": []any{}, "boards": []any{}})
+			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ports": ports})
+		writeJSON(w, http.StatusOK, s.LinkStatus())
 	})
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))

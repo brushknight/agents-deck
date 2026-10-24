@@ -30,6 +30,9 @@ type Deck interface {
 	Board(boardID, typ, firmware string) (devices.Device, error)
 	Device(name string) (devices.Device, bool)
 	Do(d devices.Device, method, path string, body []byte) (int, []byte)
+	// Pair issues an approved board its Wi-Fi certificate from a CSR (the
+	// reply to CertRequest), or returns an HTTP status and error.
+	Pair(d devices.Device, csr []byte) (*linkpb.CertIssued, int, string)
 }
 
 // Default timing; each Session has its own copy (tests and link check
@@ -40,13 +43,29 @@ const (
 	Debounce     = 150 * time.Millisecond
 )
 
+// Transports a session runs on.
+const (
+	OverSerial = "serial" // USB serial (and `agentctl link sim`)
+	OverWifi   = "wifi"   // TLS 1.3 on the network listener (GET /v1/link)
+)
+
 // Session talks Deck Link with one board over rw until ctx ends or rw fails.
 type Session struct {
 	Deck Deck
 	Name string // the port, for logs
 
-	// Timing: set before Run.
+	// Set before Run.
 	PingEvery, RecheckEvery, Debounce time.Duration
+	Hub                               *Hub   // where `agentctl link` and `link wifi` find the session (optional)
+	Transport                         string // OverSerial (default) or OverWifi
+	Where                             string // the port, or the board's network address
+	// Peer is the device whose certificate opened a Wi-Fi session: the board
+	// must say Hello with its board id, and the session ends when the device
+	// is revoked or pairs again.
+	Peer *devices.Device
+	// IdleTimeout ends the session after this long without a frame from the
+	// board (0: never). A board answers every Ping, so 30 s is plenty.
+	IdleTimeout time.Duration
 
 	rw       io.ReadWriter
 	wmu      sync.Mutex
@@ -63,6 +82,18 @@ type Session struct {
 	ping uint32
 
 	board atomic.Pointer[string] // the board's device name, for status (any goroutine)
+	live  atomic.Bool            // approved, for Hub (any goroutine)
+	net   atomic.Pointer[linkpb.NetStatus]
+	since time.Time
+
+	// Requests from the deck to the board (WifiConfig), from other
+	// goroutines: sent by Run, answered by the board's Result.
+	outbox  chan *linkpb.Frame
+	pmu     sync.Mutex
+	pending map[uint32]chan *linkpb.Frame
+	reqSeq  atomic.Uint32
+	done    chan struct{}
+	lastRx  time.Time
 }
 
 // Board is the connected board's device name ("" before its Hello).
@@ -77,18 +108,82 @@ func (s *Session) setDevice(d devices.Device) {
 	s.dev = d
 	name := d.Name
 	s.board.Store(&name)
+	s.live.Store(s.hello != nil && d.Active())
 }
 
 // NewSession prepares a session; Run drives it.
 func NewSession(deck Deck, rw io.ReadWriter, name string) *Session {
-	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame,
-		PingEvery: PingEvery, RecheckEvery: RecheckEvery, Debounce: Debounce}
+	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame, Transport: OverSerial,
+		PingEvery: PingEvery, RecheckEvery: RecheckEvery, Debounce: Debounce,
+		outbox: make(chan *linkpb.Frame, 4), pending: map[uint32]chan *linkpb.Frame{}, done: make(chan struct{})}
+}
+
+// Net is what the board last said about its network (nil before it did).
+func (s *Session) Net() *linkpb.NetStatus { return s.net.Load() }
+
+// errCutOff ends a Wi-Fi session whose certificate no longer counts.
+var errCutOff = errors.New("the board's certificate was revoked or replaced")
+
+// request sends a frame to the board from any goroutine and waits for its
+// Result (same seq).
+func (s *Session) request(ctx context.Context, f *linkpb.Frame) (*linkpb.Result, error) {
+	seq := s.reqSeq.Add(1) | 1<<30 // apart from the deck's ping seqs
+	f.Seq = seq
+	ch := make(chan *linkpb.Frame, 1)
+	s.pmu.Lock()
+	s.pending[seq] = ch
+	s.pmu.Unlock()
+	defer func() {
+		s.pmu.Lock()
+		delete(s.pending, seq)
+		s.pmu.Unlock()
+	}()
+	select {
+	case s.outbox <- f:
+	case <-s.done:
+		return nil, ErrClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case r := <-ch:
+		return r.GetResult(), nil
+	case <-s.done:
+		return nil, ErrClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// SendWifi gives the board Wi-Fi credentials (or makes it forget them) and
+// returns its answer: 204 stored, or an error code and text.
+func (s *Session) SendWifi(ctx context.Context, ssid, password string, forget bool) (int, string, error) {
+	r, err := s.request(ctx, &linkpb.Frame{Body: &linkpb.Frame_WifiConfig{WifiConfig: &linkpb.WifiConfig{Ssid: ssid, Password: password, Forget: forget}}})
+	if err != nil {
+		return 0, "", err
+	}
+	if r == nil {
+		return http.StatusBadGateway, "the board answered with something else", nil
+	}
+	if r.Code < 300 {
+		s.net.Store(nil) // what it said before is stale: it reports again after trying the network
+	}
+	return int(r.Code), r.Error, nil
 }
 
 func (s *Session) active() bool { return s.hello != nil && s.dev.Active() }
 
 // Run reads frames and pushes state until ctx is done or the stream ends.
 func (s *Session) Run(ctx context.Context) error {
+	s.since, s.lastRx = time.Now(), time.Now()
+	if s.Where == "" {
+		s.Where = s.Name
+	}
+	if s.Hub != nil {
+		s.Hub.add(s)
+		defer s.Hub.remove(s)
+	}
+	defer close(s.done)
 	frames := make(chan Decoded, 16)
 	readErr := make(chan error, 1)
 	go func() {
@@ -119,7 +214,12 @@ func (s *Session) Run(ctx context.Context) error {
 		case err := <-readErr:
 			return err
 		case f := <-frames:
+			s.lastRx = time.Now()
 			if err := s.handle(f); err != nil {
+				return err
+			}
+		case f := <-s.outbox:
+			if err := s.send(f); err != nil {
 				return err
 			}
 		case <-changes:
@@ -134,6 +234,9 @@ func (s *Session) Run(ctx context.Context) error {
 				}
 			}
 		case <-ping.C:
+			if s.IdleTimeout > 0 && time.Since(s.lastRx) > s.IdleTimeout {
+				return fmt.Errorf("nothing from the board for %s", s.IdleTimeout)
+			}
 			if s.hello != nil {
 				s.ping++
 				if err := s.send(&linkpb.Frame{Seq: s.ping, Body: &linkpb.Frame_Ping{Ping: &linkpb.Ping{TimeMs: uint64(time.Now().UnixMilli())}}}); err != nil {
@@ -154,6 +257,13 @@ func (s *Session) recheck() error {
 	if s.hello == nil {
 		return nil
 	}
+	if s.Peer != nil { // Wi-Fi: only while its certificate counts
+		d, ok := s.Deck.Device(s.Peer.Name)
+		if !ok || !d.Active() || d.CertSerial != s.Peer.CertSerial {
+			log.Printf("link %s: %s cut off: revoked, removed or paired again", s.Name, s.Peer.Name)
+			return errCutOff
+		}
+	}
 	d, ok := s.Deck.Device(s.dev.Name)
 	if !ok { // removed: it registers again as new
 		var err error
@@ -163,7 +273,7 @@ func (s *Session) recheck() error {
 	}
 	was := s.active()
 	s.setDevice(d)
-	if d.Active() == s.sentAs.Active() && d.Scope == s.sentAs.Scope && d.Name == s.sentAs.Name {
+	if d.Active() == s.sentAs.Active() && d.Scope == s.sentAs.Scope && d.Name == s.sentAs.Name && d.CertSerial == s.sentAs.CertSerial {
 		return nil
 	}
 	if err := s.welcome(); err != nil {
@@ -186,7 +296,7 @@ func (s *Session) welcome() error {
 	s.sentAs = s.dev
 	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Welcome{Welcome: &linkpb.Welcome{
 		Protocol: 1, ServerName: st.Server.Name, ServerVersion: st.Server.Version,
-		DeviceName: s.dev.Name, Scope: scopes[s.dev.Scope], Approved: s.dev.Active(),
+		DeviceName: s.dev.Name, Scope: scopes[s.dev.Scope], Approved: s.dev.Active(), CertSerial: s.dev.CertSerial,
 	}}})
 }
 
@@ -196,14 +306,29 @@ func (s *Session) handle(in Decoded) error {
 	f := in.Frame
 	switch b := f.Body.(type) {
 	case *linkpb.Frame_Hello:
-		return s.onHello(b.Hello, in.Mode)
+		return s.onHello(f.Seq, b.Hello, in.Mode)
 	case *linkpb.Frame_Ping:
 		return s.send(&linkpb.Frame{Seq: f.Seq, Body: &linkpb.Frame_Pong{Pong: &linkpb.Pong{TimeMs: b.Ping.TimeMs}}})
 	case *linkpb.Frame_Pong, nil:
 		return nil
+	case *linkpb.Frame_Result: // the board's answer to a request of ours (WifiConfig)
+		s.pmu.Lock()
+		ch := s.pending[f.Seq]
+		s.pmu.Unlock()
+		if ch != nil {
+			ch <- f
+		}
+		return nil
 	}
 	if s.hello == nil {
 		return nil // nothing before Hello
+	}
+	switch b := f.Body.(type) {
+	case *linkpb.Frame_NetStatus:
+		s.onNetStatus(b.NetStatus)
+		return nil
+	case *linkpb.Frame_CertRequest:
+		return s.onCertRequest(f.Seq, b.CertRequest)
 	}
 	if sub, ok := f.Body.(*linkpb.Frame_Subscribe); ok {
 		s.sub = sub.Subscribe
@@ -218,10 +343,17 @@ func (s *Session) handle(in Decoded) error {
 	return s.command(f)
 }
 
-func (s *Session) onHello(h *linkpb.Hello, mode Mode) error {
+func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 	if h.Protocol != 1 || h.BoardId == "" {
 		log.Printf("link %s: hello with protocol %d, board id %q: ignored", s.Name, h.Protocol, h.BoardId)
 		return nil
+	}
+	if s.Peer != nil && h.BoardId != s.Peer.BoardID {
+		// A certificate is one board's: it can't speak for another.
+		log.Printf("link %s: %s's certificate said Hello as board %q: refused", s.Name, s.Peer.Name, h.BoardId)
+		s.mode = mode
+		_ = s.result(seq, http.StatusForbidden, "this certificate belongs to "+s.Peer.Name+", not to this board")
+		return errors.New("board id doesn't match the certificate")
 	}
 	d, err := s.Deck.Board(h.BoardId, h.Type, h.Firmware)
 	if err != nil {
@@ -232,7 +364,7 @@ func (s *Session) onHello(h *linkpb.Hello, mode Mode) error {
 		if !d.Active() {
 			state = "waiting for approval: agentctl devices approve " + d.Name
 		}
-		log.Printf("link %s: %s (%s %s), %s", s.Name, d.Name, h.Type, h.Firmware, state)
+		log.Printf("link %s: %s (%s %s) over %s, %s", s.Name, d.Name, h.Type, h.Firmware, s.Transport, state)
 	}
 	s.hello, s.mode, s.sub, s.sent = h, mode, nil, nil
 	s.setDevice(d)
@@ -241,6 +373,47 @@ func (s *Session) onHello(h *linkpb.Hello, mode Mode) error {
 		s.maxFrame = m
 	}
 	return s.welcome()
+}
+
+// onCertRequest pairs the board for Wi-Fi: over USB serial only, approved
+// boards only. The certificate goes on the board's own registry entry.
+func (s *Session) onCertRequest(seq uint32, req *linkpb.CertRequest) error {
+	if s.Transport != OverSerial {
+		return s.result(seq, http.StatusForbidden, "pair over USB: plug the board into the Mac")
+	}
+	if !s.active() {
+		return s.result(seq, http.StatusForbidden, s.dev.Name+" is waiting for approval: agentctl devices approve "+s.dev.Name)
+	}
+	ci, code, msg := s.Deck.Pair(s.dev, req.Csr)
+	if code != http.StatusOK || ci == nil {
+		return s.result(seq, code, msg)
+	}
+	if d, ok := s.Deck.Device(s.dev.Name); ok {
+		s.setDevice(d)
+		s.sentAs.CertSerial = d.CertSerial // the board learns it from CertIssued: no new Welcome
+	}
+	f := &linkpb.Frame{Seq: seq, Body: &linkpb.Frame_CertIssued{CertIssued: ci}}
+	clipMessage(f.ProtoReflect())
+	if len(ci.Cert) > limits["CertIssued.cert"].size || len(ci.Ca) > limits["CertIssued.ca"].size {
+		return s.result(seq, http.StatusInternalServerError, "certificate larger than link.options allows")
+	}
+	if EncodedSize(f) > s.maxFrame {
+		return s.result(seq, http.StatusRequestEntityTooLarge, "pairing needs frames of 2048 bytes (Hello.max_frame)")
+	}
+	return s.send(f)
+}
+
+// onNetStatus keeps what the board says about its network, for `agentctl
+// link` (never its password: the board doesn't send it).
+func (s *Session) onNetStatus(n *linkpb.NetStatus) {
+	old := s.net.Swap(n)
+	if old == nil || old.Wifi != n.Wifi || old.Ip != n.Ip {
+		line := WifiStateName(n.Wifi)
+		if n.Ip != "" {
+			line += " " + n.Ip
+		}
+		log.Printf("link %s: %s Wi-Fi %s", s.Name, s.dev.Name, line)
+	}
 }
 
 // push sends the subscribed agents: everything (a snapshot) or only what

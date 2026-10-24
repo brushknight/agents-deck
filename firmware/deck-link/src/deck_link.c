@@ -129,6 +129,7 @@ void deck_link_begin(deck_link_t *ctx)
 {
 	ctx->state = DECK_LINK_CONNECTING;
 	ctx->approved = false;
+	ctx->cert_serial[0] = '\0';
 	ctx->scope = agentsdeck_link_v1_Scope_SCOPE_UNSPECIFIED;
 	ctx->last_rx_ms = now_ms(ctx);
 	send_hello(ctx);
@@ -181,6 +182,7 @@ static void dispatch(deck_link_t *ctx)
 		ctx->state = DECK_LINK_ONLINE;
 		ctx->approved = w->approved;
 		ctx->scope = w->scope;
+		copy_str(ctx->cert_serial, sizeof ctx->cert_serial, w->cert_serial);
 		if (!was_online && c->on_online)
 			c->on_online(ctx);
 		if (w->approved) /* a Welcome restarts the conversation: subscribe (again) */
@@ -230,6 +232,22 @@ static void dispatch(deck_link_t *ctx)
 		if (c->on_restore_result)
 			c->on_restore_result(ctx, f->seq, &f->body.restore_result);
 		break;
+	case agentsdeck_link_v1_Frame_cert_issued_tag:
+		if (c->on_cert_issued)
+			c->on_cert_issued(ctx, f->seq, &f->body.cert_issued);
+		break;
+	case agentsdeck_link_v1_Frame_wifi_config_tag: {
+		const agentsdeck_link_v1_WifiConfig *w = &f->body.wifi_config;
+		agentsdeck_link_v1_Result r;
+		memset(&r, 0, sizeof r);
+		r.code = c->on_wifi_config ? c->on_wifi_config(ctx, w->ssid, w->password, w->forget) : 501;
+		if (!c->on_wifi_config)
+			copy_str(r.error, sizeof r.error, "no Wi-Fi on this board");
+		send_frame(ctx, f->seq, agentsdeck_link_v1_Frame_result_tag, agentsdeck_link_v1_Result_fields, &r);
+		/* The frame held a password: don't keep it around. */
+		memset(&f->body.wifi_config, 0, sizeof f->body.wifi_config);
+		break;
+	}
 	default:
 		break; /* a Pong, or something this board doesn't handle */
 	}
@@ -351,6 +369,7 @@ bool deck_link_approved(const deck_link_t *ctx) { return ctx->approved; }
 agentsdeck_link_v1_Scope deck_link_scope(const deck_link_t *ctx) { return ctx->scope; }
 void *deck_link_user(const deck_link_t *ctx) { return ctx->cfg.user; }
 const deck_link_stats_t *deck_link_stats(const deck_link_t *ctx) { return &ctx->stats; }
+const char *deck_link_cert_serial(const deck_link_t *ctx) { return ctx->cert_serial; }
 
 /* ---- commands -------------------------------------------------------------- */
 
@@ -480,4 +499,19 @@ uint32_t deck_ping(deck_link_t *ctx)
 	agentsdeck_link_v1_Ping m;
 	m.time_ms = now_ms(ctx);
 	return send_cmd(ctx, agentsdeck_link_v1_Frame_ping_tag, agentsdeck_link_v1_Ping_fields, &m);
+}
+
+uint32_t deck_cert_request(deck_link_t *ctx, const uint8_t *csr, size_t len)
+{
+	agentsdeck_link_v1_CertRequest m;
+	if (!csr || len == 0 || len > sizeof m.csr.bytes)
+		return 0;
+	m.csr.size = (pb_size_t)len;
+	memcpy(m.csr.bytes, csr, len);
+	return send_cmd(ctx, agentsdeck_link_v1_Frame_cert_request_tag, agentsdeck_link_v1_CertRequest_fields, &m);
+}
+
+uint32_t deck_net_status(deck_link_t *ctx, const agentsdeck_link_v1_NetStatus *status)
+{
+	return send_cmd(ctx, agentsdeck_link_v1_Frame_net_status_tag, agentsdeck_link_v1_NetStatus_fields, status);
 }

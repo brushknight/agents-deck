@@ -9,6 +9,7 @@ agentsdeck.link.v1.Hello.inputs          max_count:4
 agentsdeck.link.v1.Welcome.server_name   max_size:48
 agentsdeck.link.v1.Welcome.server_version max_size:24
 agentsdeck.link.v1.Welcome.device_name   max_size:40
+agentsdeck.link.v1.Welcome.cert_serial   max_size:40
 agentsdeck.link.v1.Server.name           max_size:48
 agentsdeck.link.v1.Server.version        max_size:24
 agentsdeck.link.v1.AgentRemoved.id       max_size:12
@@ -78,3 +79,14 @@ agentsdeck.link.v1.Restored.id           max_size:12
 agentsdeck.link.v1.Restored.title        max_size:64
 agentsdeck.link.v1.Restored.action       max_size:12
 agentsdeck.link.v1.Restored.error        max_size:96
+agentsdeck.link.v1.CertRequest.csr       max_size:600
+agentsdeck.link.v1.CertIssued.cert       max_size:800
+agentsdeck.link.v1.CertIssued.ca         max_size:600
+agentsdeck.link.v1.CertIssued.hosts      max_count:4 max_size:64
+agentsdeck.link.v1.CertIssued.server_fingerprint max_size:32
+agentsdeck.link.v1.CertIssued.device_name max_size:40
+agentsdeck.link.v1.CertIssued.cert_serial max_size:40
+agentsdeck.link.v1.WifiConfig.ssid       max_size:33
+agentsdeck.link.v1.WifiConfig.password   max_size:65
+agentsdeck.link.v1.NetStatus.ssid        max_size:33
+agentsdeck.link.v1.NetStatus.ip          max_size:40

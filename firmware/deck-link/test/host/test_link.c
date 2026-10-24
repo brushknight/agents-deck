@@ -1,5 +1,6 @@
 /* Host tests for the Deck Link core: COBS, CRC, wire bytes, stream
- * resync, the handshake/liveness timers and deck_tiles. Build with make. */
+ * resync, the handshake/liveness timers, deck_tiles, the pairing and Wi-Fi
+ * messages and deck_store. Build with make. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,8 @@
 #include "cobs.h"
 #include "crc16.h"
 #include "deck_link.h"
+#include "deck_pair.h"
+#include "deck_store.h"
 #include "deck_tiles.h"
 #include "proto/pb_decode.h"
 #include "proto/pb_encode.h"
@@ -545,6 +548,282 @@ static void test_handshake(void)
 	CHECK(sent_frames(s, 16) == 1 && strcmp(s[0].body.answer.agent_id, "abcdefghij") == 0);
 }
 
+/* ---- pairing and Wi-Fi ------------------------------------------------------ */
+
+static agentsdeck_link_v1_CertIssued issued;
+static uint32_t issued_seq;
+static int ev_issued, ev_wifi;
+static char wifi_ssid[40], wifi_pass[70];
+static bool wifi_forget;
+static uint32_t wifi_answer = 204;
+
+static void rec_issued(deck_link_t *c, uint32_t seq, const agentsdeck_link_v1_CertIssued *ci)
+{
+	(void)c;
+	issued = *ci;
+	issued_seq = seq;
+	ev_issued++;
+}
+
+static uint32_t rec_wifi(deck_link_t *c, const char *ssid, const char *pw, bool forget)
+{
+	(void)c;
+	snprintf(wifi_ssid, sizeof wifi_ssid, "%s", ssid);
+	snprintf(wifi_pass, sizeof wifi_pass, "%s", pw);
+	wifi_forget = forget;
+	ev_wifi++;
+	return wifi_answer;
+}
+
+static agentsdeck_link_v1_Frame mk_issued(uint32_t seq)
+{
+	agentsdeck_link_v1_Frame f = mk(seq, agentsdeck_link_v1_Frame_cert_issued_tag);
+	agentsdeck_link_v1_CertIssued *ci = &f.body.cert_issued;
+	ci->cert.size = 700;
+	memset(ci->cert.bytes, 0x30, 700);
+	ci->ca.size = 400;
+	memset(ci->ca.bytes, 0x31, 400);
+	ci->hosts_count = 3;
+	strcpy(ci->hosts[0], "deck.local");
+	strcpy(ci->hosts[1], "192.0.2.10");
+	strcpy(ci->hosts[2], "192.0.2.11");
+	ci->port = 7341;
+	ci->server_fingerprint.size = 32;
+	memset(ci->server_fingerprint.bytes, 0xAB, 32);
+	strcpy(ci->device_name, "round-87bd40");
+	strcpy(ci->cert_serial, "1f2e3d");
+	return f;
+}
+
+static void test_pairing_messages(void)
+{
+	static agentsdeck_link_v1_Frame s[16];
+	reset_fake();
+	link.cfg.on_cert_issued = rec_issued;
+	link.cfg.on_wifi_config = rec_wifi;
+	ev_issued = ev_wifi = 0;
+	deck_link_begin(&link);
+	CHECK(strcmp(deck_link_cert_serial(&link), "") == 0);
+
+	/* Welcome carries the deck's view of the board's certificate. */
+	agentsdeck_link_v1_Frame w = mk(0, agentsdeck_link_v1_Frame_welcome_tag);
+	w.body.welcome.approved = true;
+	strcpy(w.body.welcome.cert_serial, "1f2e3d");
+	feed_frame(&w);
+	CHECK(strcmp(deck_link_cert_serial(&link), "1f2e3d") == 0);
+
+	/* CertRequest: the CSR goes out whole, with a seq; the largest fits the TX buffer. */
+	tx_len = 0;
+	static uint8_t csr[DECK_CSR_MAX];
+	for (size_t i = 0; i < sizeof csr; i++)
+		csr[i] = (uint8_t)(i * 7);
+	uint32_t q = deck_cert_request(&link, csr, sizeof csr);
+	CHECK(q != 0 && sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_cert_request_tag);
+	CHECK(s[0].seq == q && s[0].body.cert_request.csr.size == sizeof csr &&
+	      memcmp(s[0].body.cert_request.csr.bytes, csr, sizeof csr) == 0);
+	CHECK(deck_cert_request(&link, csr, sizeof csr + 1) == 0);
+	CHECK(deck_cert_request(&link, NULL, 0) == 0);
+
+	/* CertIssued reaches on_cert_issued with its seq. */
+	agentsdeck_link_v1_Frame ci = mk_issued(q);
+	feed_frame(&ci);
+	CHECK(ev_issued == 1 && issued_seq == q && issued.cert.size == 700 && issued.port == 7341 &&
+	      issued.hosts_count == 3 && strcmp(issued.hosts[0], "deck.local") == 0);
+
+	/* WifiConfig: the board's answer goes back as a Result with the deck's seq. */
+	tx_len = 0;
+	agentsdeck_link_v1_Frame wc = mk(0x40000001, agentsdeck_link_v1_Frame_wifi_config_tag);
+	strcpy(wc.body.wifi_config.ssid, "lab-net");
+	strcpy(wc.body.wifi_config.password, "correct horse");
+	feed_frame(&wc);
+	CHECK(ev_wifi == 1 && strcmp(wifi_ssid, "lab-net") == 0 && strcmp(wifi_pass, "correct horse") == 0 && !wifi_forget);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_result_tag &&
+	      s[0].seq == 0x40000001 && s[0].body.result.code == 204);
+	CHECK(link.frame.body.wifi_config.password[0] == 0); /* not left in memory */
+	wifi_answer = 500;
+	tx_len = 0;
+	wc.body.wifi_config.forget = true;
+	feed_frame(&wc);
+	CHECK(ev_wifi == 2 && wifi_forget && sent_frames(s, 16) == 1 && s[0].body.result.code == 500);
+	wifi_answer = 204;
+	/* No handler: 501. */
+	link.cfg.on_wifi_config = NULL;
+	tx_len = 0;
+	feed_frame(&wc);
+	CHECK(sent_frames(s, 16) == 1 && s[0].body.result.code == 501);
+
+	/* NetStatus goes out as given. */
+	tx_len = 0;
+	agentsdeck_link_v1_NetStatus ns = agentsdeck_link_v1_NetStatus_init_zero;
+	ns.transport = agentsdeck_link_v1_Transport_TRANSPORT_WIFI;
+	ns.wifi = agentsdeck_link_v1_WifiState_WIFI_CONNECTED;
+	strcpy(ns.ip, "192.0.2.23");
+	ns.rssi = -61;
+	ns.has_cert = true;
+	CHECK(deck_net_status(&link, &ns) != 0);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_net_status_tag &&
+	      s[0].body.net_status.rssi == -61 && strcmp(s[0].body.net_status.ip, "192.0.2.23") == 0);
+}
+
+/* A fake key-value store (NVS on the board). */
+#define KV_MAX 8
+static struct {
+	char key[16];
+	uint8_t val[4096];
+	size_t len;
+	bool used;
+} kv_items[KV_MAX];
+static int kv_fail_after = -1; /* fail the n-th set (power cut half-way) */
+static int kv_sets;
+
+static int kv_find(const char *k)
+{
+	for (int i = 0; i < KV_MAX; i++)
+		if (kv_items[i].used && strcmp(kv_items[i].key, k) == 0)
+			return i;
+	return -1;
+}
+
+static bool kv_get(void *u, const char *k, void *buf, size_t *len)
+{
+	(void)u;
+	int i = kv_find(k);
+	if (i < 0 || kv_items[i].len > *len)
+		return false;
+	memcpy(buf, kv_items[i].val, kv_items[i].len);
+	*len = kv_items[i].len;
+	return true;
+}
+
+static bool kv_set(void *u, const char *k, const void *buf, size_t len)
+{
+	(void)u;
+	if (kv_fail_after >= 0 && kv_sets++ >= kv_fail_after)
+		return false;
+	CHECK(strlen(k) <= 15 && len <= sizeof kv_items[0].val);
+	int i = kv_find(k);
+	for (int j = 0; i < 0 && j < KV_MAX; j++)
+		if (!kv_items[j].used)
+			i = j;
+	if (i < 0)
+		return false;
+	kv_items[i].used = true;
+	snprintf(kv_items[i].key, sizeof kv_items[i].key, "%s", k);
+	memcpy(kv_items[i].val, buf, len);
+	kv_items[i].len = len;
+	return true;
+}
+
+static bool kv_erase(void *u, const char *k)
+{
+	(void)u;
+	int i = kv_find(k);
+	if (i >= 0)
+		kv_items[i].used = false;
+	return true;
+}
+
+static void test_store(void)
+{
+	deck_kv_t kv = {kv_get, kv_set, kv_erase, NULL};
+	memset(kv_items, 0, sizeof kv_items);
+	static deck_cert_t c, back;
+
+	CHECK(!deck_store_load_cert(&kv, &c) && !deck_cert_valid(&c));
+	CHECK(deck_cert_needed(&c, ""));
+
+	/* A pairing: the reply to our seq becomes the certificate, with our key. */
+	deck_pairing_t p;
+	memset(&p, 0, sizeof p);
+	p.key_len = 121;
+	memset(p.key, 0x55, p.key_len);
+	p.seq = 9;
+	agentsdeck_link_v1_Frame f = mk_issued(9);
+	CHECK(!deck_pair_accept(&p, 8, &f.body.cert_issued, &c)); /* not ours */
+	CHECK(p.seq == 9 && p.key_len == 121);
+	CHECK(deck_pair_accept(&p, 9, &f.body.cert_issued, &c));
+	CHECK(p.seq == 0 && p.key_len == 0 && p.key[0] == 0); /* the pending key is wiped */
+	CHECK(deck_cert_valid(&c) && c.key_len == 121 && c.key[0] == 0x55 && c.cert_len == 700 && c.ca_len == 400);
+	CHECK(c.host_count == 3 && strcmp(c.hosts[2], "192.0.2.11") == 0 && c.port == 7341 && c.has_server_fp &&
+	      c.server_fp[31] == 0xAB && strcmp(c.cert_serial, "1f2e3d") == 0 && strcmp(c.device_name, "round-87bd40") == 0);
+
+	/* Kept across a reset. */
+	CHECK(deck_store_save_cert(&kv, &c));
+	CHECK(deck_store_load_cert(&kv, &back));
+	CHECK(memcmp(&back, &c, sizeof c) == 0);
+	CHECK(!deck_cert_needed(&back, "1f2e3d")); /* the deck holds this one: don't ask again */
+	CHECK(deck_cert_needed(&back, "") && deck_cert_needed(&back, "999")); /* forgotten or replaced */
+
+	/* An unusable reply is refused, and the certificate in hand stays. */
+	p.seq = 10;
+	p.key_len = 121;
+	f = mk_issued(10);
+	f.body.cert_issued.hosts_count = 0;
+	CHECK(!deck_pair_accept(&p, 10, &f.body.cert_issued, &c));
+	CHECK(deck_cert_valid(&c) && p.seq == 0);
+	f = mk_issued(11);
+	f.body.cert_issued.cert_serial[0] = 0;
+	p.seq = 11;
+	p.key_len = 121;
+	CHECK(!deck_pair_accept(&p, 11, &f.body.cert_issued, &c));
+
+	/* Saving fails (a reset while NVS writes): the stored certificate is the old one, whole. */
+	static deck_cert_t c2;
+	c2 = c;
+	memset(c2.key, 0x66, c2.key_len);
+	c2.cert[0] = 0x99;
+	snprintf(c2.cert_serial, sizeof c2.cert_serial, "%s", "abc");
+	kv_fail_after = 0;
+	kv_sets = 0;
+	CHECK(!deck_store_save_cert(&kv, &c2));
+	kv_fail_after = -1;
+	CHECK(deck_store_load_cert(&kv, &back));
+	CHECK(back.cert[0] == 0x30 && back.key[0] == 0x55 && strcmp(back.cert_serial, "1f2e3d") == 0);
+	CHECK(deck_store_save_cert(&kv, &c2) && deck_store_load_cert(&kv, &back) && back.key[0] == 0x66);
+	CHECK(!deck_store_save_cert(&kv, &(deck_cert_t){0})); /* nothing usable to save */
+
+	/* Corrupt blobs don't load. */
+	int i = kv_find("dl_cert");
+	CHECK(i >= 0);
+	kv_items[i].val[0] = 77; /* unknown version */
+	CHECK(!deck_store_load_cert(&kv, &back) && !deck_cert_valid(&back));
+	CHECK(deck_store_save_cert(&kv, &c) && deck_store_load_cert(&kv, &back));
+	kv_items[i].len -= 1; /* another build's layout */
+	CHECK(!deck_store_load_cert(&kv, &back));
+	CHECK(deck_store_save_cert(&kv, &c));
+	CHECK(deck_store_clear_cert(&kv) && !deck_store_load_cert(&kv, &back));
+
+	/* Wi-Fi credentials. */
+	deck_wifi_t w, wb;
+	memset(&w, 0, sizeof w);
+	CHECK(!deck_store_load_wifi(&kv, &wb));
+	CHECK(!deck_store_save_wifi(&kv, &w)); /* no SSID */
+	snprintf(w.ssid, sizeof w.ssid, "%s", "lab-net");
+	snprintf(w.password, sizeof w.password, "%s", "correct horse");
+	CHECK(deck_store_save_wifi(&kv, &w) && deck_store_load_wifi(&kv, &wb));
+	CHECK(strcmp(wb.ssid, "lab-net") == 0 && strcmp(wb.password, "correct horse") == 0);
+	memset(w.ssid, 'x', sizeof w.ssid - 1); /* 32 bytes: the longest SSID */
+	w.ssid[sizeof w.ssid - 1] = 0;
+	memset(w.password, 'y', sizeof w.password - 1); /* 64 hex digits */
+	w.password[sizeof w.password - 1] = 0;
+	CHECK(deck_store_save_wifi(&kv, &w) && deck_store_load_wifi(&kv, &wb) && strlen(wb.ssid) == 32 &&
+	      strlen(wb.password) == 64);
+	i = kv_find("dl_wifi");
+	kv_items[i].val[kv_items[i].len - 1] = 'z'; /* no terminating NUL */
+	CHECK(!deck_store_load_wifi(&kv, &wb) && wb.ssid[0] == 0);
+	CHECK(deck_store_clear_wifi(&kv) && !deck_store_load_wifi(&kv, &wb));
+
+	/* Without TLS 1.3 (this host build has no mbedTLS) pairing says so. */
+#if !DECK_LINK_HAS_TLS13
+	size_t n;
+	uint8_t buf[200];
+	CHECK(deck_pair_make_key(buf, sizeof buf, &n) == DECK_PAIR_UNSUPPORTED);
+	reset_fake();
+	p.seq = 5;
+	CHECK(deck_pair_request(&link, &p, "x") == 0 && p.seq == 0 && tx_len == 0);
+#endif
+}
+
 /* ---- tiles ----------------------------------------------------------------- */
 
 static void test_tiles(void)
@@ -616,6 +895,8 @@ int main(void)
 	test_sizes();
 	test_handshake();
 	test_tiles();
+	test_pairing_messages();
+	test_store();
 	if (failures) {
 		printf("FAIL: %d of %d checks failed\n", failures, checks);
 		return 1;

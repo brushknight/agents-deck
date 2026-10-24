@@ -62,7 +62,8 @@ type Device struct {
 	LastSeen time.Time `json:"lastSeen,omitzero"`
 	Revoked  bool      `json:"revoked,omitempty"`
 
-	// Network devices: the client certificate's serial number and SHA-256.
+	// The client certificate's serial number and SHA-256: network devices,
+	// and serial boards paired for Wi-Fi (Deck Link CertRequest).
 	CertSerial      string `json:"certSerial,omitempty"`
 	CertFingerprint string `json:"certFingerprint,omitempty"`
 
@@ -180,17 +181,50 @@ func (r *Registry) AddNetwork(name string, scope Scope, certSerial, certFingerpr
 	return r.save()
 }
 
-// ByCertSerial finds the active network device holding a certificate.
+// ByCertSerial finds the device holding a certificate: a network device, or
+// a serial board paired for Wi-Fi. ok is false unless it is active (a board
+// must be approved).
 func (r *Registry) ByCertSerial(serial string) (Device, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.load()
+	if serial == "" {
+		return Device{}, false
+	}
 	for _, d := range r.devices {
-		if d.Kind == Network && d.CertSerial == serial {
+		if d.CertSerial == serial {
 			return *d, d.Active()
 		}
 	}
 	return Device{}, false
+}
+
+// SetBoardCert records a serial board's new client certificate, for Wi-Fi.
+// The board must be approved; its previous certificate stops working.
+func (r *Registry) SetBoardCert(name, certSerial, certFingerprint string) error {
+	return r.update(name, func(d *Device) error {
+		if d.Kind != Serial {
+			return fmt.Errorf("%s is a %s device: only serial boards pair over Deck Link", name, d.Kind)
+		}
+		if !d.Active() {
+			return fmt.Errorf("%s isn't approved: agentctl devices approve %s", name, name)
+		}
+		d.CertSerial, d.CertFingerprint = certSerial, certFingerprint
+		return nil
+	})
+}
+
+// ClearBoardCert forgets a serial board's certificate: it can't connect over
+// Wi-Fi until it pairs again over USB (which it does by itself when it's
+// plugged in and approved).
+func (r *Registry) ClearBoardCert(name string) error {
+	return r.update(name, func(d *Device) error {
+		if d.Kind != Serial {
+			return fmt.Errorf("%s is a %s device: pair it again with agentctl pair", name, d.Kind)
+		}
+		d.CertSerial, d.CertFingerprint = "", ""
+		return nil
+	})
 }
 
 // Board registers a serial board that said Hello. A new board is added
@@ -264,9 +298,17 @@ func (r *Registry) Approve(name string) error {
 	})
 }
 
-// Revoke cuts a device off at once (its certificate or board id stops working).
+// Revoke cuts a device off at once (its certificate or board id stops
+// working). A board also loses its Wi-Fi certificate for good: approved
+// again, it pairs again over USB.
 func (r *Registry) Revoke(name string) error {
-	return r.update(name, func(d *Device) error { d.Revoked = true; return nil })
+	return r.update(name, func(d *Device) error {
+		d.Revoked = true
+		if d.Kind == Serial {
+			d.CertSerial, d.CertFingerprint = "", ""
+		}
+		return nil
+	})
 }
 
 // SetScope changes what a device may do.

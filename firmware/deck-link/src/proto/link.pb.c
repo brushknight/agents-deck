@@ -141,6 +141,22 @@ PB_BIND(agentsdeck_link_v1_RestoreResult, agentsdeck_link_v1_RestoreResult, 2)
 PB_BIND(agentsdeck_link_v1_Restored, agentsdeck_link_v1_Restored, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_CertRequest, agentsdeck_link_v1_CertRequest, 2)
+
+
+PB_BIND(agentsdeck_link_v1_CertIssued, agentsdeck_link_v1_CertIssued, 2)
+
+
+PB_BIND(agentsdeck_link_v1_WifiConfig, agentsdeck_link_v1_WifiConfig, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_NetStatus, agentsdeck_link_v1_NetStatus, AUTO)
+
+
+
+
+
+
 
 
 
