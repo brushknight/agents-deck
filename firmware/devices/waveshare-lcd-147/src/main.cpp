@@ -129,6 +129,9 @@ static void buttonPump() {
 
 // ---------------------------------------------------------------- arduino
 void setup() {
+  // The USB serial driver drops what doesn't fit in its RX queue (256 bytes by
+  // default) while a frame is drawn: give a snapshot room.
+  Serial.setRxBufferSize(16384);
   Serial.begin(115200);                                   // native USB: the rate is ignored
   pinMode(PIN_BOOT, INPUT_PULLUP);
   pinMode(PIN_LCD_BL, OUTPUT);
