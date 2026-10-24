@@ -428,6 +428,44 @@ static inline void drawRowButton(Canvas& c, const RoundTheme& T, const RowButton
   iconButton(c, (int)lroundf(b.x), (int)lroundf(b.y), r, k, pressed, holdPermille, T.t.bg, T.t.ink, T.t.accent, T.idle);
 }
 
+// The agent's working subagents (the deck's SubagentCrew): small critters to
+// the right of its critter, standing on the same line, each posed by its
+// latest tool; "+2" when there are more than kRoundCrew.
+constexpr int kRoundCrew = 3;
+struct CrewGeom {
+  int n;                       // critters drawn
+  int scale;
+  int x0, pitch, feet;         // the first body's left edge, body to body, the line they stand on
+  int moreX;                   // where "+k" starts, when a.subagents > n
+};
+
+static inline CrewGeom crewGeom(const DetailStyle& S, const Agent& a) {
+  CrewGeom g{};
+  g.n = a.subagents > kRoundCrew ? kRoundCrew : a.subagents;
+  g.scale = S.critterScale / 3 < 2 ? 2 : S.critterScale / 3;
+  g.pitch = 18 * g.scale;                     // a body (14 units) and a gap of 4
+  g.x0 = 240 + 7 * S.critterScale + 5 * g.scale;
+  g.feet = S.critterCy + 6 * S.critterScale;   // feet at unit 9; critterAt's centre is unit 3 (box top + 7)
+  g.moreX = g.x0 + (g.n - 1) * g.pitch + 14 * g.scale + 2 * g.scale;
+  return g;
+}
+
+static inline void drawCrew(Canvas& c, const RoundTheme& T, const DetailStyle& S, const Agent& a, uint32_t ms) {
+  if (!a.subagents) return;
+  const CrewGeom g = crewGeom(S, a);
+  const uint16_t body = bodyColor(T, a);
+  for (int i = 0; i < g.n; i++) {
+    const Pose p = i < a.subCount ? (a.subs[i].tool[0] ? poseOfTool(a.subs[i].tool) : Pose::Think)
+                   : i == 0 && a.subTool[0] ? poseOfTool(a.subTool) : Pose::Run;
+    critterAt(c, g.x0 + i * g.pitch + 7 * g.scale, g.feet - 6 * g.scale, g.scale, Species::Claude, p, body, T.t.bg, ms, false);
+  }
+  if (a.subagents > g.n) {
+    char more[8];
+    snprintf(more, sizeof more, "+%u", (unsigned)(a.subagents - g.n));
+    c.text(FONT_XL, g.moreX, g.feet - FONT_XL.cellH + 3, more, T.t.dim);
+  }
+}
+
 static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle& S, const RoundInput& in,
                               const Agent& a, int /*index*/) {
   const RoundUi& ui = *in.ui;
@@ -445,6 +483,7 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   const int s = S.critterScale;
   if (waiting) fillDisc(c, 240, S.critterCy, 12.f * s, T.t.accent);
   agentCritter(c, a, 240, S.critterCy, s, bodyColor(T, a), waiting ? T.t.accent : T.t.bg, in.ms, in.nowEpoch, !waiting);
+  drawCrew(c, T, S, a, in.ms);
   textOn(c, *S.titleFont, 240, S.titleBase, a.title[0] ? a.title : a.id, T.t.ink, detailTitleWidth(S));
   roundStateLine(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status == Status::Running || waiting || a.status == Status::Error || hungry(a);

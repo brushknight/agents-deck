@@ -120,6 +120,14 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
   fresh(all);
   roundOpen(ui, f, idx(f, "k3f9a2"), RoundScreen::Detail);
   shot("detail");
+  {
+    // Five subagents at work: three critters and "+2".
+    Agent& a = f.agents[idx(f, "k3f9a2")];
+    const uint8_t was = a.subagents;
+    a.subagents = 5;
+    shot("detail-crew-5");
+    a.subagents = was;
+  }
   ui.down = true;
   ui.downMs = ms - 500;
   ui.pressed.kind = HitKind::Stop;

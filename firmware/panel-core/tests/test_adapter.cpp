@@ -124,7 +124,13 @@ int main() {
     in.turns = 27;
     in.unseen = true;
     in.external = true;
-    in.subagent_count = 3;
+    in.subagent_count = 5;
+    for (int i = 0; i < 5; i++) {
+      agentsdeck_link_v1_Subagent& sa = in.subagents[in.subagents_count++];
+      snprintf(sa.title, sizeof sa.title, "task %d\nsecond line", i);
+      snprintf(sa.type, sizeof sa.type, "Explore");
+      snprintf(sa.tool, sizeof sa.tool, i ? "Grep" : "");
+    }
     in.has_hat = true;
     snprintf(in.hat.shape, sizeof in.hat.shape, "propeller");
     snprintf(in.hat.color, sizeof in.hat.color, "blue");
@@ -145,12 +151,17 @@ int main() {
     assert(!strcmp(a.waitDetail, "make test") && !strcmp(a.errMsg, "boom"));
     assert(a.ctxUsed == 410000 && a.ctxWindow == 1000000);
     assert(a.costUsd > 4.11f && a.costUsd < 4.13f && a.turns == 27);
-    assert(a.unseen && a.external && a.subagents == 3);
+    assert(a.unseen && a.external && a.subagents == 5);
+    // The first kMaxSubs subagents, each on one line; the count stays whole.
+    assert(a.subCount == kMaxSubs && kMaxSubs == 3);
+    assert(!strcmp(a.subs[0].title, "task 0 second line") && !strcmp(a.subs[0].type, "Explore") && !a.subs[0].tool[0]);
+    assert(!strcmp(a.subs[2].title, "task 2 second line") && !strcmp(a.subs[2].tool, "Grep"));
     assert(!strcmp(kHatShapes[a.hat - 1], "propeller") && !strcmp(kHatColors[a.hatColor], "blue"));
 
     // No hat, an unknown shape, an unknown colour; a Claude agent with nothing else.
     agentsdeck_link_v1_Agent b = la("b", 0, agentsdeck_link_v1_Status_STATUS_IDLE);
     agentFromLink(b, a);
+    assert(!a.subagents && !a.subCount);
     assert(a.hat == 0 && a.hatColor == kHatInk && a.species == Species::Claude && a.statusSince == 0);
     assert(!a.ctxWindow && !a.waitKind[0] && !a.actTool[0]);
     b.has_hat = true;
@@ -183,7 +194,9 @@ int main() {
     assert(a0.status == Status::Running && a0.species == Species::Claude);
     assert(strcmp(a0.actTool, "Edit") == 0 && a0.actDetail[0]);
     assert(a0.ctxUsed == 410000 && a0.ctxWindow == 1000000);
-    assert(a0.subagents == 3);
+    assert(a0.subagents == 3 && a0.subCount == 3);
+    assert(!strcmp(a0.subs[0].title, "map the payment retry paths") && !strcmp(a0.subs[0].type, "Explore"));
+    assert(!strcmp(a0.subs[1].tool, "Edit"));
     assert(a0.statusSince > 0 && a0.turns > 0 && a0.costUsd > 0);
     assert(strcmp(a0.model, "opus 5.5") == 0);
 

@@ -642,7 +642,9 @@ static inline void topBar(Canvas& c, const BigSpec& S, const Theme& T, const Pan
     const int n = a.subagents > 6 ? 6 : a.subagents;
     const int ss = S.crewScale;
     for (int i = 0; i < n; i++) {
-      const Pose p = i == 0 && a.subTool[0] ? poseOfTool(a.subTool) : Pose::Run;
+      // Each posed by its latest tool (thinking before its first); those past the kept ones run.
+      const Pose p = i < a.subCount ? (a.subs[i].tool[0] ? poseOfTool(a.subs[i].tool) : Pose::Think)
+                     : i == 0 && a.subTool[0] ? poseOfTool(a.subTool) : Pose::Run;
       drawSprite(c, x, r.y + 13 * cs - 13 * ss, ss, Species::Claude, p, body, cut, in.ms, true);
       x += 18 * ss + bk(S, 9);
     }

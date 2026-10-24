@@ -328,6 +328,45 @@ static void testButtons() {
   }
 }
 
+// The detail's subagent crew: right of the critter, on its feet, inside the
+// circle and clear of the context bar; "+k" past three; nothing without subagents.
+static void testCrew() {
+  for (const DetailStyle& st : {detailOrbit(), detailDial()}) {
+    for (uint8_t n : {(uint8_t)0, (uint8_t)1, (uint8_t)3, (uint8_t)5}) {
+      Fleet f{};
+      f.count = 1;
+      f.agents[0] = mk("a", 0, Status::Running);
+      Agent& a = f.agents[0];
+      a.subagents = n;
+      a.subCount = n < kMaxSubs ? n : kMaxSubs;
+      for (int i = 0; i < a.subCount; i++) snprintf(a.subs[i].tool, sizeof a.subs[i].tool, "%s", i ? "Grep" : "Edit");
+      const CrewGeom g = crewGeom(st, a);
+      assert(g.n == (n > kRoundCrew ? kRoundCrew : n));
+      std::vector<uint16_t> buf(480 * 480);
+      Canvas c{buf.data(), 480, 480};
+      RoundUi ui;
+      ui.screen = RoundScreen::Detail;
+      snprintf(ui.openId, sizeof ui.openId, "a");
+      RoundInput in{&f, LinkState::Live, "x", RoundScope::Admin, 0, 2000, &ui, 0};
+      const RoundTheme T = roundTheme();
+      c.fill(T.t.bg);
+      drawDetail(c, T, st, in, a, 0);
+      // Ink right of the critter's body, at its feet, only with subagents.
+      int inkRight = 0;
+      for (int y = g.feet - 6 * g.scale; y < g.feet; y++)
+        for (int x = g.x0; x < g.x0 + 3 * g.pitch; x++) inkRight += c.px[y * 480 + x] != T.t.bg;
+      assert(n ? inkRight > 0 : inkRight == 0);
+      if (!n) continue;
+      assert(g.x0 > 240 + 7 * st.critterScale);                   // clear of the critter's body
+      const int right = n > g.n ? g.moreX + 2 * FONT_XL.cellW : g.x0 + (g.n - 1) * g.pitch + 14 * g.scale;
+      const int top = g.feet - FONT_XL.cellH;
+      const float dx = right - 240.f, dy = top - 240.f;
+      assert(sqrtf(dx * dx + dy * dy) < st.ringR - st.ringW / 2 - 4);   // inside the bar
+      assert(g.feet < st.titleBase - fontAscent(*st.titleFont));        // above the name
+    }
+  }
+}
+
 // The row and the bar ease to a new set of buttons over kRowAnimMs.
 static void testRowAnimation() {
   const DetailStyle S = detailOrbit();
@@ -781,6 +820,7 @@ int main() {
   testBack();
   testSlider();
   testRowAnimation();
+  testCrew();
   testPinch();
   testGestures();
   checkScreens(kOrbit);
