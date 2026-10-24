@@ -688,6 +688,71 @@ static void testGestures() {
   assert(ui.lastGesture == RoundGesture::Tap);
 }
 
+// Two fingers (multi-touch boards): a pinch in goes home from the detail and
+// the prompt; a pinch out does nothing; two fingers never tap, swipe or answer.
+static TouchPoints pts(int n, int x0, int y0, int x1 = 0, int y1 = 0) {
+  TouchPoints t;
+  t.n = (uint8_t)n;
+  t.x[0] = (int16_t)x0; t.y[0] = (int16_t)y0; t.x[1] = (int16_t)x1; t.y[1] = (int16_t)y1;
+  return t;
+}
+
+static void testPinch() {
+  Fleet f = fleetOf({mk("a", 0, Status::Running), waiter("c", 1)});
+  for (RoundScreen screen : {RoundScreen::Detail, RoundScreen::Prompt}) {
+    RoundUi ui;
+    uint32_t ms = 1000;
+    roundSync(ui, kOrbit, f, ms);
+    roundOpen(ui, f, 1, screen);
+    assert(ui.screen == screen);
+    // One finger lands first (on a pill, when it's the prompt), then the second; they close in.
+    Pill p[4];
+    promptPills(f.agents[1], 0, p);
+    const int ax = 240, ay = p[0].y + 30;
+    RoundCommand c = roundTouchPoints(ui, kOrbit, f, pts(1, ax, ay), RoundScope::Act, 0, ms);
+    assert(c.cmd == RoundCmd::None);
+    for (int k = 0; k <= 10; k++) {
+      const int d = 160 - k * 10;   // 160 → 60 px apart
+      c = roundTouchPoints(ui, kOrbit, f, pts(2, 240 - d / 2, 240, 240 + d / 2, 240), RoundScope::Act, 0, ms += 16);
+      assert(c.cmd == RoundCmd::None);
+    }
+    assert(ui.screen == RoundScreen::Home && ui.lastGesture == RoundGesture::Pinch);
+    // One finger lifts, the other slides and lifts: nothing more (no swipe, no tap, no answer).
+    c = roundTouchPoints(ui, kOrbit, f, pts(1, ax, ay), RoundScope::Act, 0, ms += 16);
+    c = roundTouchPoints(ui, kOrbit, f, pts(1, ax + 150, ay), RoundScope::Act, 0, ms += 16);
+    assert(c.cmd == RoundCmd::None);
+    c = roundTouchPoints(ui, kOrbit, f, pts(0, 0, 0), RoundScope::Act, 0, ms += 16);
+    assert(c.cmd == RoundCmd::None && ui.screen == RoundScreen::Home && !ui.pinch.active);
+    // Afterwards one finger works as before.
+    roundTouchPoints(ui, kOrbit, f, pts(1, 240, 240), RoundScope::Act, 0, ms += 300);
+    roundTouchPoints(ui, kOrbit, f, pts(0, 0, 0), RoundScope::Act, 0, ms += 60);
+    assert(ui.lastGesture == RoundGesture::Tap && ui.screen != RoundScreen::Home);
+  }
+  // A pinch out, or fingers that barely move: nothing, and no answer on release.
+  RoundUi ui;
+  uint32_t ms = 1000;
+  roundSync(ui, kOrbit, f, ms);
+  roundOpen(ui, f, 1, RoundScreen::Prompt);
+  Pill p[4];
+  promptPills(f.agents[1], 0, p);
+  for (int k = 0; k <= 10; k++) {
+    const int d = 60 + k * 12;
+    const RoundCommand c =
+        roundTouchPoints(ui, kOrbit, f, pts(2, 240 - d / 2, p[0].y + 30, 240 + d / 2, p[0].y + 30), RoundScope::Act, 0, ms += 16);
+    assert(c.cmd == RoundCmd::None);
+  }
+  const RoundCommand c = roundTouchPoints(ui, kOrbit, f, pts(0, 0, 0), RoundScope::Act, 0, ms += 16);
+  assert(c.cmd == RoundCmd::None && ui.screen == RoundScreen::Prompt && ui.lastGesture != RoundGesture::Pinch);
+  // The tracker alone.
+  PinchTracker t;
+  assert(pinchFeed(t, pts(1, 0, 0)) == PinchEvent::None);
+  assert(pinchFeed(t, pts(2, 0, 0, 100, 0)) == PinchEvent::Begin);
+  assert(pinchFeed(t, pts(2, 0, 0, 75, 0)) == PinchEvent::None);
+  assert(pinchFeed(t, pts(2, 0, 0, 69, 0)) == PinchEvent::In);
+  assert(pinchFeed(t, pts(2, 0, 0, 10, 0)) == PinchEvent::None);   // once
+  assert(pinchFeed(t, pts(0, 0, 0)) == PinchEvent::End);
+}
+
 int main() {
   testFeatured();
   testOrbitNavigation();
@@ -700,6 +765,7 @@ int main() {
   testBack();
   testSlider();
   testRowAnimation();
+  testPinch();
   testGestures();
   checkScreens(kOrbit);
   checkScreens(kDial);

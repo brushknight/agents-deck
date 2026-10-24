@@ -28,6 +28,9 @@ struct RoundBoard {
   bool (*begin)();                         // display, touch, backlight; false: the display didn't start
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of 480 x 480
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
+  // Multi-touch boards (optional): the fingers down, up to two, in frame
+  // pixels. When set it is used instead of touch(), and a pinch in goes home.
+  void (*touchPoints)(TouchPoints& t);
   void (*brightness)(uint8_t level);       // 0..255
   int bootPin;                             // the BOOT button (active low): back home; -1 for none
   uint8_t brightActive, brightIdle;
@@ -124,24 +127,29 @@ static void updateBrightness() {
 // two points, often read as a tap. The task queues the samples (every move
 // while down, and the lift); the loop feeds them all to roundTouch().
 struct TouchSample {
-  int16_t x, y;
-  bool down;
+  TouchPoints t;
   uint32_t ms;
 };
 static QueueHandle_t touchQueue = nullptr;
 
 static void touchTask(void*) {
-  bool was = false;
-  int lx = -1, ly = -1;
+  TouchPoints last;
   for (;;) {
-    int x = 0, y = 0;
-    const bool down = board.touch(x, y);
-    if (down != was || (down && (x != lx || y != ly))) {
-      const TouchSample t{(int16_t)x, (int16_t)y, down, millis()};
-      xQueueSend(touchQueue, &t, 0);   // a full queue drops a sample, never blocks
-      was = down;
-      lx = x;
-      ly = y;
+    TouchPoints t;
+    if (board.touchPoints) {
+      board.touchPoints(t);
+    } else {
+      int x = 0, y = 0;
+      t.n = board.touch(x, y) ? 1 : 0;
+      t.x[0] = (int16_t)x;
+      t.y[0] = (int16_t)y;
+    }
+    const bool moved = t.n != last.n || (t.n && (t.x[0] != last.x[0] || t.y[0] != last.y[0])) ||
+                       (t.n > 1 && (t.x[1] != last.x[1] || t.y[1] != last.y[1]));
+    if (moved) {
+      const TouchSample s{t, millis()};
+      xQueueSend(touchQueue, &s, 0);   // a full queue drops a sample, never blocks
+      last = t;
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -157,6 +165,7 @@ static const char* gestureName(RoundGesture g) {
     case RoundGesture::SwipeDown:  return "swipe down";
     case RoundGesture::Rim:        return "rim drag";
     case RoundGesture::Hold:       return "hold";
+    case RoundGesture::Pinch:      return "pinch in";
     default:                       return "none";
   }
 }
@@ -164,15 +173,15 @@ static const char* gestureName(RoundGesture g) {
 
 static void touchPump() {
   if (!touchQueue) return;
-  TouchSample t;
-  while (xQueueReceive(touchQueue, &t, 0) == pdTRUE) {
+  TouchSample s;
+  while (xQueueReceive(touchQueue, &s, 0) == pdTRUE) {
     lastActiveMs = millis();
-    if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; continue; }
+    if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; ui.pinch = PinchTracker(); continue; }
     const bool was = ui.down;
     ui.lastGesture = RoundGesture::None;
     const RoundCommand c =
-        roundTouch(ui, *board.layout, fleet->fleet, t.down, t.x, t.y, scope(), deckNowEpoch(*fleet, t.ms), t.ms);
-    if (!was && t.down) ROUND_LOG("touch: down at %d,%d", t.x, t.y);
+        roundTouchPoints(ui, *board.layout, fleet->fleet, s.t, scope(), deckNowEpoch(*fleet, s.ms), s.ms);
+    if (!was && ui.down) ROUND_LOG("touch: down at %d,%d", s.t.x[0], s.t.y[0]);
     if (ui.lastGesture != RoundGesture::None)
       ROUND_LOG("touch: %s from %d,%d to %d,%d, screen %d", gestureName(ui.lastGesture), ui.x0, ui.y0, ui.x, ui.y,
                 (int)ui.screen);
@@ -233,7 +242,7 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   deck.begin(Serial, cfg);
   lastActiveMs = lastHeardMs = millis();
   ui.lastTouchMs = millis();
-  if (shown && board.touch) {
+  if (shown && (board.touch || board.touchPoints)) {
     touchQueue = xQueueCreate(64, sizeof(TouchSample));
     xTaskCreatePinnedToCore(touchTask, "touch", 3072, nullptr, 2, nullptr, 0);
   }

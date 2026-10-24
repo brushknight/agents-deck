@@ -50,13 +50,14 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 | where | gesture | does |
 |---|---|---|
-| home | swipe left / right | the next / previous agent (the dots show where you are) |
+| home | slide a finger round the outer ring | the agent under the finger, live; it stays when you let go |
+| home | swipe left / right | the next / previous agent |
 | home | tap the middle | the shown agent's prompt when it waits, else its detail |
 | detail | swipe left / right | the next / previous agent in slot order |
 | detail | tap the middle (when it waits) | its prompt |
 | detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
 | prompt | tap a pill | answers; swipe up / down scrolls a long list |
-| detail, prompt | swipe down, or tap the "×" at the top | back |
+| detail, prompt | swipe down, or tap "×" (the detail's bottom row, the prompt's top) | back |
 | detail | tap the big critter | home |
 | anywhere | 30 s untouched, or the BOOT button | home, on the agent that matters most |
 

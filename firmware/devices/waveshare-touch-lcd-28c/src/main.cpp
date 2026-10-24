@@ -121,29 +121,43 @@ static void gtWrite8(uint16_t reg, uint8_t v) {
 }
 
 // The first touch point, in screen pixels (the panel and the touch share axes).
-static bool touchPanel(int& x, int& y) {
-  static bool lastDown = false;
-  static int lastX = 0, lastY = 0;
+// Up to two touch points, in the panel's pixels: the GT911 reports how many
+// in 0x814E and 8 bytes per point from 0x814F (id, x lo/hi, y lo/hi, size).
+static void touchPanelPoints(TouchPoints& t) {
+  static TouchPoints last;
   static uint32_t lastPoll = 0;
-  if (!gt911) return false;
-  if (millis() - lastPoll < 15) { x = lastX; y = lastY; return lastDown; }   // ~60 Hz is plenty
+  if (!gt911) { t = TouchPoints(); return; }
+  if (millis() - lastPoll < 8) { t = last; return; }
   lastPoll = millis();
   uint8_t status = 0;
-  if (!gtRead(0x814E, &status, 1)) return lastDown = false;
-  if (!(status & 0x80)) { x = lastX; y = lastY; return lastDown; }        // no new report: as before
+  if (!gtRead(0x814E, &status, 1)) { last = TouchPoints(); t = last; return; }
+  if (!(status & 0x80)) { t = last; return; }                  // no new report: as before
   const int n = status & 0x0F;
+  TouchPoints now;
   if (n > 0 && n <= 5) {
-    uint8_t p[6];
-    if (gtRead(0x8150, p, sizeof p)) {
-      lastX = p[0] | p[1] << 8;
-      lastY = p[2] | p[3] << 8;
+    uint8_t p[16];
+    const int take = n >= 2 ? 2 : 1;
+    if (gtRead(0x814F, p, (size_t)take * 8)) {
+      now.n = (uint8_t)take;
+      for (int i = 0; i < take; i++) {
+        now.x[i] = (int16_t)(p[i * 8 + 1] | p[i * 8 + 2] << 8);
+        now.y[i] = (int16_t)(p[i * 8 + 3] | p[i * 8 + 4] << 8);
+      }
+    } else {
+      now = last;
     }
   }
   gtWrite8(0x814E, 0);
-  lastDown = n > 0 && n <= 5;
-  x = lastX;
-  y = lastY;
-  return lastDown;
+  last = now;
+  t = now;
+}
+
+static bool touchPanel(int& x, int& y) {
+  TouchPoints t;
+  touchPanelPoints(t);
+  x = t.x[0];
+  y = t.y[0];
+  return t.n > 0;
 }
 
 // A touch in frame pixels (turned back by ROUND_ROTATION).
@@ -151,6 +165,17 @@ static bool touchRead(int& x, int& y) {
   if (!touchPanel(x, y)) return false;
   ws_round::touchToFrame(x, y);
   return true;
+}
+
+// Both points in frame pixels: the Orbit goes home on a pinch in.
+static void touchReadPoints(TouchPoints& t) {
+  touchPanelPoints(t);
+  for (int i = 0; i < t.n && i < 2; i++) {
+    int x = t.x[i], y = t.y[i];
+    ws_round::touchToFrame(x, y);
+    t.x[i] = (int16_t)x;
+    t.y[i] = (int16_t)y;
+  }
 }
 
 // ---------------------------------------------------------------- the board
@@ -196,6 +221,7 @@ void setup() {
   b.begin = boardBegin;
   b.push = ws_round::push;
   b.touch = touchRead;
+  b.touchPoints = touchReadPoints;   // the GT911 reports two fingers: pinch in to go home
   b.brightness = ws_round::brightness;
   b.bootPin = ws_round::PIN_BOOT;
   b.brightActive = 255;

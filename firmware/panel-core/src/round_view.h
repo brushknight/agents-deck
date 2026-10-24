@@ -25,6 +25,7 @@
 #include "model.h"
 #include "panel_layout.h"
 #include "round_geom.h"
+#include "touch_pinch.h"
 #include "view.h"
 
 constexpr uint32_t kRoundIdleMs = 30000;   // untouched this long: back home
@@ -38,7 +39,7 @@ constexpr int kRoundWaitIds = 16;          // waiting agents remembered, to spot
 enum class RoundScreen : uint8_t { Home, Detail, Prompt };
 
 // What the last touch was taken for (for the debug log and the tests).
-enum class RoundGesture : uint8_t { None, Tap, SwipeLeft, SwipeRight, SwipeUp, SwipeDown, Rim, Hold };
+enum class RoundGesture : uint8_t { None, Tap, SwipeLeft, SwipeRight, SwipeUp, SwipeDown, Rim, Hold, Pinch };
 
 // What the board may do (Welcome.scope): deck_cmd.h's, shared with the square boards.
 using RoundScope = DeckScope;
@@ -83,6 +84,7 @@ struct RoundUi {
   RimDrag rim;
   RoundGesture lastGesture = RoundGesture::None;
   bool sliding = false;        // the dial: a finger on the rim slider
+  PinchTracker pinch;          // two fingers (multi-touch boards)
 
   // The detail's button row, animated when it changes (round_ui.h):
   // bit masks of the buttons shown, and when the change began.
@@ -503,4 +505,32 @@ static inline void roundResult(RoundUi& ui, uint32_t seq, uint32_t code, uint32_
     roundToast(ui, b, ms);
   }
   ui.backAfterToast = false;   // stay: show what went wrong
+}
+
+// A sample from a multi-touch board (touch_pinch.h): a pinch in on the
+// detail or the prompt goes home. While two fingers are down, and until all
+// lift, nothing else happens: no tap, no swipe, no answer. One finger alone
+// goes to roundTouch() as usual.
+static inline RoundCommand roundTouchPoints(RoundUi& ui, const RoundLayout& L, const Fleet& f, const TouchPoints& t,
+                                            RoundScope scope, int64_t nowEpoch, uint32_t ms) {
+  switch (pinchFeed(ui.pinch, t)) {
+    case PinchEvent::Begin:   // drop the one-finger touch in progress
+      ui.down = false;
+      ui.pressed = RoundHit();
+      ui.sliding = false;
+      ui.rim.active = false;
+      ui.lastTouchMs = ms;
+      return RoundCommand();
+    case PinchEvent::In:
+      ui.lastGesture = RoundGesture::Pinch;
+      ui.lastTouchMs = ms;
+      if (ui.screen != RoundScreen::Home) roundHome(ui);
+      return RoundCommand();
+    case PinchEvent::End:
+      ui.lastTouchMs = ms;
+      return RoundCommand();
+    default: break;
+  }
+  if (ui.pinch.active) return RoundCommand();
+  return roundTouch(ui, L, f, t.n > 0, t.x[0], t.y[0], scope, nowEpoch, ms);
 }

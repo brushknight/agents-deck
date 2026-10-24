@@ -54,7 +54,8 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 | detail | tap the middle (when it waits) | its prompt |
 | detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
 | prompt | tap a pill | answers; swipe up / down scrolls a long list |
-| detail, prompt | swipe down, or tap the "×" at the top | back |
+| detail, prompt | swipe down, or tap "×" (the detail's bottom row, the prompt's top) | back |
+| detail, prompt | pinch in with two fingers | home |
 | detail | tap the big critter | home |
 | anywhere | 30 s untouched, or the BOOT button | home |
 
