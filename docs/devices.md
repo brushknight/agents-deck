@@ -62,7 +62,8 @@ dial.
 - **What's special:** nine agents to a turn; more than nine and the ring keeps going, with dots at
   the bottom showing where you are. A waiting agent has a solid orange ring; a finished one you haven't
   seen, a dashed one. Someone waiting off screen: an orange arc on the rim points to them, and after 10 s
-  untouched the ring turns to them by itself (it never answers by itself).
+  untouched the ring turns to them by itself (it never answers by itself). The detail shows the
+  agent's working subagents as small critters beside it.
 - **Gestures:** drag round the ring to turn it (flick to keep it going); swipe left or right across
   the middle for the next or previous agent; tap an agent to bring it to the top; tap the middle for
   its detail, or its prompt when it waits. On the detail and prompt: swipe down or tap "×" to go back,
@@ -102,7 +103,7 @@ looks like the desk panel and the web board.
 | <img src="images/devices/lcd4-home.png" width="200" alt="the 4x4 grid"> | <img src="images/devices/lcd4-card.png" width="200" alt="an agent's card with numbers and buttons"> | <img src="images/devices/lcd4-permission.png" width="200" alt="an orange permission card"> | <img src="images/devices/lcd4-wifi.png" width="200" alt="the joining Wi-Fi notice"> |
 
 - **What's special:** the biggest board, and the closest to the desk panel: tiles by slot, paged;
-  the card with tokens, cache, cost and turns; prompts where you pick an answer, then **send**.
+  the card with its subagent crew, tokens, cache, cost and turns; prompts where you pick an answer, then **send**.
 - **Gestures:** tap a tile for its card; swipe or tap the page bars to change page; swipe right or
   press BOOT to go back. On the card, stop arms on the first tap ("tap again to stop").
 - **Build:** for now flash the **2.0.17 build** (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t
@@ -121,7 +122,8 @@ A small, bright AMOLED: true black, 2×2 tiles in one continuous list you scroll
 |---|---|---|---|
 | <img src="images/devices/amoled18-home.png" width="160" alt="2x2 tiles with the header counting who waits"> | <img src="images/devices/amoled18-card.png" width="160" alt="an agent's card"> | <img src="images/devices/amoled18-permission.png" width="160" alt="an orange permission prompt"> | <img src="images/devices/amoled18-wifi.png" width="160" alt="the joining Wi-Fi notice"> |
 
-- **What's special:** pocket-sized, with a battery option from Waveshare. The header counts who waits
+- **What's special:** pocket-sized, with a battery option from Waveshare. The card lists up to three
+  working subagents, each a small critter with its task. The header counts who waits
   and who runs; on Wi-Fi it carries a small Wi-Fi mark. Content keeps clear of the glass's rounded
   corners.
 - **Gestures:** drag to scroll (it settles on a row; a flick carries further); tap a tile for its card;
