@@ -310,3 +310,45 @@ func subagentTail(path string, size int64) (done, inTool bool, tool string, star
 	}
 	return done, inTool, tool, start
 }
+
+// InterruptedAt is when the session's last turn was interrupted (Esc), or
+// zero when its last message is anything else. Claude Code runs no hook when
+// a turn is interrupted; the transcript is where it shows.
+func InterruptedAt(path string) time.Time {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return time.Time{}
+	}
+	off := max(0, st.Size()-64<<10)
+	buf := make([]byte, st.Size()-off)
+	n, _ := f.ReadAt(buf, off)
+	lines := bytes.Split(bytes.TrimSpace(buf[:n]), []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		var m struct {
+			Type      string    `json:"type"`
+			Timestamp time.Time `json:"timestamp"`
+			Message   *struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(lines[i], &m) != nil || m.Message == nil || (m.Type != "user" && m.Type != "assistant") {
+			continue
+		}
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(m.Message.Content, &blocks) // a typed prompt is a plain string: not an interrupt
+		if m.Type == "user" && len(blocks) == 1 && blocks[0].Type == "text" &&
+			strings.HasPrefix(blocks[0].Text, "[Request interrupted by user") {
+			return m.Timestamp
+		}
+		return time.Time{}
+	}
+	return time.Time{}
+}

@@ -304,6 +304,13 @@ func textLines(a model.Agent, now time.Time) [Lines]string {
 	case a.LastPrompt != "":
 		t[3] = "#[fg=" + dim + "]› " + esc(clip(a.LastPrompt, 100))
 	}
+	if a.Account != nil { // which Claude account: a square in its colour, like the deck's
+		col := dim
+		if cs, ok := hatColors[a.Account.Color]; ok {
+			col = cs[0]
+		}
+		t[0] += "  #[fg=" + col + "]■ #[fg=" + dim + "]" + esc(clip(a.Account.Name, 16))
+	}
 	if n := len(a.Subagents); n > 0 { // next to the status: line 4 is the gap
 		label := "subagent"
 		if n > 1 {

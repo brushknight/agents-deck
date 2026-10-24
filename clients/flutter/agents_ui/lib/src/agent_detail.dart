@@ -72,6 +72,13 @@ class _AgentDetailState extends State<AgentDetail> {
   /// "stop" on a live agent needs a second tap; this arms it for a few seconds.
   bool _confirmStop = false;
   Timer? _confirmTimer;
+
+  /// "continue on …" armed for its second tap (the account's name).
+  String? _confirmHandoff;
+
+  /// The Claude accounts set up on the Mac, fetched when the card opens on
+  /// an agent that has one (null until then).
+  List<AgentAccount>? _accounts;
   bool _closing = false;
 
   /// Which control flashes, and how (key = option key, 'focus', 'interrupt',
@@ -91,6 +98,14 @@ class _AgentDetailState extends State<AgentDetail> {
   void initState() {
     super.initState();
     widget.onVisible?.call(true);
+    final a = widget.source.snapshot.value.state?.byId(widget.agentId);
+    if (a?.account != null) {
+      unawaited(
+        widget.source.accounts().then((list) {
+          if (mounted) setState(() => _accounts = list);
+        }),
+      );
+    }
   }
 
   @override
@@ -116,12 +131,14 @@ class _AgentDetailState extends State<AgentDetail> {
     }
   }
 
-  Future<void> _run(
+  /// Runs [action] with the shared busy / flash / note handling; returns its
+  /// result (null when another command was still in flight).
+  Future<AgentsResult?> _run(
     String key,
     Future<AgentsResult> Function() action, {
     bool closeOnOk = false,
   }) async {
-    if (_busy || _closing) return;
+    if (_busy || _closing) return null;
     setState(() {
       _busy = true;
       _flashKey = key;
@@ -129,7 +146,7 @@ class _AgentDetailState extends State<AgentDetail> {
       _note = null;
     });
     final r = await action();
-    if (!mounted) return;
+    if (!mounted) return r;
     _timer?.cancel();
     switch (r.kind) {
       case AgentsResultKind.ok:
@@ -167,6 +184,7 @@ class _AgentDetailState extends State<AgentDetail> {
           if (mounted) setState(() => _flash = null);
         });
     }
+    return r;
   }
 
   void _answer(Agent a, AgentPrompt p, String key) =>
@@ -179,11 +197,52 @@ class _AgentDetailState extends State<AgentDetail> {
 
   void _resume(Agent a) => _run('resume', () => widget.source.resume(a.id));
 
+  /// Accounts the agent's conversation could move to (every one but its own).
+  List<AgentAccount> _otherAccounts(Agent a) => [
+    if (a.canHandoff)
+      for (final acc in _accounts ?? const <AgentAccount>[])
+        if (acc.name != a.account!.name) acc,
+  ];
+
+  /// What "continue on [account]" does, from the user's side.
+  static String _handoffNote(Agent a, String account) => a.external
+      ? 'starts a copy in $account; this terminal keeps running'
+      : 'stops it and continues the conversation in $account';
+
+  /// Continues the conversation in another account, on a second tap.
+  Future<void> _handoff(Agent a, AgentAccount to) async {
+    if (_confirmHandoff != to.name) {
+      _confirmTimer?.cancel();
+      setState(() {
+        _confirmHandoff = to.name;
+        _confirmStop = false;
+        _note = null;
+      });
+      _confirmTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _confirmHandoff = null);
+      });
+      return;
+    }
+    _confirmTimer?.cancel();
+    _confirmHandoff = null;
+    final r = await _run('handoff:${to.name}', () async {
+      final r = await widget.source.handoff(a.id, to.name);
+      // Not a prompt answer: a 409/400 here is a plain refusal.
+      return r.isOk ? r : AgentsResult(AgentsResultKind.failed, r.message);
+    });
+    if (mounted && a.external && (r?.isOk ?? false)) {
+      setState(() => _note = 'started in ${to.name}');
+    }
+  }
+
   /// Exited agents go at once; a live agent is stopped only on a second tap.
   void _dismiss(Agent a) {
     if (a.status != AgentStatus.exited && !a.external && !_confirmStop) {
       _confirmTimer?.cancel();
-      setState(() => _confirmStop = true);
+      setState(() {
+        _confirmStop = true;
+        _confirmHandoff = null;
+      });
       _confirmTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) setState(() => _confirmStop = false);
       });
@@ -201,7 +260,7 @@ class _AgentDetailState extends State<AgentDetail> {
       key: const Key('agent-remove'),
       label: _flashKey == 'dismiss' && _flash == _Flash.sent
           ? 'removed'
-          : a.codexThread
+          : a.codexThread || a.inApp
           ? 'hide'
           : a.watched
           ? 'remove from deck'
@@ -525,7 +584,27 @@ class _AgentDetailState extends State<AgentDetail> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(width: 8, height: 8, color: agentToolColor(a.tool)),
+                  if (a.account case final acc?) ...[
+                    ConstrainedBox(
+                      key: const Key('agent-account'),
+                      constraints: const BoxConstraints(maxWidth: 120),
+                      child: Text(
+                        acc.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: DeckHud.mono(size: 15, color: ink),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                  ],
+                  // The tool's colour, or its Claude account's.
+                  Container(
+                    width: 8,
+                    height: 8,
+                    color: a.account == null
+                        ? agentToolColor(a.tool)
+                        : hatColor(a.account!.color).$1,
+                  ),
                   const SizedBox(width: 8),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 300),
@@ -631,6 +710,8 @@ class _AgentDetailState extends State<AgentDetail> {
     final intFlash = _flashColors('interrupt', onAccent: false);
     final rmFlash = _flashColors('dismiss', onAccent: false);
     final resumeFlash = _flashColors('resume', onAccent: false);
+    final others = _otherAccounts(a);
+    final armed = others.where((x) => x.name == _confirmHandoff).firstOrNull;
     return _card(
       fill: DeckHud.bg,
       child: Column(
@@ -730,6 +811,30 @@ class _AgentDetailState extends State<AgentDetail> {
               ),
             ],
           ),
+          // Another Claude account (when this one runs out of usage).
+          if (others.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _handoffNote(a, (armed ?? others.first).name),
+                    key: const Key('agent-handoff-note'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: DeckHud.mono(
+                      size: 14,
+                      color: armed == null ? DeckHud.dim : DeckHud.accent,
+                    ),
+                  ),
+                ),
+                for (final to in others) ...[
+                  const SizedBox(width: 14),
+                  SizedBox(width: 240, child: _handoffButton(a, to)),
+                ],
+              ],
+            ),
+          ],
           const SizedBox(height: 22),
           Row(
             children: [
@@ -747,6 +852,8 @@ class _AgentDetailState extends State<AgentDetail> {
                         ? 'focused'
                         : a.codexThread
                         ? 'open in codex'
+                        : a.inApp
+                        ? 'open in ${a.app}'
                         : a.hungry
                         ? 'review in terminal'
                         : 'focus terminal',
@@ -758,7 +865,7 @@ class _AgentDetailState extends State<AgentDetail> {
                     pressedInk: DeckHud.bg,
                   ),
                 ),
-              if (running && !a.external) ...[
+              if (running && (!a.external || a.inApp)) ...[
                 const SizedBox(width: 14),
                 SizedBox(
                   width: 200,
@@ -802,6 +909,28 @@ class _AgentDetailState extends State<AgentDetail> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _handoffButton(Agent a, AgentAccount to) {
+    final key = 'handoff:${to.name}';
+    final flash = _flashColors(key, onAccent: false);
+    final armed = _confirmHandoff == to.name;
+    return AgentButton(
+      key: Key('agent-handoff-${to.name}'),
+      label: _flashKey == key && _flash == _Flash.sent
+          ? (a.external ? 'started' : 'continuing')
+          : armed
+          ? 'tap again'
+          : 'continue on ${to.name}',
+      onTap: _busy ? null : () => _handoff(a, to),
+      fill: flash?.$1 ?? (armed ? DeckHud.accent : const Color(0x00000000)),
+      ink: flash?.$2 ?? (armed ? DeckHud.bg : DeckHud.ink),
+      outline: flash?.$1 ?? (armed ? DeckHud.accent : DeckHud.dim),
+      pressedFill: DeckHud.accent,
+      pressedInk: DeckHud.bg,
+      height: 52,
+      fontSize: 16,
     );
   }
 

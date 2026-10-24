@@ -25,6 +25,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
@@ -46,10 +47,13 @@ var version = "dev"
 
 const usage = `agentctl — agents-terminal
 
-  agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]
+  agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
   agentctl restore               bring back agents lost with the tmux server (crash, reboot)
   agentctl hats                  the hats agents wear (one per working folder)
+  agentctl accounts              the Claude accounts agents run in (account add|default|rm)
+  agentctl handoff <id|title> <account>
+                                 continue a Claude session in another account (out of usage)
   agentctl set hat <agent|folder> <shape> [colour] | auto
   agentctl live                  Claude sessions started by hand in other terminals
   agentctl add <session>         put one of them on the deck (watched)
@@ -108,6 +112,10 @@ func main() {
 		err = reopen()
 	case "restore":
 		err = restore()
+	case "accounts", "account":
+		err = accountsCmd(args)
+	case "handoff":
+		err = handoff(args)
 	case "hats":
 		err = hatsCmd()
 	case "live":
@@ -249,8 +257,9 @@ func newAgent(args []string) error {
 	fs := flag.NewFlagSet("new", flag.ExitOnError)
 	title := fs.String("t", "", "title (default: folder name)")
 	tool := fs.String("c", "claude", "tool: claude, codex, gemini, shell")
+	account := fs.String("a", "", "Claude account (default: the default account)")
 	detached := fs.Bool("d", false, "don't attach")
-	_ = fs.Parse(reorder(args, map[string]bool{"-t": true, "-c": true}))
+	_ = fs.Parse(reorder(args, map[string]bool{"-t": true, "-c": true, "-a": true}))
 	dir := "."
 	if fs.NArg() > 0 {
 		dir = fs.Arg(0)
@@ -260,7 +269,7 @@ func newAgent(args []string) error {
 		return err
 	}
 	var res struct{ ID string }
-	if err := call("POST", "/local/agents", map[string]string{"dir": abs, "title": *title, "tool": *tool}, &res); err != nil {
+	if err := call("POST", "/local/agents", map[string]string{"dir": abs, "title": *title, "tool": *tool, "account": *account}, &res); err != nil {
 		return err
 	}
 	if *detached {
@@ -536,7 +545,15 @@ func list() error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER")
+	acctCol := false
+	for _, a := range s.Agents {
+		acctCol = acctCol || a.Account != nil
+	}
+	if acctCol {
+		fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER\tACCOUNT")
+	} else {
+		fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER")
+	}
 	lost := 0
 	for _, a := range s.Agents {
 		ctx := "-"
@@ -555,7 +572,15 @@ func list() error {
 		if a.External {
 			cost = "—" // Codex reports no prices
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder)
+		if acctCol {
+			acct := ""
+			if a.Account != nil {
+				acct = a.Account.Name
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder, acct)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder)
+		}
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -574,13 +599,17 @@ func sessionsCmd(args []string) error {
 	fs := flag.NewFlagSet("sessions", flag.ExitOnError)
 	n := fs.Int("n", 20, "how many to show (0 = all)")
 	_ = fs.Parse(reorder(args, map[string]bool{"-n": true}))
-	all, err := claude.ScanSessions(claude.ProjectsDir())
+	all, account, err := allSessions()
 	if err != nil {
 		return err
 	}
 	query := strings.Join(fs.Args(), " ")
 	board := boardSessions()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	acctCol := len(account) > 0
+	if acctCol {
+		fmt.Fprint(tw, "ACCOUNT\t")
+	}
 	fmt.Fprintln(tw, "ID\tWHEN\tTITLE\tFOLDER\tBRANCH\tLAST PROMPT")
 	shown := 0
 	for _, s := range all {
@@ -596,6 +625,9 @@ func sessionsCmd(args []string) error {
 		} else if time.Since(s.Modified) < liveWindow {
 			when = "● open?"
 		}
+		if acctCol {
+			fmt.Fprintf(tw, "%s\t", account[s.ID])
+		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", s.ID[:8], when, clip(s.Title(), 32),
 			clip(shortHome(s.Cwd), 28), clip(s.Branch, 16), clip(s.LastPrompt, 48))
 		shown++
@@ -604,7 +636,7 @@ func sessionsCmd(args []string) error {
 		if query != "" {
 			fmt.Printf("no sessions match %q\n", query)
 		} else {
-			fmt.Println("no Claude sessions found in", claude.ProjectsDir())
+			fmt.Println("no Claude sessions found in", accountDirs())
 		}
 		return nil
 	}
@@ -670,7 +702,7 @@ func resume(args []string) error {
 			return done(a.ID)
 		}
 	}
-	all, err := claude.ScanSessions(claude.ProjectsDir())
+	all, _, err := allSessions()
 	if err != nil {
 		return err
 	}
@@ -945,6 +977,9 @@ func serve(args []string) error {
 		d.Adopt()
 		go d.Run()
 		go d.WatchCodex()
+		go d.WatchOrca()
+		go d.WatchHerdr()
+		go d.WatchCmux()
 		go d.WatchLive()
 		ctl, lc = d, d
 	}
@@ -955,6 +990,7 @@ func serve(args []string) error {
 	}
 	book := &hats.Book{Path: paths.Config()}
 	st.Hat = book.For
+	st.Account = accounts.Of
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()}}

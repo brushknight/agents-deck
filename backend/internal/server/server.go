@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
@@ -37,6 +38,12 @@ type Controller interface {
 // Restorer brings back agents lost with the tmux server (POST /v1/restore).
 type Restorer interface {
 	RestoreJSON() any
+}
+
+// Handoffer continues a Claude session in another account (POST
+// /v1/agents/{id}/handoff), for when one account runs out of usage.
+type Handoffer interface {
+	Handoff(id, account string) (string, error)
 }
 
 // Watcher lists Claude sessions started by hand in other terminals and puts
@@ -60,6 +67,7 @@ type CreateOpts struct {
 	Dir      string  `json:"dir"`
 	Title    string  `json:"title"`
 	Tool     string  `json:"tool"`               // claude | codex | gemini | opencode | shell | sim
+	Account  string  `json:"account,omitempty"`  // claude: the Claude account to run in ("" = the default)
 	Speed    float64 `json:"speed,omitempty"`    // sim only
 	Patience int     `json:"patience,omitempty"` // sim only: seconds before auto-answering prompts
 }
@@ -226,7 +234,51 @@ func (s *Server) api() *http.ServeMux {
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))
 	})
+	mux.HandleFunc("GET /v1/accounts", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"accounts": accountList()})
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/handoff", func(w http.ResponseWriter, r *http.Request) {
+		ho, ok := s.Ctl.(Handoffer)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "handing over is not available")
+			return
+		}
+		var body struct {
+			Account string `json:"account"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body); err != nil || body.Account == "" {
+			writeErr(w, http.StatusBadRequest, `body must be {"account": "<name>"}`)
+			return
+		}
+		id, err := ho.Handoff(r.PathValue("id"), body.Account)
+		if err != nil {
+			s.act(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"id": id})
+	})
 	return mux
+}
+
+// AccountInfo is one row of GET /v1/accounts.
+type AccountInfo struct {
+	Name    string `json:"name"`
+	Color   string `json:"color"`
+	Default bool   `json:"default"` // new agents start in it
+}
+
+// accountList is the configured Claude accounts; empty while there is only
+// one (nothing to choose between).
+func accountList() []AccountInfo {
+	out := []AccountInfo{}
+	if !accounts.InUse() {
+		return out
+	}
+	def := accounts.Default().Name
+	for _, a := range accounts.List() {
+		out = append(out, AccountInfo{Name: a.Name, Color: a.Color, Default: a.Name == def})
+	}
+	return out
 }
 
 // hatBody picks a hat ({"shape", "color"}; "color" optional) or goes back to

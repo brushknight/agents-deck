@@ -360,6 +360,9 @@ var Routes = map[string]string{
 	"restore":   "POST /v1/restore",
 	"set_hat":   "POST /v1/agents/{id}/hat | POST /v1/hats",
 	"add_live":  "POST /v1/live/{session}/add",
+	"handoff":   "POST /v1/agents/{id}/handoff",
+
+	"list_accounts": "GET /v1/accounts",
 }
 
 func agentPath(id, action string) string { return "/v1/agents/" + url.PathEscape(id) + "/" + action }
@@ -413,6 +416,21 @@ func (s *Session) command(f *linkpb.Frame) error {
 			}
 			return &linkpb.Frame{Body: &linkpb.Frame_LiveSessions{LiveSessions: l}}
 		})
+	case *linkpb.Frame_ListAccounts:
+		return s.typed(f.Seq, "/v1/accounts", func(raw []byte) *linkpb.Frame {
+			var r struct {
+				Accounts []struct {
+					Name, Color string
+					Default     bool
+				}
+			}
+			_ = json.Unmarshal(raw, &r)
+			l := &linkpb.AccountList{}
+			for _, x := range r.Accounts {
+				l.Accounts = append(l.Accounts, &linkpb.AccountInfo{Name: x.Name, Color: x.Color, IsDefault: x.Default})
+			}
+			return &linkpb.Frame{Body: &linkpb.Frame_AccountList{AccountList: l}}
+		})
 	case *linkpb.Frame_Restore:
 		code, out := s.Deck.Do(s.dev, http.MethodPost, "/v1/restore", nil)
 		if code != http.StatusOK {
@@ -437,6 +455,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path = http.MethodPost, agentPath(b.Dismiss.AgentId, "dismiss")
 	case *linkpb.Frame_Resume:
 		method, path = http.MethodPost, agentPath(b.Resume.AgentId, "resume")
+	case *linkpb.Frame_Handoff:
+		method, path, body = http.MethodPost, agentPath(b.Handoff.AgentId, "handoff"), map[string]string{"account": b.Handoff.Account}
 	case *linkpb.Frame_Move:
 		method, path, body = http.MethodPost, agentPath(b.Move.AgentId, "move"), map[string]int{"slot": int(b.Move.Slot)}
 	case *linkpb.Frame_Order:

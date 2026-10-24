@@ -37,6 +37,23 @@ Future<void> _open(WidgetTester tester, String title) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+/// The demo fleet on a Mac with two Claude accounts: checkout-api runs in
+/// "personal", search-index is a watched session in "personal" too.
+FakeAgentsSource _twoAccounts() {
+  final fixture = FakeAgentsSource.demo().toJson();
+  for (final a in (fixture['agents'] as List).cast<Map<String, dynamic>>()) {
+    if (a['id'] == 'k3f9a2' || a['id'] == 'h4ptic') {
+      a['account'] = {'name': 'personal', 'color': 'teal'};
+    }
+    if (a['id'] == 'h4ptic') a['external'] = true;
+  }
+  return FakeAgentsSource.fromState(fixture)
+    ..accountList.addAll(const [
+      AgentAccount(name: 'personal', color: 'teal', isDefault: true),
+      AgentAccount(name: 'work', color: 'yellow'),
+    ]);
+}
+
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -649,6 +666,105 @@ void main() {
   testWidgets('16 agents or fewer: one page, no bars', (tester) async {
     await _pumpApp(tester, FakeAgentsSource.demo());
     expect(find.byKey(const Key('agents-pager')), findsNothing);
+  });
+
+  testWidgets('the tile chip takes the account colour', (
+    tester,
+  ) async {
+    await _pumpApp(tester, FakeAgentsSource.demo());
+    expect(find.byKey(const Key('agent-tile-account')), findsNothing);
+
+    final semantics = tester.ensureSemantics();
+    await _pumpApp(tester, _twoAccounts());
+    final dots = find.byKey(const Key('agent-tile-account'));
+    expect(dots, findsNWidgets(2));
+    for (final e in dots.evaluate()) {
+      final box = e.widget as Container;
+      expect((box.color, box.decoration), (hatColor('teal').$1, null));
+      expect(tester.getSize(find.byWidget(box)), const Size(8, 8));
+    }
+    expect(find.bySemanticsLabel(RegExp('personal account')), findsNWidgets(2));
+    semantics.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('continue on another account: second tap, same tile', (
+    tester,
+  ) async {
+    final source = _twoAccounts();
+    await _pumpApp(tester, source);
+    await _open(tester, 'checkout-api');
+    expect(find.byKey(const Key('agent-account')), findsOneWidget);
+    expect(find.text('personal'), findsOneWidget);
+    expect(
+      find.text('stops it and continues the conversation in work'),
+      findsOneWidget,
+    );
+    expect(find.text('continue on work'), findsOneWidget);
+    expect(find.text('continue on personal'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    expect(find.text('tap again'), findsOneWidget);
+    expect(source.calls.where((c) => c.$1 == 'handoff'), isEmpty);
+
+    // The confirmation lapses on its own.
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('continue on work'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    _expectCall(source.calls.last, 'handoff', 'k3f9a2', {'account': 'work'});
+    // The same agent comes back in the other account: the card follows.
+    expect(find.text('work'), findsOneWidget);
+    expect(find.text('continue on personal'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a watched session continues in a new agent', (tester) async {
+    final source = _twoAccounts();
+    await _pumpApp(tester, source);
+    await _open(tester, 'search-index');
+    expect(
+      find.text('starts a copy in work; this terminal keeps running'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    _expectCall(source.calls.last, 'handoff', 'h4ptic', {'account': 'work'});
+    expect(find.text('started in work'), findsOneWidget);
+    final agents = source.snapshot.value.state!.agents;
+    expect(agents.where((a) => a.title == 'search-index'), hasLength(2));
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('a refused handoff shows why', (tester) async {
+    final source = _twoAccounts()
+      ..respond = (verb, id) =>
+          const AgentsResult(AgentsResultKind.failed, 'not allowed');
+    await _pumpApp(tester, source);
+    await _open(tester, 'checkout-api');
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('agent-handoff-work')));
+    await tester.pump();
+    expect(find.text('not allowed'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('no handoff with a single account or for other tools', (
+    tester,
+  ) async {
+    final source = _twoAccounts();
+    await _pumpApp(tester, source);
+    await _open(tester, 'mobile-app'); // claude, no account
+    expect(find.byKey(const Key('agent-handoff-work')), findsNothing);
+    expect(find.byKey(const Key('agent-account')), findsNothing);
   });
 
   test('fixture copy under test/fixtures matches the demo fleet ids', () {

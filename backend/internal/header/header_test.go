@@ -20,6 +20,14 @@ func TestRender(t *testing.T) {
 	if !strings.Contains(lines[2], "50% context") || !strings.Contains(lines[3], "rm -rf build") {
 		t.Errorf("stats/prompt: %q / %q", lines[2], lines[3])
 	}
+	if strings.Contains(lines[0], "■") {
+		t.Errorf("one account: no account on the title line: %q", lines[0])
+	}
+	a.Account = &model.Account{Name: "work", Color: "yellow"}
+	if l := Render(a, now)[0]; !strings.Contains(l, "#[fg="+hatColors["yellow"][0]+"]■") || !strings.Contains(l, "work") {
+		t.Errorf("account on the title line: %q", l)
+	}
+	a.Account = nil
 	// The propeller's colour shows up in the sprite; the body is orange while it needs you.
 	g := Sprite(a)
 	var hat, body bool

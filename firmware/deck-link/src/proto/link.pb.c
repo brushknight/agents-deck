@@ -63,6 +63,9 @@ PB_BIND(agentsdeck_link_v1_Context, agentsdeck_link_v1_Context, AUTO)
 PB_BIND(agentsdeck_link_v1_Hat, agentsdeck_link_v1_Hat, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Account, agentsdeck_link_v1_Account, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Subagent, agentsdeck_link_v1_Subagent, AUTO)
 
 
@@ -105,6 +108,12 @@ PB_BIND(agentsdeck_link_v1_AddLive, agentsdeck_link_v1_AddLive, AUTO)
 PB_BIND(agentsdeck_link_v1_GetState, agentsdeck_link_v1_GetState, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Handoff, agentsdeck_link_v1_Handoff, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_ListAccounts, agentsdeck_link_v1_ListAccounts, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Result, agentsdeck_link_v1_Result, AUTO)
 
 
@@ -118,6 +127,12 @@ PB_BIND(agentsdeck_link_v1_LiveSessions, agentsdeck_link_v1_LiveSessions, 2)
 
 
 PB_BIND(agentsdeck_link_v1_LiveSession, agentsdeck_link_v1_LiveSession, 2)
+
+
+PB_BIND(agentsdeck_link_v1_AccountList, agentsdeck_link_v1_AccountList, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_AccountInfo, agentsdeck_link_v1_AccountInfo, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_RestoreResult, agentsdeck_link_v1_RestoreResult, 2)

@@ -24,6 +24,7 @@ agentsdeck.link.v1.Agent.effort          max_size:12
 agentsdeck.link.v1.Agent.last_prompt     max_size:160
 agentsdeck.link.v1.Agent.error           max_size:128
 agentsdeck.link.v1.Agent.subagents       max_count:6
+agentsdeck.link.v1.Agent.app             max_size:12
 agentsdeck.link.v1.Activity.tool         max_size:24
 agentsdeck.link.v1.Activity.detail       max_size:128
 agentsdeck.link.v1.Prompt.id             max_size:16
@@ -35,6 +36,8 @@ agentsdeck.link.v1.Option.key            max_size:8
 agentsdeck.link.v1.Option.label          max_size:96
 agentsdeck.link.v1.Hat.shape             max_size:16
 agentsdeck.link.v1.Hat.color             max_size:12
+agentsdeck.link.v1.Account.name          max_size:16
+agentsdeck.link.v1.Account.color         max_size:12
 agentsdeck.link.v1.Subagent.id           max_size:12
 agentsdeck.link.v1.Subagent.title        max_size:64
 agentsdeck.link.v1.Subagent.type         max_size:24
@@ -53,6 +56,8 @@ agentsdeck.link.v1.SetHat.folder         max_size:128
 agentsdeck.link.v1.SetHat.shape          max_size:16
 agentsdeck.link.v1.SetHat.color          max_size:12
 agentsdeck.link.v1.AddLive.session_id    max_size:40
+agentsdeck.link.v1.Handoff.agent_id      max_size:12
+agentsdeck.link.v1.Handoff.account       max_size:16
 agentsdeck.link.v1.Result.error          max_size:96
 agentsdeck.link.v1.HatList.shapes        max_count:16 max_size:16
 agentsdeck.link.v1.HatList.colors        max_count:12 max_size:12
@@ -65,6 +70,9 @@ agentsdeck.link.v1.LiveSession.session_id max_size:40
 agentsdeck.link.v1.LiveSession.title     max_size:64
 agentsdeck.link.v1.LiveSession.cwd       max_size:128
 agentsdeck.link.v1.LiveSession.folder    max_size:48
+agentsdeck.link.v1.AccountList.accounts  max_count:4
+agentsdeck.link.v1.AccountInfo.name      max_size:16
+agentsdeck.link.v1.AccountInfo.color     max_size:12
 agentsdeck.link.v1.RestoreResult.results max_count:16
 agentsdeck.link.v1.Restored.id           max_size:12
 agentsdeck.link.v1.Restored.title        max_size:64

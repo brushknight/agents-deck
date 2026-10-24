@@ -84,13 +84,24 @@ func ServerDefaults() {
 	native := NativeMouse()
 	mouse, screen := "on", []string{"set-option", "-su", "terminal-overrides[90]"}
 	// Hyperlinks (OSC 8) reach iTerm only when iTerm owns the mouse (⌘-click).
-	// tmux re-sends them on every redraw, and iTerm keeps each one: a busy
-	// agent's tab grew slow enough to take a whole CPU core. With tmux's
-	// mouse, clicks open links from tmux's own record of them.
-	links := []string{"set-option", "-su", "terminal-features[90]"}
+	// tmux re-sends them on every redraw, and iTerm keeps a mark for each
+	// one. On tmux's alternate screen nothing scrolls away, so the marks
+	// never go and iTerm walks all of them on every frame: after a day or
+	// two it stops responding. Leaving "hyperlinks" out of terminal-features
+	// is not enough: tmux turns it on by itself when iTerm answers its
+	// version query, so the link capability (Hls) is removed instead; tmux
+	// applies overrides after what it detects. With tmux's mouse, clicks
+	// open links from tmux's own record of them.
+	links := [][]string{
+		{"set-option", "-su", "terminal-features[90]"},
+		{"set-option", "-s", "terminal-overrides[91]", "*:Hls@"},
+	}
 	if native {
 		mouse, screen = "off", []string{"set-option", "-s", "terminal-overrides[90]", "*:smcup@:rmcup@"}
-		links = []string{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"}
+		links = [][]string{
+			{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
+			{"set-option", "-su", "terminal-overrides[91]"},
+		}
 	}
 	self, _ := os.Executable()
 	cmds := [][]string{
@@ -99,7 +110,6 @@ func ServerDefaults() {
 		// word (double-click selects it whole, a click on it opens it).
 		{"set-option", "-g", "word-separators", ` "'()<>[]{}|` + "`"},
 		{"bind-key", "-n", "MouseUp1Pane", `if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'` + self + `' open-link --link=#{q:mouse_hyperlink} --word=#{q:mouse_word}" }`},
-		links,
 		screen,
 		// The terminal tab shows the agent's name as Claude Code sets it,
 		// not just "tmux", without its leading status glyph ("✳ CMM server"
@@ -113,6 +123,7 @@ func ServerDefaults() {
 		{"bind-key", "-n", "DoubleClick1Pane", `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; send-keys -X copy-pipe-no-clear ` + pbcopy + ` }`},
 		{"bind-key", "-n", "TripleClick1Pane", `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-line ; send-keys -X copy-pipe-no-clear ` + pbcopy + ` }`},
 	}
+	cmds = append(cmds, links...)
 	for _, table := range []string{"copy-mode", "copy-mode-vi"} {
 		cmds = append(cmds,
 			[]string{"bind-key", "-T", table, "MouseDragEnd1Pane", "send-keys -X copy-pipe-no-clear " + pbcopy},
@@ -267,6 +278,16 @@ func SendKeys(name string, literal string, keys ...string) error {
 func Capture(name string, back int) string {
 	out, _ := run("capture-pane", "-p", "-J", "-t", name, "-S", "-"+itoa(back))
 	return out
+}
+
+// PanePID is the process running in the session's pane (0 when unknown).
+func PanePID(name string) int {
+	out, err := run("list-panes", "-t", name, "-F", "#{pane_pid}")
+	if err != nil {
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]))
+	return pid
 }
 
 func Kill(name string) error { _, err := run("kill-session", "-t", name); return err }

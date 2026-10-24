@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -421,5 +422,29 @@ func TestCompaction(t *testing.T) {
 	// A stray compact SessionStart changes nothing.
 	if changed, _ := Apply(e, Event{Name: "SessionStart", Source: "compact"}); changed {
 		t.Fatal("no compaction running")
+	}
+}
+
+func TestInterruptedAt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	write := func(lines ...string) {
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := `{"type":"assistant","timestamp":"2026-01-02T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Bash"}]}}`
+	stop := `{"type":"user","timestamp":"2026-01-02T10:00:05Z","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}`
+	write(call, stop, `{"type":"system","subtype":"x"}`)
+	if got := InterruptedAt(path); !got.Equal(time.Date(2026, 1, 2, 10, 0, 5, 0, time.UTC)) {
+		t.Errorf("interrupted: %v", got)
+	}
+	// A prompt typed after it (a plain string) means the turn isn't the interrupted one.
+	write(call, stop, `{"type":"user","timestamp":"2026-01-02T10:01:00Z","message":{"content":"go on"}}`)
+	if got := InterruptedAt(path); !got.IsZero() {
+		t.Errorf("after a new prompt: %v", got)
+	}
+	write(call)
+	if got := InterruptedAt(path); !got.IsZero() {
+		t.Errorf("not interrupted: %v", got)
 	}
 }

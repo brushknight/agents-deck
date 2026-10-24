@@ -387,11 +387,27 @@ class _AgentTileState extends State<AgentTile> {
                 children: [
                   if (look.stripes && !pressed)
                     const Positioned.fill(child: HungryStripes()),
+                  // The tool's colour, or (with more than one Claude account
+                  // set up) the colour of the account it runs in.
                   if (!pressed)
                     Positioned(
                       top: 10,
                       right: 10,
-                      child: Container(width: 8, height: 8, color: look.chip),
+                      child: Semantics(
+                        label: a.account == null
+                            ? null
+                            : '${a.account!.name} account',
+                        child: Container(
+                          key: a.account == null
+                              ? null
+                              : const Key('agent-tile-account'),
+                          width: 8,
+                          height: 8,
+                          color: a.account == null
+                              ? look.chip
+                              : hatColor(a.account!.color).$1,
+                        ),
+                      ),
                     ),
                   // Subagents at work: a small critter in the top-left
                   // corner (body only), with a count when there are more.

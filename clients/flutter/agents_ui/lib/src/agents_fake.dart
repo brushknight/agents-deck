@@ -185,6 +185,42 @@ class FakeAgentsSource implements AgentsSource {
         }
         _setStatus(a, 'idle');
         a['resumable'] = false;
+      case 'handoff':
+        final name = body?['account'];
+        final to = accountList.where((x) => x.name == name).firstOrNull;
+        if (to == null) {
+          return const AgentsResult(AgentsResultKind.failed, 'no such account');
+        }
+        final account = {'name': to.name, 'color': to.color};
+        if (a['external'] != true) {
+          // The same agent stops and comes back on its conversation.
+          _setStatus(a, 'starting');
+          a['account'] = account;
+          _emit();
+          return AgentsResult(AgentsResultKind.ok, agentId);
+        }
+        // A watched session keeps running in its terminal; a new agent
+        // continues the conversation in the other account.
+        final used = {for (final x in _agents) x['slot']};
+        var free = 0;
+        while (used.contains(free)) {
+          free++;
+        }
+        final id = 'h${_agents.length}$agentId';
+        _agents.add({
+          ...a,
+          'id': id,
+          'slot': free,
+          'external': false,
+          'account': account,
+          'status': 'starting',
+          'statusSince': DateTime.now().toUtc().toIso8601String(),
+          'activity': null,
+          'waiting': null,
+          'subagents': null,
+        });
+        _emit();
+        return AgentsResult(AgentsResultKind.ok, id);
     }
     _emit();
     return AgentsResult.ok;
@@ -206,6 +242,17 @@ class FakeAgentsSource implements AgentsSource {
 
   @override
   Future<AgentsResult> resume(String agentId) => _command('resume', agentId);
+
+  /// Claude accounts for `GET /v1/accounts` (none set up by default, like a
+  /// Mac with a single account).
+  final accountList = <AgentAccount>[];
+
+  @override
+  Future<List<AgentAccount>> accounts() async => List.of(accountList);
+
+  @override
+  Future<AgentsResult> handoff(String agentId, String account) =>
+      _command('handoff', agentId, {'account': account});
 
   /// Hand-started sessions the "add a session" picker offers.
   final live = <LiveSession>[

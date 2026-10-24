@@ -15,7 +15,7 @@ the menu bar, on a desk panel, and on small boards over USB serial.
 | `clients/macos` | the menu bar app |
 | `firmware/deck-link` | the C firmware kit for Deck Link boards, with examples |
 | `firmware/devices` | firmware for specific devices |
-| `docs/` | `protocol.md` (the API and security), `link/` (Deck Link), `features.md` |
+| `docs/` | `protocol.md` (the API and security), `link/` (Deck Link), `features.md`, `harnesses.md` (adding a harness) |
 
 ## Before you open a PR
 
@@ -36,6 +36,11 @@ the menu bar, on a desk panel, and on small boards over USB serial.
 - Never weaken the security model in `docs/protocol.md`: nothing on the network without TLS 1.3 and a
   device certificate; the web dashboard stays on `127.0.0.1`.
 - Write plainly in docs and UI text: say what something does, from the user's side.
+
+## Adding a harness
+
+Follow [docs/harnesses.md](docs/harnesses.md): a client package under `backend/internal/<name>`, a
+watcher in `backend/internal/daemon`, and a case in `harnessOf` (`harness.go`).
 
 ## Adding a Deck Link device
 

@@ -22,13 +22,13 @@ typedef enum _agentsdeck_link_v1_Scope {
     agentsdeck_link_v1_Scope_SCOPE_UNSPECIFIED = 0,
     agentsdeck_link_v1_Scope_SCOPE_VIEW = 1, /* state only */
     agentsdeck_link_v1_Scope_SCOPE_ACT = 2, /* also answer, focus, interrupt, move, order, hats */
-    agentsdeck_link_v1_Scope_SCOPE_ADMIN = 3 /* also dismiss, resume, restore, live sessions */
+    agentsdeck_link_v1_Scope_SCOPE_ADMIN = 3 /* also dismiss, resume, handoff, restore, live sessions */
 } agentsdeck_link_v1_Scope;
 
 /* Bits of Subscribe.fields. id and slot are always sent. */
 typedef enum _agentsdeck_link_v1_FieldGroup {
     agentsdeck_link_v1_FieldGroup_FIELDS_NONE = 0,
-    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, hat, activity.tool, subagent_count */
+    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count */
     agentsdeck_link_v1_FieldGroup_FIELDS_CARD = 2, /* ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at */
     agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT = 4, /* waiting */
     agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS = 8 /* tokens, cost_usd, turns */
@@ -164,6 +164,12 @@ typedef struct _agentsdeck_link_v1_Hat {
     bool automatic; /* picked from the folder, not by hand (JSON API: "auto") */
 } agentsdeck_link_v1_Hat;
 
+/* A Claude Code account (its own login and usage): a name and a hat colour. */
+typedef struct _agentsdeck_link_v1_Account {
+    char name[16];
+    char color[12];
+} agentsdeck_link_v1_Account;
+
 typedef struct _agentsdeck_link_v1_Subagent {
     char id[12];
     char title[64];
@@ -212,6 +218,9 @@ typedef struct _agentsdeck_link_v1_Agent {
     uint32_t subagent_count; /* len(subagents), sent with TILE so a small board can show it */
     int64_t started_at_ms;
     int64_t updated_at_ms;
+    char app[12]; /* the app it runs in when not agentctl's: "orca", "herdr", "cmux" */
+    bool has_account;
+    agentsdeck_link_v1_Account account; /* the Claude account it runs in; unset while only one is set up */
 } agentsdeck_link_v1_Agent;
 
 typedef struct _agentsdeck_link_v1_AgentChanged {
@@ -281,6 +290,16 @@ typedef struct _agentsdeck_link_v1_GetState {
     char dummy_field;
 } agentsdeck_link_v1_GetState;
 
+/* Continue a Claude session in another account (when one runs out of usage). */
+typedef struct _agentsdeck_link_v1_Handoff {
+    char agent_id[12];
+    char account[16]; /* AccountList.accounts[].name */
+} agentsdeck_link_v1_Handoff;
+
+typedef struct _agentsdeck_link_v1_ListAccounts {
+    char dummy_field;
+} agentsdeck_link_v1_ListAccounts;
+
 /* The outcome of a command, with the web API's status code: 204 done,
  400 bad request, 403 beyond the board's scope, 404 no such agent, 409 the
  prompt changed, 501 not available, 500 failed. */
@@ -318,6 +337,18 @@ typedef struct _agentsdeck_link_v1_LiveSessions {
     pb_size_t sessions_count;
     agentsdeck_link_v1_LiveSession sessions[8];
 } agentsdeck_link_v1_LiveSessions;
+
+typedef struct _agentsdeck_link_v1_AccountInfo {
+    char name[16];
+    char color[12];
+    bool is_default; /* new agents start in it (JSON API: "default") */
+} agentsdeck_link_v1_AccountInfo;
+
+/* The Claude accounts agents can run in; empty while only one is set up. */
+typedef struct _agentsdeck_link_v1_AccountList {
+    pb_size_t accounts_count;
+    agentsdeck_link_v1_AccountInfo accounts[4];
+} agentsdeck_link_v1_AccountList;
 
 typedef struct _agentsdeck_link_v1_Restored {
     char id[12];
@@ -360,11 +391,14 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_ListLive list_live; /* GET /v1/live */
         agentsdeck_link_v1_AddLive add_live; /* POST /v1/live/{session}/add */
         agentsdeck_link_v1_GetState get_state; /* GET /v1/state: resend the snapshot */
+        agentsdeck_link_v1_Handoff handoff; /* POST /v1/agents/{id}/handoff */
+        agentsdeck_link_v1_ListAccounts list_accounts; /* GET /v1/accounts */
         /* Replies, deck → board, with the request's seq. */
         agentsdeck_link_v1_Result result; /* every command without a typed reply */
         agentsdeck_link_v1_HatList hat_list; /* reply to ListHats */
         agentsdeck_link_v1_LiveSessions live_sessions; /* reply to ListLive */
         agentsdeck_link_v1_RestoreResult restore_result; /* reply to Restore */
+        agentsdeck_link_v1_AccountList account_list; /* reply to ListAccounts */
     } body;
 } agentsdeck_link_v1_Frame;
 
@@ -444,6 +478,11 @@ extern "C" {
 
 
 
+
+
+
+
+
 /* Initializer values for message structs */
 #define agentsdeck_link_v1_Frame_init_default    {0, 0, {agentsdeck_link_v1_Hello_init_default}}
 #define agentsdeck_link_v1_Hello_init_default    {0, "", "", "", false, agentsdeck_link_v1_Display_init_default, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
@@ -457,13 +496,14 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_default   {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
-#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default}
 #define agentsdeck_link_v1_Activity_init_default {"", ""}
 #define agentsdeck_link_v1_Prompt_init_default   {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default}}
 #define agentsdeck_link_v1_Option_init_default   {"", "", 0}
 #define agentsdeck_link_v1_Tokens_init_default   {0, 0, 0, 0}
 #define agentsdeck_link_v1_Context_init_default  {0, 0}
 #define agentsdeck_link_v1_Hat_init_default      {"", "", 0}
+#define agentsdeck_link_v1_Account_init_default  {"", ""}
 #define agentsdeck_link_v1_Subagent_init_default {"", "", "", ""}
 #define agentsdeck_link_v1_Answer_init_default   {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_default    {""}
@@ -478,11 +518,15 @@ extern "C" {
 #define agentsdeck_link_v1_ListLive_init_default {0}
 #define agentsdeck_link_v1_AddLive_init_default  {"", 0}
 #define agentsdeck_link_v1_GetState_init_default {0}
+#define agentsdeck_link_v1_Handoff_init_default  {"", ""}
+#define agentsdeck_link_v1_ListAccounts_init_default {0}
 #define agentsdeck_link_v1_Result_init_default   {0, ""}
 #define agentsdeck_link_v1_HatList_init_default  {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0, {"", "", "", "", "", "", "", "", "", "", "", ""}, 0, {agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default, agentsdeck_link_v1_HatOverride_init_default}}
 #define agentsdeck_link_v1_HatOverride_init_default {"", "", ""}
 #define agentsdeck_link_v1_LiveSessions_init_default {0, {agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default, agentsdeck_link_v1_LiveSession_init_default}}
 #define agentsdeck_link_v1_LiveSession_init_default {"", "", "", "", 0, 0, 0}
+#define agentsdeck_link_v1_AccountList_init_default {0, {agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default}}
+#define agentsdeck_link_v1_AccountInfo_init_default {"", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_default {0, {agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default}}
 #define agentsdeck_link_v1_Restored_init_default {"", "", "", ""}
 #define agentsdeck_link_v1_Frame_init_zero       {0, 0, {agentsdeck_link_v1_Hello_init_zero}}
@@ -497,13 +541,14 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
-#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero}
 #define agentsdeck_link_v1_Activity_init_zero    {"", ""}
 #define agentsdeck_link_v1_Prompt_init_zero      {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero}}
 #define agentsdeck_link_v1_Option_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_Tokens_init_zero      {0, 0, 0, 0}
 #define agentsdeck_link_v1_Context_init_zero     {0, 0}
 #define agentsdeck_link_v1_Hat_init_zero         {"", "", 0}
+#define agentsdeck_link_v1_Account_init_zero     {"", ""}
 #define agentsdeck_link_v1_Subagent_init_zero    {"", "", "", ""}
 #define agentsdeck_link_v1_Answer_init_zero      {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_zero       {""}
@@ -518,11 +563,15 @@ extern "C" {
 #define agentsdeck_link_v1_ListLive_init_zero    {0}
 #define agentsdeck_link_v1_AddLive_init_zero     {"", 0}
 #define agentsdeck_link_v1_GetState_init_zero    {0}
+#define agentsdeck_link_v1_Handoff_init_zero     {"", ""}
+#define agentsdeck_link_v1_ListAccounts_init_zero {0}
 #define agentsdeck_link_v1_Result_init_zero      {0, ""}
 #define agentsdeck_link_v1_HatList_init_zero     {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0, {"", "", "", "", "", "", "", "", "", "", "", ""}, 0, {agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero, agentsdeck_link_v1_HatOverride_init_zero}}
 #define agentsdeck_link_v1_HatOverride_init_zero {"", "", ""}
 #define agentsdeck_link_v1_LiveSessions_init_zero {0, {agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero, agentsdeck_link_v1_LiveSession_init_zero}}
 #define agentsdeck_link_v1_LiveSession_init_zero {"", "", "", "", 0, 0, 0}
+#define agentsdeck_link_v1_AccountList_init_zero {0, {agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero}}
+#define agentsdeck_link_v1_AccountInfo_init_zero {"", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_zero {0, {agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero}}
 #define agentsdeck_link_v1_Restored_init_zero    {"", "", "", ""}
 
@@ -574,6 +623,8 @@ extern "C" {
 #define agentsdeck_link_v1_Hat_shape_tag         1
 #define agentsdeck_link_v1_Hat_color_tag         2
 #define agentsdeck_link_v1_Hat_automatic_tag     3
+#define agentsdeck_link_v1_Account_name_tag      1
+#define agentsdeck_link_v1_Account_color_tag     2
 #define agentsdeck_link_v1_Subagent_id_tag       1
 #define agentsdeck_link_v1_Subagent_title_tag    2
 #define agentsdeck_link_v1_Subagent_type_tag     3
@@ -610,6 +661,8 @@ extern "C" {
 #define agentsdeck_link_v1_Agent_subagent_count_tag 30
 #define agentsdeck_link_v1_Agent_started_at_ms_tag 31
 #define agentsdeck_link_v1_Agent_updated_at_ms_tag 32
+#define agentsdeck_link_v1_Agent_app_tag         33
+#define agentsdeck_link_v1_Agent_account_tag     34
 #define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Answer_agent_id_tag   1
 #define agentsdeck_link_v1_Answer_prompt_id_tag  2
@@ -628,6 +681,8 @@ extern "C" {
 #define agentsdeck_link_v1_SetHat_automatic_tag  5
 #define agentsdeck_link_v1_AddLive_session_id_tag 1
 #define agentsdeck_link_v1_AddLive_slot_tag      2
+#define agentsdeck_link_v1_Handoff_agent_id_tag  1
+#define agentsdeck_link_v1_Handoff_account_tag   2
 #define agentsdeck_link_v1_Result_code_tag       1
 #define agentsdeck_link_v1_Result_error_tag      2
 #define agentsdeck_link_v1_HatOverride_folder_tag 1
@@ -644,6 +699,10 @@ extern "C" {
 #define agentsdeck_link_v1_LiveSession_on_board_tag 6
 #define agentsdeck_link_v1_LiveSession_background_tag 7
 #define agentsdeck_link_v1_LiveSessions_sessions_tag 1
+#define agentsdeck_link_v1_AccountInfo_name_tag  1
+#define agentsdeck_link_v1_AccountInfo_color_tag 2
+#define agentsdeck_link_v1_AccountInfo_is_default_tag 3
+#define agentsdeck_link_v1_AccountList_accounts_tag 1
 #define agentsdeck_link_v1_Restored_id_tag       1
 #define agentsdeck_link_v1_Restored_title_tag    2
 #define agentsdeck_link_v1_Restored_action_tag   3
@@ -672,10 +731,13 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_list_live_tag   40
 #define agentsdeck_link_v1_Frame_add_live_tag    41
 #define agentsdeck_link_v1_Frame_get_state_tag   42
+#define agentsdeck_link_v1_Frame_handoff_tag     43
+#define agentsdeck_link_v1_Frame_list_accounts_tag 44
 #define agentsdeck_link_v1_Frame_result_tag      50
 #define agentsdeck_link_v1_Frame_hat_list_tag    51
 #define agentsdeck_link_v1_Frame_live_sessions_tag 52
 #define agentsdeck_link_v1_Frame_restore_result_tag 53
+#define agentsdeck_link_v1_Frame_account_list_tag 54
 
 /* Struct field encoding specification for nanopb */
 #define agentsdeck_link_v1_Frame_FIELDLIST(X, a) \
@@ -702,10 +764,13 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_hats,body.list_hats),  39) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_live,body.list_live),  40) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,add_live,body.add_live),  41) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,get_state,body.get_state),  42) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,handoff,body.handoff),  43) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_accounts,body.list_accounts),  44) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,result,body.result),  50) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,hat_list,body.hat_list),  51) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,live_sessions,body.live_sessions),  52) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (body,restore_result,body.restore_result),  53)
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,restore_result,body.restore_result),  53) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54)
 #define agentsdeck_link_v1_Frame_CALLBACK NULL
 #define agentsdeck_link_v1_Frame_DEFAULT NULL
 #define agentsdeck_link_v1_Frame_body_hello_MSGTYPE agentsdeck_link_v1_Hello
@@ -730,10 +795,13 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,restore_result,body.restore_result),  5
 #define agentsdeck_link_v1_Frame_body_list_live_MSGTYPE agentsdeck_link_v1_ListLive
 #define agentsdeck_link_v1_Frame_body_add_live_MSGTYPE agentsdeck_link_v1_AddLive
 #define agentsdeck_link_v1_Frame_body_get_state_MSGTYPE agentsdeck_link_v1_GetState
+#define agentsdeck_link_v1_Frame_body_handoff_MSGTYPE agentsdeck_link_v1_Handoff
+#define agentsdeck_link_v1_Frame_body_list_accounts_MSGTYPE agentsdeck_link_v1_ListAccounts
 #define agentsdeck_link_v1_Frame_body_result_MSGTYPE agentsdeck_link_v1_Result
 #define agentsdeck_link_v1_Frame_body_hat_list_MSGTYPE agentsdeck_link_v1_HatList
 #define agentsdeck_link_v1_Frame_body_live_sessions_MSGTYPE agentsdeck_link_v1_LiveSessions
 #define agentsdeck_link_v1_Frame_body_restore_result_MSGTYPE agentsdeck_link_v1_RestoreResult
+#define agentsdeck_link_v1_Frame_body_account_list_MSGTYPE agentsdeck_link_v1_AccountList
 
 #define agentsdeck_link_v1_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol,          1) \
@@ -843,7 +911,9 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  hat,              28) \
 X(a, STATIC,   REPEATED, MESSAGE,  subagents,        29) \
 X(a, STATIC,   SINGULAR, UINT32,   subagent_count,   30) \
 X(a, STATIC,   SINGULAR, INT64,    started_at_ms,    31) \
-X(a, STATIC,   SINGULAR, INT64,    updated_at_ms,    32)
+X(a, STATIC,   SINGULAR, INT64,    updated_at_ms,    32) \
+X(a, STATIC,   SINGULAR, STRING,   app,              33) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  account,          34)
 #define agentsdeck_link_v1_Agent_CALLBACK NULL
 #define agentsdeck_link_v1_Agent_DEFAULT NULL
 #define agentsdeck_link_v1_Agent_activity_MSGTYPE agentsdeck_link_v1_Activity
@@ -852,6 +922,7 @@ X(a, STATIC,   SINGULAR, INT64,    updated_at_ms,    32)
 #define agentsdeck_link_v1_Agent_context_MSGTYPE agentsdeck_link_v1_Context
 #define agentsdeck_link_v1_Agent_hat_MSGTYPE agentsdeck_link_v1_Hat
 #define agentsdeck_link_v1_Agent_subagents_MSGTYPE agentsdeck_link_v1_Subagent
+#define agentsdeck_link_v1_Agent_account_MSGTYPE agentsdeck_link_v1_Account
 
 #define agentsdeck_link_v1_Activity_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   tool,              1) \
@@ -897,6 +968,12 @@ X(a, STATIC,   SINGULAR, STRING,   color,             2) \
 X(a, STATIC,   SINGULAR, BOOL,     automatic,         3)
 #define agentsdeck_link_v1_Hat_CALLBACK NULL
 #define agentsdeck_link_v1_Hat_DEFAULT NULL
+
+#define agentsdeck_link_v1_Account_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   name,              1) \
+X(a, STATIC,   SINGULAR, STRING,   color,             2)
+#define agentsdeck_link_v1_Account_CALLBACK NULL
+#define agentsdeck_link_v1_Account_DEFAULT NULL
 
 #define agentsdeck_link_v1_Subagent_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   id,                1) \
@@ -979,6 +1056,17 @@ X(a, STATIC,   SINGULAR, INT32,    slot,              2)
 #define agentsdeck_link_v1_GetState_CALLBACK NULL
 #define agentsdeck_link_v1_GetState_DEFAULT NULL
 
+#define agentsdeck_link_v1_Handoff_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
+X(a, STATIC,   SINGULAR, STRING,   account,           2)
+#define agentsdeck_link_v1_Handoff_CALLBACK NULL
+#define agentsdeck_link_v1_Handoff_DEFAULT NULL
+
+#define agentsdeck_link_v1_ListAccounts_FIELDLIST(X, a) \
+
+#define agentsdeck_link_v1_ListAccounts_CALLBACK NULL
+#define agentsdeck_link_v1_ListAccounts_DEFAULT NULL
+
 #define agentsdeck_link_v1_Result_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   code,              1) \
 X(a, STATIC,   SINGULAR, STRING,   error,             2)
@@ -1017,6 +1105,19 @@ X(a, STATIC,   SINGULAR, BOOL,     background,        7)
 #define agentsdeck_link_v1_LiveSession_CALLBACK NULL
 #define agentsdeck_link_v1_LiveSession_DEFAULT NULL
 
+#define agentsdeck_link_v1_AccountList_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  accounts,          1)
+#define agentsdeck_link_v1_AccountList_CALLBACK NULL
+#define agentsdeck_link_v1_AccountList_DEFAULT NULL
+#define agentsdeck_link_v1_AccountList_accounts_MSGTYPE agentsdeck_link_v1_AccountInfo
+
+#define agentsdeck_link_v1_AccountInfo_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   name,              1) \
+X(a, STATIC,   SINGULAR, STRING,   color,             2) \
+X(a, STATIC,   SINGULAR, BOOL,     is_default,        3)
+#define agentsdeck_link_v1_AccountInfo_CALLBACK NULL
+#define agentsdeck_link_v1_AccountInfo_DEFAULT NULL
+
 #define agentsdeck_link_v1_RestoreResult_FIELDLIST(X, a) \
 X(a, STATIC,   REPEATED, MESSAGE,  results,           1)
 #define agentsdeck_link_v1_RestoreResult_CALLBACK NULL
@@ -1050,6 +1151,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Option_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Tokens_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Context_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Hat_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Account_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Subagent_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Answer_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Focus_msg;
@@ -1064,11 +1166,15 @@ extern const pb_msgdesc_t agentsdeck_link_v1_ListHats_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_ListLive_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_AddLive_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_GetState_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Handoff_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_ListAccounts_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Result_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_HatList_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_HatOverride_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_LiveSessions_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_LiveSession_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_AccountList_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_AccountInfo_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_RestoreResult_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 
@@ -1092,6 +1198,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_Tokens_fields &agentsdeck_link_v1_Tokens_msg
 #define agentsdeck_link_v1_Context_fields &agentsdeck_link_v1_Context_msg
 #define agentsdeck_link_v1_Hat_fields &agentsdeck_link_v1_Hat_msg
+#define agentsdeck_link_v1_Account_fields &agentsdeck_link_v1_Account_msg
 #define agentsdeck_link_v1_Subagent_fields &agentsdeck_link_v1_Subagent_msg
 #define agentsdeck_link_v1_Answer_fields &agentsdeck_link_v1_Answer_msg
 #define agentsdeck_link_v1_Focus_fields &agentsdeck_link_v1_Focus_msg
@@ -1106,33 +1213,42 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_ListLive_fields &agentsdeck_link_v1_ListLive_msg
 #define agentsdeck_link_v1_AddLive_fields &agentsdeck_link_v1_AddLive_msg
 #define agentsdeck_link_v1_GetState_fields &agentsdeck_link_v1_GetState_msg
+#define agentsdeck_link_v1_Handoff_fields &agentsdeck_link_v1_Handoff_msg
+#define agentsdeck_link_v1_ListAccounts_fields &agentsdeck_link_v1_ListAccounts_msg
 #define agentsdeck_link_v1_Result_fields &agentsdeck_link_v1_Result_msg
 #define agentsdeck_link_v1_HatList_fields &agentsdeck_link_v1_HatList_msg
 #define agentsdeck_link_v1_HatOverride_fields &agentsdeck_link_v1_HatOverride_msg
 #define agentsdeck_link_v1_LiveSessions_fields &agentsdeck_link_v1_LiveSessions_msg
 #define agentsdeck_link_v1_LiveSession_fields &agentsdeck_link_v1_LiveSession_msg
+#define agentsdeck_link_v1_AccountList_fields &agentsdeck_link_v1_AccountList_msg
+#define agentsdeck_link_v1_AccountInfo_fields &agentsdeck_link_v1_AccountInfo_msg
 #define agentsdeck_link_v1_RestoreResult_fields &agentsdeck_link_v1_RestoreResult_msg
 #define agentsdeck_link_v1_Restored_fields &agentsdeck_link_v1_Restored_msg
 
 /* Maximum encoded size of messages (where known) */
 #define AGENTSDECK_LINK_V1_LINK_PB_H_MAX_SIZE    agentsdeck_link_v1_Frame_size
+#define agentsdeck_link_v1_AccountInfo_size      32
+#define agentsdeck_link_v1_AccountList_size      136
+#define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3313
+#define agentsdeck_link_v1_AgentChanged_size     3360
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3310
+#define agentsdeck_link_v1_Agent_size            3357
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_Context_size          22
 #define agentsdeck_link_v1_Dismiss_size          13
 #define agentsdeck_link_v1_Display_size          14
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3323
+#define agentsdeck_link_v1_Frame_size            3370
 #define agentsdeck_link_v1_GetState_size         0
+#define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732
 #define agentsdeck_link_v1_HatOverride_size      160
 #define agentsdeck_link_v1_Hat_size              32
 #define agentsdeck_link_v1_Hello_size            135
 #define agentsdeck_link_v1_Interrupt_size        13
+#define agentsdeck_link_v1_ListAccounts_size     0
 #define agentsdeck_link_v1_ListHats_size         0
 #define agentsdeck_link_v1_ListLive_size         0
 #define agentsdeck_link_v1_LiveSession_size      300

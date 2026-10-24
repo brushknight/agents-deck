@@ -28,7 +28,7 @@ func NeedScope(method, path string) devices.Scope {
 		return devices.View
 	}
 	switch {
-	case strings.HasSuffix(path, "/dismiss"), strings.HasSuffix(path, "/resume"),
+	case strings.HasSuffix(path, "/dismiss"), strings.HasSuffix(path, "/resume"), strings.HasSuffix(path, "/handoff"),
 		path == "/v1/restore", strings.HasPrefix(path, "/v1/live/"):
 		return devices.Admin
 	}

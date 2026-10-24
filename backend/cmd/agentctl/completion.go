@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/brushknight/agents-deck/backend/internal/claude"
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
@@ -21,6 +21,7 @@ _agentctl_values() {
 }
 _agentctl_agents()    { _agentctl_values agents 'agents' }
 _agentctl_resumable() { _agentctl_values resumable 'sessions to resume' }
+_agentctl_accounts()  { _agentctl_values accounts 'Claude accounts' }
 
 _agentctl() {
   local -a commands
@@ -42,6 +43,8 @@ _agentctl() {
     'add:put a hand-started Claude session on the deck'
     'reopen:iTerm tabs for every agent no terminal shows'
     'hats:the hats agents wear (one per working folder)'
+    'accounts:the Claude accounts agents run in'
+    'handoff:continue a Claude session in another account'
     'set:change a setting (term, mouse, restore, hat)'
     'get:show settings'
     'completion:print the shell completion script'
@@ -58,8 +61,19 @@ _agentctl() {
       _arguments -s \
         '-t[title]:title:' \
         '-c[tool]:tool:(claude codex gemini shell)' \
+        '-a[Claude account]:account:_agentctl_accounts' \
         '-d[start detached]' \
         '1:folder:_files -/' ;;
+    handoff)
+      if (( CURRENT == 3 )); then _agentctl_agents
+      elif (( CURRENT == 4 )); then _agentctl_accounts
+      fi ;;
+    accounts|account)
+      if (( CURRENT == 3 )); then _values 'action' add default rm
+      elif (( CURRENT == 4 )) && [[ ${words[3]} == (default|rm) ]]; then _agentctl_accounts
+      elif (( CURRENT == 5 )) && [[ ${words[3]} == add ]]; then _files -/
+      elif (( CURRENT == 6 )) && [[ ${words[3]} == add ]]; then _values 'colour' teal blue yellow green purple pink sky ink
+      fi ;;
     attach|a|rm)
       (( CURRENT == 3 )) && _agentctl_agents ;;
     move|mv)
@@ -127,6 +141,10 @@ func completeCmd(args []string) {
 	}
 	esc := func(s string) string { return strings.ReplaceAll(s, ":", `\:`) }
 	switch args[0] {
+	case "accounts":
+		for _, a := range accounts.Configured() {
+			fmt.Printf("%s:%s\n", a.Name, esc(shortHome(a.Path())))
+		}
 	case "agents":
 		s, err := state()
 		if err != nil {
@@ -147,7 +165,7 @@ func completeCmd(args []string) {
 				}
 			}
 		}
-		all, err := claude.ScanSessions(claude.ProjectsDir())
+		all, _, err := allSessions()
 		if err != nil {
 			return
 		}

@@ -115,6 +115,17 @@ abstract class AgentsSource {
     bool auto = false,
   });
 
+  /// `GET /v1/accounts` — the Claude accounts set up on the Mac (empty while
+  /// there is only one).
+  Future<List<AgentAccount>> accounts();
+
+  /// `POST /v1/agents/{id}/handoff {"account"}` — continues the agent's
+  /// conversation in another Claude account. A deck agent stops and comes
+  /// back in the same tile; a watched session gets a new agent and keeps
+  /// running in its terminal. On success [AgentsResult.message] is the id of
+  /// the agent now running the conversation.
+  Future<AgentsResult> handoff(String agentId, String account);
+
   /// One-off `GET /v1/state` (after a 409, so the new prompt shows at once).
   Future<void> refresh();
 
@@ -250,6 +261,7 @@ class HttpAgentsClient implements AgentsSource {
     (AgentsConfig?, String?) Function()? loadConfig,
     this.silenceTimeout = const Duration(seconds: 40),
     this.requestTimeout = const Duration(seconds: 5),
+    this.handoffTimeout = const Duration(seconds: 20),
     this.unconfiguredPoll = const Duration(seconds: 5),
     Backoff? backoff,
   }) : _loadConfig = loadConfig ?? AgentsConfig.load,
@@ -260,6 +272,9 @@ class HttpAgentsClient implements AgentsSource {
   final (AgentsConfig?, String?) Function() _loadConfig;
   final Duration silenceTimeout;
   final Duration requestTimeout;
+
+  /// Handoff stops the agent and waits for it to exit before answering.
+  final Duration handoffTimeout;
   final Duration unconfiguredPoll;
   final Backoff _backoff;
 
@@ -446,6 +461,14 @@ class HttpAgentsClient implements AgentsSource {
     return null;
   }
 
+  static String? _idField(String body) {
+    try {
+      final j = jsonDecode(body);
+      if (j is Map && j['id'] is String) return j['id'] as String;
+    } catch (_) {}
+    return null;
+  }
+
   static String _httpProblem(int code, String body) {
     if (code == 401) return 'not paired: run agentctl pair on the mac';
     if (code == 403) return _errorField(body) ?? 'not allowed for this device';
@@ -476,6 +499,8 @@ class HttpAgentsClient implements AgentsSource {
   Future<AgentsResult> _postPath(
     List<String> path, [
     Map<String, dynamic>? body,
+    bool returnId = false,
+    Duration? timeout,
   ]) async {
     final cfg = _config;
     if (cfg == null) {
@@ -493,10 +518,13 @@ class HttpAgentsClient implements AgentsSource {
       } else {
         req.contentLength = 0;
       }
-      final res = await req.close().timeout(requestTimeout);
+      final res = await req.close().timeout(timeout ?? requestTimeout);
       final text = await _readBody(res);
       final code = res.statusCode;
-      if (code >= 200 && code < 300) return AgentsResult.ok;
+      if (code >= 200 && code < 300) {
+        if (!returnId) return AgentsResult.ok;
+        return AgentsResult(AgentsResultKind.ok, _idField(text));
+      }
       if (code == 409) {
         return AgentsResult(
           AgentsResultKind.conflict,
@@ -535,28 +563,52 @@ class HttpAgentsClient implements AgentsSource {
   Future<AgentsResult> move(String agentId, int slot) =>
       _postPath(['v1', 'agents', agentId, 'move'], {'slot': slot});
 
-  @override
-  Future<List<LiveSession>> liveSessions() async {
+  /// `GET` [path] and the list under [field] of its JSON object; empty on
+  /// any failure.
+  Future<List<Map<String, dynamic>>> _getList(
+    List<String> path,
+    String field,
+  ) async {
     final cfg = _config;
     if (cfg == null) return const [];
     try {
       final req = await _clientFor(
         cfg,
-      ).getUrl(cfg.endpoint(const ['v1', 'live'])).timeout(requestTimeout);
+      ).getUrl(cfg.endpoint(path)).timeout(requestTimeout);
       final res = await req.close().timeout(requestTimeout);
       final text = await _readBody(res);
       if (res.statusCode != 200) return const [];
       final j = jsonDecode(text);
-      final list = j is Map<String, dynamic> ? j['sessions'] : null;
+      final list = j is Map<String, dynamic> ? j[field] : null;
       return [
         if (list is List)
           for (final x in list)
-            if (x is Map<String, dynamic>) LiveSession.fromJson(x),
+            if (x is Map<String, dynamic>) x,
       ];
     } catch (_) {
       return const [];
     }
   }
+
+  @override
+  Future<List<LiveSession>> liveSessions() async => [
+    for (final x in await _getList(const ['v1', 'live'], 'sessions'))
+      LiveSession.fromJson(x),
+  ];
+
+  @override
+  Future<List<AgentAccount>> accounts() async => [
+    for (final x in await _getList(const ['v1', 'accounts'], 'accounts'))
+      ?AgentAccount.fromJson(x),
+  ];
+
+  @override
+  Future<AgentsResult> handoff(String agentId, String account) => _postPath(
+    ['v1', 'agents', agentId, 'handoff'],
+    {'account': account},
+    true,
+    handoffTimeout, // the deck waits for the agent to stop first
+  );
 
   @override
   Future<AgentsResult> setHat(

@@ -76,8 +76,9 @@ const poseOf = (a) => {
 
 // External agents: Codex app threads, and Claude sessions started by hand in
 // another terminal that you added to the deck ("watched").
-const codexThread = (a) => a.external && a.tool === 'codex';
-const watched = (a) => a.external && a.tool === 'claude';
+const codexThread = (a) => a.external && a.tool === 'codex' && !a.app;
+const watched = (a) => a.external && a.tool === 'claude' && !a.app;
+const inApp = (a) => !!a.app; // runs in another app (Orca, herdr): answer, interrupt and focus work there
 
 const needsYou = (a) => a.status === 'waiting' || a.status === 'error';
 
@@ -533,11 +534,12 @@ function makeTile(a) {
   const ring = makeRing();
   const subs = h('span', { class: 'subs', 'aria-hidden': 'true', hidden: true });
   const bar = h('span', { class: 'ctxbar', 'aria-hidden': 'true' }); // the ring, as a bar, on phones
+  const chip = h('span', { class: 'chip', 'aria-hidden': 'true' }); // the tool's colour, or its Claude account's
   const el = h('button', { type: 'button', class: 'tile', 'data-id': a.id },
-    h('span', { class: 'chip', 'aria-hidden': 'true' }), subs, spr, name, meta, ring.svg, bar);
+    chip, subs, spr, name, meta, ring.svg, bar);
   el.addEventListener('click', () => openDetail(a.id));
   wireDrag(el, a.id);
-  return { el, spr, name, meta, subs, bar, subsKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
+  return { el, spr, name, meta, subs, chip, bar, subsKey: '', acctKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
 }
 
 // ---------------------------------------------------------------- arrange
@@ -610,8 +612,14 @@ function updateTile(t, a) {
       t.subs.replaceChildren(m, list.length > 1 ? h('span', { class: 'subs-n', text: `×${list.length}` }) : '');
     }
   }
+  const acctKey = a.account ? `${a.account.name}|${a.account.color}` : '';
+  if (t.acctKey !== acctKey) {
+    t.acctKey = acctKey;
+    t.chip.style.background = a.account ? acctColor(a.account) : '';
+  }
   const subsNote = list.length ? `, ${list.length} subagent${list.length === 1 ? '' : 's'} working` : '';
-  const label = `${a.title}, ${a.tool}, ${a.status === 'waiting' ? 'needs you' : a.status}: ${meta}${subsNote}${a.focused ? ', focused terminal' : ''}`;
+  const acctNote = a.account ? `, ${a.account.name} account` : '';
+  const label = `${a.title}, ${a.tool}, ${a.status === 'waiting' ? 'needs you' : a.status}: ${meta}${subsNote}${acctNote}${a.focused ? ', focused terminal' : ''}`;
   if (t.label !== label) { t.el.setAttribute('aria-label', label); t.label = label; }
   if (a.id === selectedId) t.el.setAttribute('aria-expanded', 'true'); else t.el.removeAttribute('aria-expanded');
 }
@@ -839,7 +847,7 @@ const panel = $('detail');
 let det = null; // { key, id, refs, update(a) }
 const sending = new Map(); // promptId -> { key, status: 'sending'|'sent' }
 
-function detailKey(a) { return `${a.id}|${a.status}|${a.waiting?.id || ''}|${a.resumable ? 'r' : ''}`; }
+function detailKey(a) { return `${a.id}|${a.status}|${a.waiting?.id || ''}|${a.resumable ? 'r' : ''}|${a.account?.name || ''}|${accountsKey}`; }
 
 function openDetail(id) {
   selectedId = id;
@@ -922,16 +930,90 @@ function hatPicker(a) {
   return { el, update: render };
 }
 
+// ---------------------------------------------------------------- accounts
+// The Claude accounts (config folders) agents run in; empty while there is
+// only one. Fetched when an agent shows an account we don't know yet.
+let accounts = [];
+let accountsKey = '';
+let accountsWant = '';
+const acctColor = (acc) => (HAT_COLORS[acc?.color] || HAT_COLORS.ink)[0];
+
+function syncAccounts(s) {
+  const names = [...new Set(s.agents.map((a) => a.account?.name).filter(Boolean))].sort().join(',');
+  if (names === accountsWant) return;
+  accountsWant = names;
+  loadAccounts();
+}
+
+async function loadAccounts() {
+  let list = [];
+  if (FIXTURE) list = fixtureAccounts;
+  else {
+    try {
+      const r = await fetch('/v1/accounts', { credentials: 'same-origin', cache: 'no-store' });
+      if (r.ok) list = (await r.json()).accounts || [];
+    } catch { /* daemon unreachable: keep what we had */ return; }
+  }
+  accounts = list;
+  accountsKey = list.map((x) => x.name).join(',');
+  if (state) render();
+}
+
+// The account's name under the pill; the chip beside the pill takes its colour.
+function acctLabel(chip) {
+  const name = h('span');
+  const el = h('span', { class: 'd-acct', hidden: true }, name);
+  return {
+    el,
+    update: (a) => {
+      el.hidden = !a.account;
+      chip.style.background = a.account ? acctColor(a.account) : '';
+      chip.title = a.account ? `${a.tool}, ${a.account.name} account` : a.tool;
+      if (!a.account) return;
+      setText(name, `${a.account.name} account`);
+      el.title = `runs in the ${a.account.name} Claude account`;
+    },
+  };
+}
+
+// "continue on <account>": the conversation moves to another Claude account
+// (when this one is out of usage). Asks for a second click: it stops the agent.
+function handoffButton(a, acc, note) {
+  const idle = `continue on ${acc.name}`;
+  const confirm = a.external ? `click again: a copy starts in ${acc.name}` : `click again: stops it, resumes in ${acc.name}`;
+  const b = h('button', { type: 'button', class: 'btn narrow', text: idle });
+  let armed = null;
+  b.addEventListener('click', async () => {
+    if (!armed) {
+      b.textContent = confirm;
+      b.classList.add('armed');
+      armed = setTimeout(() => { armed = null; b.textContent = idle; b.classList.remove('armed'); }, 3000);
+      return;
+    }
+    clearTimeout(armed); armed = null;
+    b.disabled = true;
+    note.className = 'note'; note.textContent = `${idle} · sending…`;
+    const r = await postAction(a, 'handoff', { account: acc.name });
+    b.disabled = false;
+    if (r.ok) note.textContent = a.external ? `started in ${acc.name} as a new agent · this terminal keeps running` : `continuing in ${acc.name}`;
+    else { note.className = 'note bad'; note.textContent = `${idle} failed · ${r.error}`; }
+  });
+  return b;
+}
+
 function header(a) {
   const spr = h('span', { class: 'd-spr' });
   const crew = h('span', { class: 'd-crew', role: 'img' });
   const pill = h('span', { class: 'pill' });
   const ai = h('span', { class: 'd-ai' });
+  const chip = h('span', { class: 'chip', title: a.tool, 'aria-label': `tool: ${a.tool}`, role: 'img' });
+  const acct = acctLabel(chip);
   const el = h('div', { class: 'd-top' },
     h('div', { class: 'd-id' }, h('div', { class: 'd-mascots' }, spr, crew), h('h2', { class: 'd-title', id: 'd-title', tabindex: '-1', text: a.title }), ai),
     h('div', { class: 'd-right' },
       h('button', { type: 'button', class: 'd-close', 'aria-label': 'close panel (esc)', onclick: closeDetail }, closeIcon()),
-      h('div', { class: `d-pillrow tool-${a.tool}` }, h('span', { class: 'chip', title: a.tool, 'aria-label': `tool: ${a.tool}`, role: 'img' }), pill)));
+      h('div', { class: `d-pillrow tool-${a.tool}` }, chip, pill),
+      acct.el));
   setSprite(spr, poseOf(a), a.tool, a.hat);
   crewUpdate(crew, a);
   // Click the mascot to pick its hat.
@@ -946,7 +1028,7 @@ function header(a) {
     spr.addEventListener('click', toggle);
     spr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
   }
-  return { el: h('div', { class: 'd-head' }, el, hats.el), update: (x) => { setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; crewUpdate(crew, x); setSprite(spr, poseOf(x), x.tool, x.hat); hats.update(x); } };
+  return { el: h('div', { class: 'd-head' }, el, hats.el), update: (x) => { acct.update(x); setText(pill, pillText(x)); setText(ai, x.aiTitle || ''); ai.hidden = !x.aiTitle; crewUpdate(crew, x); setSprite(spr, poseOf(x), x.tool, x.hat); hats.update(x); } };
 }
 
 function postAction(a, path, body) {
@@ -969,7 +1051,7 @@ function actionButton(a, label, path, cls, note) {
 // Exited agents are removed at once; a live one is stopped only on a second click.
 function removeButton(a, note) {
   const exited = a.status === 'exited' || a.external; // hiding or un-adding needs no confirm
-  const idle = codexThread(a) ? 'hide' : watched(a) ? 'remove from deck' : a.status === 'exited' ? 'remove' : 'stop';
+  const idle = codexThread(a) || inApp(a) ? 'hide' : watched(a) ? 'remove from deck' : a.status === 'exited' ? 'remove' : 'stop';
   const b = h('button', { type: 'button', class: 'btn narrow', text: idle });
   let armed = null;
   b.addEventListener('click', async () => {
@@ -1004,10 +1086,11 @@ function buildInfo(a) {
   const server = h('span');
   const note = h('div', { class: 'note', role: 'status', 'aria-live': 'polite' });
   const actions = h('div', { class: 'actions' });
-  if (a.status !== 'exited') actions.append(actionButton(a, codexThread(a) ? 'open in codex' : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
+  if (a.status !== 'exited') actions.append(actionButton(a, codexThread(a) ? 'open in codex' : inApp(a) ? `open in ${a.app}` : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
   else if (a.resumable) actions.append(actionButton(a, 'resume', 'resume', 'solid', note));
-  if (a.status === 'running' && !a.external) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
+  if (a.status === 'running' && (!a.external || inApp(a))) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
   else actions.append(removeButton(a, note));
+  if (a.tool === 'claude' && a.account) for (const acc of accounts) if (acc.name !== a.account.name) actions.append(handoffButton(a, acc, note));
 
   panel.className = 'detail' + (a.status === 'error' ? ' p-error' : ['idle', 'starting', 'exited'].includes(a.status) ? ' p-dim' : '');
   panel.replaceChildren(hd.el,
@@ -1168,6 +1251,7 @@ function render() {
 
 function applyState(s) {
   if (!s || !Array.isArray(s.agents)) return;
+  syncAccounts(s);
   const t = Date.parse(s.server?.time);
   if (Number.isFinite(t)) skew = t - Date.now();
   state = s;
@@ -1351,6 +1435,7 @@ async function startFixture() {
   if (params.has('picker')) setTimeout(() => openPicker(9), 300);
   if (params.has('hatpick')) setTimeout(() => { const p = document.querySelector('.hatpick'); if (p) p.hidden = false; }, 400);
   for (const a of data.agents) a.autoHat = a.hat; // what "back to automatic" restores
+  if (params.has('accounts')) for (const a of data.agents) if (a.tool === 'claude') a.account = { ...fixtureAccounts[a.slot % 3 === 0 ? 1 : 0] };
   if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
   fxEmit();
@@ -1388,6 +1473,9 @@ function fxTick() {
   }
   fxEmit();
 }
+
+// ?fixture&accounts: two Claude accounts, the agents split between them.
+const fixtureAccounts = [{ name: 'personal', color: 'sky', default: true }, { name: 'work', color: 'yellow', default: false }];
 
 // ?fixture: two hand-started sessions for the "add a session" picker.
 const fixtureLive = [
@@ -1432,6 +1520,14 @@ async function fixtureAction(path, body) {
     a.slot = body.slot;
     fxEmit();
     return { ok: true, status: 204 };
+  }
+  if (action === 'handoff') {
+    const acc = fixtureAccounts.find((x) => x.name === body?.account);
+    if (!acc || !a.account) return { ok: false, status: 400, error: `no account named "${body?.account}"` };
+    Object.assign(a, { account: { name: acc.name, color: acc.color }, status: 'starting', statusSince: iso(Date.now()), activity: null, waiting: null });
+    setTimeout(() => { Object.assign(a, { status: 'idle', statusSince: iso(Date.now()) }); fxEmit(); }, 1200);
+    fxEmit();
+    return { ok: true, status: 200 };
   }
   const t = iso(Date.now());
   if (action === 'focus') {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
@@ -25,6 +26,7 @@ type Session struct {
 	Cwd        string    `json:"cwd"`
 	LastPrompt string    `json:"lastPrompt"`
 	CostUSD    float64   `json:"costUsd"`
+	Account    string    `json:"account,omitempty"` // the Claude account it ran in
 	EndedAt    time.Time `json:"endedAt"`
 }
 
@@ -61,7 +63,7 @@ func remember(e store.Entry) {
 	defer historyMu.Unlock()
 	h := readHistory()
 	out := []Session{{SessionID: e.SessionID, Title: e.A.Title, AITitle: e.A.AITitle, Cwd: e.A.Cwd,
-		LastPrompt: e.A.LastPrompt, CostUSD: e.A.CostUSD, EndedAt: time.Now().UTC()}}
+		LastPrompt: e.A.LastPrompt, CostUSD: e.A.CostUSD, Account: accountOf(e).Name, EndedAt: time.Now().UTC()}}
 	for _, s := range h {
 		if s.SessionID != e.SessionID {
 			out = append(out, s)
@@ -101,11 +103,17 @@ func explicitTitle(e store.Entry) string {
 	return ""
 }
 
-// claudeArgv is the login-shell command that runs Claude with our hooks.
-// title is passed as Claude's session name only when the user chose it (-t);
-// otherwise Claude's own title shows through.
-func (d *Daemon) claudeArgv(title string, session []string) []string {
-	inner := append(append([]string{"claude"}, session...), "--settings", paths.HooksFile())
+// claudeArgv is the login-shell command that runs Claude with our hooks, in
+// account acc (CLAUDE_CONFIG_DIR set to its folder, or unset for Claude
+// Code's default one, whatever the login shell exports). title is passed as
+// Claude's session name only when the user chose it (-t); otherwise Claude's
+// own title shows through.
+func (d *Daemon) claudeArgv(title string, acc accounts.Account, session []string) []string {
+	env := []string{"env", "-u", "CLAUDE_CONFIG_DIR"}
+	if dir := acc.ConfigDir(); dir != "" {
+		env = []string{"env", "CLAUDE_CONFIG_DIR=" + dir}
+	}
+	inner := append(append(append(env, "claude"), session...), "--settings", paths.HooksFile())
 	if title != "" {
 		inner = append(inner, "-n", title)
 	}
@@ -136,7 +144,7 @@ func (d *Daemon) Resume(id string) error {
 	if _, err := os.Stat(e.A.Cwd); err != nil {
 		return errors.New("folder no longer exists: " + e.A.Cwd)
 	}
-	if err := tmux.NewSession(e.TmuxName, e.A.Cwd, agentEnv(id), d.claudeArgv(explicitTitle(e), []string{"--resume", e.SessionID})); err != nil {
+	if err := tmux.NewSession(e.TmuxName, e.A.Cwd, agentEnv(id), d.claudeArgv(explicitTitle(e), accountOf(e), []string{"--resume", e.SessionID})); err != nil {
 		return err
 	}
 	d.Store.Update(id, func(e *store.Entry) bool {
@@ -180,13 +188,13 @@ func (d *Daemon) ResumeSession(sessionID, cwd, title string) (string, error) {
 	if _, err := os.Stat(s.Cwd); err != nil {
 		return "", errors.New("folder no longer exists: " + s.Cwd)
 	}
-	id := store.NewID()
-	e := &store.Entry{TmuxName: "a-" + id, SessionID: s.SessionID}
-	e.A = model.Agent{ID: id, Title: d.uniqueTitle(s.Title), AITitle: s.AITitle, Tool: "claude", Status: model.Starting,
-		Cwd: s.Cwd, Folder: filepath.Base(s.Cwd), LastPrompt: s.LastPrompt}
-	d.Store.Add(e)
-	if err := tmux.NewSession(e.TmuxName, s.Cwd, agentEnv(id), d.claudeArgv("", []string{"--resume", s.SessionID})); err != nil {
-		d.Store.Remove(id)
+	acc, ok := accounts.Find(s.Account)
+	if !ok {
+		acc = accountForSession(s.SessionID, s.Cwd)
+	}
+	transcript, _ := claude.FindTranscript([]string{acc.ProjectsDir()}, s.Cwd, s.SessionID)
+	id, err := d.startResumed(s.SessionID, s.Cwd, s.Title, s.AITitle, s.LastPrompt, acc, transcript)
+	if err != nil {
 		return "", err
 	}
 	forget(sessionID)

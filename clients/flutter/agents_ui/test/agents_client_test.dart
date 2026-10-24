@@ -231,6 +231,73 @@ void main() {
   });
 
   group('model', () {
+    test(
+      'an agent in Orca is neither a Codex thread nor a watched session',
+      () {
+        final s = AgentsState.fromJson({
+          'agents': [
+            {
+              'id': 'o1',
+              'status': 'running',
+              'tool': 'claude',
+              'external': true,
+              'app': 'orca',
+            },
+            {'id': 'l1', 'status': 'idle', 'tool': 'claude', 'external': true},
+            {'id': 'c1', 'status': 'idle', 'tool': 'codex', 'external': true},
+          ],
+        });
+        final [orca, watched, codex] = s.agents;
+        expect(
+          (orca.inApp, orca.watched, orca.codexThread),
+          (true, false, false),
+        );
+        expect((watched.inApp, watched.watched), (false, true));
+        expect(codex.codexThread, isTrue);
+      },
+    );
+
+    test('account: parsed when set, null while only one is set up', () {
+      final s = AgentsState.fromJson({
+        'agents': [
+          {
+            'id': 'a1',
+            'slot': 0,
+            'status': 'idle',
+            'tool': 'claude',
+            'account': {'name': 'work', 'color': 'yellow'},
+          },
+          {'id': 'a2', 'slot': 1, 'status': 'idle', 'tool': 'claude'},
+          {
+            'id': 'a3',
+            'slot': 2,
+            'status': 'idle',
+            'tool': 'claude',
+            'app': 'orca',
+            'external': true,
+            'account': {'name': 'work', 'color': 'yellow'},
+          },
+          {
+            'id': 'a4',
+            'slot': 3,
+            'status': 'idle',
+            'tool': 'claude',
+            'account': {'color': 'blue'},
+          },
+        ],
+      });
+      final [withAcc, without, orca, nameless] = s.agents;
+      expect(
+        withAcc.account,
+        const AgentAccount(name: 'work', color: 'yellow'),
+      );
+      expect(withAcc.canHandoff, isTrue);
+      expect(without.account, isNull);
+      expect(without.canHandoff, isFalse);
+      expect(orca.canHandoff, isTrue); // a copy starts on the deck
+      expect(nameless.account, isNull);
+    });
+
     test('the embedded demo fleet is the protocol fixture', () {
       expect(jsonDecode(agentsDemoStateJson), jsonDecode(_fixture));
     });
@@ -379,6 +446,25 @@ void main() {
         if (answerStatus == 409) res.write('{"error":"prompt changed"}');
         return res.close();
       }
+      if (req.uri.path == '/v1/accounts') {
+        res.write(
+          '{"accounts":[{"name":"personal","color":"teal"},'
+          '{"name":"work","color":"yellow","default":true}]}',
+        );
+        return res.close();
+      }
+      if (req.uri.path == '/v1/agents/h0m3l4/handoff' && req.method == 'POST') {
+        final body =
+            jsonDecode(await utf8.decoder.bind(req).join())
+                as Map<String, dynamic>;
+        if (body['account'] == 'work') {
+          res.write('{"id":"n3w1d0"}');
+        } else {
+          res.statusCode = 400;
+          res.write('{"error":"no such account"}');
+        }
+        return res.close();
+      }
       res.statusCode = 404;
       await res.close();
     }
@@ -466,6 +552,25 @@ void main() {
         answerStatus = 204;
       },
     );
+
+    test('accounts and handoff', () async {
+      final c = HttpAgentsClient(loadConfig: () => (cfg(), null));
+      addTearDown(c.dispose);
+      await until(c, (s) => s.link == AgentsLink.connected);
+
+      expect(await c.accounts(), const [
+        AgentAccount(name: 'personal', color: 'teal'),
+        AgentAccount(name: 'work', color: 'yellow', isDefault: true),
+      ]);
+
+      final ok = await c.handoff('h0m3l4', 'work');
+      expect((ok.isOk, ok.message), (true, 'n3w1d0'));
+      final bad = await c.handoff('h0m3l4', 'nope');
+      expect(
+        (bad.kind, bad.message),
+        (AgentsResultKind.rejected, 'no such account'),
+      );
+    });
 
     test(
       'a host the certificate doesn\'t name: only the pinned fingerprint',

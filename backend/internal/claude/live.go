@@ -46,11 +46,13 @@ type claudeAgent struct {
 	Status    string `json:"status"` // idle | busy
 }
 
-// ActiveSessions asks Claude Code itself for every active session on this
-// machine, interactive and background (`claude agents --json`), minus those
-// on skipTTYs. ok is false when the claude CLI can't answer (missing, too
-// old): then use [LiveSessions].
-func ActiveSessions(claudeBin string, skipTTYs map[string]bool) (out []Live, ok bool) {
+// ActiveSessions asks Claude Code itself for every active session of one
+// account, interactive and background (`claude agents --json`), minus those
+// on skipTTYs. configDir is the account's CLAUDE_CONFIG_DIR ("" = unset: the
+// default ~/.claude); projects are the transcript folders to look in, the
+// account's own first. ok is false when the claude CLI can't answer
+// (missing, too old): then use [LiveSessions].
+func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map[string]bool) (out []Live, ok bool) {
 	if claudeBin == "" {
 		return nil, false
 	}
@@ -58,6 +60,7 @@ func ActiveSessions(claudeBin string, skipTTYs map[string]bool) (out []Live, ok 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claudeBin, "agents", "--json")
 	cmd.Dir = os.TempDir() // no project folder: nothing to trust or read
+	cmd.Env = ConfigEnv(os.Environ(), configDir)
 	raw, err := cmd.Output()
 	if err != nil {
 		return nil, false
@@ -80,7 +83,7 @@ func ActiveSessions(claudeBin string, skipTTYs map[string]bool) (out []Live, ok 
 		if l.TTY != "" && skipTTYs[l.TTY] {
 			continue
 		}
-		l.Transcript = findTranscript(a.Cwd, a.SessionID)
+		l.Transcript = findTranscript(projects, a.Cwd, a.SessionID)
 		out = append(out, l)
 	}
 	return out, true
@@ -110,24 +113,49 @@ func ttysOf(list []claudeAgent) map[int]string {
 	return ttys
 }
 
+// ConfigEnv is env with CLAUDE_CONFIG_DIR set to configDir, or removed when
+// configDir is "" (Claude Code's default folder).
+func ConfigEnv(env []string, configDir string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") {
+			out = append(out, kv)
+		}
+	}
+	if configDir != "" {
+		out = append(out, "CLAUDE_CONFIG_DIR="+configDir)
+	}
+	return out
+}
+
 // findTranscript is a session's transcript: in its folder's project
-// directory, else wherever it was written (a worktree, a moved folder).
-func findTranscript(cwd, sessionID string) string {
-	p := filepath.Join(ProjectDirFor(cwd), sessionID+".jsonl")
-	if _, err := os.Stat(p); err == nil {
-		return p
+// directory, else wherever it was written (a worktree, a moved folder),
+// looking in each of projects in turn.
+func findTranscript(projects []string, cwd, sessionID string) string {
+	if len(projects) == 0 {
+		projects = []string{ProjectsDir()}
 	}
-	if m, _ := filepath.Glob(filepath.Join(ProjectsDir(), "*", sessionID+".jsonl")); len(m) > 0 {
-		return m[0]
+	for _, dir := range projects {
+		p := filepath.Join(dir, projectName(cwd), sessionID+".jsonl")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
-	return p
+	for _, dir := range projects {
+		if m, _ := filepath.Glob(filepath.Join(dir, "*", sessionID+".jsonl")); len(m) > 0 {
+			return m[0]
+		}
+	}
+	return filepath.Join(projects[0], projectName(cwd), sessionID+".jsonl")
 }
 
 // ProjectDirFor is Claude's transcript folder for a working directory: the
 // path with every character other than a letter or digit turned into "-".
 func ProjectDirFor(cwd string) string {
-	return filepath.Join(ProjectsDir(), nonAlnum.ReplaceAllString(cwd, "-"))
+	return filepath.Join(ProjectsDir(), projectName(cwd))
 }
+
+func projectName(cwd string) string { return nonAlnum.ReplaceAllString(cwd, "-") }
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 
@@ -276,4 +304,12 @@ func processCwds(procs []Live) map[int]string {
 		}
 	}
 	return cwds
+}
+
+// FindTranscript looks for a session's transcript in each of projects (see
+// findTranscript); ok is false when none of them has it.
+func FindTranscript(projects []string, cwd, sessionID string) (path string, ok bool) {
+	p := findTranscript(projects, cwd, sessionID)
+	_, err := os.Stat(p)
+	return p, err == nil
 }

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/header"
 	"github.com/brushknight/agents-deck/backend/internal/model"
@@ -30,6 +31,13 @@ type Config struct {
 	ClaudeArgs []string `json:"claudeArgs"`
 	// Codex: mirror Codex app/CLI threads onto the board (default on).
 	Codex *bool `json:"codex"`
+	// Orca: mirror agents running in the Orca app onto the board (default on).
+	Orca *bool `json:"orca"`
+	// Herdr: mirror agents running in herdr onto the board (default on).
+	Herdr *bool `json:"herdr"`
+	// Cmux: mirror Claude agents running in cmux onto the board (default on;
+	// cmux's socket access must be Automation).
+	Cmux *bool `json:"cmux"`
 	// CodexWindowHours: threads updated within this many hours are shown (default 6).
 	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).
@@ -47,6 +55,9 @@ type Daemon struct {
 	reporting map[string]bool                 // ttys we asked to report focus
 	headers   map[string][header.Lines]string // tmux session -> header lines it shows
 	codex     codexWatch
+	orca      orcaWatch
+	herdr     herdrWatch
+	cmux      cmuxWatch
 	front     string // tmux session of the focused terminal (last tick)
 
 	lastAutoRestore time.Time
@@ -70,8 +81,13 @@ func (d *Daemon) Run() {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	n := 0
+	accKey := accountsKey()
 	for range tick.C {
 		n++
+		if k := accountsKey(); k != accKey { // accounts set up or changed: redraw the dots
+			accKey = k
+			d.Store.Touch()
+		}
 		live := tmux.Sessions()
 		// The focused agent: the session of the most recently active client whose
 		// terminal reports focus (tmux focus-events; no AppleScript needed).
@@ -314,6 +330,15 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 	switch tool {
 	case "claude":
 		e.SessionID = store.NewUUID()
+		acc := accounts.Default()
+		if o.Account != "" {
+			a, ok := accounts.Find(o.Account)
+			if !ok {
+				return "", fmt.Errorf("no account named %q", o.Account)
+			}
+			acc = a
+		}
+		e.Account = acc.Name
 		inner = nil // built by claudeArgv below
 	case "codex", "gemini", "opencode":
 		inner = []string{tool}
@@ -342,7 +367,7 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 	// A login shell gives the agent the user's normal PATH and environment.
 	argv := []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}
 	if tool == "claude" {
-		argv = d.claudeArgv(explicitTitle(*e), []string{"--session-id", e.SessionID})
+		argv = d.claudeArgv(explicitTitle(*e), accountOf(*e), []string{"--session-id", e.SessionID})
 	}
 	env := agentEnv(id)
 	d.Store.Add(e)
@@ -376,6 +401,11 @@ func (d *Daemon) uniqueTitle(base string) string {
 
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
+	if e, ok := d.Store.Get(id); ok {
+		if h, ok := d.harnessOf(e); ok {
+			return d.answerInApp(h, id, promptID, key)
+		}
+	}
 	if e, ok := d.Store.Get(id); ok && e.External {
 		return externalErr(e)
 	}
@@ -454,6 +484,9 @@ func (d *Daemon) Interrupt(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
+	if h, ok := d.harnessOf(e); ok {
+		return h.interrupt(e)
+	}
 	if e.External {
 		return externalErr(e)
 	}
@@ -475,6 +508,9 @@ func (d *Daemon) Focus(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
+	}
+	if h, ok := d.harnessOf(e); ok {
+		return h.focus(e)
 	}
 	if e.External && e.A.Tool == "claude" {
 		return d.focusLive(e)
@@ -556,6 +592,10 @@ func (d *Daemon) Dismiss(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
+	}
+	if h, ok := d.harnessOf(e); ok {
+		h.hide(e) // off the deck until it's active again; it keeps running in its app
+		return nil
 	}
 	if e.External && e.A.Tool == "claude" {
 		d.removeLive(e) // off the deck; the session keeps running

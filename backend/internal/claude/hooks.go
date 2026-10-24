@@ -176,6 +176,17 @@ func DefaultPermissionOptions() []model.Option {
 	}
 }
 
+// PromptFor is the prompt for a tool call that waits for you: a question
+// (AskUserQuestion) or a permission request, as the hooks build it.
+func PromptFor(e *store.Entry, tool string, input json.RawMessage) *model.Prompt {
+	if tool == "AskUserQuestion" {
+		if p := questionPrompt(e, input); p != nil {
+			return p
+		}
+	}
+	return permissionPrompt(e, tool, input)
+}
+
 func permissionPrompt(e *store.Entry, tool string, input json.RawMessage) *model.Prompt {
 	title, ctx := "allow "+strings.ToLower(tool)+"?", strings.ToLower(tool)
 	detail := ToolDetail(tool, input, e.A.Cwd)

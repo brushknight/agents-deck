@@ -43,12 +43,15 @@ message Frame {
     ListLive list_live = 40;       // GET /v1/live
     AddLive add_live = 41;         // POST /v1/live/{session}/add
     GetState get_state = 42;       // GET /v1/state: resend the snapshot
+    Handoff handoff = 43;          // POST /v1/agents/{id}/handoff
+    ListAccounts list_accounts = 44;  // GET /v1/accounts
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
     HatList hat_list = 51;         // reply to ListHats
     LiveSessions live_sessions = 52;  // reply to ListLive
     RestoreResult restore_result = 53;  // reply to Restore
+    AccountList account_list = 54;  // reply to ListAccounts
   }
 }
 
@@ -91,7 +94,7 @@ enum Scope {
   SCOPE_UNSPECIFIED = 0;
   SCOPE_VIEW = 1;   // state only
   SCOPE_ACT = 2;    // also answer, focus, interrupt, move, order, hats
-  SCOPE_ADMIN = 3;  // also dismiss, resume, restore, live sessions
+  SCOPE_ADMIN = 3;  // also dismiss, resume, handoff, restore, live sessions
 }
 
 message Ping {
@@ -113,7 +116,7 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, hat, activity.tool, subagent_count
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count
   FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
@@ -197,6 +200,8 @@ message Agent {
   uint32 subagent_count = 30;  // len(subagents), sent with TILE so a small board can show it
   int64 started_at_ms = 31;
   int64 updated_at_ms = 32;
+  string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
+  Account account = 34;  // the Claude account it runs in; unset while only one is set up
 }
 
 message Activity {
@@ -242,6 +247,12 @@ message Hat {
   string shape = 1;
   string color = 2;
   bool automatic = 3;  // picked from the folder, not by hand (JSON API: "auto")
+}
+
+// A Claude Code account (its own login and usage): a name and a hat colour.
+message Account {
+  string name = 1;
+  string color = 2;
 }
 
 message Subagent {
@@ -294,6 +305,14 @@ message AddLive {
 
 message GetState {}
 
+// Continue a Claude session in another account (when one runs out of usage).
+message Handoff {
+  string agent_id = 1;
+  string account = 2;  // AccountList.accounts[].name
+}
+
+message ListAccounts {}
+
 // ---- replies ---------------------------------------------------------------
 
 // The outcome of a command, with the web API's status code: 204 done,
@@ -328,6 +347,17 @@ message LiveSession {
   int64 started_ms = 5;
   bool on_board = 6;
   bool background = 7;
+}
+
+// The Claude accounts agents can run in; empty while only one is set up.
+message AccountList {
+  repeated AccountInfo accounts = 1;
+}
+
+message AccountInfo {
+  string name = 1;
+  string color = 2;
+  bool is_default = 3;  // new agents start in it (JSON API: "default")
 }
 
 message RestoreResult {

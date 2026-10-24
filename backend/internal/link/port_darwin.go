@@ -13,7 +13,9 @@ const (
 )
 
 func openPort(path string, baud int) (*os.File, error) {
-	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
+	// O_CLOEXEC: programs the daemon starts (tmux, CLIs) must not inherit the
+	// port, or they hold it open and look like another user of it.
+	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}

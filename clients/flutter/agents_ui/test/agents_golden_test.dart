@@ -105,6 +105,42 @@ void main() {
     });
   }
 
+  // Two Claude accounts: checkout-api runs in "work" (the tile's square,
+  // the card's account and "continue on personal").
+  FakeAgentsSource twoAccounts() {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final first = (fixture['agents'] as List).first as Map<String, dynamic>;
+    first['account'] = {'name': 'work', 'color': 'yellow'};
+    return FakeAgentsSource.fromState(fixture)
+      ..accountList.addAll(const [
+        AgentAccount(name: 'personal', color: 'teal', isDefault: true),
+        AgentAccount(name: 'work', color: 'yellow'),
+      ]);
+  }
+
+  testWidgets('agents accounts grid golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    await pumpBoard(tester, twoAccounts());
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-accounts-grid.png'),
+    );
+  });
+
+  testWidgets('agents accounts detail golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    await pumpBoard(tester, twoAccounts());
+    await tester.tap(find.text('checkout-api'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 300));
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-accounts-detail.png'),
+    );
+  });
+
   testWidgets('agents unpaired golden', skip: !autoUpdateGoldenFiles, (
     tester,
   ) async {

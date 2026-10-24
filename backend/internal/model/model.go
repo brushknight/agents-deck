@@ -53,8 +53,10 @@ type Agent struct {
 	Lost        bool       `json:"lost,omitempty"`      // ended with the tmux server, not by itself: POST /v1/restore brings it back
 	Unseen      bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
 	External    bool       `json:"external"`            // owned by another app (Codex): view and focus only
+	App         string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
 	Subagents   []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
 	Hat         *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
+	Account     *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
 	StartedAt   time.Time  `json:"startedAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
@@ -65,6 +67,12 @@ type Hat struct {
 	Shape string `json:"shape"` // hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones, propeller, top hat, cowboy, bandana
 	Color string `json:"color"` // teal, blue, yellow, green, purple, pink, sky, ink
 	Auto  bool   `json:"auto"`  // picked by the hash, not by hand
+}
+
+// Account is the Claude Code account (config folder) a session runs in.
+type Account struct {
+	Name  string `json:"name"`
+	Color string `json:"color"` // teal, blue, yellow, green, purple, pink, sky, ink (the hat colours)
 }
 
 // Subagent is one of an agent's subagents that is still working.

@@ -103,8 +103,8 @@ func (d *Daemon) syncLive() {
 	skip := tmux.PaneTTYs()
 	ours := map[string]bool{}
 	for _, e := range d.Store.Entries() {
-		if !e.External && e.SessionID != "" {
-			ours[e.SessionID] = true
+		if (!e.External || inApp(e)) && e.SessionID != "" {
+			ours[e.SessionID] = true // our own agents, and Orca's and herdr's (already on the deck)
 		}
 	}
 	var found []claude.Live
@@ -136,7 +136,7 @@ func (d *Daemon) syncLive() {
 	// Sessions that ended (or were taken off the deck) leave the board; they
 	// come back if they run again, as long as they stay added.
 	for _, e := range d.Store.Entries() {
-		if e.External && e.A.Tool == "claude" {
+		if e.External && e.A.Tool == "claude" && !inApp(e) {
 			if _, ok := want[e.A.ID]; !ok {
 				d.Store.Remove(e.A.ID)
 			}
@@ -266,7 +266,7 @@ func (d *Daemon) discover(skip map[string]bool) []claude.Live {
 	cached, ok := d.live.reported, d.live.reportedOK
 	d.live.mu.Unlock()
 	if !fresh && bin != "-" {
-		cached, ok = claude.ActiveSessions(bin, skip)
+		cached, ok = activeSessions(bin, skip)
 		d.live.mu.Lock()
 		d.live.reported, d.live.reportedOK, d.live.reportedAt = cached, ok, time.Now()
 		d.live.mu.Unlock()

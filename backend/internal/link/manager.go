@@ -193,19 +193,28 @@ func (m *Manager) Status() []PortStatus {
 }
 
 // otherUsers names another program holding the port open ("" if none), so the
-// deck steps aside while you flash or monitor a board.
+// deck steps aside while you flash or monitor a board. The daemon's own
+// children don't count: between fork and exec they hold every descriptor.
 func otherUsers(path string) string {
-	out, err := exec.Command("/usr/sbin/lsof", "-F", "pc", path).Output()
+	out, err := exec.Command("/usr/sbin/lsof", "-F", "pcR", path).Output()
 	if err != nil && len(out) == 0 {
 		return ""
 	}
-	self := strconv.Itoa(os.Getpid())
-	pid := ""
-	for _, l := range strings.Split(string(out), "\n") {
+	return otherUser(string(out), os.Getpid())
+}
+
+// otherUser reads `lsof -F pcR` output: the first holder that is neither
+// this process nor its child.
+func otherUser(lsof string, self int) string {
+	me := strconv.Itoa(self)
+	pid, parent := "", ""
+	for _, l := range strings.Split(lsof, "\n") {
 		switch {
 		case strings.HasPrefix(l, "p"):
-			pid = l[1:]
-		case strings.HasPrefix(l, "c") && pid != self:
+			pid, parent = l[1:], ""
+		case strings.HasPrefix(l, "R"):
+			parent = l[1:]
+		case strings.HasPrefix(l, "c") && pid != me && parent != me:
 			return l[1:]
 		}
 	}

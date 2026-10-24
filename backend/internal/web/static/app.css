@@ -434,6 +434,8 @@ body.offline .main { opacity: 0.4; }
 .d-close:active { background: var(--d-fg); color: var(--d-bg); }
 .d-pillrow { display: flex; align-items: center; gap: 8px; }
 .d-pillrow .chip { width: 8px; height: 8px; background: var(--chip); }
+.d-acct { display: inline-flex; align-items: center; gap: 6px; margin-top: -4px; color: var(--dim); font-family: var(--f-label); font-size: 12px; }
+.d-acct[hidden] { display: none; }
 .p-accent .d-pillrow .chip { box-shadow: 0 0 0 1px var(--bg); }
 .pill {
   font-size: 14px; padding: 4px 12px; border-radius: 8px; white-space: nowrap;

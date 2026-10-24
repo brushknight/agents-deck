@@ -79,6 +79,8 @@ func TestServerDefaultsMouseModes(t *testing.T) {
 	}
 	if o := show("-s", "terminal-overrides"); !strings.Contains(o, "*:smcup@:rmcup@") {
 		t.Errorf("alternate screen not skipped: %s", o)
+	} else if strings.Contains(o, "Hls@") {
+		t.Errorf("native: links to iTerm still removed: %s", o)
 	}
 	NativeMouse = func() bool { return false }
 	ServerDefaults()
@@ -90,6 +92,10 @@ func TestServerDefaultsMouseModes(t *testing.T) {
 	}
 	if f := show("-s", "terminal-features"); strings.Contains(f, "*:hyperlinks") {
 		t.Errorf("tmux mode passes hyperlinks to the terminal: %s", f)
+	}
+	// tmux turns hyperlinks on by itself for iTerm: the capability must go.
+	if o := show("-s", "terminal-overrides"); !strings.Contains(o, "*:Hls@") {
+		t.Errorf("tmux mode: link capability not removed: %s", o)
 	}
 	NativeMouse = func() bool { return true }
 	ServerDefaults()
