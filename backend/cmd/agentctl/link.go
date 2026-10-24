@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -15,6 +16,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/link/linkpb"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
 func linkCmd(args []string) error {
@@ -52,14 +54,40 @@ func linkCmd(args []string) error {
 		return linkSim(args[1:])
 	case "check":
 		return linkCheck(args[1:])
+	case "wifi":
+		return linkWifi(args[1:])
+	case "pair":
+		if len(args) != 2 {
+			return errors.New("usage: agentctl link pair <board>")
+		}
+		if err := call("POST", "/local/devices/"+args[1]+"/repair", nil, nil); err != nil {
+			return err
+		}
+		fmt.Printf("%s: its certificate no longer works. On USB and approved, it pairs again by itself (a new key and certificate).\n", args[1])
+		return nil
 	}
-	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port>]")
+	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port> | wifi <board> | pair <board>]")
+}
+
+type linkState struct {
+	Ports  []link.PortStatus
+	Boards []link.LinkInfo
 }
 
 func linkStatus() error {
-	var res struct{ Ports []link.PortStatus }
+	var res linkState
 	if err := call("GET", "/local/link", nil, &res); err != nil {
 		return err
+	}
+	if len(res.Boards) > 0 {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI")
+		for _, b := range res.Boards {
+			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), netLine(b.Net))
+		}
+		_ = tw.Flush()
+		fmt.Println()
 	}
 	if len(res.Ports) == 0 {
 		fmt.Println("no serial ports registered: plug a board in, then `agentctl link ports` and `agentctl link add <port>`")
@@ -205,6 +233,19 @@ func linkSim(args []string) error {
 			fmt.Println(line)
 		}
 	}
+	// A simulated board has no radio: it keeps the network and pretends it
+	// joined (a documentation address), so `agentctl link wifi` can be tried.
+	b.Wifi = func(w *linkpb.WifiConfig) (uint32, string) {
+		st := &linkpb.NetStatus{Transport: linkpb.Transport_TRANSPORT_SERIAL, Wifi: linkpb.WifiState_WIFI_NOT_SET}
+		if !w.Forget {
+			st.Wifi, st.Ssid, st.Ip, st.Rssi = linkpb.WifiState_WIFI_IDLE, w.Ssid, "192.0.2.50", -50
+		}
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			b.Send(&linkpb.Frame{Body: &linkpb.Frame_NetStatus{NetStatus: st}})
+		}()
+		return 204, ""
+	}
 	done := make(chan error, 1)
 	go func() { done <- b.Run() }()
 	fmt.Fprintln(os.Stderr, "a simulated board on the deck. commands: answer <agent> <key>, focus|interrupt|dismiss|resume <agent>, move <agent> <slot>, hats, live, state, quit")
@@ -314,4 +355,135 @@ func linkCheck(args []string) error {
 	}
 	fmt.Println("all checks passed")
 	return nil
+}
+
+// netLine is a board's Wi-Fi in a few words: "connected · 192.0.2.23 · -58 dBm".
+func netLine(n *link.NetInfo) string {
+	if n == nil {
+		return "-"
+	}
+	parts := []string{n.Wifi}
+	if n.IP != "" {
+		parts = append(parts, n.IP)
+	}
+	if n.RSSI != 0 {
+		parts = append(parts, fmt.Sprintf("%d dBm", n.RSSI))
+	}
+	if !n.HasCert && n.Wifi != "not supported" {
+		parts = append(parts, "no certificate yet")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// linkWifi sends Wi-Fi credentials to a board on USB serial. The password is
+// asked for without echo (so it stays out of the shell's history), goes to
+// the daemon over the unix socket and on to the board; nothing keeps it.
+func linkWifi(args []string) error {
+	fs := flag.NewFlagSet("link wifi", flag.ExitOnError)
+	ssid := fs.String("ssid", "", "the network's name")
+	password := fs.String("password", "", "the password (leave out to be asked; \"\" with --open)")
+	open := fs.Bool("open", false, "an open network, no password")
+	forget := fs.Bool("forget", false, "make the board forget its Wi-Fi network")
+	var board string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		board, args = args[0], args[1:]
+	}
+	_ = fs.Parse(args)
+	if board == "" && fs.NArg() > 0 {
+		board = fs.Arg(0)
+	}
+	if board == "" || (*ssid == "" && !*forget) {
+		return errors.New("usage: agentctl link wifi <board> --ssid NAME [--password PW | --open]   or   agentctl link wifi <board> --forget")
+	}
+	pw := *password
+	passwordGiven := false
+	fs.Visit(func(f *flag.Flag) { passwordGiven = passwordGiven || f.Name == "password" })
+	if !*forget && !*open && !passwordGiven {
+		var err error
+		if pw, err = askPassword("Wi-Fi password for " + *ssid + ": "); err != nil {
+			return err
+		}
+		if pw == "" {
+			return errors.New("no password: for an open network use --open")
+		}
+	}
+	if *open {
+		pw = ""
+	}
+	if !*forget {
+		if err := server.CheckWifi(*ssid, pw); err != nil {
+			return err
+		}
+	}
+	body := map[string]any{"device": board, "ssid": *ssid, "password": pw, "forget": *forget}
+	if err := call("POST", "/local/link/wifi", body, nil); err != nil {
+		return err
+	}
+	if *forget {
+		fmt.Printf("%s forgot its Wi-Fi network: it connects over USB only.\n", board)
+		return nil
+	}
+	fmt.Printf("%s stored the network. Testing it", board)
+	// The board tries the network once and reports (NetStatus): wait for it.
+	deadline := time.Now().Add(30 * time.Second)
+	last := ""
+	for time.Now().Before(deadline) {
+		time.Sleep(time.Second)
+		fmt.Print(".")
+		var res linkState
+		if call("GET", "/local/link", nil, &res) != nil {
+			continue
+		}
+		for _, b := range res.Boards {
+			if b.Board != board || b.Transport != link.OverSerial || b.Net == nil {
+				continue
+			}
+			last = b.Net.Wifi
+			switch b.Net.Wifi {
+			case "connected", "set, off while on USB":
+				if b.Net.IP == "" { // not tested yet
+					continue
+				}
+				fmt.Printf("\nit works: %s.\n", netLine(b.Net))
+				fmt.Println("Unplugged from the Mac (on another USB power supply) it now connects over Wi-Fi.")
+				return nil
+			case "wrong password", "network not found", "failed":
+				fmt.Println()
+				return fmt.Errorf("the board couldn't join %s: %s. Run agentctl link wifi again", *ssid, b.Net.Wifi)
+			}
+		}
+	}
+	fmt.Println()
+	if last == "" {
+		fmt.Println("the board didn't report back; `agentctl link` shows its Wi-Fi state once it does.")
+	} else {
+		fmt.Printf("still %s; `agentctl link` shows the outcome.\n", last)
+	}
+	return nil
+}
+
+// askPassword reads a line from the terminal without echoing it (or from
+// stdin when it isn't a terminal).
+func askPassword(prompt string) (string, error) {
+	fi, _ := os.Stdin.Stat()
+	tty := fi != nil && fi.Mode()&os.ModeCharDevice != 0
+	if tty {
+		fmt.Fprint(os.Stderr, prompt)
+		off := exec.Command("stty", "-echo")
+		off.Stdin = os.Stdin
+		if err := off.Run(); err != nil {
+			return "", fmt.Errorf("can't hide the password as you type (%v): pass --password", err)
+		}
+		defer func() {
+			on := exec.Command("stty", "echo")
+			on.Stdin = os.Stdin
+			_ = on.Run()
+			fmt.Fprintln(os.Stderr)
+		}()
+	}
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

@@ -9,8 +9,8 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | Waveshare ESP32-S3-LCD-1.47B, 320×172 | `layout_147.h`: one agent in detail and a mini-board | `devices/waveshare-lcd-147` |
 | Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_square.h`, `specLcd4()`: the 4×4 grid by slot, paged | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
-| Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_orbit.h`: every agent on a ring, the one that matters in the middle | `devices/waveshare-touch-lcd-28c` |
-| Waveshare ESP32-S3-Touch-LCD-2.1, 480×480 round | `layout_dial.h`: one agent at a time, the fleet as dots | `devices/waveshare-touch-lcd-21` |
+| Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_spring.h`, `layoutSpring28()`: the spring carousel, nine to a turn | `devices/waveshare-touch-lcd-28c` |
+| Waveshare ESP32-S3-Touch-LCD-2.1, 480×480 round | `layout_spring.h`, `layoutSpring21()`: the spring carousel, seven to a turn | `devices/waveshare-touch-lcd-21` |
 
 ## What's here
 
@@ -31,10 +31,12 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |
 | `src/round_view.h` | the round boards' screens and touch: home, detail, prompt, featured agent, timeout (`RoundLayout`) |
-| `src/round_ui.h`, `src/font_round.h` | what Orbit and Dial share: notices, the detail, the prompt; 30 and 35 px fonts (`tools/make_font_round.py`) |
+| `src/round_ui.h`, `src/font_round.h` | what the round layouts share: notices (the Wi-Fi ones too), toasts, the detail, the prompt; 30 and 35 px fonts (`tools/make_font_round.py`) |
 | `src/layout_spring.h`, `src/spring.h` | the round boards' home, the spring carousel (`SpringPanel`; `layoutSpring21()`, `layoutSpring28()`), drawn in strips |
 | `src/layout_orbit.h`, `src/layout_dial.h` | the earlier round homes (`OrbitPanel`, `DialPanel`), behind `ROUND_ORBIT_CLASSIC` / `ROUND_DIAL_CLASSIC` |
 | `src/round_app.h` | the firmware of a round board minus its drivers (Arduino) |
+| `src/net_model.h` | USB or Wi-Fi: which link a board uses and when it retries, and what the screen says about it |
+| `src/net_link.h` | Wi-Fi for any touch board (Arduino, ESP32): pairing over USB, credentials and certificate in NVS, joining, the TLS 1.3 link to the deck |
 | `sim/` | `render.cpp` (every screen of a layout to PPM), `panel_sim.cpp`, `fixture.h` (host only) |
 | `tests/run.sh` | the host tests, with ASan and UBSan |
 
@@ -59,6 +61,32 @@ The round boards have their own interface, `RoundLayout` (`src/round_view.h`): a
 frame and says what lies under a point (`hit`), and the shared state machine does the rest (taps,
 swipes, drags round the rim, the stop hold, the timeout, a new waiting agent). Its devices call
 `roundAppSetup()` with a `RoundBoard`.
+
+## Wi-Fi
+
+`net_link.h` gives a board a second way to the deck (docs/link/protocol.md, "Pairing and Wi-Fi"):
+it pairs over USB by itself, keeps Wi-Fi credentials sent with `agentctl link wifi`, and when no deck
+answers on USB it joins the network and runs a second Deck Link core over TLS 1.3 (the kit's
+`deck_tls.h`). The app follows `net_link::active()` and sends its commands there; a deck on USB always
+wins. `round_app.h` uses it; the round boards' `idf5` builds have it.
+
+On the round screens the Wi-Fi notices are `round_ui.h`'s `drawNotice()` (`netNotice()` words), and
+home on Wi-Fi has a small Wi-Fi mark: the spring draws it as one of its elements under the context
+bar (`SpringGeom.netBase`), so it comes and goes with the partial redraw and the strips; Dial and Orbit
+draw it in `drawRoundOverlay()`. Toasts stay inside the circle (`toastBox()`); on the spring they keep
+below the context bar, and a frame with a toast is drawn whole.
+
+It needs TLS 1.3 in mbedTLS, so arduino-esp32 3.x with its libraries rebuilt with
+`CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y` (pioarduino's `custom_sdkconfig`, as in the round boards'
+`idf5/platformio.ini`). On arduino-esp32 2.0.17 (ESP-IDF 4.4, mbedTLS 2.28) it compiles to the USB
+part only and the deck hears "no Wi-Fi" (501).
+
+The square boards (`grid_app.h`: the 4″, the 1.8″ AMOLED, the 1.47″) are on 2.0.17 and USB only for
+now. For Wi-Fi they need an `idf5` project like the round boards' (pioarduino, arduino-esp32 3.x,
+`custom_sdkconfig` for TLS 1.3, Arduino_GFX 1.6 or their own panel drivers, which changed between
+2.0 and 3.x for QSPI and RGB) and the same few calls in `grid_app.h`: `net_link::begin`, `loop`,
+`active()` for commands and state, the Welcome, CertIssued and Result hooks, and the Wi-Fi notices
+(`netNotice()`).
 
 ## Tests and pictures
 

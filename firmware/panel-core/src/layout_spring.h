@@ -17,6 +17,11 @@
 // drawn again (with everything that overlaps them); damage() lists them so
 // the board copies only those to the panel. The critters animate, so their
 // boxes are redrawn every frame; the middle only when its text changes.
+//
+// On Wi-Fi a small Wi-Fi mark sits under the middle at 6 o'clock (an element
+// like the others: it comes and goes with damage). The Wi-Fi notices are
+// round_ui.h's, drawn whole like every other notice; so is a toast: a frame
+// with one is drawn whole, and the first one after it too.
 #include <stdlib.h>
 
 #include "round_ui.h"
@@ -42,7 +47,7 @@ static inline SpringLayout layoutSpring28() {
 
 // Profiling (the board's bench build defines SPRING_PROFILE and the clock).
 #ifdef SPRING_PROFILE
-extern uint32_t springProfUs[12], springProfPx;
+extern uint32_t springProfUs[13], springProfPx;
 uint32_t springNowUs();
 #define SPRING_T0() const uint32_t prof_t0_ = springNowUs()
 #define SPRING_T1(k) springProfUs[k] += springNowUs() - prof_t0_
@@ -55,7 +60,10 @@ namespace spring_draw {
 
 using spring_detail::iround;
 
-enum class El : uint8_t { Notch, Critter, Name, Phrase, Meta, Bar, Dots, Arrow };
+enum class El : uint8_t { Notch, Critter, Name, Phrase, Meta, Bar, Dots, Arrow, Net };
+
+// Profiling slots past the elements' (springProfUs[El]).
+constexpr int kProfClear = 9, kProfMask = 10, kProfBuild = 11, kProfPush = 12;
 
 struct Elem {
   El kind;
@@ -214,6 +222,14 @@ static inline RoundRect arrowBox(int side) {
   return rectOf((int)x0 - 16, (int)y0 - 16, (int)x1 + 17, (int)y1 + 17);
 }
 
+// The Wi-Fi mark: under the context bar, above a critter at 6 o'clock (a
+// closed loop of an even count has one there).
+static inline int netBase(const SpringGeom& G) { return G.netBase; }
+static inline RoundRect netBox(const SpringGeom& G) {
+  const int b = netBase(G);
+  return rectOf(240 - 19, b - 20, 240 + 20, b + 5);
+}
+
 // ---------------------------------------------------------------- the frame's elements
 
 static inline void push(Frame& fr, const Elem& e) {
@@ -239,6 +255,14 @@ static inline void build(const SpringLayout& L, const RoundInput& in, Frame& fr)
   Elem notch = elem(El::Notch);
   notch.box = rectOf(229, 1, 252, 16);
   push(fr, notch);
+
+  // On Wi-Fi: the mark under the middle, behind the critters that pass it.
+  if (in.net && in.net->via == NetVia::Wifi) {
+    Elem e = elem(El::Net);
+    e.box = netBox(G);
+    e.sig = 1;
+    push(fr, e);
+  }
 
   // The critters, back to front.
   Elem cr[kMaxElems];
@@ -559,6 +583,9 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
       fillTri(c, x1 + tx * 12, y1 + ty * 12, x1 + nx * 8, y1 + ny * 8, x1 - nx * 8, y1 - ny * 8, T.t.accent);
       return;
     }
+    case El::Net:
+      drawNetMark(c, kRoundC, (float)netBase(G), T.t.dim);
+      return;
   }
 }
 
@@ -612,7 +639,7 @@ class SpringPanel : public RoundLayout {
     dmg_.n = 0;
     if (!homeFrame(in)) {
       if (!drawRoundCommon(c, L.T, L.detail, in)) drawHome(c, in);
-      drawRoundOverlay(c, L.T, in);
+      drawRoundOverlay(c, L.T, in, false, toastTop());   // the mark is home's own element
       haveLast_ = false;
       return;
     }
@@ -620,7 +647,7 @@ class SpringPanel : public RoundLayout {
     {
       SPRING_T0();
       build(L, in, cur);
-      SPRING_T1(11);
+      SPRING_T1(kProfBuild);
     }
     bool dirty[kMaxElems];
     if (!in.partial || !haveLast_ || !findDamage(frames_[which_], cur, dirty)) fullDamage(cur, dirty);
@@ -644,7 +671,7 @@ class SpringPanel : public RoundLayout {
     {
       SPRING_T0();
       build(L, in, cur);
-      SPRING_T1(11);
+      SPRING_T1(kProfBuild);
     }
     bool dirty[kMaxElems];
     if (!haveLast_ || !findDamage(frames_[which_], cur, dirty)) fullDamage(cur, dirty);
@@ -658,7 +685,7 @@ class SpringPanel : public RoundLayout {
       paint(c, in, cur, dirty, y0, y1);
       SPRING_T0();
       put(buf, y0, y1, spans_);
-      SPRING_T1(8);
+      SPRING_T1(kProfPush);
     }
     which_ ^= 1;
     haveLast_ = true;
@@ -696,6 +723,9 @@ class SpringPanel : public RoundLayout {
   const SpringLayout L;
 
  private:
+  // A toast keeps clear of the middle: no higher than under the context bar.
+  int toastTop() const { return L.G.barY + 8; }
+
   static bool homeFrame(const RoundInput& in) {
     const bool home = in.link == LinkState::Live && in.fleet && in.fleet->count > 0 && in.ui &&
                       in.ui->screen == RoundScreen::Home;
@@ -787,7 +817,7 @@ class SpringPanel : public RoundLayout {
 #endif
         }
       }
-      SPRING_T1(9);
+      SPRING_T1(kProfClear);
     }
     for (int k = 0; k < cur.n; k++) {
       if (!dirty[k] || cur.e[k].box.y >= y1 || cur.e[k].box.y + cur.e[k].box.h <= y0) continue;
@@ -797,7 +827,7 @@ class SpringPanel : public RoundLayout {
     }
     SPRING_T0();
     for (int y = y0; y < y1; y++) maskSpans(c, y, spans_.x[y], spans_.n[y]);
-    SPRING_T1(10);
+    SPRING_T1(kProfMask);
   }
 
   mutable spring_draw::Frame frames_[2];

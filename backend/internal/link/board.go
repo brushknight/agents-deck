@@ -18,6 +18,8 @@ type Board struct {
 	Fields uint32
 	Mode   Mode
 	Event  func(f *linkpb.Frame) // every frame from the deck (after bookkeeping)
+	// Wifi answers the deck's WifiConfig (nil: 501, no Wi-Fi on this board).
+	Wifi func(w *linkpb.WifiConfig) (code uint32, err string)
 
 	rw     io.ReadWriter
 	wmu    sync.Mutex
@@ -78,6 +80,12 @@ func (b *Board) handle(f *linkpb.Frame) {
 		}
 	case *linkpb.Frame_Ping:
 		b.Send(&linkpb.Frame{Seq: f.Seq, Body: &linkpb.Frame_Pong{Pong: &linkpb.Pong{TimeMs: x.Ping.TimeMs}}})
+	case *linkpb.Frame_WifiConfig:
+		code, msg := uint32(501), "no Wi-Fi on this board"
+		if b.Wifi != nil {
+			code, msg = b.Wifi(x.WifiConfig)
+		}
+		b.Send(&linkpb.Frame{Seq: f.Seq, Body: &linkpb.Frame_Result{Result: &linkpb.Result{Code: code, Error: msg}}})
 	case *linkpb.Frame_SnapshotBegin:
 		b.mu.Lock()
 		b.agents = map[string]*linkpb.Agent{}
@@ -156,6 +164,13 @@ func Describe(f *linkpb.Frame) string {
 		return fmt.Sprintf("result #%d: %d", f.Seq, x.Result.Code)
 	case *linkpb.Frame_Ping, *linkpb.Frame_Pong:
 		return ""
+	case *linkpb.Frame_WifiConfig:
+		if x.WifiConfig.Forget {
+			return "wifi: forget the network"
+		}
+		return "wifi: join " + x.WifiConfig.Ssid // never the password
+	case *linkpb.Frame_CertIssued:
+		return fmt.Sprintf("paired: certificate %s for %s, deck at %v port %d", x.CertIssued.CertSerial, x.CertIssued.DeviceName, x.CertIssued.Hosts, x.CertIssued.Port)
 	}
 	return strings.TrimSpace(fmt.Sprintf("%v", f))
 }

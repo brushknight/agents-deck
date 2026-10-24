@@ -164,3 +164,43 @@ func TestClipString(t *testing.T) {
 		}
 	}
 }
+
+// Pairing and Wi-Fi (Frame fields 60 and up) aren't web API commands: each
+// is documented in docs/link/protocol.md, and the Wi-Fi transport, GET
+// /v1/link, is in the transports table of docs/protocol.md (not the endpoint
+// table: it carries Deck Link frames, not an API call).
+func TestPairingAndWifiDocumented(t *testing.T) {
+	linkDoc, err := os.ReadFile(repo + "/docs/link/protocol.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := (&linkpb.Frame{}).ProtoReflect().Descriptor().Fields()
+	n := 0
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if fd.Number() < 60 {
+			continue
+		}
+		n++
+		if msg := string(fd.Message().Name()); !strings.Contains(string(linkDoc), "`"+msg) {
+			t.Errorf("%s (Frame field %d) isn't in docs/link/protocol.md", msg, fd.Number())
+		}
+		if _, ok := Routes[string(fd.Name())]; ok {
+			t.Errorf("%s has a web API route: pairing and Wi-Fi have none", fd.Name())
+		}
+	}
+	if n < 4 {
+		t.Fatalf("found %d pairing and Wi-Fi messages", n)
+	}
+	doc, err := os.ReadFile(repo + "/docs/protocol.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, _, _ := strings.Cut(string(doc), "## Endpoints")
+	if !strings.Contains(head, "`GET /v1/link`") {
+		t.Error("docs/protocol.md: the transports table doesn't list GET /v1/link")
+	}
+	if regexp.MustCompile("(?m)^\\| (GET|POST) \\| `/v1/link`").MatchString(string(doc)) {
+		t.Error("docs/protocol.md lists /v1/link as an API endpoint: it is a transport")
+	}
+}

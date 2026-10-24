@@ -34,6 +34,8 @@ for spec in spring28:waveshare-touch-lcd-28c spring:waveshare-touch-lcd-21; do
   # The spring turning one step clockwise: frames 0, 2, 4, 7 and 9 of 9.
   "$PY" tools/ppm2png.py "$docs/turning.png" out/$layout/spring-right-f0.ppm out/$layout/spring-right-f2.ppm \
     out/$layout/spring-right-f4.ppm out/$layout/spring-right-f7.ppm out/$layout/spring-right-f9.ppm --cols 5 --gap 8 >/dev/null
+  "$PY" tools/ppm2png.py "$docs/wifi.png" out/$layout/home-wifi.ppm out/$layout/wifi-joining.ppm \
+    out/$layout/wifi-wrong-password.ppm out/$layout/wifi-cert-rejected.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
 for spec in selftest28:waveshare-touch-lcd-28c selftest21:waveshare-touch-lcd-21; do

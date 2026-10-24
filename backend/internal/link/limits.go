@@ -16,7 +16,7 @@ type limit struct{ size, count int }
 // with fixed buffers never gets more than it can hold.
 var limits = map[string]limit{
 	"Hello.board_id": {size: 40}, "Hello.type": {size: 32}, "Hello.firmware": {size: 24}, "Hello.inputs": {count: 4},
-	"Welcome.server_name": {size: 48}, "Welcome.server_version": {size: 24}, "Welcome.device_name": {size: 40},
+	"Welcome.server_name": {size: 48}, "Welcome.server_version": {size: 24}, "Welcome.device_name": {size: 40}, "Welcome.cert_serial": {size: 40},
 	"Server.name": {size: 48}, "Server.version": {size: 24},
 	"AgentRemoved.id": {size: 12},
 	"Agent.id":        {size: 12}, "Agent.title": {size: 64}, "Agent.ai_title": {size: 96}, "Agent.cwd": {size: 128},
@@ -43,6 +43,13 @@ var limits = map[string]limit{
 	"AccountInfo.name":     {size: 16}, "AccountInfo.color": {size: 12},
 	"RestoreResult.results": {count: 16},
 	"Restored.id":           {size: 12}, "Restored.title": {size: 64}, "Restored.action": {size: 12}, "Restored.error": {size: 96},
+	// Pairing and Wi-Fi. For bytes, size is the byte count (no NUL): the deck
+	// refuses to send more rather than clip a certificate.
+	"CertRequest.csr": {size: 600},
+	"CertIssued.cert": {size: 800}, "CertIssued.ca": {size: 600}, "CertIssued.hosts": {size: 64, count: 4},
+	"CertIssued.server_fingerprint": {size: 32}, "CertIssued.device_name": {size: 40}, "CertIssued.cert_serial": {size: 40},
+	"WifiConfig.ssid": {size: 33}, "WifiConfig.password": {size: 65},
+	"NetStatus.ssid": {size: 33}, "NetStatus.ip": {size: 40},
 }
 
 // clipMessage cuts every string and list in m (recursively) to its limit.

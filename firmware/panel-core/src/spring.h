@@ -26,6 +26,7 @@ struct SpringGeom {
   float loopR;            // up to K agents: the closed loop's radius
   int nameBase, phraseBase, metaBase, barY, barW;   // the middle
   float dotsR, dotsSpread;                          // past K: the dots round 6 o'clock
+  int netBase;            // on Wi-Fi: the Wi-Fi mark's base, under the context bar
 };
 
 // The Orbit's (2.8″): nine to a turn at x3, the selected one x5; the middle
@@ -36,6 +37,7 @@ static inline SpringGeom springOrbit28() {
   g.rSel = 132; g.rOut = 188; g.rIn = 178; g.rUnder = 104; g.peekAng = 14; g.loopR = 180;
   g.nameBase = 268; g.phraseBase = 304; g.metaBase = 336; g.barY = 360; g.barW = 140;
   g.dotsR = 233; g.dotsSpread = 30;
+  g.netBase = 386;
   return g;
 }
 
@@ -46,6 +48,7 @@ static inline SpringGeom springDial21() {
   g.rSel = 140; g.rOut = 184; g.rIn = 174; g.rUnder = 108; g.peekAng = 14; g.loopR = 178;
   g.nameBase = 216; g.phraseBase = 254; g.metaBase = 290; g.barY = 314; g.barW = 120;
   g.dotsR = 233; g.dotsSpread = 26;
+  g.netBase = 350;
   return g;
 }
 

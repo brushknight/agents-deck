@@ -24,6 +24,7 @@
 #include "deck_cmd.h"
 #include "deck_ui.h"
 #include "model.h"
+#include "net_model.h"
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "spring.h"
@@ -119,6 +120,7 @@ struct RoundInput {
   int64_t nowEpoch;            // the deck's time
   const RoundUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
+  const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
   // The board keeps the last frame: a layout may redraw only what changed
   // (the spring carousel does), and says what with damage().
   bool partial = false;

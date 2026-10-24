@@ -93,3 +93,44 @@ func TestScopes(t *testing.T) {
 		t.Error("scope order")
 	}
 }
+
+// A board paired for Wi-Fi is the same entry: its certificate works while it
+// is approved, and revoking it drops the certificate for good.
+func TestBoardCert(t *testing.T) {
+	r := &Registry{Path: filepath.Join(t.TempDir(), "devices.json")}
+	d, _ := r.Board("AA:BB:CC:00:00:01", "round", "1")
+	if err := r.SetBoardCert(d.Name, "c1", "sha256:01"); err == nil {
+		t.Fatal("an unapproved board got a certificate")
+	}
+	_ = r.Approve(d.Name)
+	if err := r.SetBoardCert(d.Name, "c1", "sha256:01"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := r.ByCertSerial("c1"); !ok || got.Name != d.Name || got.Kind != Serial || got.BoardID != d.BoardID {
+		t.Fatalf("by serial: %+v %v", got, ok)
+	}
+	// Pairing again replaces it.
+	_ = r.SetBoardCert(d.Name, "c2", "sha256:02")
+	if _, ok := r.ByCertSerial("c1"); ok {
+		t.Error("the old certificate still works")
+	}
+	if err := r.Revoke(d.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.ByCertSerial("c2"); ok {
+		t.Error("a revoked board's certificate works")
+	}
+	_ = r.Approve(d.Name)
+	if _, ok := r.ByCertSerial("c2"); ok {
+		t.Error("approving again brought the old certificate back")
+	}
+	if _, ok := r.ByCertSerial(""); ok {
+		t.Error("an empty serial matched")
+	}
+	if err := r.AddNetwork("panel", Act, "n1", "sha256:03"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetBoardCert("panel", "x", "y"); err == nil {
+		t.Error("a network device paired as a board")
+	}
+}

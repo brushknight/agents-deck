@@ -27,6 +27,11 @@
 #include "round_view.h"
 
 #ifdef PANEL_DEBUG
+#define NET_LOG(...) do { Serial.printf(__VA_ARGS__); Serial.print("\n"); } while (0)
+#endif
+#include "net_link.h"
+
+#ifdef PANEL_DEBUG
 #define ROUND_LOG(...) do { Serial.printf(__VA_ARGS__); Serial.print("\n"); } while (0)
 #else
 #define ROUND_LOG(...) do {} while (0)
@@ -53,7 +58,7 @@ struct RoundBoard {
 };
 
 #ifdef SPRING_PROFILE
-uint32_t springProfUs[12], springProfPx;
+uint32_t springProfUs[13], springProfPx;
 uint32_t springNowUs() { return micros(); }
 #endif
 
@@ -75,10 +80,21 @@ static bool dirty = true;
 static uint32_t lastActiveMs = 0;          // a touch, or a new waiting agent
 static uint32_t lastHeardMs = 0;           // the last frame from the deck
 
+// The link the screen follows: USB, or Wi-Fi once that is up (net_link.h).
+// The bench never starts net_link: its (idle) USB core.
+#ifdef ROUND_BENCH
+static deck_link_t* link() { return deck.core(); }
+#else
+static deck_link_t* link() { return net_link::active(); }
+#endif
+
 #ifdef ROUND_BENCH
 static LinkState linkState() { return LinkState::Live; }
 #else
-static LinkState linkState() { return linkStateOf(deck.state(), deck.approved()); }
+static LinkState linkState() {
+  if (net_link::wifiPending()) return LinkState::Connecting;   // the notice says where Wi-Fi is
+  return linkStateOf(deck_link_state(link()), deck_link_approved(link()));
+}
 #endif
 
 // Frame timing (PANEL_DEBUG and ROUND_BENCH): draw and push, in microseconds.
@@ -97,37 +113,62 @@ static uint32_t turnMs = 0;              // time spent turning since the last re
 static uint32_t lastDrawUs = 0, lastPushUs = 0;
 
 static RoundScope scope() {
-  switch (deck.scope()) {
+  switch (deck_link_scope(link())) {
     case agentsdeck_link_v1_Scope_SCOPE_ADMIN: return RoundScope::Admin;
     case agentsdeck_link_v1_Scope_SCOPE_ACT:   return RoundScope::Act;
     default:                                   return RoundScope::View;
   }
 }
 
-static void onFrame(deck_link_t*, const deck_frame_t* f) {
+static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
+  if (ctx != link()) return;               // the other link (USB while on Wi-Fi): not what the screen shows
   lastHeardMs = millis();
   if (deckApply(*fleet, *f, millis())) dirty = true;
   fleet->newWaiting = false;               // round_view.h spots new waiters itself
 }
 
-static void onWelcome(deck_link_t*, const char* name, agentsdeck_link_v1_Scope, bool) {
-  snprintf(deviceName, sizeof deviceName, "%s", name);
+static void onWelcome(deck_link_t* ctx, const char* name, agentsdeck_link_v1_Scope, bool approved) {
+  // A deck on USB takes over at once (and pairs the board for Wi-Fi when it needs to).
+  if (ctx == deck.core()) net_link::usbWelcome(approved, name);
+  else net_link::wifiWelcome();
+  if (ctx == link()) snprintf(deviceName, sizeof deviceName, "%s", name);
   dirty = true;
 }
 
-static void onResult(deck_link_t*, uint32_t seq, uint32_t code, const char*) {
+static void onResult(deck_link_t* ctx, uint32_t seq, uint32_t code, const char*) {
+  net_link::result(seq, code);
+  if (ctx != link()) return;
   roundResult(ui, seq, code, millis());
   dirty = true;
 }
 
+static void onCertIssued(deck_link_t*, uint32_t seq, const agentsdeck_link_v1_CertIssued* c) {
+  net_link::certIssued(seq, c);
+}
+
 static void onLink(deck_link_t*) { dirty = true; }
+
+// The screen's link changed (USB ⇄ Wi-Fi): start the fleet over; the new link sends a snapshot.
+static void onSwitched(NetVia via) {
+  fleet->~DeckFleet();
+  new (fleet) DeckFleet();
+  roundHome(ui);
+  dirty = true;
+  ROUND_LOG("round: now on %s", via == NetVia::Wifi ? "Wi-Fi" : "USB");
+}
+
+static void onToast(const char* text) {
+  snprintf(ui.toast, sizeof ui.toast, "%s", text);
+  ui.toastUntil = millis() + 2500;
+  dirty = true;
+}
 
 static void send(const RoundCommand& c) {
   switch (c.cmd) {
-    case RoundCmd::Answer:    ui.cmdSeq = deck.answer(c.agent, c.prompt, c.key); break;
-    case RoundCmd::Focus:     ui.cmdSeq = deck.focus(c.agent); break;
-    case RoundCmd::Interrupt: ui.cmdSeq = deck.interrupt(c.agent); break;
-    case RoundCmd::Dismiss:   ui.cmdSeq = deck.dismiss(c.agent); break;
+    case RoundCmd::Answer:    ui.cmdSeq = deck_answer(link(), c.agent, c.prompt, c.key); break;
+    case RoundCmd::Focus:     ui.cmdSeq = deck_focus(link(), c.agent); break;
+    case RoundCmd::Interrupt: ui.cmdSeq = deck_interrupt(link(), c.agent); break;
+    case RoundCmd::Dismiss:   ui.cmdSeq = deck_dismiss(link(), c.agent); break;
     default: return;
   }
   ROUND_LOG("round: command %d for %s, seq %u", (int)c.cmd, c.agent, (unsigned)ui.cmdSeq);
@@ -146,7 +187,13 @@ static void render() {
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
   const uint32_t silent = (ms - lastHeardMs) / 1000;
-  RoundInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent};
+  static NetView net;
+#ifdef ROUND_BENCH
+  net = NetView();                       // the bench: no deck, no Wi-Fi
+#else
+  net = net_link::view();
+#endif
+  RoundInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent, &net};
   in.partial = true;   // the frame keeps the last one
   const uint32_t t0 = micros();
   if (strip && board.layout->drawStrips(in, strip, kStripRows, board.pushStrip)) {
@@ -351,7 +398,10 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   (void)cfg;
   benchFleet();
 #else
+  cfg.on_cert_issued = onCertIssued;
+  cfg.on_wifi_config = net_link::wifiConfigHook();   // nullptr without Wi-Fi: the core answers 501
   deck.begin(Serial, cfg);
+  net_link::begin(deck.core(), cfg, net_link::Hooks{onSwitched, onToast});
 #endif
   lastActiveMs = lastHeardMs = millis();
   ui.lastTouchMs = millis();
@@ -372,6 +422,7 @@ static inline void roundAppLoop() {
     deck.loop();
     if (Serial.available() <= 0) break;
   }
+  net_link::loop();                        // Wi-Fi: the plan, the TLS link and its frames
 #endif
   touchPump();
   buttonPump();
@@ -390,10 +441,10 @@ static inline void roundAppLoop() {
                   turnMs ? (unsigned)(t.frames * 1000 / turnMs) : 0u, avg(t.drawUs, t.frames), avg(t.pushUs, t.frames));
 #ifdef SPRING_PROFILE
     {
-      static const char* const kNames[12] = {"notch", "critter", "name", "phrase", "meta", "bar",
-                                             "dots", "arc", "-", "clear", "mask", "build"};
+      static const char* const kNames[13] = {"notch", "critter", "name", "phrase", "meta", "bar", "dots",
+                                             "arc", "wifi", "clear", "mask", "build", "push"};
       Serial.printf("  per frame (us):");
-      for (int k = 0; k < 12; k++)
+      for (int k = 0; k < 13; k++)
         if (springProfUs[k]) Serial.printf(" %s %u", kNames[k], a.frames ? (unsigned)(springProfUs[k] / a.frames) : 0u);
       Serial.printf("; damage %u px\n", a.frames ? (unsigned)(springProfPx / a.frames) : 0u);
       memset(springProfUs, 0, sizeof springProfUs);
@@ -402,10 +453,13 @@ static inline void roundAppLoop() {
 #endif
 #ifndef ROUND_BENCH
     const deck_link_stats_t* st = deck_link_stats(deck.core());
-    ROUND_LOG("status: link %d approved %d agents %u screen %d rx %u bad %u overflow %u heap %u psram %u",
-              (int)deck.state(), (int)deck.approved(), fleet->have ? (unsigned)fleet->fleet.count : 0u,
-              (int)ui.screen, (unsigned)st->rx_frames, (unsigned)st->rx_bad, (unsigned)st->rx_overflow,
-              (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+    const NetView nv = net_link::view();
+    ROUND_LOG("status: via %s phase %d link %d approved %d agents %u screen %d rx %u bad %u overflow %u heap %u "
+              "psram %u",
+              nv.via == NetVia::Wifi ? "wifi" : "usb", (int)nv.phase, (int)deck_link_state(link()),
+              (int)deck_link_approved(link()), fleet->have ? (unsigned)fleet->fleet.count : 0u, (int)ui.screen,
+              (unsigned)st->rx_frames, (unsigned)st->rx_bad, (unsigned)st->rx_overflow, (unsigned)ESP.getFreeHeap(),
+              (unsigned)ESP.getFreePsram());
 #endif
     statsAll = statsTurn = FrameStats();
     turnMs = 0;

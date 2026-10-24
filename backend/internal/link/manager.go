@@ -35,6 +35,7 @@ type PortStatus struct {
 type Manager struct {
 	Deck  Deck
 	Ports func() []PortConfig
+	Hub   *Hub // optional: where `agentctl link wifi` finds the sessions
 
 	mu      sync.Mutex
 	running map[string]*portRun
@@ -164,6 +165,7 @@ func (m *Manager) check(ctx context.Context, p PortConfig, retry map[string]time
 	}
 	sctx, cancel := context.WithCancel(ctx)
 	s := NewSession(m.Deck, f, filepath.Base(p.Path))
+	s.Hub, s.Where = m.Hub, p.Path
 	run := &portRun{cancel: cancel, file: f, session: s, done: make(chan struct{})}
 	m.mu.Lock()
 	m.running[p.Path] = run

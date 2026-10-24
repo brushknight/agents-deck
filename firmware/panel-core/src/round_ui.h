@@ -197,13 +197,16 @@ static inline void drawNotice(Canvas& c, const RoundTheme& T, const RoundInput& 
   const uint16_t ink = T.t.ink, dim = T.t.dim, acc = T.t.accent;
   char buf[64];
   switch (in.link) {
-    case LinkState::Connecting:
-      noticeRing(c, T.t.line, 6, 10, 6000, in.ms);
-      critterAt(c, 240, 186, 6, Species::Claude, Pose::Run, dim, T.t.bg, in.ms, false);
-      textOn(c, FONT_R30, 240, 288, "connecting", ink);
-      textOn(c, FONT_XXL, 240, 326, "waiting for the deck", dim);
-      textOn(c, FONT_XXL, 240, 360, "on USB", dim);
+    case LinkState::Connecting: {
+      // On USB: "connecting / waiting for the deck / on USB"; on Wi-Fi, where it is.
+      const NetNotice n = netNotice(in.net ? *in.net : NetView());
+      noticeRing(c, n.problem ? acc : T.t.line, n.problem ? 2 : 6, n.problem ? 12 : 10, n.problem ? 0 : 6000, in.ms);
+      critterAt(c, 240, 186, 6, Species::Claude, n.problem ? Pose::Exit : Pose::Run, dim, T.t.bg, in.ms, false);
+      textOn(c, FONT_R30, 240, 288, n.title, ink);
+      if (n.line1) textOn(c, FONT_XXL, 240, 326, n.line1, n.problem ? acc : dim);
+      if (n.line2) textOn(c, FONT_XXL, 240, 360, n.line2, dim);
       return;
+    }
     case LinkState::Unapproved: {
       noticeRing(c, acc, 2, 12, 0, in.ms);
       critterAt(c, 240, 166, 5, Species::Claude, Pose::Wait, ink, T.t.bg, in.ms, true);
@@ -627,12 +630,39 @@ static inline RoundHit promptHit(const Agent& a, int first, int x, int y) {
 // ---------------------------------------------------------------- the frame
 
 // A short message in a pill near the bottom.
-static inline void drawToast(Canvas& c, const RoundTheme& T, const RoundUi& ui, uint32_t ms) {
+// Where a toast's pill goes: low on the glass, raised until it fits inside the
+// circle (with a margin), and never wider than the circle allows there. It
+// rises no higher than `top` (a layout keeps its middle clear with it); a
+// text too long for 26 px there drops to 20 px, and past that it is cut with "…".
+struct ToastBox {
+  int x, y, w, h;
+  const Font* font;
+};
+
+constexpr int kToastTop = 300;   // Dial and Orbit: as high as the bottom of the middle
+
+static inline ToastBox toastBox(const char* text, int top = kToastTop) {
+  const int margin = 10;
+  ToastBox b{};
+  for (const Font* f : {&FONT_XXL, &FONT_XL}) {
+    const int h = f == &FONT_XXL ? 52 : 42;
+    auto room = [&](int yy) { return (int)(2 * chordHalfSpan(kRoundC, kRoundC - margin, (float)yy, (float)(yy + h))); };
+    int w = textW(*f, text) + 40, y = 404;
+    while (y - 4 >= top && room(y) < w) y -= 4;
+    const bool fits = w <= room(y);
+    if (!fits) w = room(y);   // still too long: the text is cut with "…"
+    b = ToastBox{240 - w / 2, y, w, h, f};
+    if (fits) break;
+  }
+  return b;
+}
+
+static inline void drawToast(Canvas& c, const RoundTheme& T, const RoundUi& ui, uint32_t ms, int top = kToastTop) {
   if (!ui.toast[0] || (int32_t)(ui.toastUntil - ms) <= 0) return;
-  const Font& f = FONT_XXL;
-  const int w = textW(f, ui.toast) + 40, h = 52, y = 404;
-  fillPill(c, 240 - w / 2, y, w, h, T.t.ink);
-  textCentered(c, f, 240, y + (h - f.cellH) / 2, ui.toast, T.t.bg, w - 20);
+  const ToastBox b = toastBox(ui.toast, top);
+  const Font& f = *b.font;
+  fillPill(c, b.x, b.y, b.w, b.h, T.t.ink);
+  textCentered(c, f, 240, b.y + (b.h - f.cellH) / 2, ui.toast, T.t.bg, b.w - 20);
 }
 
 // Everything but home: notices, the detail, the prompt. Returns false when
@@ -651,9 +681,37 @@ static inline bool drawRoundCommon(Canvas& c, const RoundTheme& T, const DetailS
   return true;
 }
 
-// The finishing touches on any frame: the toast, and the round mask.
-static inline void drawRoundOverlay(Canvas& c, const RoundTheme& T, const RoundInput& in) {
-  if (in.ui) drawToast(c, T, *in.ui, in.ms);
+// On Wi-Fi, a small Wi-Fi mark under home's middle (on USB, nothing: the
+// cable says it). The notices say it in words.
+constexpr int kNetBadgeY = 398;   // the mark's base: below home's text, above the ring
+
+// The mark itself, its base at (cx, base): a dot and two arcs over it, about
+// 36 x 22 px (netMarkBox() holds it).
+static inline void drawNetMark(Canvas& c, float cx, float base, uint16_t col) {
+  fillDisc(c, cx, base - 1, 2.5f, col);
+  for (int i = 1; i <= 2; i++) strokeArc(c, cx, base, 6.5f * i + 1, 2.5f, -45, 90, col);
+}
+
+// Whether home shows the mark: on Wi-Fi and live.
+static inline bool netMarkShown(const RoundInput& in) {
+  return in.net && in.net->via == NetVia::Wifi && in.link == LinkState::Live && in.fleet && in.fleet->count &&
+         in.ui && in.ui->screen == RoundScreen::Home;
+}
+
+static inline void drawNetBadge(Canvas& c, const RoundTheme& T, const RoundInput& in) {
+  if (!netMarkShown(in)) return;
+  // Dark on an orange face (someone waits on the dial), dim otherwise.
+  const uint16_t under = c.px[(size_t)(kNetBadgeY - 8) * (size_t)c.w + (size_t)c.w / 2];
+  drawNetMark(c, kRoundC, kNetBadgeY, under == T.t.accent ? T.t.bg : T.t.dim);
+}
+
+// The finishing touches on any frame: the Wi-Fi mark, the toast, and the round
+// mask. A layout that draws the mark itself (the spring) passes badge = false;
+// toastTop: see toastBox().
+static inline void drawRoundOverlay(Canvas& c, const RoundTheme& T, const RoundInput& in, bool badge = true,
+                                    int toastTop = kToastTop) {
+  if (badge) drawNetBadge(c, T, in);
+  if (in.ui) drawToast(c, T, *in.ui, in.ms, toastTop);
   maskOutside(c, kRoundC, kRoundC, 240, rgb565(0, 0, 0));
 }
 

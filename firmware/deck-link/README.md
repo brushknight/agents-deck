@@ -7,6 +7,8 @@ draws and reacts. To build a new device, see [new-device.md](../../docs/link/new
 
 - `src/deck_link.h`: the core. C99, no malloc, no Arduino, no OS. One context struct holds everything.
 - `src/deck_tiles.h`: optional helper that keeps a small table of agents for simple devices.
+- `src/deck_store.h`, `src/deck_pair.h`, `src/deck_tls.h`: Wi-Fi (see below): what a board keeps in
+  NVS, its own key and certificate request, and a TLS 1.3 client transport.
 - `src/DeckLink.h`: a thin Arduino wrapper (`Stream` in, `loop()` to drive it).
 - `src/proto/`: `link.pb.c/h` generated from `proto/agentsdeck/link/v1`, and the nanopb 0.4.9.1
   runtime (zlib licence, `src/proto/LICENSE.txt`).
@@ -111,20 +113,49 @@ title and options (key, label, primary). Helpers: `deck_tiles_find`, `deck_tiles
 `deck_tiles_first_waiting`, `deck_tile_primary`, `deck_status_name`.
 
 
+## Pairing and Wi-Fi
+
+A board can pair over USB and then connect over Wi-Fi with the same frames
+([protocol](../../docs/link/protocol.md#pairing-and-wi-fi)). The kit has the parts; the board decides
+when to use them (`firmware/panel-core/src/net_link.h` does it for the touch panels):
+
+- **Messages** (core): `deck_cert_request(ctx, csr, len)` and `on_cert_issued`; `on_wifi_config(ctx,
+  ssid, password, forget)` returns the code the core answers with (unset: 501); `deck_net_status()`;
+  `deck_link_cert_serial()` is the last Welcome's `cert_serial`.
+- **Storage** (`deck_store.h`): `deck_cert_t` (key, certificate, CA, hosts, port, fingerprint) and
+  `deck_wifi_t` through a small key-value interface, `deck_kv_t`. `deck_kv_nvs_open()` is NVS on
+  ESP-IDF; tests use a fake. The certificate is one blob, so a reset while saving never mixes two.
+  NVS is plain flash unless flash encryption is on: the key and the Wi-Fi password can be read off a
+  board in hand.
+- **Pairing** (`deck_pair.h`): `deck_pair_request()` makes an EC P-256 key on the chip and sends its
+  CSR; `deck_pair_accept()` turns the reply into a `deck_cert_t`; `deck_cert_needed(cert,
+  deck_link_cert_serial(ctx))` says when to ask.
+- **Transport** (`deck_tls.h`): `deck_tls_open()` connects to one of the deck's hosts with TLS 1.3 and
+  the client certificate, checks the deck against its CA (or the fingerprint when the host isn't one
+  its certificate names) and upgrades to Deck Link (`GET /v1/link`); `deck_tls_write` is a
+  `deck_write_fn`, and what `deck_tls_read` returns goes to `deck_link_feed`.
+
+The deck's listener accepts TLS 1.3 only, so this needs **mbedTLS 3 with
+`MBEDTLS_SSL_PROTO_TLS1_3`**: ESP-IDF 5 with `CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y` (arduino-esp32 3.x
+leaves it off in its prebuilt libraries; pioarduino's `custom_sdkconfig` rebuilds them with it, see
+the round boards' `idf5/platformio.ini`). On ESP-IDF 4.4 (arduino-esp32 2.0.x, mbedTLS 2.28) the
+pairing and TLS calls compile to stubs that return "unsupported" (`deck_net_config.h`,
+`DECK_LINK_HAS_TLS13`), so a board there stays on USB. `-DDECK_LINK_NO_WIFI` turns it off anywhere.
+
 ## Memory
 
 Measured on ESP32 (xtensa gcc) with the defaults:
 
 | what | bytes |
 |---|---|
-| `deck_link_t` (all of the link's state) | 7928 |
+| `deck_link_t` (all of the link's state) | about 8160 |
 | of which the RX buffer (`DECK_LINK_RX_SIZE`) | 4121 |
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
-| of which the TX buffer | 435 |
+| of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
-The largest stack frame is a command's message (an `Order` of 32 ids, about 400 bytes).
+The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.
 
 To save RAM, build with a smaller `-DDECK_LINK_MAX_FRAME` (at least 512), `-DDECK_TILES_MAX=8` or
 smaller `DECK_TILE_*_SIZE` values. The core reports the frame size in `Hello.max_frame` and the deck
@@ -148,9 +179,13 @@ tools/generate.sh --check  # fails if src/proto differs from the proto files
 ## Tests
 
 ```sh
-make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles
+make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage
 make -C test/host board_sim   # builds test/host/build/board_sim
+make -C test/host test_tls    # pairing with mbedTLS 3 (Homebrew's mbedtls, or MBEDTLS=<prefix>)
+make -C test/host board_wifi  # a board that pairs over serial and connects over TLS 1.3
 ```
 
-`board_sim` is a board on stdin (RX) and stdout (TX), used by the daemon's Go tests. Its flags and the
+`board_sim` is a board on stdin (RX) and stdout (TX), used by the daemon's Go tests. `board_wifi` pairs
+the same way, keeps its certificate in a folder, and then connects to the deck over TLS 1.3 with the
+kit's own transport (`backend/internal/link/wifi_kit_test.go` runs it end to end). Its flags and the
 lines it logs to stderr are documented at the top of `test/host/board_sim.c`.

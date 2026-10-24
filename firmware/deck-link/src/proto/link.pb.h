@@ -61,6 +61,26 @@ typedef enum _agentsdeck_link_v1_PromptKind {
     agentsdeck_link_v1_PromptKind_PROMPT_INPUT = 3
 } agentsdeck_link_v1_PromptKind;
 
+typedef enum _agentsdeck_link_v1_Transport {
+    agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED = 0,
+    agentsdeck_link_v1_Transport_TRANSPORT_SERIAL = 1, /* USB serial */
+    agentsdeck_link_v1_Transport_TRANSPORT_WIFI = 2 /* Wi-Fi, TLS 1.3 to the deck's network listener */
+} agentsdeck_link_v1_Transport;
+
+typedef enum _agentsdeck_link_v1_WifiState {
+    agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED = 0,
+    agentsdeck_link_v1_WifiState_WIFI_UNSUPPORTED = 1, /* this firmware has no Wi-Fi (or no TLS 1.3) */
+    agentsdeck_link_v1_WifiState_WIFI_NOT_SET = 2, /* no credentials */
+    agentsdeck_link_v1_WifiState_WIFI_IDLE = 3, /* credentials kept, Wi-Fi off (on USB) */
+    agentsdeck_link_v1_WifiState_WIFI_JOINING = 4,
+    agentsdeck_link_v1_WifiState_WIFI_CONNECTED = 5, /* joined: ip and rssi are set */
+    agentsdeck_link_v1_WifiState_WIFI_WRONG_PASSWORD = 6,
+    agentsdeck_link_v1_WifiState_WIFI_NO_NETWORK = 7, /* the network wasn't found */
+    agentsdeck_link_v1_WifiState_WIFI_FAILED = 8, /* another failure */
+    agentsdeck_link_v1_WifiState_WIFI_DECK_UNREACHABLE = 9, /* joined, but the deck didn't answer */
+    agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED = 10 /* the deck refused the certificate (revoked): pair again over USB */
+} agentsdeck_link_v1_WifiState;
+
 /* Struct definitions */
 typedef struct _agentsdeck_link_v1_Display {
     uint32_t width;
@@ -87,6 +107,7 @@ typedef struct _agentsdeck_link_v1_Welcome {
     char device_name[40]; /* the board's name on the deck (agentctl devices) */
     agentsdeck_link_v1_Scope scope;
     bool approved; /* false: waiting for `agentctl devices approve`; nothing else is sent until then */
+    char cert_serial[40]; /* the board's current certificate (CertIssued.cert_serial), "" for none: */
 } agentsdeck_link_v1_Welcome;
 
 typedef struct _agentsdeck_link_v1_Ping {
@@ -362,6 +383,51 @@ typedef struct _agentsdeck_link_v1_RestoreResult {
     agentsdeck_link_v1_Restored results[16];
 } agentsdeck_link_v1_RestoreResult;
 
+typedef PB_BYTES_ARRAY_T(600) agentsdeck_link_v1_CertRequest_csr_t;
+/* A certificate signing request for a key the board made itself (EC P-256),
+ DER (or PEM). Only an approved board gets a certificate; the deck answers
+ CertIssued, or a Result (403 not approved or not over USB, 400 bad request,
+ 503 network listener off). */
+typedef struct _agentsdeck_link_v1_CertRequest {
+    agentsdeck_link_v1_CertRequest_csr_t csr;
+} agentsdeck_link_v1_CertRequest;
+
+typedef PB_BYTES_ARRAY_T(800) agentsdeck_link_v1_CertIssued_cert_t;
+typedef PB_BYTES_ARRAY_T(600) agentsdeck_link_v1_CertIssued_ca_t;
+typedef PB_BYTES_ARRAY_T(32) agentsdeck_link_v1_CertIssued_server_fingerprint_t;
+/* The board's client certificate and where to use it: the deck's network
+ listener (TLS 1.3), host by host (the Mac's .local name first, then its LAN
+ addresses) on port. */
+typedef struct _agentsdeck_link_v1_CertIssued {
+    agentsdeck_link_v1_CertIssued_cert_t cert; /* DER, signed by the deck's CA, for the board's key */
+    agentsdeck_link_v1_CertIssued_ca_t ca; /* DER: the deck's CA, to verify the listener */
+    pb_size_t hosts_count;
+    char hosts[4][64]; /* the .local name, then IP addresses */
+    uint32_t port; /* e.g. 7341 */
+    agentsdeck_link_v1_CertIssued_server_fingerprint_t server_fingerprint; /* SHA-256 of the listener's certificate: accepted when */
+    /* the host dialled isn't one its names cover */
+    char device_name[40]; /* the board's name on the deck */
+    char cert_serial[40]; /* the certificate's serial (hex), as Welcome.cert_serial */
+} agentsdeck_link_v1_CertIssued;
+
+/* Wi-Fi credentials for the board to keep (forget: drop them). Sent by
+ `agentctl link wifi` over USB serial only; never stored on the Mac. */
+typedef struct _agentsdeck_link_v1_WifiConfig {
+    char ssid[33];
+    char password[65]; /* "" for an open network */
+    bool forget;
+} agentsdeck_link_v1_WifiConfig;
+
+/* How the board is connected, for `agentctl link` and `agentctl devices`. */
+typedef struct _agentsdeck_link_v1_NetStatus {
+    agentsdeck_link_v1_Transport transport; /* the one this frame came over */
+    agentsdeck_link_v1_WifiState wifi;
+    char ssid[33];
+    char ip[40]; /* on Wi-Fi */
+    int32_t rssi; /* dBm, 0 = unknown */
+    bool has_cert; /* it holds a client certificate */
+} agentsdeck_link_v1_NetStatus;
+
 typedef struct _agentsdeck_link_v1_Frame {
     uint32_t seq;
     pb_size_t which_body;
@@ -399,6 +465,12 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_LiveSessions live_sessions; /* reply to ListLive */
         agentsdeck_link_v1_RestoreResult restore_result; /* reply to Restore */
         agentsdeck_link_v1_AccountList account_list; /* reply to ListAccounts */
+        /* Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
+     web API commands: they set up the board itself. */
+        agentsdeck_link_v1_CertRequest cert_request; /* board → deck, over USB serial only: a certificate for my own key */
+        agentsdeck_link_v1_CertIssued cert_issued; /* deck → board: the reply to CertRequest (or a Result on failure) */
+        agentsdeck_link_v1_WifiConfig wifi_config; /* deck → board, over USB serial only: join this network; the board answers with a Result */
+        agentsdeck_link_v1_NetStatus net_status; /* board → deck: how it is connected, after each Welcome and whenever that changes */
     } body;
 } agentsdeck_link_v1_Frame;
 
@@ -431,6 +503,14 @@ extern "C" {
 #define _agentsdeck_link_v1_PromptKind_MIN agentsdeck_link_v1_PromptKind_PROMPT_UNSPECIFIED
 #define _agentsdeck_link_v1_PromptKind_MAX agentsdeck_link_v1_PromptKind_PROMPT_INPUT
 #define _agentsdeck_link_v1_PromptKind_ARRAYSIZE ((agentsdeck_link_v1_PromptKind)(agentsdeck_link_v1_PromptKind_PROMPT_INPUT+1))
+
+#define _agentsdeck_link_v1_Transport_MIN agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED
+#define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_WIFI
+#define _agentsdeck_link_v1_Transport_ARRAYSIZE ((agentsdeck_link_v1_Transport)(agentsdeck_link_v1_Transport_TRANSPORT_WIFI+1))
+
+#define _agentsdeck_link_v1_WifiState_MIN agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED
+#define _agentsdeck_link_v1_WifiState_MAX agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED
+#define _agentsdeck_link_v1_WifiState_ARRAYSIZE ((agentsdeck_link_v1_WifiState)(agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED+1))
 
 
 #define agentsdeck_link_v1_Hello_inputs_ENUMTYPE agentsdeck_link_v1_Input
@@ -483,11 +563,17 @@ extern "C" {
 
 
 
+
+
+#define agentsdeck_link_v1_NetStatus_transport_ENUMTYPE agentsdeck_link_v1_Transport
+#define agentsdeck_link_v1_NetStatus_wifi_ENUMTYPE agentsdeck_link_v1_WifiState
+
+
 /* Initializer values for message structs */
 #define agentsdeck_link_v1_Frame_init_default    {0, 0, {agentsdeck_link_v1_Hello_init_default}}
 #define agentsdeck_link_v1_Hello_init_default    {0, "", "", "", false, agentsdeck_link_v1_Display_init_default, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
 #define agentsdeck_link_v1_Display_init_default  {0, 0, 0}
-#define agentsdeck_link_v1_Welcome_init_default  {0, "", "", "", _agentsdeck_link_v1_Scope_MIN, 0}
+#define agentsdeck_link_v1_Welcome_init_default  {0, "", "", "", _agentsdeck_link_v1_Scope_MIN, 0, ""}
 #define agentsdeck_link_v1_Ping_init_default     {0}
 #define agentsdeck_link_v1_Pong_init_default     {0}
 #define agentsdeck_link_v1_Subscribe_init_default {0, 0, 0}
@@ -529,10 +615,14 @@ extern "C" {
 #define agentsdeck_link_v1_AccountInfo_init_default {"", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_default {0, {agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default}}
 #define agentsdeck_link_v1_Restored_init_default {"", "", "", ""}
+#define agentsdeck_link_v1_CertRequest_init_default {{0, {0}}}
+#define agentsdeck_link_v1_CertIssued_init_default {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
+#define agentsdeck_link_v1_WifiConfig_init_default {"", "", 0}
+#define agentsdeck_link_v1_NetStatus_init_default {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
 #define agentsdeck_link_v1_Frame_init_zero       {0, 0, {agentsdeck_link_v1_Hello_init_zero}}
 #define agentsdeck_link_v1_Hello_init_zero       {0, "", "", "", false, agentsdeck_link_v1_Display_init_zero, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
 #define agentsdeck_link_v1_Display_init_zero     {0, 0, 0}
-#define agentsdeck_link_v1_Welcome_init_zero     {0, "", "", "", _agentsdeck_link_v1_Scope_MIN, 0}
+#define agentsdeck_link_v1_Welcome_init_zero     {0, "", "", "", _agentsdeck_link_v1_Scope_MIN, 0, ""}
 #define agentsdeck_link_v1_Ping_init_zero        {0}
 #define agentsdeck_link_v1_Pong_init_zero        {0}
 #define agentsdeck_link_v1_Subscribe_init_zero   {0, 0, 0}
@@ -574,6 +664,10 @@ extern "C" {
 #define agentsdeck_link_v1_AccountInfo_init_zero {"", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_zero {0, {agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero}}
 #define agentsdeck_link_v1_Restored_init_zero    {"", "", "", ""}
+#define agentsdeck_link_v1_CertRequest_init_zero {{0, {0}}}
+#define agentsdeck_link_v1_CertIssued_init_zero  {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
+#define agentsdeck_link_v1_WifiConfig_init_zero  {"", "", 0}
+#define agentsdeck_link_v1_NetStatus_init_zero   {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define agentsdeck_link_v1_Display_width_tag     1
@@ -592,6 +686,7 @@ extern "C" {
 #define agentsdeck_link_v1_Welcome_device_name_tag 4
 #define agentsdeck_link_v1_Welcome_scope_tag     5
 #define agentsdeck_link_v1_Welcome_approved_tag  6
+#define agentsdeck_link_v1_Welcome_cert_serial_tag 7
 #define agentsdeck_link_v1_Ping_time_ms_tag      1
 #define agentsdeck_link_v1_Pong_time_ms_tag      1
 #define agentsdeck_link_v1_Subscribe_first_slot_tag 1
@@ -708,6 +803,23 @@ extern "C" {
 #define agentsdeck_link_v1_Restored_action_tag   3
 #define agentsdeck_link_v1_Restored_error_tag    4
 #define agentsdeck_link_v1_RestoreResult_results_tag 1
+#define agentsdeck_link_v1_CertRequest_csr_tag   1
+#define agentsdeck_link_v1_CertIssued_cert_tag   1
+#define agentsdeck_link_v1_CertIssued_ca_tag     2
+#define agentsdeck_link_v1_CertIssued_hosts_tag  3
+#define agentsdeck_link_v1_CertIssued_port_tag   4
+#define agentsdeck_link_v1_CertIssued_server_fingerprint_tag 5
+#define agentsdeck_link_v1_CertIssued_device_name_tag 6
+#define agentsdeck_link_v1_CertIssued_cert_serial_tag 7
+#define agentsdeck_link_v1_WifiConfig_ssid_tag   1
+#define agentsdeck_link_v1_WifiConfig_password_tag 2
+#define agentsdeck_link_v1_WifiConfig_forget_tag 3
+#define agentsdeck_link_v1_NetStatus_transport_tag 1
+#define agentsdeck_link_v1_NetStatus_wifi_tag    2
+#define agentsdeck_link_v1_NetStatus_ssid_tag    3
+#define agentsdeck_link_v1_NetStatus_ip_tag      4
+#define agentsdeck_link_v1_NetStatus_rssi_tag    5
+#define agentsdeck_link_v1_NetStatus_has_cert_tag 6
 #define agentsdeck_link_v1_Frame_seq_tag         1
 #define agentsdeck_link_v1_Frame_hello_tag       10
 #define agentsdeck_link_v1_Frame_welcome_tag     11
@@ -738,6 +850,10 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_live_sessions_tag 52
 #define agentsdeck_link_v1_Frame_restore_result_tag 53
 #define agentsdeck_link_v1_Frame_account_list_tag 54
+#define agentsdeck_link_v1_Frame_cert_request_tag 60
+#define agentsdeck_link_v1_Frame_cert_issued_tag 61
+#define agentsdeck_link_v1_Frame_wifi_config_tag 62
+#define agentsdeck_link_v1_Frame_net_status_tag  63
 
 /* Struct field encoding specification for nanopb */
 #define agentsdeck_link_v1_Frame_FIELDLIST(X, a) \
@@ -770,7 +886,11 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,result,body.result),  50) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,hat_list,body.hat_list),  51) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,live_sessions,body.live_sessions),  52) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,restore_result,body.restore_result),  53) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54)
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_request,body.cert_request),  60) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_issued,body.cert_issued),  61) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,wifi_config,body.wifi_config),  62) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63)
 #define agentsdeck_link_v1_Frame_CALLBACK NULL
 #define agentsdeck_link_v1_Frame_DEFAULT NULL
 #define agentsdeck_link_v1_Frame_body_hello_MSGTYPE agentsdeck_link_v1_Hello
@@ -802,6 +922,10 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54)
 #define agentsdeck_link_v1_Frame_body_live_sessions_MSGTYPE agentsdeck_link_v1_LiveSessions
 #define agentsdeck_link_v1_Frame_body_restore_result_MSGTYPE agentsdeck_link_v1_RestoreResult
 #define agentsdeck_link_v1_Frame_body_account_list_MSGTYPE agentsdeck_link_v1_AccountList
+#define agentsdeck_link_v1_Frame_body_cert_request_MSGTYPE agentsdeck_link_v1_CertRequest
+#define agentsdeck_link_v1_Frame_body_cert_issued_MSGTYPE agentsdeck_link_v1_CertIssued
+#define agentsdeck_link_v1_Frame_body_wifi_config_MSGTYPE agentsdeck_link_v1_WifiConfig
+#define agentsdeck_link_v1_Frame_body_net_status_MSGTYPE agentsdeck_link_v1_NetStatus
 
 #define agentsdeck_link_v1_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol,          1) \
@@ -828,7 +952,8 @@ X(a, STATIC,   SINGULAR, STRING,   server_name,       2) \
 X(a, STATIC,   SINGULAR, STRING,   server_version,    3) \
 X(a, STATIC,   SINGULAR, STRING,   device_name,       4) \
 X(a, STATIC,   SINGULAR, UENUM,    scope,             5) \
-X(a, STATIC,   SINGULAR, BOOL,     approved,          6)
+X(a, STATIC,   SINGULAR, BOOL,     approved,          6) \
+X(a, STATIC,   SINGULAR, STRING,   cert_serial,       7)
 #define agentsdeck_link_v1_Welcome_CALLBACK NULL
 #define agentsdeck_link_v1_Welcome_DEFAULT NULL
 
@@ -1132,6 +1257,39 @@ X(a, STATIC,   SINGULAR, STRING,   error,             4)
 #define agentsdeck_link_v1_Restored_CALLBACK NULL
 #define agentsdeck_link_v1_Restored_DEFAULT NULL
 
+#define agentsdeck_link_v1_CertRequest_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BYTES,    csr,               1)
+#define agentsdeck_link_v1_CertRequest_CALLBACK NULL
+#define agentsdeck_link_v1_CertRequest_DEFAULT NULL
+
+#define agentsdeck_link_v1_CertIssued_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BYTES,    cert,              1) \
+X(a, STATIC,   SINGULAR, BYTES,    ca,                2) \
+X(a, STATIC,   REPEATED, STRING,   hosts,             3) \
+X(a, STATIC,   SINGULAR, UINT32,   port,              4) \
+X(a, STATIC,   SINGULAR, BYTES,    server_fingerprint,   5) \
+X(a, STATIC,   SINGULAR, STRING,   device_name,       6) \
+X(a, STATIC,   SINGULAR, STRING,   cert_serial,       7)
+#define agentsdeck_link_v1_CertIssued_CALLBACK NULL
+#define agentsdeck_link_v1_CertIssued_DEFAULT NULL
+
+#define agentsdeck_link_v1_WifiConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   ssid,              1) \
+X(a, STATIC,   SINGULAR, STRING,   password,          2) \
+X(a, STATIC,   SINGULAR, BOOL,     forget,            3)
+#define agentsdeck_link_v1_WifiConfig_CALLBACK NULL
+#define agentsdeck_link_v1_WifiConfig_DEFAULT NULL
+
+#define agentsdeck_link_v1_NetStatus_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    transport,         1) \
+X(a, STATIC,   SINGULAR, UENUM,    wifi,              2) \
+X(a, STATIC,   SINGULAR, STRING,   ssid,              3) \
+X(a, STATIC,   SINGULAR, STRING,   ip,                4) \
+X(a, STATIC,   SINGULAR, INT32,    rssi,              5) \
+X(a, STATIC,   SINGULAR, BOOL,     has_cert,          6)
+#define agentsdeck_link_v1_NetStatus_CALLBACK NULL
+#define agentsdeck_link_v1_NetStatus_DEFAULT NULL
+
 extern const pb_msgdesc_t agentsdeck_link_v1_Frame_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Hello_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Display_msg;
@@ -1177,6 +1335,10 @@ extern const pb_msgdesc_t agentsdeck_link_v1_AccountList_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_AccountInfo_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_RestoreResult_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_CertRequest_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_CertIssued_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_WifiConfig_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define agentsdeck_link_v1_Frame_fields &agentsdeck_link_v1_Frame_msg
@@ -1224,6 +1386,10 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_AccountInfo_fields &agentsdeck_link_v1_AccountInfo_msg
 #define agentsdeck_link_v1_RestoreResult_fields &agentsdeck_link_v1_RestoreResult_msg
 #define agentsdeck_link_v1_Restored_fields &agentsdeck_link_v1_Restored_msg
+#define agentsdeck_link_v1_CertRequest_fields &agentsdeck_link_v1_CertRequest_msg
+#define agentsdeck_link_v1_CertIssued_fields &agentsdeck_link_v1_CertIssued_msg
+#define agentsdeck_link_v1_WifiConfig_fields &agentsdeck_link_v1_WifiConfig_msg
+#define agentsdeck_link_v1_NetStatus_fields &agentsdeck_link_v1_NetStatus_msg
 
 /* Maximum encoded size of messages (where known) */
 #define AGENTSDECK_LINK_V1_LINK_PB_H_MAX_SIZE    agentsdeck_link_v1_Frame_size
@@ -1236,6 +1402,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_AgentRemoved_size     13
 #define agentsdeck_link_v1_Agent_size            3357
 #define agentsdeck_link_v1_Answer_size           39
+#define agentsdeck_link_v1_CertIssued_size       1788
+#define agentsdeck_link_v1_CertRequest_size      603
 #define agentsdeck_link_v1_Context_size          22
 #define agentsdeck_link_v1_Dismiss_size          13
 #define agentsdeck_link_v1_Display_size          14
@@ -1254,6 +1422,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_LiveSession_size      300
 #define agentsdeck_link_v1_LiveSessions_size     2424
 #define agentsdeck_link_v1_Move_size             19
+#define agentsdeck_link_v1_NetStatus_size        92
 #define agentsdeck_link_v1_Option_size           108
 #define agentsdeck_link_v1_Order_size            416
 #define agentsdeck_link_v1_Ping_size             11
@@ -1271,7 +1440,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 #define agentsdeck_link_v1_Subagent_size         128
 #define agentsdeck_link_v1_Subscribe_size        18
 #define agentsdeck_link_v1_Tokens_size           44
-#define agentsdeck_link_v1_Welcome_size          125
+#define agentsdeck_link_v1_Welcome_size          166
+#define agentsdeck_link_v1_WifiConfig_size       102
 
 #ifdef __cplusplus
 } /* extern "C" */

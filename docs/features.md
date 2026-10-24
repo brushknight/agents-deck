@@ -158,6 +158,22 @@ agentctl devices scope oled-tile-3fa9c1 act   # to let it answer prompts
 agentctl link                            # what's connected
 ```
 
+**Wi-Fi.** The round boards (on their `idf5` firmware) also work without the Mac's cable. Plugged in
+and approved, a board pairs by itself: it gets its own certificate from the deck. Give it your network
+from the Mac:
+
+```sh
+agentctl link wifi waveshare-touch-lcd-21-3fa9c1 --ssid "my network"   # asks for the password
+```
+
+The password goes over the USB cable to the board and nowhere else (the Mac keeps no copy). The board
+tries the network at once and `agentctl link wifi` tells you whether it worked. From then on, powered
+anywhere without the Mac on its USB port, the board joins the network and connects to the deck over
+TLS, as the same device: same name, scope and audit log. Plugged into the Mac again, it switches back
+to USB. `agentctl link` shows how each board is connected; `agentctl link wifi <board> --forget` drops
+the network, `agentctl devices revoke` cuts a board off on both. See
+[link/protocol.md](link/protocol.md#pairing-and-wi-fi).
+
 A new board waits for approval and starts with view-only access. The daemon lets go of a port while
 another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new

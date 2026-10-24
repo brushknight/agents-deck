@@ -251,10 +251,11 @@ static void testPartial(const SpringLayout& lay) {
   int64_t now = 2000;
   ui.lastTouchMs = ms;
   int partials = 0;
+  NetView net;   // USB; Wi-Fi below (the mark under the middle)
   auto frame = [&]() {
     roundSync(ui, whole, f, ms);
     roundTick(ui, whole, f, ms);
-    RoundInput in{&f, LinkState::Live, "dev", RoundScope::Act, ms, now, &ui, 0};
+    RoundInput in{&f, LinkState::Live, "dev", RoundScope::Act, ms, now, &ui, 0, &net};
     whole.draw(ca, in);
     in.partial = true;
     part.draw(cb, in);
@@ -306,6 +307,27 @@ static void testPartial(const SpringLayout& lay) {
   f.count = 4;
   springStep(ui, f, 1, ms);
   for (int k = 0; k < 12; k++) { frame(); ms += 33; }
+  // On Wi-Fi: the mark comes, a critter turns past it, a long toast over it, back to USB.
+  ms += 3000;   // the toast above is gone
+  frame();
+  const int before = partials;
+  net.via = NetVia::Wifi;
+  net.phase = NetPhase::Online;
+  frame();
+  ms += 100;
+  frame();
+  springStep(ui, f, 2, ms);
+  for (int k = 0; k < 14; k++) { frame(); ms += 33; }
+  roundToast(ui, "Wi-Fi: network not found", ms);
+  frame();
+  ms += 3000;
+  frame();
+  frame();
+  net.via = NetVia::Usb;
+  frame();
+  ms += 100;
+  frame();
+  assert(partials > before + 10);
   assert(partials > 40 && gStrips > 100);
 }
 

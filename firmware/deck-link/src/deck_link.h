@@ -54,9 +54,12 @@ extern "C" {
 /* RX holds one COBS-encoded frame (plus a little noise in front of it). */
 #define DECK_LINK_RX_SIZE (DECK_COBS_MAX(DECK_LINK_MAX_FRAME) + 8)
 
-/* The largest frame a board sends is Order: magic+version (3) + seq (6) +
- * body tag and length (4) + Order + CRC (2). */
-#define DECK_LINK_TX_RAW_MAX (3 + 6 + 4 + agentsdeck_link_v1_Order_size + 2)
+/* The largest frame a board sends is a CertRequest (or an Order): magic and
+ * version (3) + seq (6) + body tag and length (4) + the message + CRC (2). */
+#define DECK_LINK_TX_BODY_MAX                                                                                  \
+	(agentsdeck_link_v1_CertRequest_size > agentsdeck_link_v1_Order_size ? agentsdeck_link_v1_CertRequest_size \
+									      : agentsdeck_link_v1_Order_size)
+#define DECK_LINK_TX_RAW_MAX (3 + 6 + 4 + DECK_LINK_TX_BODY_MAX + 2)
 #define DECK_LINK_TX_OFFSET (DECK_LINK_TX_RAW_MAX / 254 + 2)
 #define DECK_LINK_TX_SIZE (DECK_LINK_TX_OFFSET + DECK_LINK_TX_RAW_MAX + 1)
 
@@ -111,6 +114,14 @@ typedef struct {
 	void (*on_offline)(deck_link_t *ctx);
 	void (*on_ping)(deck_link_t *ctx, uint32_t seq, uint64_t time_ms); /* already answered */
 	void (*on_frame)(deck_link_t *ctx, const agentsdeck_link_v1_Frame *frame); /* every frame, before the above */
+
+	/* Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). */
+	/* The reply to deck_cert_request(): the board's certificate and where to
+	 * use it (deck_store.h keeps it). */
+	void (*on_cert_issued)(deck_link_t *ctx, uint32_t seq, const agentsdeck_link_v1_CertIssued *cert);
+	/* The deck sends Wi-Fi credentials (forget: drop them). Return the code
+	 * the core answers with: 204 stored, 400 bad, 500 failed. Unset: 501. */
+	uint32_t (*on_wifi_config)(deck_link_t *ctx, const char *ssid, const char *password, bool forget);
 } deck_link_config_t;
 
 typedef struct {
@@ -128,6 +139,7 @@ struct deck_link {
 	deck_link_state_t state;
 	bool approved;
 	agentsdeck_link_v1_Scope scope;
+	char cert_serial[sizeof(((agentsdeck_link_v1_Welcome *)0)->cert_serial)]; /* the last Welcome's */
 	uint32_t seq;
 	uint32_t last_rx_ms;    /* last valid frame */
 	uint32_t last_hello_ms; /* last Hello sent */
@@ -180,6 +192,18 @@ uint32_t deck_restore(deck_link_t *ctx);
 uint32_t deck_subscribe(deck_link_t *ctx, uint32_t first_slot, uint32_t slot_count, uint32_t fields);
 /* Pings the deck (it answers with a Pong); rarely needed. */
 uint32_t deck_ping(deck_link_t *ctx);
+
+/* Pairing and Wi-Fi. deck_cert_request sends a certificate signing request
+ * (DER, at most agentsdeck_link_v1_CertRequest_size - 3 bytes; deck_pair.h
+ * makes one) over USB serial; the deck answers in on_cert_issued, or with a
+ * Result (403 not approved, 400 bad request). deck_net_status tells the deck
+ * how the board is connected (`agentctl link` shows it). */
+uint32_t deck_cert_request(deck_link_t *ctx, const uint8_t *csr, size_t len);
+uint32_t deck_net_status(deck_link_t *ctx, const agentsdeck_link_v1_NetStatus *status);
+/* The serial of the certificate the deck holds for this board, from the last
+ * Welcome ("" for none). A board whose stored certificate has another serial
+ * asks for a new one. */
+const char *deck_link_cert_serial(const deck_link_t *ctx);
 
 /* Low level: encodes one frame (seq + the body field `tag` holding `msg` of
  * type `fields`) into wire bytes, delimiter included. Returns the length, or

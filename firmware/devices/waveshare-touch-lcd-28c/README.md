@@ -6,9 +6,9 @@ talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ![screens](docs/screens.png)
 
-> Not yet run on the board. Everything builds, the screens above come from the host renderer (the
-> same pixels), and the board's logic has answered a prompt through the real deck in a test. The
-> [first power-on](#first-power-on) takes about ten minutes.
+> Runs on the board: flash `idf5`. On the default build (arduino-esp32 2.0.17, no RGB bounce
+> buffer) the picture drifts left and right, and it has no Wi-Fi. The screens above come from the host
+> renderer, which draws the same pixels.
 
 ## Parts
 
@@ -88,9 +88,9 @@ You need [PlatformIO](https://platformio.org/). From the repository's root:
 | env | what | flash |
 |---|---|---|
 | `selftest` | the hardware self-test, no Deck Link | `pio run -d firmware/devices/waveshare-touch-lcd-28c -e selftest -t upload` |
-| `waveshare-touch-lcd-28c` | the firmware (default) | `pio run -d firmware/devices/waveshare-touch-lcd-28c -t upload` |
+| `waveshare-touch-lcd-28c` | the firmware on arduino-esp32 2.0.17: the picture drifts or flickers and there is no Wi-Fi; flash `idf5` instead | `pio run -d firmware/devices/waveshare-touch-lcd-28c -t upload` |
 | `debug` | the firmware, plus a line per touch and gesture and a status line every 5 s on the USB port | `pio run -d firmware/devices/waveshare-touch-lcd-28c -e debug -t upload` |
-| `idf5` | the firmware on arduino-esp32 3.x with an RGB bounce buffer: the fallback if the picture drifts | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
+| `idf5` | **the firmware to flash**: arduino-esp32 3.x with an RGB bounce buffer (a still picture) and Wi-Fi (TLS 1.3) | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
 | `idf5-debug` | `idf5` with the debug lines | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5-debug -t upload` |
 | `idf5-selftest` | the self-test on that platform | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5-selftest -t upload` |
 
@@ -123,6 +123,69 @@ commands it sends:
 - `Answer`, `Focus` and `Interrupt` (scope act);
 - `Dismiss` for stop (scope admin).
 
+On `idf5` it also pairs for Wi-Fi (`CertRequest`), takes Wi-Fi credentials (`WifiConfig`) and reports
+how it is connected (`NetStatus`): see [Wi-Fi](#wi-fi).
+
+## Wi-Fi
+
+On the `idf5` firmware the board also works away from the Mac: on Wi-Fi it reaches the deck over TLS
+1.3 with a certificate of its own, as the same device (same name, scope and audit log). The default
+build (arduino-esp32 2.0.17) has no TLS 1.3, so it stays on USB.
+
+1. **Pair.** Nothing to do: plugged into the Mac and approved, the board makes a key on the chip and
+   gets its certificate from the deck over USB (a toast says "paired for Wi-Fi"). `agentctl devices`
+   then shows "Wi-Fi certificate" for it.
+2. **Give it your network**, while it is on USB:
+
+   ```bash
+   agentctl link wifi waveshare-touch-lcd-28c-<id> --ssid "my network"     # asks for the password
+   ```
+
+   The password goes over the cable to the board's flash and nowhere else. The board tries the network
+   at once (toast: "trying Wi-Fi…", then "Wi-Fi works" or what went wrong) and the command prints the
+   outcome. `--forget` drops it again.
+3. **Unplug it from the Mac** and power it anywhere (a USB charger). At boot it listens on USB for 4
+   seconds; when no deck answers there, it joins the network and connects to the deck.
+
+What the screen shows on the way (home on Wi-Fi with its mark, joining, a wrong password, a refused
+certificate):
+
+![Wi-Fi screens](docs/wifi.png)
+
+| screen | meaning |
+|---|---|
+| joining Wi-Fi · the network's name | joining the network |
+| connecting · to the deck · over Wi-Fi | joined; reaching the deck (its `.local` name, then its addresses) |
+| Wi-Fi failed · wrong password | set it again with `agentctl link wifi` (on USB); retried every minute |
+| Wi-Fi failed · network not found | out of range or the name is wrong; retried every 15 s |
+| deck not reachable · over Wi-Fi | the Mac is asleep, or the daemon isn't running; retried with a growing pause |
+| certificate rejected · pair again over USB | the board was revoked or paired again: plug it into the Mac |
+
+On Wi-Fi a small Wi-Fi mark sits under the context bar of the home screen; on USB there is none. Plugged
+into the Mac again, the board switches to USB at once (USB always wins, so pairing and recovery work
+over the cable), and a board on USB whose deck goes quiet for 30 s tries Wi-Fi meanwhile.
+
+```bash
+agentctl link                       # every board: via usb or wifi, its address and signal
+agentctl link pair waveshare-touch-lcd-28c-<id>           # a new certificate (it pairs again over USB)
+agentctl devices revoke waveshare-touch-lcd-28c-<id>      # cut it off on USB and Wi-Fi
+```
+
+The key, the certificate and the Wi-Fi password are kept in the board's flash (NVS). It isn't
+encrypted unless you turn on flash encryption: revoke a board you lose.
+
+The `idf5` project rebuilds arduino-esp32's libraries with `CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y`
+(pioarduino's `custom_sdkconfig`; about five minutes the first time, and again whenever another
+pioarduino project, such as the other round board's, was built in between: they share `~/.platformio-pioarduino`). If that build fails with
+`No module named 'SCons.Tool.FortranCommon'`, pioarduino and PlatformIO Core disagree about their
+SCons package; once, give the platform PlatformIO's own:
+
+```bash
+rm -rf ~/.platformio-pioarduino/packages/tool-scons
+cp -R ~/.platformio/packages/tool-scons ~/.platformio-pioarduino/packages/tool-scons
+python3 -c "import json,os;p=os.path.expanduser('~/.platformio-pioarduino/packages/tool-scons/package.json');d=json.load(open(p));d['version']='4.40801.0';json.dump(d,open(p,'w'))"
+```
+
 ## The self-test
 
 ![self-test](docs/selftest.png)
@@ -152,10 +215,10 @@ The bottom line shows the draw and push time of each frame. The port prints the 
 
 1. **Self-test.** Flash `selftest` and go through the table above. Fix `ROUND_ROTATION` or
    `ROUND_PCLK_HZ` if needed, or move to `idf5-selftest`.
-2. **The firmware.** Flash the default env (or `idf5`) with the same settings. The screen shows
+2. **The firmware.** Flash `idf5` with the same settings. The screen shows
    "connecting", then "waiting for approval" once `agentctl link add` has the port.
 3. **Approve.** Run `agentctl devices approve` with the name on the screen, then `scope … act`. The
-   orbit appears. Optionally run `agentctl link check <port>` before `link add`: it plays a demo deck
+   spring appears. Optionally run `agentctl link check <port>` before `link add`: it plays a demo deck
    and reports on the handshake, pings and recovery.
 
 ## Pins
