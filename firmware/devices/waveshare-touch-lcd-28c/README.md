@@ -1,71 +1,152 @@
 # waveshare-touch-lcd-28c: Orbit, the deck on a round 2.8″ screen
 
-Firmware for the [Waveshare ESP32-S3-Touch-LCD-2.8C](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8C)
-(round 480×480 ST7701 on RGB, GT911 touch, ESP32-S3 with 8 MB PSRAM). It plugs into the Mac over USB
-and shows the fleet through [Deck Link](../../../docs/link/protocol.md).
+Firmware for the [Waveshare ESP32-S3-Touch-LCD-2.8C](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8C):
+the whole fleet on a ring, the agent that matters in the middle. It plugs into the Mac over USB and
+talks to the deck through [Deck Link](../../../docs/link/protocol.md).
 
 ![screens](docs/screens.png)
 
-> Not yet run on the board: everything here builds, and the screens above come from the host
-> renderer, which draws the same pixels. See [Bring-up](#bring-up).
+> Not yet run on the board. Everything builds, the screens above come from the host renderer (the
+> same pixels), and the board's logic has answered a prompt through the real deck in a test. The
+> [first power-on](#first-power-on) takes about ten minutes.
+
+## Parts
+
+- Waveshare ESP32-S3-Touch-LCD-2.8C: a round 480×480 IPS panel (ST7701, RGB), GT911 touch, ESP32-S3
+  with 8 MB PSRAM and 16 MB flash, a TCA9554 IO expander, a buzzer.
+- A USB-C data cable to the Mac. Nothing to wire: the board's own USB is the link.
 
 ## What the screen shows
 
-- **Home, the orbit.** Every agent is a critter on a ring near the edge, in deck slot order. The rim
-  under each one is its status: a thin orange arc while it works, is hungry or failed; a thick orange
-  bar when it needs you; grey when idle. The middle holds the agent that matters most: the one
-  waiting longest, then hungry, then failed, then the busiest. It is circled on the ring too.
+- **Home, the orbit.** Every agent is a critter on a ring near the edge, in deck slot order. Under
+  each one, the rim shows its status: a thin orange arc while it works, is hungry or has failed; a
+  thick orange bar when it needs you; grey when idle. The middle holds the agent that matters most:
+  the one waiting longest, then hungry, then failed, then the busiest. It is circled on the ring
+  too.
 - **Someone waits.** The rim gets an orange halo, the waiter sits on an orange disc, and the middle
-  shows its question: "tap to answer". A newly waiting agent wakes the screen to home with it in the
-  middle; it never jumps straight into the prompt, so a stray touch can't answer.
-- **More than 16 agents.** The ring shows 15 and a "+N" chip. Drag round the rim or tap the chip to
-  page.
-- **Detail** (tap a critter). The context bar runs over the top from 8 to 4 o'clock; then the critter,
-  name, status and age, model and effort, and what it is doing. Round buttons on the bottom arc:
-  focus (its terminal comes to the front), interrupt (while it runs) and stop (orange: hold it for a
-  second while its ring fills). Swipe left or right for the neighbouring agent, down to go back.
-- **Prompt** (tap the middle when it waits, or the detail's middle). The question and its answers as
-  pills; the first answer is filled orange. A tap answers (`Answer` with the prompt's id), shows
-  "sent" for a second, then goes back. More than three answers scroll with swipes up and down.
-- After 30 s untouched it goes back home. The backlight dims after 2 minutes with nothing going on.
-- Full-screen states: connecting, waiting for approval (with the exact `agentctl devices approve`
-  command), deck offline (with when it was last heard), no agents.
+  shows its question with "tap to answer". A newly waiting agent wakes the screen to home with it in
+  the middle. It never opens the prompt by itself, so a stray touch can't answer.
+- **More than 16 agents.** The ring shows 15 and a "+N" chip. Drag round the rim, or tap the chip,
+  to page.
+- **Detail.** The context bar runs over the top, from 8 to 4 o'clock. Below it: the critter, the
+  name, status and age, model and effort, and what the agent is doing. Round buttons on the bottom
+  arc: focus (brings its terminal to the front), interrupt (only while it runs), and stop (orange:
+  hold it for a second while its ring fills).
+- **Prompt.** The question and its answers as pills; the suggested answer is filled orange. A tap
+  answers, shows "sent" for a second, then goes back. With more than three answers, the list
+  scrolls.
+- **Full-screen states**: connecting; waiting for approval (with the exact command); deck offline
+  (with when it was last heard); no agents.
+- **Backlight**: dims after 2 minutes with nothing going on.
 
-`docs/` has every screen: `home-3`, `home-8`, `home-22`, `waiting`, `detail`, `detail-stop-held`,
-`prompt`, `prompt-view`, `not-approved`, `offline`, `connecting`.
+| home, 3 agents | 8, two waiting | 22, paged | detail | prompt | waiting for approval |
+|---|---|---|---|---|---|
+| ![](docs/home-3.png) | ![](docs/home-8.png) | ![](docs/home-22.png) | ![](docs/detail.png) | ![](docs/prompt.png) | ![](docs/not-approved.png) |
+
+## Gestures
+
+| where | gesture | does |
+|---|---|---|
+| home | tap a critter | its detail |
+| home | tap the middle | the featured agent's prompt when it waits, else its detail |
+| home | drag round the rim, or tap "+N" | the next page of the ring (more than 16 agents) |
+| detail | swipe left / right | the next / previous agent in slot order |
+| detail | tap the middle (when it waits) | its prompt |
+| detail | tap focus / interrupt; hold stop 1 s | sends Focus / Interrupt / Dismiss |
+| prompt | tap a pill | answers; swipe up / down scrolls a long list |
+| detail, prompt | swipe down | back |
+| anywhere | 30 s untouched, or the BOOT button | home |
 
 ## Scope
 
-New boards start at `view`: the board shows everything, the prompt reads "answer on the deck" and
-the detail has no buttons. Give it `act` to answer prompts, focus and interrupt; `admin` adds stop
-(which ends the agent and takes it off the deck):
+New boards start at `view`: everything shows, but the prompt reads "answer on the deck" and the
+detail has no buttons.
+
+- `act` adds answering, focus and interrupt.
+- `admin` also adds stop. Stop ends the agent and takes it off the deck. A board with only `act`
+  never shows the stop button, so it never shows a button that would fail.
+
+## Build and flash
+
+You need [PlatformIO](https://platformio.org/). From the repository's root:
+
+| env | what | flash |
+|---|---|---|
+| `selftest` | the hardware self-test, no Deck Link | `pio run -d firmware/devices/waveshare-touch-lcd-28c -e selftest -t upload` |
+| `waveshare-touch-lcd-28c` | the firmware (default) | `pio run -d firmware/devices/waveshare-touch-lcd-28c -t upload` |
+| `debug` | the firmware, plus a status line every 5 s on the USB port | `pio run -d firmware/devices/waveshare-touch-lcd-28c -e debug -t upload` |
+| `idf5` | the firmware on arduino-esp32 3.x with an RGB bounce buffer: the fallback if the picture drifts | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
+| `idf5-selftest` | the self-test on that platform | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5-selftest -t upload` |
+
+The `idf5` project keeps its platform in `~/.platformio-pioarduino`. pioarduino and PlatformIO's own
+ESP32 platform clash in one PlatformIO home. Its first build downloads about 1 GB.
+
+Settings, in `build_flags` of either `platformio.ini`:
+
+| flag | default | |
+|---|---|---|
+| `ROUND_ROTATION` | `0` | `0`, `90`, `180` or `270`: turns the image clockwise, and the touch with it |
+| `ROUND_PCLK_HZ` | `18000000` | the RGB pixel clock |
+| `ROUND_BOUNCE_PX` | `4800` (idf5 only) | the RGB bounce buffer, in pixels |
+
+If the board won't take an upload, hold BOOT while you plug it in.
+
+## Connect it to the deck
 
 ```bash
-agentctl devices scope waveshare-touch-lcd-28c-<id> act
+agentctl link ports                                         # find the board's port
+agentctl link add /dev/cu.usbmodem1101
+agentctl devices approve waveshare-touch-lcd-28c-<id>       # the screen shows the exact name
+agentctl devices scope waveshare-touch-lcd-28c-<id> act     # to answer, focus and interrupt
 ```
 
-## What it asks the deck for
+The board says Hello as type `waveshare-touch-lcd-28c`, display 480×480 colour, input TOUCH. It
+subscribes to every agent with `TILE | CARD | PROMPT | NUMBERS` and keeps up to 64 agents. The
+commands it sends:
 
-- **Hello**: type `waveshare-touch-lcd-28c`, display 480×480 colour, input TOUCH, board id = the
-  chip's MAC.
-- **Subscribe**: every agent, fields `TILE | CARD | PROMPT | NUMBERS` (CARD for the detail's model,
-  effort and activity). The board keeps up to 64 agents in PSRAM.
-- **Commands**: `Answer`, `Focus`, `Interrupt` (scope act), `Dismiss` for stop (scope admin).
+- `Answer`, `Focus` and `Interrupt` (scope act);
+- `Dismiss` for stop (scope admin).
 
-## Build, flash, connect
+## The self-test
 
-```bash
-pio run -d firmware/devices/waveshare-touch-lcd-28c -t upload
-agentctl link add /dev/cu.usbmodem1101        # the board's port: agentctl link ports
-agentctl devices approve waveshare-touch-lcd-28c-<id>
-```
+![self-test](docs/selftest.png)
 
-`-e debug` builds the same firmware with one-line notes on the USB port (the deck ignores text).
+The `selftest` env runs without Deck Link. A "next" pill turns its three pages: colour, text, touch.
+On every page, the top lines show:
+
+- the build settings (rotation, pixel clock, bounce buffer);
+- what the board found (`tca9554 ok · gt911 0x5D`).
+
+The bottom line shows the draw and push time of each frame. The port prints the same once in a while
+(`pio device monitor`). What to look at:
+
+| question | look at | if it's wrong |
+|---|---|---|
+| does the panel start, are the colours right? | page 1: white, yellow, cyan, green, magenta, red, blue, black from left to right; smooth grey, red, green and blue ramps | colours swapped: the RGB data pin order; no picture: the init or the expander line |
+| is the picture still, without drift or tearing? | page 1: the orange bar sweeping across the bars | lower `ROUND_PCLK_HZ` (try 14000000); still bad: flash `idf5-selftest` |
+| which way is up? | the 12 mark at the top of the glass | set `ROUND_ROTATION` so 12 is at the top |
+| is the whole circle visible and centred? | the white and orange circles at the edge | an offset to report |
+| does touch land where the finger is? | page 3: the trail and x / y | off by a turn: `ROUND_ROTATION`; mirrored: report it |
+| is the buzzer quiet by default? | silence at boot; "chirp" beeps for 80 ms | a buzzer that sounds at boot: the expander's power-up |
+| does the backlight dim? | "light" steps 255, 128, 48, 12 | |
+| how fast is a frame? | "draw … ms · push … ms" | |
+| is text readable at 26 px and up? | page 2, every size | |
+
+## First power-on
+
+1. **Self-test.** Flash `selftest` and go through the table above. Fix `ROUND_ROTATION` or
+   `ROUND_PCLK_HZ` if needed, or move to `idf5-selftest`.
+2. **The firmware.** Flash the default env (or `idf5`) with the same settings. The screen shows
+   "connecting", then "waiting for approval" once `agentctl link add` has the port.
+3. **Approve.** Run `agentctl devices approve` with the name on the screen, then `scope … act`. The
+   orbit appears. Optionally run `agentctl link check <port>` before `link add`: it plays a demo deck
+   and reports on the handshake, pings and recovery.
 
 ## Pins
 
 From Waveshare's demo for this board (`ESP32-S3-Touch-LCD-2.8C-Demo.zip` on the wiki,
-`Arduino/examples/LVGL_Arduino`), checked against its ESP-IDF demo.
+`Arduino/examples/LVGL_Arduino`), checked against its ESP-IDF demo. The 2.1″ board has the same
+wiring; `panel-core/src/waveshare_round.h` holds it.
 
 | part | GPIO |
 |---|---|
@@ -75,34 +156,25 @@ From Waveshare's demo for this board (`ESP32-S3-Touch-LCD-2.8C-Demo.zip` on the 
 | GT911 touch | address 0x5D (INT held low during reset), INT 16, reset EXIO2 |
 | TCA9554 expander (0x20) | EXIO1 LCD reset, EXIO2 touch reset, EXIO3 LCD CS, EXIO4 SD CS, EXIO8 buzzer |
 | backlight | 6 (PWM, 20 kHz) |
-| BOOT button | 0 (back home) |
+| BOOT button | 0 |
 
-RGB timing: hsync 8 / 10 / 50 (pulse, back, front), vsync 2 / 18 / 8, 16-bit RGB565, pixel clock
-18 MHz. The panel's init sequence is Waveshare's, byte for byte (`src/main.cpp`).
+RGB timing:
+- hsync: pulse 8, back porch 10, front porch 50;
+- vsync: pulse 2, back porch 18, front porch 8;
+- 16-bit RGB565.
 
-## Bring-up
-
-What still needs the real board:
-
-- **Pixel clock.** Waveshare's Arduino demo runs 30 MHz with a bounce buffer (arduino-esp32 3.x).
-  This build is on arduino-esp32 2.0.17 with Arduino_GFX 1.5.0, which has no bounce buffer, so it uses
-  their ESP-IDF demo's 18 MHz. If the picture drifts or tears, lower it.
-- **Orientation and colour order** of panel and touch (the demos map touch straight to pixels).
-- **The expander's power-up**: the buzzer is on until EXIO8 goes low; the firmware does that first.
-- Frame time on the chip (`-e debug` prints it every 5 s), touch feel (tap slop, swipe length, the
-  25° rim drag, the 1 s hold), and the backlight levels.
-- `agentctl link check` against the board.
+The panel's init sequence is Waveshare's, byte for byte (`src/main.cpp`).
 
 ## Tests and the host renderer
 
-The layout is `panel-core/src/layout_orbit.h`; the detail, prompt and notices it shares with the
-2.1″ Dial are in `round_ui.h`, the state machine in `round_view.h`, the circle geometry in
-`round_geom.h`.
+- The layout is `panel-core/src/layout_orbit.h`.
+- The detail, prompt and notices it shares with the 2.1″ Dial are in `round_ui.h`.
+- The state machine is in `round_view.h`.
+- `sim/round_sim.cpp` runs it all against a deck over stdin and stdout; the Go test
+  `backend/internal/link/round_test.go` does that with the real deck code.
 
 ```bash
 firmware/panel-core/tests/run.sh
-cd firmware/panel-core
-c++ -std=c++17 -DPANEL_MAX_AGENTS=64 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-mkdir -p out/orbit && out/render ../../docs/fixtures/state.json out/orbit 0 orbit
-python3 tools/ppm2png.py out/orbit.png out/orbit/home-*.ppm --cols 3    # needs pillow
+cd backend && go test ./internal/link -run TestRoundBoard
+firmware/panel-core/tools/render_docs.sh      # docs/, needs pillow
 ```
