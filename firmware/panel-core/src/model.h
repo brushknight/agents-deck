@@ -14,6 +14,10 @@
 #endif
 constexpr int kMaxAgents = PANEL_MAX_AGENTS;
 constexpr int kMaxOptions = 6;   // link.options: Prompt.options max_count
+// Answer labels kept per option; big screens show them whole (link.options allows 96).
+#ifndef PANEL_OPTION_LABEL
+#define PANEL_OPTION_LABEL 40
+#endif
 
 enum class Status : uint8_t { Starting, Running, Waiting, Idle, Error, Exited, Unknown };
 enum class Species : uint8_t { Claude, Codex };   // Codex is drawn as the onigiri
@@ -37,7 +41,7 @@ enum class LinkState : uint8_t {
 // One answer of a waiting prompt.
 struct Option {
   char key[8];
-  char label[40];
+  char label[PANEL_OPTION_LABEL];
   bool primary;
 };
 

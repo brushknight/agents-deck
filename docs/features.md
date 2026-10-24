@@ -144,6 +144,10 @@ with a button, and a rotary-encoder knob. Ready-made devices are in
 [firmware/devices](../firmware/devices): [t4s3-panel](../firmware/devices/t4s3-panel) is the deck on a
 2.41″ AMOLED touch panel, critters and all, and
 [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) is a read-only colour panel for the Waveshare ESP32-S3-LCD-1.47B: one agent in detail next to a mini-board of the fleet.
+[`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) (4″, 480×480) and
+[`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) (1.8″ AMOLED) show the deck's
+grid with touch: tap a tile for its card, answer prompts with scope `act`. All three share
+[firmware/panel-core](../firmware/panel-core).
 
 ```sh
 agentctl link ports                      # USB serial ports that look like boards

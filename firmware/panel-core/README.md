@@ -42,7 +42,7 @@ its screens can be seen without the board, and test its hit-testing in `tests/`.
 
 ```bash
 tests/run.sh
-c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 sim/render.cpp -o out/render
+c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 sim/render.cpp -o out/render
 mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, 147
 python3 tools/ppm2png.py out/grid.png out/lcd4/grid.ppm                            # needs pillow
 ```

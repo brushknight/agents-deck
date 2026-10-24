@@ -157,5 +157,6 @@ The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
 | `proto/` | `link.proto`: the Deck Link contract for serial boards. |
 | `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
-| `firmware/devices` | Firmware for specific boards, built on the kit (`waveshare-lcd-147`: a colour panel). |
+| `firmware/devices` | Firmware for specific boards, built on the kit (`t4s3-panel`, and the Waveshare panels `waveshare-lcd-147`, `waveshare-touch-lcd-4`, `waveshare-touch-amoled-18`). |
+| `firmware/panel-core` | The Waveshare panels' shared core: Deck Link adapter, critters, font, layouts. |
 | `docs/fixtures/state.json` | The sample fleet behind demo mode, the web fixture view and the tests. |
