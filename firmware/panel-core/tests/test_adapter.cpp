@@ -129,9 +129,11 @@ int main() {
     snprintf(in.hat.shape, sizeof in.hat.shape, "propeller");
     snprintf(in.hat.color, sizeof in.hat.color, "blue");
     in.hat.automatic = true;
+    snprintf(in.effort, sizeof in.effort, "xhigh");
 
     Agent a;
     agentFromLink(in, a);
+    assert(!strcmp(a.effort, "xhigh"));
     assert(!strcmp(a.id, "k3f9a2") && a.slot == 3);
     assert(!strcmp(a.title, "checkout api"));                  // one line
     assert(!strcmp(a.aiTitle, "Fix the race"));

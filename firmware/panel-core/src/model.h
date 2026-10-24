@@ -53,6 +53,7 @@ struct Agent {
   Status status;
   int64_t statusSince;      // epoch seconds, 0 when unknown
   char model[16];
+  char effort[12];          // reasoning effort of the latest turn ("high"), "" when unknown
   char actTool[16];         // empty when the agent has no current tool
   char actDetail[72];
   char waitKind[12];

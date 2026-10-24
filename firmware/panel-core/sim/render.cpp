@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|orbit|dial]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -12,6 +12,9 @@
 // boards instead: grid.ppm, grid-page2.ppm, card.ppm (a running agent),
 // prompt.ppm (a waiting agent with its answers as buttons), prompt-view.ppm
 // (the same with scope view), question.ppm and the notices.
+// With orbit or dial it draws the round boards (sim/round_shots.h): home
+// with 3, 8 and 22 agents, a new waiter, the detail, the prompt and the
+// full-screen states. Build with -DPANEL_MAX_AGENTS=64 for those.
 // tools/ppm2png.py turns them into PNGs.
 #include <fstream>
 #include <sstream>
@@ -21,6 +24,7 @@
 #include "layout_147.h"
 #include "layout_grid.h"
 #include "fixture.h"
+#include "round_shots.h"
 
 static void writePpm(const std::string& path, const Canvas& c) {
   std::ofstream out(path, std::ios::binary);
@@ -123,8 +127,16 @@ int main(int argc, char** argv) {
   const std::string layout = argc > 4 ? argv[4] : "147";
   if (layout == "lcd4") return renderGrid(dir, layoutLcd4(), "waveshare-touch-lcd-4-2a5390", deck, ms, now);
   if (layout == "amoled18") return renderGrid(dir, layoutAmoled18(), "waveshare-touch-amoled-18-fea2ac", deck, ms, now);
+  if (layout == "orbit") {
+    static const OrbitPanel orbit(layoutOrbit28());
+    return round_shots::render(dir, orbit, "waveshare-touch-lcd-28c-3c71bf", fleet, ms, now);
+  }
+  if (layout == "dial") {
+    static const DialPanel dial(layoutDial21());
+    return round_shots::render(dir, dial, "waveshare-touch-lcd-21-8e04d2", fleet, ms, now);
+  }
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, orbit, dial)\n", layout.c_str());
     return 2;
   }
 
