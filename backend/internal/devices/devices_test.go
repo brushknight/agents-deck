@@ -58,6 +58,16 @@ func TestBoards(t *testing.T) {
 	if other.Name == d.Name {
 		t.Error("two boards share a name")
 	}
+	// Long types keep their model: two round boards don't both become "waveshare-touch-lcd--…".
+	for typ, want := range map[string]string{
+		"waveshare-touch-lcd-28c":   "waveshare-touch-lcd-28c-00280c",
+		"waveshare-touch-amoled-18": "waveshare-touch-amoled-18-00280c",
+		"-dash-":                    "dash-00280c",
+	} {
+		if got := boardName(typ, "AA:BB:CC:00:28:0C"); got != want {
+			t.Errorf("boardName(%q) = %q, want %q", typ, got, want)
+		}
+	}
 }
 
 func TestPairingCodes(t *testing.T) {

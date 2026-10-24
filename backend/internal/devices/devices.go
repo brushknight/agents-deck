@@ -237,8 +237,12 @@ func boardName(typ, id string) string {
 	if t == "" {
 		t = "board"
 	}
-	if len(t) > 20 {
-		t = t[:20]
+	if len(t) > 32 { // Hello.type's limit in link.options
+		t = t[:32]
+	}
+	t = strings.Trim(t, "-")
+	if t == "" {
+		t = "board"
 	}
 	if len(i) > 8 { // a long id (a MAC): its last 6 characters
 		i = i[len(i)-6:]
