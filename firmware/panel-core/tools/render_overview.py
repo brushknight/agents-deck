@@ -28,6 +28,7 @@ BOARDS = {
     "lcd4": (300, 10),
     "amoled18": (300, 44),
     "t4s3": (300, 24),
+    "freenove28": (300, 0),
     "147": (300, 18),
 }
 
@@ -54,6 +55,10 @@ SHOTS = {
     "t4s3-card": ("t4s3", "card"),
     "t4s3-question": ("t4s3", "question"),
     "t4s3-wifi": ("t4s3", "wifi-joining"),
+    "freenove28-home": ("freenove28", "home"),
+    "freenove28-card": ("freenove28", "card"),
+    "freenove28-question": ("freenove28", "question"),
+    "freenove28-wifi": ("freenove28", "wifi-joining"),
     "lcd147-waiting": ("147", "auto"),
     "lcd147-running": ("147", "hero-00"),
     "lcd147-approval": ("147", "notice-unapproved"),

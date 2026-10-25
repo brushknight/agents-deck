@@ -8,7 +8,7 @@ PY=${PYTHON:-python3}
 mkdir -p out
 c++ -std=c++17 -O2 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 -DPANEL_LAST_PROMPT=160 \
   sim/render.cpp -o out/render
-for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18 t4s3:lilygo-t4-s3; do
+for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18 t4s3:lilygo-t4-s3 freenove28:freenove-s3-28; do
   layout=${spec%%:*}
   docs=../devices/${spec#*:}/docs
   rm -rf "out/$layout" && mkdir -p "out/$layout" "$docs"

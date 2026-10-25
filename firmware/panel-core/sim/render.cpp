@@ -1,14 +1,14 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|freenove28|orbit|dial|spring|spring28|selftest28|selftest21]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
 //
 // Writes PPM files: hero-<slot>.ppm (each agent as the hero), notice-*.ppm
 // (the full-screen states), poses.ppm (every pose of both species) and
-// hats.ppm (every hat). With lcd4, amoled18 or t4s3 it draws the square boards'
+// hats.ppm (every hat). With lcd4, amoled18, t4s3 or freenove28 it draws the square boards'
 // screens (home, scrolling or paging, cards, prompts, notices); with orbit or
 // dial the round boards'.
 // With orbit or dial it draws the round boards (sim/round_shots.h): home
@@ -295,6 +295,7 @@ int main(int argc, char** argv) {
   if (layout == "lcd4-small") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
   if (layout == "amoled18") return renderSquare(dir, specAmoled18(), "waveshare-touch-amol-fea2ac", deck, ms, now);
   if (layout == "t4s3") return renderSquare(dir, specT4S3(), "t4s3-panel-a1b2c3", deck, ms, now);
+  if (layout == "freenove28") return renderSquare(dir, specFreenove28(), "freenove-s3-28-c0ffee", deck, ms, now);
   if (layout == "orbit") {
     static const OrbitPanel orbit(layoutOrbit28());
     return round_shots::render(dir, orbit, "waveshare-touch-lcd-28c-3c71bf", fleet, ms, now);
@@ -315,7 +316,7 @@ int main(int argc, char** argv) {
   if (layout == "selftest21")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-21", "tca9554 ok" DECK_DOT "cst820 ok", 16000000);
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, freenove28, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
     return 2;
   }
 

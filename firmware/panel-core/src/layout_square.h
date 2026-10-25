@@ -36,6 +36,7 @@
 #include "canvas.h"
 #include "deck_cmd.h"
 #include "deck_ui.h"
+#include "font_big.h"
 #include "font_data.h"
 #include "font_round.h"
 #include "font_square.h"
@@ -110,6 +111,26 @@ static inline SquareSpec specT4S3() {
   s.optH = 84; s.optGap = 10;
   s.posTop = 100; s.posBottom = 40;
   s.statLines = true;
+  return s;
+}
+
+// The Freenove ESP32-S3 Display 2.8" (FNK0104B), 240 x 320 portrait LCD: the
+// 1.8"'s layout at about half its size, two rows of tiles on screen.
+static inline SquareSpec specFreenove28() {
+  SquareSpec s{};
+  s.name = "freenove28";
+  s.w = 240; s.h = 320; s.cornerR = 0; s.m = 10; s.trueBlack = false;
+  s.label = &FONT_S; s.body = &FONT_L; s.question = &FONT_B15; s.value = &FONT_B15; s.title = &FONT_Q16;
+  s.home = HomeKind::List; s.cols = 2; s.rows = 0; s.pad = 4; s.gap = 6; s.barsH = 0;
+  s.tileW = 114; s.tileH = 140; s.headerH = 34;  // 2 x 2 on screen: 34 + 2 x 140 + 6 = 320
+  s.tileTitle = &FONT_S; s.tileMeta = &FONT_XS; s.hud = &FONT_S;
+  s.tileScale = 4; s.subScale = 1;               // critters 72 x 52 on a tile
+  s.cardScale = 4; s.promptScale = 2; s.noticeScale = 4;
+  s.ctxPitch = 5; s.ctxTickW = 2; s.ctxTickH = 8; s.ctxFillH = 6;
+  s.btnR = 22; s.btnGap = 18; s.btnFromBottom = 32;
+  s.optH = 46; s.optGap = 6; s.optR = 8;
+  s.posX = 2; s.posW = 4; s.posTop = 50; s.posBottom = 20;
+  s.statLines = false;
   return s;
 }
 

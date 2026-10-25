@@ -19,6 +19,7 @@ draws the same pixels as the boards, from the made-up fleet in
 | <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | experimental | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
+| <img src="images/devices/freenove28-home.png" width="68" alt=""> | [Freenove ESP32-S3 Display 2.8″](#freenove-esp32-s3-display-28) | 2.8″ LCD, 240×320 | 2×2 tiles in a scrolling list | yes | yes | [`freenove-s3-28`](../firmware/devices/freenove-s3-28) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
 | <img src="images/panel-board-v2.png" width="90" alt=""> | [Desk panel](#desk-panel-4-720720) | 4″ square, 720×720 | the full deck (Flutter app) | yes | yes (that's how it connects) | [`clients/flutter`](../clients/flutter/agents_ui) |
 
@@ -153,6 +154,25 @@ card's numbers one to a line.
   [`t4s3-panel`](../firmware/devices/t4s3-panel) is superseded and kept for reference only.
 - **Get one:** [LilyGO T4-S3](https://lilygo.cc/products/t4-s3) (about $59 in LilyGO's shop, October 2026). Details:
   [the board's README](../firmware/devices/lilygo-t4-s3/README.md).
+
+## Freenove ESP32-S3 Display 2.8″
+
+The 1.8″'s UI at half size on a small LCD: two rows of tiles on screen, the same card, prompts and
+gestures. An ESP32-S3 cousin of the "Cheap Yellow Display".
+
+| home | card | question | joining Wi-Fi |
+|---|---|---|---|
+| <img src="images/devices/freenove28-home.png" width="150" alt="2x2 tiles"> | <img src="images/devices/freenove28-card.png" width="150" alt="an agent's card"> | <img src="images/devices/freenove28-question.png" width="150" alt="a question with three answers"> | <img src="images/devices/freenove28-wifi.png" width="150" alt="the joining Wi-Fi notice"> |
+
+- **What's special:** the cheapest touch board here, with an ILI9341 LCD and an FT6336U touch.
+  Portrait, USB-C at the bottom.
+- **Gestures:** as on the 1.8″.
+- **Build:** `idf5` (`pio run -d firmware/devices/freenove-s3-28/idf5 -e idf5 -t upload`);
+  `idf5-turned` for the USB-C at the top.
+- **Known issues:** not yet checked on the board itself: the pins and panel settings are Freenove's.
+  Get the touch version (FNK0104B); the FNK0104A has none.
+- **Get one:** [Freenove ESP32-S3 Display](https://github.com/Freenove/Freenove_ESP32_S3_Display)
+  (FNK0104B). Details: [the board's README](../firmware/devices/freenove-s3-28/README.md).
 
 ## Waveshare ESP32-S3-LCD-1.47B (strip)
 

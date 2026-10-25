@@ -358,6 +358,7 @@ int main() {
   checkScreens(A);
   checkScreens(L);
   checkScreens(specT4S3());
+  checkScreens(specFreenove28());
 
   // ---- the T4-S3: the 1.8"'s layout, three rows of tiles on screen, bigger critters
   {
@@ -391,6 +392,24 @@ int main() {
     squareTouch(ui, T, f, false, 0, 0, DeckScope::Act, 1110);
     assert(ui.screen == Screen::Home);
   }
+  // ---- the Freenove 2.8": the same list on a 240 x 320 LCD, two rows of tiles on screen
+  {
+    const SquareSpec F = specFreenove28();
+    assert(F.w == 240 && F.h == 320 && F.home == HomeKind::List && F.cols == 2 && !F.cornerR);
+    assert(maxScroll(F, fleetOf(4)) == 0 && maxScroll(F, fleetOf(9)) == 3 * rowPitch(F));
+    const Rect last = listTile(F, 3, 0);
+    assert(last.y + last.h <= F.h && listTile(F, 0, 0).x >= 0 && listTile(F, 1, 0).x + F.tileW <= F.w);
+    const square_detail::TileParts p = square_detail::tileParts(F, last, true);
+    assert(p.critter.x >= last.x && p.critter.x + p.critter.w <= last.x + last.w && p.critter.y >= last.y);
+    assert(p.critter.y + p.critter.h <= p.name.y && p.meta.y + p.meta.h <= p.bar.y && p.bar.y + p.bar.h <= last.y + last.h);
+    // A tap on the second row opens it; the card's buttons sit inside the screen.
+    Fleet f = fleetOf(4);
+    PanelUi ui;
+    touchAt(F, ui, f, last.x + last.w / 2, last.y + last.h / 2, 0, DeckScope::Admin);
+    assert(ui.screen == Screen::Card && !strcmp(ui.openId, "a3"));
+    const CardButtons b = cardButtons(F, f.agents[3], DeckScope::Admin);
+    assert(b.n >= 1 && b.cx[0] - F.btnR >= 0 && b.cx[b.n - 1] + F.btnR <= F.w && b.cy + F.btnR <= F.h);
+  }
   {
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
@@ -408,13 +427,13 @@ int main() {
   // ---- on Wi-Fi: the grid keeps its bars' row (the mark's), hits follow the drawing; every notice and
   // toast stays inside the frame, the AMOLED's corners black
   {
-    const SquareSpec T4 = specT4S3();
+    const SquareSpec T4 = specT4S3(), F = specFreenove28();
     const GridGeom w = gridGeom(L, 1, true);
     assert(w.bars.w == L.w && w.bars.h == L.barsH && w.cellW == w.cellH);
     assert(cellRect(L, w, 15).y + cellRect(L, w, 15).h <= w.bars.y);
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
-    for (const SquareSpec* S : {&A, &L, &T4}) {
+    for (const SquareSpec* S : {&A, &L, &T4, &F}) {
       std::vector<uint16_t> buf(S->w * S->h);
       Canvas c{buf.data(), S->w, S->h};
       PanelUi ui;
@@ -434,13 +453,13 @@ int main() {
       }
     }
   }
-  // ---- the card on the AMOLEDs: the name and the pill as one block centred on the critter; the working
+  // ---- the card on the AMOLEDs and the Freenove 2.8": the name and the pill as one block centred on the critter; the working
   // subagents under "doing now", their count beside it; the last prompt only where a line of it fits
   {
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
-    const SquareSpec T4 = specT4S3();
-    for (const SquareSpec* S : {&A, &T4}) {
+    const SquareSpec T4 = specT4S3(), F = specFreenove28();
+    for (const SquareSpec* S : {&A, &T4, &F}) {
       for (DeckScope sc : {DeckScope::Admin, DeckScope::View}) {
         for (const char* id : {"k3f9a2", "scr4tc", "1nfr4t", "bare", "d0cs1t", "t3st5a"}) {
           if (!strcmp(id, "bare") && findAgent(d.fleet, "bare") < 0) {   // a block critter without a hat

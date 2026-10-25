@@ -12,6 +12,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's UI at 2/3 | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
 | LilyGO T4-S3, 2.41″ AMOLED, 450×600 | `layout_square.h`, `specT4S3()`: the 1.8″'s UI with 2×3 tiles on screen, bigger critters, the card's numbers one to a line | `devices/lilygo-t4-s3` |
+| Freenove ESP32-S3 Display 2.8″ (FNK0104B), 240×320 | `layout_square.h`, `specFreenove28()`: the 1.8″'s UI at half size, 2×2 tiles on screen | `devices/freenove-s3-28` |
 | Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_spring.h`, `layoutSpring28()`: the spring carousel, nine to a turn | `devices/waveshare-touch-lcd-28c` |
 | Waveshare ESP32-S3-Touch-LCD-2.1, 480×480 round | `layout_spring.h`, `layoutSpring21()`: the spring carousel, seven to a turn | `devices/waveshare-touch-lcd-21` |
 
@@ -100,7 +101,7 @@ USB only.
 ```bash
 tests/run.sh
 c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 sim/render.cpp -o out/render
-mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, 147, orbit, dial
+mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, freenove28, 147, orbit, dial
 python3 tools/ppm2png.py out/grid.png out/lcd4/grid.ppm                            # needs pillow
 tools/render_docs.sh                                                               # every device's docs/
 ```
