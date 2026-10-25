@@ -228,6 +228,27 @@ void main() {
       expect(cfg!.isLocal, isTrue);
       expect(cfg.socketPath, '${tmp.path}/agentd.sock');
     });
+
+    test(
+      'a deep data dir puts the socket in the temp dir, as agentctl does',
+      () {
+        expect(
+          daemonSocketPath('/home/someone/.local/share/agents-terminal'),
+          '/home/someone/.local/share/agents-terminal/agentd.sock',
+        );
+        // The same name backend/internal/paths.Socket picks: the first 4 bytes
+        // of sha256(dataDir), in the temp dir without its trailing slash.
+        final deep = '/x/${'d' * 100}';
+        expect(
+          daemonSocketPath(deep, env: {'TMPDIR': '/var/tmp/'}),
+          '/var/tmp/agentsterm-59625981.sock',
+        );
+        expect(
+          daemonSocketPath(deep, env: const {}),
+          '/tmp/agentsterm-59625981.sock',
+        );
+      },
+    );
   });
 
   group('model', () {

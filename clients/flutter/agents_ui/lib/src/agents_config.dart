@@ -12,7 +12,7 @@ import 'package:crypto/crypto.dart';
 /// certificate covers). The connection is TLS 1.3 with the client certificate;
 /// the server is verified against the CA.
 ///
-/// On the Mac running agentctl, [localAgentsConfig] uses the daemon's unix
+/// On the computer running agentctl, [localAgentsConfig] uses the daemon's unix
 /// socket instead: nothing crosses the network.
 ///
 /// Each app says where it keeps its bundle (the desk panel passes its own
@@ -160,21 +160,45 @@ class AgentsConfig {
   }
 }
 
-/// The daemon on this same Mac, over its unix socket
-/// (`~/.local/share/agents-terminal/agentd.sock`, or under `$AGENTSTERM_HOME`):
-/// only your macOS user can open it, and nothing crosses the network. Null
-/// with a reason when agentctl isn't running.
+/// The daemon on this same computer, over its unix socket
+/// (`~/.local/share/agents-terminal/agentd.sock`, or under `$AGENTSTERM_HOME`;
+/// see [daemonSocketPath]): only your user can open it, and nothing crosses
+/// the network. Null with a reason when agentctl isn't running.
 (AgentsConfig?, String?) localAgentsConfig({Map<String, String>? env}) {
   final e = env ?? Platform.environment;
   final home =
       e['AGENTSTERM_HOME'] ??
       (e['HOME'] == null ? null : '${e['HOME']}/.local/share/agents-terminal');
   if (home == null) return (null, 'no home directory');
-  final sock = '$home/agentd.sock';
+  final sock = daemonSocketPath(home, env: e);
   if (FileSystemEntity.typeSync(sock) != FileSystemEntityType.unixDomainSock) {
-    return (null, 'agentctl is not running here: run `agentctl install`');
+    return (
+      null,
+      Platform.isLinux
+          ? 'agentctl is not running here: run '
+                '`systemctl --user start agents-deck` or `agentctl serve`'
+          : 'agentctl is not running here: run `agentctl install`',
+    );
   }
   return (AgentsConfig.unix(sock), null);
+}
+
+/// Where the daemon puts its socket for data directory [dataDir], as
+/// `paths.Socket` does in the Go code: `<dataDir>/agentd.sock`, or, when that
+/// path is too long for a unix socket (macOS caps it at 104 bytes), the temp
+/// directory (`$TMPDIR`, else /tmp) with a name made from a hash of [dataDir].
+String daemonSocketPath(String dataDir, {Map<String, String>? env}) {
+  final p = '$dataDir/agentd.sock';
+  if (utf8.encode(p).length < 100) return p;
+  final e = env ?? Platform.environment;
+  var tmp = e['TMPDIR'] ?? '';
+  if (tmp.isEmpty) tmp = '/tmp';
+  while (tmp.length > 1 && tmp.endsWith('/')) {
+    tmp = tmp.substring(0, tmp.length - 1);
+  }
+  final sum = sha256.convert(utf8.encode(dataDir)).bytes.sublist(0, 4);
+  final hex = sum.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '$tmp/agentsterm-$hex.sock';
 }
 
 /// "sha256:AB:CD:…", "ab cd …", "abcd…" → 32 bytes; null if malformed.

@@ -26,8 +26,8 @@ works from anywhere on your desk.
 
 ## What you need
 
-- **A Mac with Apple Silicon.** Linux and Windows aren't supported yet
-  ([where each platform stands](docs/releasing.md#platforms)).
+- **A Mac with Apple Silicon.** Linux works when built from source ([below](#on-linux)); Windows isn't
+  supported yet ([where each platform stands](docs/releasing.md#platforms)).
 - **Claude Code or Codex**, however you like to run them. Optional: tmux (`brew install tmux`) for
   agents you start with `agentctl new`, and iTerm2 so the deck can jump to an agent's tab.
 - **Optional: a board.** One of the [displays below](#pick-a-display) and a USB-C cable that carries
@@ -50,6 +50,22 @@ the newest board features before they're in a release:
 git clone https://github.com/brushknight/agents-deck && cd agents-deck
 ./install.sh --source --app
 ```
+
+### On Linux
+
+There are no Linux release archives yet, so build from a clone (Go 1.24+; for the tray app, Flutter
+3.44+ and its Linux build tools: `sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev`):
+
+```bash
+git clone https://github.com/brushknight/agents-deck && cd agents-deck
+./install.sh --source --app --autostart
+```
+
+The daemon runs as a systemd user service (`agents-deck`). `--app` builds the tray app: the menu bar
+app's deck in your system tray, installed to `~/.local/share/agents-deck` with an entry in your app
+menu; `--autostart` starts it at login. KDE Plasma, XFCE, Cinnamon and MATE show tray icons as they
+are; GNOME needs the AppIndicator extension (Ubuntu has it on). More in
+[clients/macos/README.md](clients/macos/README.md#linux).
 
 Agents you already run in Orca, herdr, cmux or Codex show up right away. To start your own:
 
@@ -202,7 +218,7 @@ ESP32-S3-Touch-LCD-2.8C> working on it, first over USB, then over Wi-Fi.
 | | |
 |---|---|
 | <img src="docs/images/menubar-deck-v2.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/web-board-v2.png" alt="web dashboard"> |
-| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. | **Browser.** The same board, a panel view, and every agent's card. It works on your phone too ([docs/phone.md](docs/phone.md)). |
+| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. On Linux the same app sits in the system tray. | **Browser.** The same board, a panel view, and every agent's card. It works on your phone too ([docs/phone.md](docs/phone.md)). |
 | <img src="docs/images/panel-question-v2.png" alt="a question on the desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi ([Wall Panel](https://github.com/dotstartech/wall-panel)), paired with `agentctl pair`. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
@@ -297,7 +313,7 @@ protobuf version of it.
 
 - **Nothing leaves your machine:** no telemetry, no update checks. The only Go dependency is Google's protobuf module.
 - **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks.
-- **The menu bar app** uses the daemon's unix socket: nothing crosses the network.
+- **The menu bar app** (and the Linux tray app) uses the daemon's unix socket: nothing crosses the network.
 - **The desk panel and boards on Wi-Fi** connect over TLS 1.3 with their own client certificate,
   signed by the deck's local CA (its key is in the macOS Keychain). Each device has a scope (view, act
   or admin), shows up in `agentctl devices`, can be revoked on its own, and every action it takes lands
@@ -318,7 +334,7 @@ protobuf version of it.
 |---|---|
 | `backend/` | Go daemon and CLI (`agentctl`), with the web UI embedded. `go test -race ./...` |
 | `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
-| `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
+| `clients/macos` | The menu bar app (Flutter + a small Swift shell), and the Linux tray app (the same Flutter app + a small GTK shell). |
 | `proto/` | `link.proto`: the Deck Link contract for boards. |
 | `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
 | `firmware/devices` | Firmware for each board, one folder each ([devices](docs/devices.md)). |

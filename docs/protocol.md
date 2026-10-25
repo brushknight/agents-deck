@@ -6,7 +6,7 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 |---|---|---|
 | desk panel (Flutter, 720×720), later a phone app | HTTPS on the network, `:7341`, **TLS 1.3 only** | a **client certificate per device**, signed by the deck's CA; scope view, act or admin |
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
-| menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions: your macOS user |
+| menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions: your user |
 | ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board (at once when plugged into a registered USB port, unless turned off); scope view, act or admin |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
 

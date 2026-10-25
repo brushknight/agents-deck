@@ -1,4 +1,5 @@
-# Tests on every push and pull request: the Go daemon/CLI and the deck UI.
+# Tests on every push and pull request: the Go daemon/CLI, the deck UI, the
+# Linux tray app and the firmware.
 name: ci
 
 on:
@@ -58,6 +59,28 @@ jobs:
           flutter pub get
           flutter analyze
           flutter test
+
+  tray-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: GTK build tools, and what the smoke test drives the app with
+        run: |
+          sudo apt-get update -qq # the runner image's package lists go stale: install alone can 404
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev \
+            xvfb xauth xdotool dbus libglib2.0-bin python3-gi >/dev/null
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+      - name: build the tray app
+        working-directory: clients/macos
+        run: |
+          flutter pub get
+          flutter build linux --release
+      - name: smoke test (tray icon, menu, deck window, headless)
+        run: xvfb-run -a dbus-run-session -- clients/macos/linux/test/smoke.sh
 
   firmware:
     runs-on: ubuntu-latest
