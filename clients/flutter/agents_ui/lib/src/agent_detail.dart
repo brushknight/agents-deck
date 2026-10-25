@@ -139,6 +139,7 @@ class _AgentDetailState extends State<AgentDetail> {
     bool closeOnOk = false,
   }) async {
     if (_busy || _closing) return null;
+    final asked = _promptId;
     setState(() {
       _busy = true;
       _flashKey = key;
@@ -150,6 +151,10 @@ class _AgentDetailState extends State<AgentDetail> {
     _timer?.cancel();
     switch (r.kind) {
       case AgentsResultKind.ok:
+        // A question form's next step already showed up: stay on the card.
+        if (closeOnOk && _promptId != asked && _liveQuestion() != null) {
+          closeOnOk = false;
+        }
         setState(() {
           _flash = _Flash.sent;
           _closing = closeOnOk;
@@ -290,11 +295,29 @@ class _AgentDetailState extends State<AgentDetail> {
     };
   }
 
+  /// The id of the question the agent waits on now, if it does. A question
+  /// form (several questions, or ticking the answers of a pick-any one) comes
+  /// one step at a time, each step a new prompt.
+  String? _liveQuestion([AgentsSnapshot? snap]) {
+    final a = (snap ?? widget.source.snapshot.value).state?.byId(
+      widget.agentId,
+    );
+    final p = a?.status == AgentStatus.waiting ? a?.waiting : null;
+    return p?.kind == PromptKind.question ? p!.id : null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<AgentsSnapshot>(
       valueListenable: widget.source.snapshot,
       builder: (context, snap, _) {
+        final next = _closing ? _liveQuestion(snap) : null;
+        if (next != null && next != _promptId) {
+          // The answer opened the form's next step: show it instead of closing.
+          _timer?.cancel();
+          _closing = false;
+          _busy = false;
+        }
         // While an answer's "sent" holds, keep showing the prompt it
         // answered — the live state has usually moved on already.
         final frozen = _closing ? _shown : null;
@@ -1276,6 +1299,14 @@ class _AgentDetailState extends State<AgentDetail> {
                   ],
                 ),
               ),
+              if (o.selected) ...[
+                const SizedBox(width: 14),
+                Text(
+                  '✓', // ticked answer of a pick-any question
+                  key: Key('agent-option-${o.key}-ticked'),
+                  style: DeckHud.rm(22, fg, weight: 700),
+                ),
+              ],
             ],
           ),
         );

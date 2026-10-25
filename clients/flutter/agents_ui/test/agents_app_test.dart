@@ -346,6 +346,70 @@ void main() {
     expect(find.text('send 3'), findsNothing);
   });
 
+  testWidgets('question form: one step at a time, ticks, stays open', (
+    tester,
+  ) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final agent = (fixture['agents'] as List)
+        .cast<Map<String, dynamic>>()
+        .firstWhere((a) => a['id'] == '4uthfl');
+    const review = {
+      'id': 'p21',
+      'kind': 'question',
+      'title': 'submit these answers?',
+      'detail': 'which store? → redis\nwhich checks? → lint',
+      'context': 'review · 2 questions',
+      'options': [
+        {'key': '1', 'label': 'submit answers', 'primary': true},
+        {'key': '2', 'label': 'cancel'},
+      ],
+    };
+    agent['waiting'] = {
+      'id': 'p19',
+      'kind': 'question',
+      'title': 'which store?',
+      'detail': '',
+      'context': 'store · question 1 of 2',
+      'options': [
+        {'key': '1', 'label': 'redis', 'primary': true},
+        {'key': '2', 'label': 'sqlite'},
+      ],
+      'next': {
+        'id': 'p20',
+        'kind': 'question',
+        'title': 'which checks?',
+        'detail': '',
+        'context': 'checks · question 2 of 2 · pick any',
+        'options': [
+          {'key': '1', 'label': 'unit tests'},
+          {'key': '2', 'label': 'lint', 'selected': true},
+          {'key': '3', 'label': 'next — review your answers', 'primary': true},
+        ],
+        'next': review,
+      },
+    };
+    final source = FakeAgentsSource.fromState(fixture);
+    await _pumpApp(tester, source);
+    await _open(tester, 'auth-flow');
+
+    expect(find.text('store · question 1 of 2'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('agent-send')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // Still on the card: the next step, with its tick and "next" preselected.
+    expect(find.text('which checks?'), findsOneWidget);
+    expect(find.text('checks · question 2 of 2 · pick any'), findsOneWidget);
+    expect(find.byKey(const Key('agent-option-2-ticked')), findsOneWidget);
+    expect(find.byKey(const Key('agent-option-1-ticked')), findsNothing);
+    expect(find.text('send 3'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('agent-send')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('submit these answers?'), findsOneWidget);
+    expect(source.calls.map((c) => c.$3?['key']), ['1', '3']);
+    expect(source.calls.map((c) => c.$3?['promptId']), ['p19', 'p20']);
+  });
+
   testWidgets('focus and interrupt post to the agent', (tester) async {
     final source = FakeAgentsSource.demo();
     await _pumpApp(tester, source);

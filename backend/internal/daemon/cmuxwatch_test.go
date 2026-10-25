@@ -141,3 +141,21 @@ func TestCmuxWithoutSocketAccess(t *testing.T) {
 		t.Fatalf("interrupt: %v", err)
 	}
 }
+
+// A question form in cmux: the tab on screen, ticks and all; "next" is typed as Tab.
+func TestCmuxQuestionForm(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	f := &fakeCmux{screen: "←  ☒ Color  ☐ Toppings  ✔ Submit  →\n\nWhich toppings?\n\n❯ 1. [ ] Cheese\n  2. [✔] Ham\n  3. [ ] Type something\n     Submit\n  4. Chat about this\n"}
+	d.cmux.dial = func() cmuxAPI { return f }
+	id := cmuxAgentID("S1")
+	d.syncCmux(cmuxList("needsInput", 2))
+	e, _ := d.Store.Get(id)
+	p := e.A.Waiting
+	if p == nil || p.Title != "which toppings?" || len(p.Options) != 3 || !p.Options[1].Selected || p.Options[2].Key != "3" ||
+		p.Context != "form · 2 questions · pick any · in cmux" {
+		t.Fatalf("form tab: %+v", p)
+	}
+	if err := d.Answer(id, p.ID, "3"); err != nil || len(f.sent) != 1 || f.sent[0] != "S1 \t" {
+		t.Fatalf("next: %v, sent %q", err, f.sent)
+	}
+}

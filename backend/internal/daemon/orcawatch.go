@@ -214,6 +214,10 @@ func orcaApply(e *store.Entry, a orca.Agent, screen string) bool {
 // orcaPrompt builds what the agent is asking, with the options read off its
 // screen when they're there.
 func orcaPrompt(e *store.Entry, a orca.Agent, screen string) *model.Prompt {
+	if p := claude.ScreenFormPrompt(e, screen); p != nil {
+		p.Context += " · in Orca" // a question form: its tab on screen
+		return p
+	}
 	if a.ToolName == "" {
 		detail := a.LastAssistantMessage
 		p := &model.Prompt{ID: e.NextPromptID(), Kind: "input", Title: "needs you", Detail: clipText(detail, 2000),

@@ -23,7 +23,7 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 Tap a tile for its card:
 
 - **Overview.** What it's doing now, context used, tokens, estimated cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop** (or **resume** / **remove** once it has exited).
-- **Permission prompts** show the exact command with Claude's own options; **questions** show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
+- **Permission prompts** show the exact command with Claude's own options; **questions** show their choices; a question with several parts goes one question at a time (pick-any ones tick, then **next**), then **submit answers**. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
 - **Free-text input** can't be typed on the deck: the card sends you to the terminal.
 
 <p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>

@@ -423,7 +423,22 @@ var questions = []struct {
 	{"Where should the new tests live?", "Tests", [3][2]string{{"Next to the code", "same package, _test file"}, {"Integration suite", "slower, more realistic"}, {"Both", "unit + one integration case"}}},
 }
 
+// formQuestions make up the simulated question forms: two pick-one questions
+// and a pick-any one.
+var formQuestions = []struct {
+	q, header string
+	multi     bool
+	opts      [][2]string
+}{
+	{"Which database should the cache use?", "Store", false, [][2]string{{"Redis", "in memory, fast"}, {"SQLite", "a file next to the app"}, {"None", "skip the cache for now"}}},
+	{"How should errors be reported?", "Errors", false, [][2]string{{"Log only", "keep going"}, {"Fail fast", "stop at the first error"}}},
+	{"Which checks should run before a release?", "Checks", true, [][2]string{{"Unit tests", "go test ./..."}, {"Lint", "vet and staticcheck"}, {"Smoke test", "start it and hit /health"}}},
+}
+
 func (a *agent) question() bool {
+	if a.r.Intn(2) == 0 {
+		return a.form()
+	}
 	q := questions[a.r.Intn(len(questions))]
 	opts := make([]map[string]any, 3)
 	for i, o := range q.opts {
@@ -453,6 +468,165 @@ func (a *agent) question() bool {
 	a.hook("PostToolUse", map[string]any{"tool_name": "AskUserQuestion"})
 	a.usage(int64(600 + a.r.Intn(1500)))
 	return true
+}
+
+// form asks several questions at once, the way Claude Code does: a tab per
+// question and a review tab. On a pick-one tab a digit picks and moves on; on
+// a pick-any tab a digit ticks and Tab moves on; on the review 1 submits and
+// 2 (or Esc anywhere) cancels. After the configured patience the simulated
+// user goes on at the terminal (picks 1, or moves on).
+func (a *agent) form() bool {
+	qs := formQuestions
+	var in []any
+	for _, q := range qs {
+		var opts []any
+		for _, o := range q.opts {
+			opts = append(opts, map[string]any{"label": o[0], "description": o[1]})
+		}
+		in = append(in, map[string]any{"question": q.q, "header": q.header, "options": opts, "multiSelect": q.multi})
+	}
+	input := map[string]any{"questions": in}
+	a.hook("PreToolUse", map[string]any{"tool_name": "AskUserQuestion", "tool_input": input})
+	a.hook("PermissionRequest", map[string]any{"tool_name": "AskUserQuestion", "tool_input": input})
+	picks := make([][]int, len(qs))
+	answered := make([]bool, len(qs))
+	step := 0
+	draw := func() {
+		bar := "←  "
+		for i, q := range qs {
+			box := "☐"
+			if answered[i] || len(picks[i]) > 0 {
+				box = "☒"
+			}
+			bar += box + " " + q.header + "  "
+		}
+		a.print(cDim + "────────────────────────────────────────────────────────────" + cReset)
+		a.print(bar + "✔ Submit  →")
+		a.print("")
+		if step == len(qs) {
+			a.print("Review your answers")
+			a.print("")
+			for i, q := range qs {
+				a.print(" ● " + q.q)
+				a.print("   → " + simAnswer(q.opts, picks[i]))
+			}
+			a.print("")
+			a.print("Ready to submit your answers?")
+			a.print("")
+			a.print(cOrange + "❯ 1. Submit answers" + cReset)
+			a.print("  2. Cancel")
+			return
+		}
+		q := qs[step]
+		a.print(q.q)
+		a.print("")
+		for i, o := range q.opts {
+			row := fmt.Sprintf("%d. ", i+1)
+			if q.multi {
+				box := "[ ] "
+				for _, k := range picks[step] {
+					if k == i {
+						box = "[✔] "
+					}
+				}
+				row += box
+			}
+			if i == 0 {
+				a.print(cOrange + "❯ " + row + o[0] + cReset)
+			} else {
+				a.print("  " + row + o[0])
+			}
+			a.print("     " + cDim + o[1] + cReset)
+		}
+		n := len(q.opts) + 1
+		if q.multi {
+			a.print(fmt.Sprintf("  %d. [ ] Type something", n))
+			a.print("     Submit")
+		} else {
+			a.print(fmt.Sprintf("  %d. Type something.", n))
+		}
+		a.print(fmt.Sprintf("  %d. Chat about this", n+1))
+		a.print(cDim + "Enter to select · Tab/Arrow keys to navigate · Esc to cancel" + cReset)
+	}
+	a.drainKeys()
+	draw()
+	for {
+		k := a.waitKey(step < len(qs) && qs[step].multi)
+		switch {
+		case k == 0x1b || step == len(qs) && k == '2':
+			a.print("  " + cDim + "⎿  User declined to answer questions" + cReset)
+			a.print("")
+			a.hook("Stop", nil)
+			return false
+		case step == len(qs) && k == '1':
+			a.print(cOrange + "⏺" + cReset + " User answered Claude's questions:")
+			for i, q := range qs {
+				a.print("  " + cDim + "⎿  · " + q.q + " → " + simAnswer(q.opts, picks[i]) + cReset)
+			}
+			a.print("")
+			a.hook("PostToolUse", map[string]any{"tool_name": "AskUserQuestion"})
+			a.usage(int64(600 + a.r.Intn(1500)))
+			return true
+		case step == len(qs):
+			continue
+		case k == '\t':
+			answered[step] = true
+			step++
+		case k >= '1' && int(k-'0') <= len(qs[step].opts):
+			i := int(k - '1')
+			if !qs[step].multi {
+				picks[step], answered[step] = []int{i}, true
+				step++
+				break
+			}
+			out, had := []int{}, false
+			for _, x := range picks[step] {
+				if x == i {
+					had = true
+				} else {
+					out = append(out, x)
+				}
+			}
+			if !had {
+				out = append(out, i)
+			}
+			picks[step] = out
+		default:
+			continue
+		}
+		draw()
+	}
+}
+
+// waitKey waits for a key; after the configured patience it is the simulated
+// user's own answer at the terminal: 1, or Tab on a pick-any tab.
+func (a *agent) waitKey(multi bool) byte {
+	var timeout <-chan time.Time
+	if a.cfg.Patience > 0 {
+		t := time.NewTimer(a.cfg.Patience + time.Duration(a.r.Intn(20))*time.Second)
+		defer t.Stop()
+		timeout = t.C
+	}
+	select {
+	case <-timeout:
+		if multi {
+			return '\t'
+		}
+		return '1'
+	case k := <-a.keys:
+		return k
+	}
+}
+
+func simAnswer(opts [][2]string, picks []int) string {
+	var l []string
+	for _, k := range picks {
+		l = append(l, opts[k][0])
+	}
+	if len(l) == 0 {
+		return "(no answer)"
+	}
+	return strings.Join(l, ", ")
 }
 
 func (a *agent) apiError() {

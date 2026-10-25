@@ -1175,7 +1175,9 @@ function buildPrompt(a) {
     const el = h('button', { type: 'button', class: 'opt' + (o.primary ? ' primary' : ''), 'aria-keyshortcuts': o.key,
       ...(isQ ? { role: 'radio', 'aria-checked': String(o.key === selected) } : {}) },
       h('span', { class: 'n', text: o.key }),
-      h('span', { class: 't' }, h('span', { text: isQ ? title : o.label }), isQ && sub ? h('span', { class: 's', text: sub }) : null));
+      h('span', { class: 't' }, h('span', { text: isQ ? title : o.label }), isQ && sub ? h('span', { class: 's', text: sub }) : null),
+      // ticked answer of a pick-any question (answering it again unticks it)
+      o.selected ? h('span', { class: 'tick', text: '✓', 'aria-label': 'ticked' }) : null);
     el.addEventListener('click', () => {
       if (!isQ) return answer(o.key);
       selected = o.key;
@@ -1193,8 +1195,9 @@ function buildPrompt(a) {
     panel.className = 'detail p-question';
     sendBtn = h('button', { type: 'button', class: 'btn acc', text: `send ${selected}` });
     sendBtn.addEventListener('click', () => selected && answer(selected));
+    if (w.context) kids.push(h('span', { class: 'lbl', text: w.context })); // e.g. "size · question 2 of 3"
     kids.push(h('h3', { class: 'p-title', id: 'p-title', text: w.title }));
-    if (w.detail) kids.push(h('span', { class: 'val', text: w.detail }));
+    if (w.detail) kids.push(h('span', { class: 'val p-detail', text: w.detail }));
     kids.push(h('div', { class: 'sec grow' }, optList), h('div', { class: 'actions' }, sendBtn, focusBtn('narrow', 'type in terminal')), note);
   } else {
     panel.className = 'detail p-accent';

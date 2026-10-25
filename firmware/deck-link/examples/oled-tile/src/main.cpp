@@ -157,8 +157,8 @@ static void draw()
 				line(3, p + 21);
 			int row = 4;
 			for (int i = 0; i < t->option_count && row < 8; i++, row++) {
-				snprintf(b, sizeof b, "%c%s %s", t->options[i].primary ? '>' : ' ', t->options[i].key,
-					 t->options[i].label);
+				snprintf(b, sizeof b, "%c%s %s%s", t->options[i].primary ? '>' : ' ', t->options[i].key,
+					 t->options[i].selected ? "[x] " : "", t->options[i].label);
 				line(row, b, t->options[i].primary);
 			}
 			if (t->option_count == 0)

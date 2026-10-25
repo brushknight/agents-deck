@@ -845,6 +845,7 @@ static void test_tiles(void)
 	strcpy(f.body.agent_changed.agent.waiting.options[0].key, "n");
 	strcpy(f.body.agent_changed.agent.waiting.options[1].key, "y");
 	f.body.agent_changed.agent.waiting.options[1].primary = true;
+	f.body.agent_changed.agent.waiting.options[1].selected = true;
 	f.body.agent_changed.agent.has_context = true;
 	f.body.agent_changed.agent.context.used = 50000;
 	f.body.agent_changed.agent.context.window = 200000;
@@ -856,6 +857,7 @@ static void test_tiles(void)
 	CHECK(strcmp(t.tiles[0].id, "a") == 0 && strcmp(t.tiles[1].id, "c") == 0 && strcmp(t.tiles[2].id, "b") == 0);
 	const deck_tile_t *wt = deck_tiles_first_waiting(&t);
 	CHECK(wt && strcmp(wt->id, "c") == 0 && deck_tile_primary(wt) == 1 && wt->context_permille == 250);
+	CHECK(wt->options[1].selected && !wt->options[0].selected);
 	CHECK(deck_tiles_count_status(&t, agentsdeck_link_v1_Status_STATUS_RUNNING) == 1);
 
 	/* Move b to slot 0, remove a. */

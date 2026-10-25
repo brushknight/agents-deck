@@ -43,6 +43,7 @@ func inApp(e store.Entry) bool { return e.A.App != "" }
 // through the app the agent runs in.
 func (d *Daemon) answerInApp(h harness, id, promptID, key string) error {
 	var e store.Entry
+	text := key
 	err := errors.New("")
 	d.Store.Update(id, func(x *store.Entry) bool {
 		p := x.A.Waiting
@@ -53,6 +54,7 @@ func (d *Daemon) answerInApp(h harness, id, promptID, key string) error {
 		for _, o := range p.Options {
 			if o.Key == key {
 				err, e = nil, *x
+				text = claude.ScreenFormKey(x, key) // "next" on a pick-any tab is Tab
 			}
 		}
 		if err != nil && !errors.Is(err, server.ErrStalePrompt) {
@@ -63,7 +65,7 @@ func (d *Daemon) answerInApp(h harness, id, promptID, key string) error {
 	if err != nil {
 		return err
 	}
-	if err := h.send(e, key); err != nil {
+	if err := h.send(e, text); err != nil {
 		return err
 	}
 	d.Store.Update(id, func(x *store.Entry) bool {
@@ -79,6 +81,10 @@ func (d *Daemon) answerInApp(h harness, id, promptID, key string) error {
 // screen: the dialog's question and options, and the tool call it waits on
 // when the transcript already has it.
 func screenPrompt(e *store.Entry, tool, screen, app string) *model.Prompt {
+	if p := claude.ScreenFormPrompt(e, screen); p != nil {
+		p.Context += " · in " + app // a question form: its tab on screen
+		return p
+	}
 	title, detail := screenQuestion(screen)
 	p := &model.Prompt{ID: e.NextPromptID(), Kind: "input", Title: "needs you", Context: "answer it in " + app}
 	if tool != "" {

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	"github.com/brushknight/agents-deck/backend/internal/link/linkpb"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
@@ -149,6 +151,36 @@ func TestAgentParity(t *testing.T) {
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
 	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 {
 		t.Errorf("tile fields: %+v", tile)
+	}
+}
+
+// Prompt and Option: every JSON field has a protobuf field, and toPB fills it.
+func TestPromptParity(t *testing.T) {
+	for _, c := range []struct {
+		typ  reflect.Type
+		desc protoreflect.MessageDescriptor
+	}{
+		{reflect.TypeOf(model.Prompt{}), (&linkpb.Prompt{}).ProtoReflect().Descriptor()},
+		{reflect.TypeOf(model.Option{}), (&linkpb.Option{}).ProtoReflect().Descriptor()},
+	} {
+		for i := range c.typ.NumField() {
+			tag := strings.Split(c.typ.Field(i).Tag.Get("json"), ",")[0]
+			if tag != "" && tag != "-" && c.desc.Fields().ByJSONName(tag) == nil {
+				t.Errorf("%s JSON field %q has no Deck Link field (link.proto %s)", c.typ.Name(), tag, c.desc.Name())
+			}
+		}
+	}
+	a := model.Agent{ID: "a1", Status: model.Waiting, Waiting: &model.Prompt{ID: "p", Kind: "question", Title: "?", Detail: "d", Context: "c",
+		Options: []model.Option{{Key: "1", Label: "cheese", Primary: true, Selected: true}}}}
+	o := toPB(a, uint32(linkpb.FieldGroup_FIELDS_PROMPT)).GetWaiting().GetOptions()
+	if len(o) != 1 {
+		t.Fatalf("options: %v", o)
+	}
+	desc := o[0].ProtoReflect().Descriptor()
+	for i := range desc.Fields().Len() {
+		if fd := desc.Fields().Get(i); !o[0].ProtoReflect().Has(fd) {
+			t.Errorf("toPB leaves Option.%s unset", fd.Name())
+		}
 	}
 }
 

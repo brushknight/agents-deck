@@ -119,7 +119,25 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
     { "key": "3", "label": "no" }
   ]
 }
+
+// Option — "selected": true marks a ticked answer of a pick-any question (omitted otherwise)
+{ "key": "2", "label": "cheese", "selected": true }
 ```
+
+A question with several parts (Claude's form: more than one question, or one where you can pick more
+than one answer) comes one step at a time, each with a new `id`:
+
+- each question in turn, `kind: "question"`, with `context` like `"size · question 2 of 3"`. Answering
+  picks and moves to the next question.
+- a pick-any question (`context` ends in `"pick any"`) lists its answers with `selected` on the ticked
+  ones; answering one ticks or unticks it and sends a new prompt with the ticks updated. Its last
+  option, `"next — …"`, moves on.
+- the review: `title: "submit these answers?"`, the answers in `detail` (one per line), options
+  `1` submit answers and `2` cancel.
+
+Free text ("type something") stays at the terminal. An answer typed at the terminal moves the deck's
+prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
+answers or the form is cancelled.
 
 Status meanings (what the tiles show):
 

@@ -98,9 +98,10 @@ type Prompt struct {
 }
 
 type Option struct {
-	Key     string `json:"key"`
-	Label   string `json:"label"`
-	Primary bool   `json:"primary,omitempty"`
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Primary  bool   `json:"primary,omitempty"`
+	Selected bool   `json:"selected,omitempty"` // ticked: a pick-any question's answer so far
 }
 
 type ErrInfo struct {
