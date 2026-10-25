@@ -1348,6 +1348,9 @@ func install() error {
 		return err
 	}
 	home, _ := os.UserHomeDir()
+	if runtime.GOOS == "linux" {
+		return installSystemd(self, home)
+	}
 	plist := filepath.Join(home, "Library", "LaunchAgents", plistLabel+".plist")
 	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1388,5 +1391,59 @@ func install() error {
 		return fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
 	}
 	fmt.Println("installed", plist)
+	return nil
+}
+
+// installSystemd is install on Linux: a systemd user service that starts the
+// daemon at login and keeps it running, like the launchd agent on macOS.
+func installSystemd(self, home string) error {
+	dir := filepath.Join(home, ".config", "systemd", "user")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	unit := filepath.Join(dir, plistLabel+".service")
+	content := fmt.Sprintf(`[Unit]
+Description=agents deck daemon (agentctl serve)
+
+[Service]
+ExecStart=%s serve
+Environment=PATH=%s/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Restart=always
+RestartSec=2
+StandardOutput=append:%s
+StandardError=append:%s
+
+[Install]
+WantedBy=default.target
+`, self, home, paths.Log(), paths.Log())
+	systemctl := func(args ...string) error {
+		if out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput(); err != nil {
+			return fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+		return nil
+	}
+	// Same service already running: just restart the daemon (it picks up a
+	// rebuilt binary).
+	if cur, err := os.ReadFile(unit); err == nil && string(cur) == content &&
+		exec.Command("systemctl", "--user", "is-active", "--quiet", plistLabel).Run() == nil {
+		if err := systemctl("restart", plistLabel); err != nil {
+			return err
+		}
+		fmt.Println("restarted", plistLabel)
+		return nil
+	}
+	if err := os.WriteFile(unit, []byte(content), 0o644); err != nil {
+		return err
+	}
+	if err := systemctl("daemon-reload"); err != nil {
+		return err
+	}
+	if err := systemctl("enable", plistLabel); err != nil {
+		return err
+	}
+	if err := systemctl("restart", plistLabel); err != nil {
+		return err
+	}
+	fmt.Println("installed", unit)
 	return nil
 }

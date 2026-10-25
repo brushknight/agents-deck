@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -38,6 +39,11 @@ func TestWatchedHandStartedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("script", "-q", "/dev/null", fake, "30")
+	if runtime.GOOS == "linux" {
+		// util-linux script(1) takes the command in -c; and "claude" is sleep
+		// run under that name, as uutils' sleep refuses a symlink of another name.
+		cmd = exec.Command("script", "-q", "-c", "bash -c 'exec -a claude sleep 30'", "/dev/null")
+	}
 	cmd.Dir = work
 	stdin, _ := cmd.StdinPipe()
 	if err := cmd.Start(); err != nil {

@@ -104,7 +104,7 @@ func ttysOf(list []claudeAgent) map[int]string {
 	out, _ := exec.Command("/bin/ps", "-o", "pid=,tty=", "-p", strings.Join(pids, ",")).Output()
 	for _, l := range strings.Split(string(out), "\n") {
 		f := strings.Fields(l)
-		if len(f) == 2 && f[1] != "??" {
+		if len(f) == 2 && f[1] != "??" && f[1] != "?" {
 			if pid, err := strconv.Atoi(f[0]); err == nil {
 				ttys[pid] = "/dev/" + f[1]
 			}
@@ -163,7 +163,9 @@ var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 // aren't on one of skipTTYs (agentctl's own tmux panes), each matched to its
 // session transcript. Processes whose transcript can't be found are left out.
 func LiveSessions(skipTTYs map[string]bool) []Live {
-	out, err := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=").Output()
+	ps := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=")
+	ps.Env = append(os.Environ(), "LC_ALL=C") // lstart in English, whatever the user's locale
+	out, err := ps.Output()
 	if err != nil {
 		return nil
 	}
@@ -179,7 +181,7 @@ func LiveSessions(skipTTYs map[string]bool) []Live {
 			continue
 		}
 		tty, argv := f[6], f[7:]
-		if tty == "??" || tty == "-" || !isInteractiveClaude(argv) {
+		if tty == "??" || tty == "?" || tty == "-" || !isInteractiveClaude(argv) { // no terminal: "??" on macOS, "?" on Linux
 			continue
 		}
 		dev := "/dev/" + tty
@@ -286,13 +288,21 @@ func newestTranscript(dir string, since time.Time, claimed map[string]bool) stri
 	return best
 }
 
+// lsofBin is lsof's path: /usr/sbin on macOS, /usr/bin on most Linux systems.
+func lsofBin() string {
+	if p, err := exec.LookPath("lsof"); err == nil {
+		return p
+	}
+	return "/usr/sbin/lsof"
+}
+
 // processCwds asks lsof for the working directories of the given processes.
 func processCwds(procs []Live) map[int]string {
 	pids := make([]string, len(procs))
 	for i, p := range procs {
 		pids[i] = strconv.Itoa(p.PID)
 	}
-	out, _ := exec.Command("/usr/sbin/lsof", "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
+	out, _ := exec.Command(lsofBin(), "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
 	cwds := map[int]string{}
 	pid := 0
 	for _, l := range strings.Split(string(out), "\n") {

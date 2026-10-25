@@ -203,11 +203,19 @@ func (m *Manager) Status() []PortStatus {
 	return out
 }
 
+// lsofBin is lsof's path: /usr/sbin on macOS, /usr/bin on most Linux systems.
+func lsofBin() string {
+	if p, err := exec.LookPath("lsof"); err == nil {
+		return p
+	}
+	return "/usr/sbin/lsof"
+}
+
 // otherUsers names another program holding the port open ("" if none), so the
 // deck steps aside while you flash or monitor a board. The daemon's own
 // children don't count: between fork and exec they hold every descriptor.
 func otherUsers(path string) string {
-	out, err := exec.Command("/usr/sbin/lsof", "-F", "pcR", path).Output()
+	out, err := exec.Command(lsofBin(), "-F", "pcR", path).Output()
 	if err != nil && len(out) == 0 {
 		return ""
 	}

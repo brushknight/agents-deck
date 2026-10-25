@@ -117,15 +117,11 @@ func (d *Daemon) relaunch(e store.Entry) error {
 	case "codex", "gemini", "opencode":
 		inner = []string{e.A.Tool}
 	case "shell":
-		sh := os.Getenv("SHELL")
-		if sh == "" {
-			sh = "/bin/zsh"
-		}
-		inner, status = []string{sh}, model.Idle
+		inner, status = []string{loginShell()}, model.Idle
 	default:
 		return fmt.Errorf("can't relaunch %q", e.A.Tool)
 	}
-	if err := tmux.NewSession(e.TmuxName, e.A.Cwd, agentEnv(e.A.ID), []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}); err != nil {
+	if err := tmux.NewSession(e.TmuxName, e.A.Cwd, agentEnv(e.A.ID), []string{loginShell(), "-lc", "exec " + shellJoin(inner)}); err != nil {
 		return err
 	}
 	d.Store.Update(e.A.ID, func(x *store.Entry) bool {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -80,6 +81,11 @@ func TestLiveSessionsFindsAHandStartedClaude(t *testing.T) {
 	// script(1) gives it a real terminal, like a tab would; its input stays
 	// open (a pipe we never write to), or it would quit at once.
 	cmd := exec.Command("script", "-q", "/dev/null", fake, "20")
+	if runtime.GOOS == "linux" {
+		// util-linux script(1) takes the command in -c; and "claude" is sleep
+		// run under that name, as uutils' sleep refuses a symlink of another name.
+		cmd = exec.Command("script", "-q", "-c", "bash -c 'exec -a claude sleep 20'", "/dev/null")
+	}
 	cmd.Dir = work
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

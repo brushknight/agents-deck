@@ -118,7 +118,7 @@ func (d *Daemon) claudeArgv(title string, acc accounts.Account, session []string
 		inner = append(inner, "-n", title)
 	}
 	inner = append(inner, d.Cfg.ClaudeArgs...)
-	return []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}
+	return []string{loginShell(), "-lc", "exec " + shellJoin(inner)}
 }
 
 func agentEnv(id string) []string {
