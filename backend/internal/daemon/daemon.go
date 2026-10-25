@@ -38,6 +38,9 @@ type Config struct {
 	// Cmux: mirror Claude agents running in cmux onto the board (default on;
 	// cmux's socket access must be Automation).
 	Cmux *bool `json:"cmux"`
+	// AutoLive: put every Claude session started by hand on the board without
+	// adding it (default off). One you remove stays off until you add it again.
+	AutoLive bool `json:"autoLive"`
 	// CodexWindowHours: threads updated within this many hours are shown (default 6).
 	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).

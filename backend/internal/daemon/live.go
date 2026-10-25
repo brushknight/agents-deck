@@ -47,6 +47,7 @@ type liveWatch struct {
 	mu         sync.Mutex
 	candidates []LiveCandidate
 	added      map[string]bool // session id -> on the deck (persisted)
+	dismissed  map[string]bool // with AutoLive: session id -> taken off the deck (persisted)
 	loaded     bool
 
 	claudeBin  string        // resolved once from the login shell
@@ -55,7 +56,8 @@ type liveWatch struct {
 	reportedOK bool
 }
 
-func addedPath() string { return filepath.Join(paths.Data(), "watched.json") }
+func addedPath() string     { return filepath.Join(paths.Data(), "watched.json") }
+func dismissedPath() string { return filepath.Join(paths.Data(), "dismissed.json") }
 
 // liveAgentID derives a stable board id ([a-z0-9]{6}) from a session id.
 func liveAgentID(sessionID string) string {
@@ -64,28 +66,53 @@ func liveAgentID(sessionID string) string {
 }
 
 func (d *Daemon) liveAdded() map[string]bool {
-	if !d.live.loaded {
-		d.live.loaded = true
-		d.live.added = map[string]bool{}
-		var ids []string
-		if b, err := os.ReadFile(addedPath()); err == nil {
-			_ = json.Unmarshal(b, &ids)
-		}
-		for _, id := range ids {
-			d.live.added[id] = true
-		}
-	}
+	d.loadLive()
 	return d.live.added
 }
 
+func (d *Daemon) liveDismissed() map[string]bool {
+	d.loadLive()
+	return d.live.dismissed
+}
+
+func (d *Daemon) loadLive() {
+	if !d.live.loaded {
+		d.live.loaded = true
+		d.live.added = readIDs(addedPath())
+		d.live.dismissed = readIDs(dismissedPath())
+	}
+}
+
+// onDeck: a session you added, or with AutoLive any session you didn't remove.
+func (d *Daemon) onDeck(sessionID string) bool {
+	return d.liveAdded()[sessionID] || d.Cfg.AutoLive && !d.liveDismissed()[sessionID]
+}
+
 func (d *Daemon) saveAdded() {
-	ids := make([]string, 0, len(d.live.added))
-	for id := range d.live.added {
+	writeIDs(addedPath(), d.live.added)
+	writeIDs(dismissedPath(), d.live.dismissed)
+}
+
+func readIDs(path string) map[string]bool {
+	set := map[string]bool{}
+	var ids []string
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &ids)
+	}
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+func writeIDs(path string, set map[string]bool) {
+	ids := make([]string, 0, len(set))
+	for id := range set {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	if b, err := json.Marshal(ids); err == nil {
-		_ = os.WriteFile(addedPath(), b, 0o600)
+		_ = os.WriteFile(path, b, 0o600)
 	}
 }
 
@@ -115,18 +142,18 @@ func (d *Daemon) syncLive() {
 	}
 
 	d.live.mu.Lock()
-	added := d.liveAdded()
 	cands := make([]LiveCandidate, 0, len(found))
 	want := map[string]claude.Live{}
 	for _, l := range found {
+		on := d.onDeck(l.SessionID)
 		info, _ := claude.ReadSession(l.Transcript, l.SessionID)
 		title := info.Title()
 		if l.Name != "" && (info.AITitle == "" && info.Custom == "") {
 			title = l.Name
 		}
 		cands = append(cands, LiveCandidate{SessionID: l.SessionID, Title: title, Cwd: l.Cwd,
-			Folder: filepath.Base(l.Cwd), Started: l.Started, OnBoard: added[l.SessionID], Background: l.Background})
-		if added[l.SessionID] {
+			Folder: filepath.Base(l.Cwd), Started: l.Started, OnBoard: on, Background: l.Background})
+		if on {
 			want[liveAgentID(l.SessionID)] = l
 		}
 	}
@@ -228,6 +255,7 @@ func (d *Daemon) AddLive(sessionID string, slot int) error {
 	}
 	if found {
 		d.liveAdded()[sessionID] = true
+		delete(d.liveDismissed(), sessionID)
 		d.saveAdded()
 	}
 	d.live.mu.Unlock()
@@ -246,6 +274,9 @@ func (d *Daemon) AddLive(sessionID string, slot int) error {
 func (d *Daemon) removeLive(e store.Entry) {
 	d.live.mu.Lock()
 	delete(d.liveAdded(), e.SessionID)
+	if d.Cfg.AutoLive {
+		d.liveDismissed()[e.SessionID] = true
+	}
 	d.saveAdded()
 	d.live.mu.Unlock()
 	d.Store.Remove(e.A.ID)

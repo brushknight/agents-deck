@@ -150,3 +150,45 @@ func TestClaudeAgentsList(t *testing.T) {
 		t.Fatalf("blocked = needs you: %+v %q", e.A, e.LiveAttach)
 	}
 }
+
+// With autoLive, every session is on the board without adding it; one you
+// take off stays off until you add it again.
+func TestAutoLive(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTSTERM_HOME", filepath.Join(root, "home"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "cfg"))
+	_ = os.MkdirAll(filepath.Join(root, "home"), 0o700)
+	old := tmux.Socket
+	tmux.Socket = fmt.Sprintf("agentsdeck-test-auto%d", os.Getpid())
+	t.Cleanup(func() { tmux.Socket = old })
+	id := "6e7f8091-2222-4333-8444-a55566667777"
+	list := `[{"cwd":"/work/app","kind":"interactive","startedAt":1791446002609,"sessionId":"` + id + `","name":"ide session","pid":4343,"status":"idle"}]`
+	fake := filepath.Join(root, "claude")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '"+list+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newDaemon := func() *Daemon {
+		d := &Daemon{Store: store.New("", "test", "0"), Cfg: Config{AutoLive: true}}
+		d.live.claudeBin = fake
+		return d
+	}
+	d := newDaemon()
+	d.syncLive()
+	if _, ok := d.Store.Get(liveAgentID(id)); !ok {
+		t.Fatal("autoLive: the session should be on the board without adding it")
+	}
+	if err := d.Dismiss(liveAgentID(id)); err != nil {
+		t.Fatal(err)
+	}
+	d = newDaemon() // removed stays removed, across restarts too
+	d.syncLive()
+	if _, ok := d.Store.Get(liveAgentID(id)); ok {
+		t.Fatal("a removed session came back")
+	}
+	if err := d.AddLive(id, -1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := d.Store.Get(liveAgentID(id)); !ok {
+		t.Fatal("adding it again should put it back")
+	}
+}

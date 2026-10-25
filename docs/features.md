@@ -113,7 +113,7 @@ daemon uses the socket methods `surface.read_text`, `surface.send_text`, `surfac
 
 ## Claude sessions started elsewhere
 
-Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (or **+ session** on the web dashboard, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell.
+Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (or **+ session** on the web dashboard, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell. To have every one show up without adding it, put `"autoLive": true` in `config.json`; a session you remove from the deck then stays off until you add it again.
 
 The list comes from Claude Code itself (`claude agents --json`), so it covers every active session on the Mac: ones in your terminals and **background** sessions (`claude --bg`, and the ones the Claude desktop app runs). Older Claude Code versions fall back to scanning for `claude` processes in terminals.
 
