@@ -568,10 +568,6 @@ class _AgentDetailState extends State<AgentDetail> {
                       cut: cut,
                     ),
                   ),
-                  if (a.subagents.isNotEmpty) ...[
-                    const SizedBox(width: 16),
-                    SubagentCrew(subagents: a.subagents, body: body, cut: cut),
-                  ],
                 ],
               ),
               const SizedBox(height: 10),
@@ -750,9 +746,31 @@ class _AgentDetailState extends State<AgentDetail> {
             cut: DeckHud.bg,
           ),
           const SizedBox(height: 26),
-          _label(nowLabel, DeckHud.dim),
+          // Doing now, and how many subagents work for it on the right.
+          Row(
+            children: [
+              Expanded(child: _label(nowLabel, DeckHud.dim)),
+              if (a.subagents.isNotEmpty)
+                Text(
+                  subagentCount(a.subagents.length),
+                  key: const Key('agent-subagent-count'),
+                  style: DeckHud.mono(size: 14, color: DeckHud.dim),
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
           nowValue,
+          // The working subagents, one to a row, like the boards draw them.
+          if (a.subagents.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SubagentRows(
+              subagents: a.subagents,
+              body: body,
+              cut: DeckHud.bg,
+              // The other account's row below takes the room of two.
+              maxRows: others.isEmpty ? 4 : 2,
+            ),
+          ],
           const SizedBox(height: 26),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -805,12 +823,23 @@ class _AgentDetailState extends State<AgentDetail> {
           const SizedBox(height: 26),
           _label('last prompt', DeckHud.dim),
           const SizedBox(height: 8),
+          // As many lines of it as fit (subagent rows take the room first).
           Expanded(
-            child: Text(
-              a.lastPrompt.isEmpty ? '—' : a.lastPrompt,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: DeckHud.rm(17, DeckHud.ink).copyWith(height: 1.45),
+            child: LayoutBuilder(
+              builder: (context, box) {
+                const style = TextStyle(height: 1.45);
+                // Keep clear of the footer under it.
+                final lines = ((box.maxHeight - 10) / (17 * 1.45))
+                    .floor()
+                    .clamp(0, 4);
+                if (lines == 0) return const SizedBox.shrink();
+                return Text(
+                  a.lastPrompt.isEmpty ? '—' : a.lastPrompt,
+                  maxLines: lines,
+                  overflow: TextOverflow.ellipsis,
+                  style: DeckHud.rm(17, DeckHud.ink).merge(style),
+                );
+              },
             ),
           ),
           Row(
@@ -1447,17 +1476,25 @@ class _AgentDetailState extends State<AgentDetail> {
   }
 }
 
-/// An agent's working subagents: small critters next to its mascot, each
-/// posed by its latest tool, and a count.
-class SubagentCrew extends StatelessWidget {
-  const SubagentCrew({
+/// "3 subagents", "1 subagent".
+String subagentCount(int n) => '$n subagent${n == 1 ? '' : 's'}';
+
+/// An agent's working subagents, one to a row: a small critter posed by its
+/// latest tool, its task, and its type after it when there's room (the
+/// boards' card draws them the same way). Past [max] the last row says how
+/// many more there are.
+class SubagentRows extends StatelessWidget {
+  const SubagentRows({
     super.key,
     required this.subagents,
     required this.body,
     required this.cut,
+    this.maxRows = 4,
   });
 
-  static const max = 6;
+  /// Rows at most, the "+N more" row included.
+  final int maxRows;
+  static const rowHeight = 32.0;
 
   final List<AgentSubagent> subagents;
   final Color body;
@@ -1465,35 +1502,117 @@ class SubagentCrew extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shown = subagents.take(max).toList();
+    final fits = subagents.length <= maxRows;
+    final shown = subagents.take(fits ? maxRows : maxRows - 1).toList();
     final more = subagents.length - shown.length;
-    final n = subagents.length;
     return Semantics(
       label:
-          '$n subagent${n == 1 ? '' : 's'}: '
+          '${subagentCount(subagents.length)}: '
           '${subagents.map((s) => s.title).join(', ')}',
-      child: Row(
+      child: Column(
         key: const Key('agent-subagents'),
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final s in shown)
-            Padding(
-              padding: const EdgeInsets.only(right: 9),
-              child: CritterSprite(
-                pose: critterPoseForTool(s.tool),
-                width: 36,
-                body: body,
-                cut: cut,
+            SizedBox(
+              key: Key('agent-subagent-${s.id}'),
+              height: rowHeight,
+              child: Row(
+                children: [
+                  _Lead(
+                    child: CritterSprite(
+                      pose: critterPoseForTool(s.tool),
+                      showBubble: false,
+                      // Whole-pixel cells: 36 is two pixels to a cell.
+                      width: 36,
+                      body: body,
+                      cut: cut,
+                    ),
+                  ),
+                  Expanded(child: _SubagentLine(subagent: s)),
+                ],
               ),
             ),
-          const SizedBox(width: 4),
-          Text(
-            '$n subagent${n == 1 ? '' : 's'}${more > 0 ? ' · +$more' : ''}',
-            style: DeckHud.rm(13, body),
-          ),
+          if (more > 0)
+            SizedBox(
+              height: rowHeight,
+              child: Row(
+                children: [
+                  const _Lead(child: SizedBox.shrink()),
+                  Text(
+                    '+$more more',
+                    key: const Key('agent-subagents-more'),
+                    style: DeckHud.mono(size: 15, color: DeckHud.dim),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
+    );
+  }
+}
+
+/// The critter's column at the start of a subagent row.
+class _Lead extends StatelessWidget {
+  const _Lead({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 50,
+    child: Align(alignment: Alignment.centerLeft, child: child),
+  );
+}
+
+/// A subagent's task, then " · type" in dim when the whole of it fits.
+class _SubagentLine extends StatelessWidget {
+  const _SubagentLine({required this.subagent});
+
+  final AgentSubagent subagent;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = subagent;
+    final titleStyle = DeckHud.rm(17, DeckHud.ink);
+    final typeStyle = DeckHud.mono(
+      size: 15,
+      color: DeckHud.dim,
+    ).copyWith(height: 1.0);
+    final title = s.title.isNotEmpty
+        ? s.title
+        : s.type.isNotEmpty
+        ? s.type
+        : 'subagent';
+    final type = s.title.isNotEmpty && s.type.isNotEmpty ? ' · ${s.type}' : '';
+    return LayoutBuilder(
+      builder: (context, box) {
+        final span = TextSpan(
+          children: [
+            TextSpan(text: title, style: titleStyle),
+            if (type.isNotEmpty) TextSpan(text: type, style: typeStyle),
+          ],
+        );
+        final tp = TextPainter(
+          text: span,
+          textDirection: TextDirection.ltr,
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        final fits = tp.width <= box.maxWidth;
+        tp.dispose();
+        return Text.rich(
+          fits ? span : TextSpan(text: title, style: titleStyle),
+          // The same line box with or without the type: rows stay level.
+          strutStyle: StrutStyle.fromTextStyle(
+            titleStyle,
+            forceStrutHeight: true,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        );
+      },
     );
   }
 }
