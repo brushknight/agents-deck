@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
@@ -135,7 +136,7 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 			if e.Transcript != "" && e.A.Tool == "claude" && claude.Tail(e) { // model, context, tokens, cost
 				changed = true
 			}
-			if t := orcaTitle(r); t != e.A.Title && e.A.AITitle == "" {
+			if t := orcaTitle(r); t != e.A.Title { // renaming the tab in Orca renames the agent
 				e.A.Title, changed = t, true
 			}
 			if b := orcaBranch(r.w.Branch); b != "" && b != e.A.Branch {
@@ -306,7 +307,13 @@ func orcaTool(agentType string) string {
 	}
 }
 
+// orcaTitle names an Orca agent after its tab, as Orca shows it: the tab's
+// title without the glyphs an agent puts in front ("✳ "), unless that is only
+// the agent's or the shell's own name. Then the workspace names it.
 func orcaTitle(r orcaRow) string {
+	if t := tabTitle(r.t.Title); t != "" {
+		return t
+	}
 	if r.w.DisplayName != "" {
 		return r.w.DisplayName
 	}
@@ -355,4 +362,17 @@ func (d *Daemon) orcaHide(e store.Entry) {
 	d.orca.hidden[e.OrcaPane] = time.Now().UnixMilli()
 	d.orca.mu.Unlock()
 	d.Store.Remove(e.A.ID)
+}
+
+// tabTitle is a terminal title worth showing as the agent's name: leading
+// glyphs and spaces dropped, "" when it only names the program.
+func tabTitle(s string) string {
+	s = strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}))
+	switch strings.ToLower(s) {
+	case "", "claude", "claude code", "codex", "opencode", "zsh", "bash", "fish", "sh", "-zsh", "-bash", "node":
+		return ""
+	}
+	return clipText(s, 80)
 }
