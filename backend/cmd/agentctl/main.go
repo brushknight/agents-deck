@@ -584,7 +584,7 @@ func list() error {
 		if a.External {
 			cost = "—" // Codex reports no prices
 		}
-		row := []string{a.ID, clip(listName(a.Title), 32), st, ctx, cost, clip(a.Folder, 24)}
+		row := []string{a.ID, clip(listName(a.Title), 40), st, ctx, cost, clip(a.Folder, 24)}
 		if acctCol {
 			acct := ""
 			if a.Account != nil {
@@ -762,10 +762,10 @@ func ago(t time.Time) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
-// listName is a title for one table cell: on one line, without the quotes
-// some session names carry.
+// listName is a title for one table cell: the name as it was set (with
+// /rename it can hold any punctuation, quotes too), only kept on one line.
 func listName(s string) string {
-	s = strings.Trim(oneLine(s), `"'“”`)
+	s = oneLine(s)
 	if s == "" {
 		return "-"
 	}
