@@ -151,8 +151,10 @@ func (d *Daemon) Run() {
 					changed = true
 				}
 			} else if alive && e.A.Status == model.Waiting && e.A.Waiting != nil && n%2 == 1 {
-				// A permission/question prompt whose options we only guessed: read the screen.
-				if claude.RefineOptions(e.A.Waiting, tmux.Capture(e.TmuxName, 40)) {
+				if d.askOnScreen(e) {
+					changed = true
+				} else if claude.RefineOptions(e.A.Waiting, tmux.Capture(e.TmuxName, 40)) {
+					// A permission/question prompt whose options we only guessed: read the screen.
 					changed = true
 				}
 			}
@@ -239,6 +241,30 @@ func (d *Daemon) exitedTTL() time.Duration {
 		return 10 * time.Minute
 	}
 	return time.Duration(d.Cfg.ExitedTTLSeconds) * time.Second
+}
+
+// askOnScreen follows a question (AskUserQuestion) the agent waits on from
+// its screen: answers typed in the terminal move a form along, and a
+// question answered or cancelled there closes the prompt (cancelling fires
+// no hook). It reports whether the agent changed.
+func (d *Daemon) askOnScreen(e *store.Entry) bool {
+	if e.A.Waiting.Kind != "question" || time.Since(e.A.StatusSince) < formSettle {
+		return false // permissions have their own reading; a new dialog may not be drawn yet
+	}
+	f := claude.ActiveForm(e)
+	if f != nil && time.Since(f.Typed) < formSettle {
+		return false
+	}
+	screen := tmux.Capture(e.TmuxName, 0)
+	if closed, answered := claude.AskClosed(screen); closed {
+		if answered {
+			e.SetStatus(model.Running) // PostToolUse follows
+		} else {
+			e.SetStatus(model.Idle) // declined: Claude's turn ends
+		}
+		return true
+	}
+	return f != nil && claude.SyncForm(e, screen)
 }
 
 // scanMenu turns an on-screen arrow-key menu into a prompt, and clears the
@@ -399,6 +425,10 @@ func (d *Daemon) uniqueTitle(base string) string {
 	}
 }
 
+// formSettle is how long Claude Code takes to redraw a form after a key; the
+// screen isn't checked against the deck's step before that.
+const formSettle = 1500 * time.Millisecond
+
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
 	if e, ok := d.Store.Get(id); ok {
@@ -409,9 +439,16 @@ func (d *Daemon) Answer(id, promptID, key string) error {
 	if e, ok := d.Store.Get(id); ok && e.External {
 		return externalErr(e)
 	}
+	// A question form: check the screen still shows the step the deck asked.
+	var screen string
+	if e, ok := d.Store.Get(id); ok && claude.ActiveForm(&e) != nil && time.Since(e.Form.Typed) > formSettle {
+		screen = tmux.Capture(e.TmuxName, 0)
+	}
 	var tmuxName string
 	var label string
 	var keys []string
+	var form bool
+	text := key
 	err := errors.New("")
 	ok := d.Store.Update(id, func(e *store.Entry) bool {
 		p := e.A.Waiting
@@ -426,6 +463,19 @@ func (d *Daemon) Answer(id, promptID, key string) error {
 		}
 		if label == "" {
 			err = server.ErrBadKey
+			return false
+		}
+		if f := claude.ActiveForm(e); f != nil {
+			if screen != "" && claude.SyncForm(e, screen) {
+				err = server.ErrStalePrompt // answered in the terminal meanwhile: show where it is now
+				return true
+			}
+			t, k, valid := claude.FormKeys(f, key)
+			if !valid {
+				err = server.ErrBadKey
+				return false
+			}
+			err, tmuxName, form, text, keys = nil, e.TmuxName, true, t, k
 			return false
 		}
 		err, tmuxName = nil, e.TmuxName
@@ -453,9 +503,9 @@ func (d *Daemon) Answer(id, promptID, key string) error {
 		return err
 	}
 	if len(keys) > 0 {
-		err = tmux.SendKeys(tmuxName, "", keys...)
+		err = tmux.SendKeys(tmuxName, text, keys...)
 	} else {
-		err = tmux.SendKeys(tmuxName, key)
+		err = tmux.SendKeys(tmuxName, text)
 	}
 	if err != nil {
 		return err
@@ -464,6 +514,10 @@ func (d *Daemon) Answer(id, promptID, key string) error {
 	d.Store.Update(id, func(e *store.Entry) bool {
 		if e.A.Waiting == nil || e.A.Waiting.ID != promptID {
 			return false
+		}
+		if form && claude.ActiveForm(e) != nil {
+			claude.AdvanceForm(e, key)
+			return true
 		}
 		if e.Menu {
 			e.Menu = false

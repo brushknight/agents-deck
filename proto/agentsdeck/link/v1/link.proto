@@ -238,6 +238,7 @@ message Option {
   string key = 1;
   string label = 2;
   bool primary = 3;
+  bool selected = 4;  // ticked: a pick-any question's answer so far
 }
 
 message Tokens {

@@ -41,6 +41,7 @@ typedef struct {
 	char key[8];
 	char label[DECK_TILE_LABEL_SIZE];
 	bool primary;
+	bool selected; /* ticked: an answer picked so far on a pick-any question */
 } deck_tile_option_t;
 
 typedef struct {

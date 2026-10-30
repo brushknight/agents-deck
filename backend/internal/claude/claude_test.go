@@ -204,15 +204,6 @@ func TestApplyQuestionBeatsPermissionHook(t *testing.T) {
 	}
 }
 
-func TestApplyMultiQuestionIsInput(t *testing.T) {
-	e := &store.Entry{}
-	in := `{"questions":[{"question":"A?","options":[{"label":"x"},{"label":"y"}]},{"question":"B?","options":[{"label":"z"},{"label":"w"}]}]}`
-	Apply(e, ev("PreToolUse", "tool", "AskUserQuestion", "input", in))
-	if e.A.Waiting == nil || e.A.Waiting.Kind != "input" || len(e.A.Waiting.Options) != 0 {
-		t.Fatalf("multi-question form should be input-only: %+v", e.A.Waiting)
-	}
-}
-
 func TestApplyPromptIDsChange(t *testing.T) {
 	e := &store.Entry{}
 	Apply(e, ev("PermissionRequest", "tool", "Bash", "input", `{"command":"a"}`))

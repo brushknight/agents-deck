@@ -93,8 +93,7 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		e.A.Turns++
 	case "PreToolUse":
 		if ev.ToolName == "AskUserQuestion" {
-			if p := questionPrompt(e, ev.ToolInput); p != nil {
-				e.SetStatus(model.Waiting)
+			if p := askPrompt(e, ev.ToolInput); p != nil {
 				e.A.Waiting = p
 				return true, true
 			}
@@ -108,8 +107,7 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 			if e.A.Waiting != nil && e.A.Waiting.Kind != "permission" {
 				return false, false
 			}
-			if p := questionPrompt(e, ev.ToolInput); p != nil {
-				e.SetStatus(model.Waiting)
+			if p := askPrompt(e, ev.ToolInput); p != nil {
 				e.A.Waiting = p
 				return true, true
 			}
@@ -216,6 +214,25 @@ func permissionPrompt(e *store.Entry, tool string, input json.RawMessage) *model
 		Context: ctx, Options: DefaultPermissionOptions()}
 }
 
+// askPrompt is the prompt for an AskUserQuestion the agent's hooks report,
+// with the agent set waiting: the first step of a form when it takes more
+// than one key (see form.go), else the question.
+func askPrompt(e *store.Entry, input json.RawMessage) *model.Prompt {
+	if f := newForm(input); f != nil {
+		e.SetStatus(model.Waiting)
+		e.Form = f
+		return formPrompt(e)
+	}
+	p := questionPrompt(e, input)
+	if p != nil {
+		e.SetStatus(model.Waiting)
+	}
+	return p
+}
+
+// questionPrompt is a single question with its options. A form (several
+// questions) is answered at the terminal here; agents whose hooks report to
+// the daemon get askPrompt instead, which walks it.
 func questionPrompt(e *store.Entry, input json.RawMessage) *model.Prompt {
 	var in struct {
 		Questions []struct {
@@ -241,7 +258,7 @@ func questionPrompt(e *store.Entry, input json.RawMessage) *model.Prompt {
 		p.Options = append(p.Options, model.Option{Key: fmt.Sprint(i + 1), Label: label, Primary: i == 0})
 	}
 	if len(in.Questions) > 1 || len(p.Options) == 0 {
-		p.Kind = "input" // multi-question forms are answered at the terminal
+		p.Kind = "input" // forms are answered at the terminal (or walked, see askPrompt)
 		p.Options = nil
 	}
 	return p
