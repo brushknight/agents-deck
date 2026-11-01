@@ -50,6 +50,7 @@ type Daemon struct {
 	Agentctl string // absolute path of this binary, used in hook commands
 
 	mu        sync.Mutex
+	scans     sync.WaitGroup // screen reads started by Hook, so tests can wait for them
 	lastFocus time.Time
 	iterm     itermLink
 	reporting map[string]bool                 // ttys we asked to report focus
@@ -313,7 +314,9 @@ func (d *Daemon) Hook(agentID string, body []byte) error {
 	}
 	if scan {
 		// The dialog renders a moment after the hook fires.
+		d.scans.Add(1)
 		go func() {
+			defer d.scans.Done()
 			for _, wait := range []time.Duration{250 * time.Millisecond, 900 * time.Millisecond} {
 				time.Sleep(wait)
 				d.Store.Update(agentID, func(e *store.Entry) bool {

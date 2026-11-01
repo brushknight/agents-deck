@@ -33,6 +33,7 @@ func formAgent(t *testing.T, d *Daemon, script string) string {
 	if err := d.Hook(id, body); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(d.scans.Wait) // its screen reads finish before the test's tmux server goes away
 	return id
 }
 
