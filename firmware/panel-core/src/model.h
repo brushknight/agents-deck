@@ -47,6 +47,7 @@ struct Option {
   char key[8];
   char label[PANEL_OPTION_LABEL];
   bool primary;
+  bool selected;  // ticked answer of a pick-any question; label starts "[x] "
 };
 
 // Working subagents kept per agent, for the card's list (Deck Link sends up

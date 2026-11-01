@@ -142,3 +142,49 @@ func TestOrcaWaitingQuestion(t *testing.T) {
 		t.Fatalf("free-text wait: %+v", e.A.Waiting)
 	}
 }
+
+// Renaming the tab in Orca renames the agent on the deck, even once the
+// transcript has given it an AI title; a tab that only names the program
+// leaves the workspace's name.
+func TestOrcaTabTitleNamesTheAgent(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.client = &fakeOrca{}
+	snap := func(title string) orca.Snapshot {
+		s := orcaSnap("working", "", "", 100)
+		s.Terminals[0].Title = title
+		return s
+	}
+	title := func() string {
+		e, _ := d.Store.Get(orcaAgentID("tab1:leaf1"))
+		return e.A.Title
+	}
+	d.syncOrca(snap("✳ Claude Code"))
+	if got := title(); got != "fix-login" {
+		t.Fatalf("program-only tab title: %q", got)
+	}
+	d.syncOrca(snap("✳ Login rework"))
+	if got := title(); got != "Login rework" {
+		t.Fatalf("tab title: %q", got)
+	}
+	d.Store.Update(orcaAgentID("tab1:leaf1"), func(e *store.Entry) bool { e.A.AITitle = "Fix the login bug"; return true })
+	d.syncOrca(snap("Payments"))
+	if got := title(); got != "Payments" {
+		t.Fatalf("renamed tab: %q", got)
+	}
+}
+
+func TestTabTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"✳ Orca experiment test": "Orca experiment test",
+		"⠂ deploy":               "deploy",
+		"Claude Code":            "",
+		"✳ claude":               "",
+		"zsh":                    "",
+		"  ":                     "",
+		"api-tests":              "api-tests",
+	} {
+		if got := tabTitle(in); got != want {
+			t.Errorf("tabTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

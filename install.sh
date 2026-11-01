@@ -2,27 +2,31 @@
 # agents deck installer: downloads a release from GitHub, checks it against
 # the release's SHA256SUMS, installs agentctl to ~/.local/bin and starts the
 # daemon (launchd on macOS, a systemd user service on Linux). Add --app for the
-# menu bar app (~/Applications, macOS only). In a clone, --source builds from code.
+# menu bar app (~/Applications on macOS; on Linux the system tray app, built
+# from source, in ~/.local/share/agents-deck). In a clone, --source builds from code.
 #
 # Linux note: no prebuilt releases are published, so Linux always builds from
-# source (--source is implied when run from a clone). The menu bar app is
-# macOS-only; on Linux use the web dashboard (agentctl web).
+# source (--source is implied when run from a clone). --app there needs Flutter
+# and GTK 3 build tools; add --autostart to start the tray app at login.
 #
 #   curl -fsSL https://raw.githubusercontent.com/brushknight/agents-deck/main/install.sh | sh
 #   curl -fsSL …/install.sh | sh -s -- --app            # also the menu bar app
 #   curl -fsSL …/install.sh | sh -s -- --version v0.2.0
 #   ./install.sh --source --app                         # from a clone (needs Go; Flutter for --app)
+#   ./install.sh --source --app --autostart             # Linux: also start the tray app at login
 #   --no-daemon: install agentctl but don't (re)start its login item
 set -eu
 
 repo="brushknight/agents-deck"
 version=""
 app=0
+autostart=0
 daemon=1
 source=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) app=1 ;;
+    --autostart) autostart=1 ;;
     --no-daemon) daemon=0 ;;
     --source) source=1 ;;
     --version) version="$2"; shift ;;
@@ -38,6 +42,10 @@ case "$os/$arch" in
   Linux/aarch64|Linux/arm64) target="linux_arm64" ;;
   *) echo "agents deck has no build for $os/$arch (macOS arm64, or Linux x86_64/arm64)" >&2; exit 1 ;;
 esac
+
+if [ "$autostart" = 1 ] && [ "$os" = Darwin ]; then
+  echo "note: --autostart is for the Linux tray app; on macOS add agents deck in System Settings > General > Login Items"
+fi
 
 # No prebuilt releases are published for Linux, so build from source there.
 # Auto-switch when run from a clone; otherwise point the way.
@@ -102,10 +110,60 @@ EOF
   fi
 }
 
-# The menu bar app is macOS-only (Flutter macOS target). On Linux the web
-# dashboard (agentctl web) is the cross-platform equivalent.
-app_note_linux() {
-  echo "note: the menu bar app is macOS-only; on Linux use the web dashboard: agentctl web"
+# The Linux tray app: the same Flutter app as the macOS one, built for GTK,
+# copied to ~/.local/share/agents-deck/app, with a launcher in the app menu,
+# `agents-deck` in ~/.local/bin, and with --autostart an XDG autostart entry.
+install_linux_app() {
+  command -v flutter >/dev/null 2>&1 || {
+    echo "--app needs Flutter 3.44+ (https://docs.flutter.dev/get-started/install/linux)" >&2
+    echo "  and its Linux build tools, e.g.: sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev" >&2
+    exit 1
+  }
+  (cd "$root/clients/macos" && flutter pub get >/dev/null && flutter build linux --release) || {
+    echo "the tray app didn't build; Flutter's Linux build needs: clang cmake ninja-build pkg-config libgtk-3-dev" >&2
+    exit 1
+  }
+  bundle="$(ls -d "$root"/clients/macos/build/linux/*/release/bundle 2>/dev/null | head -1)"
+  [ -x "$bundle/agents-deck" ] || { echo "no tray app in $root/clients/macos/build/linux" >&2; exit 1; }
+  dest="$HOME/.local/share/agents-deck/app"
+  pkill -x agents-deck 2>/dev/null || true # the old copy, if it's running
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")" "$HOME/.local/bin" "$HOME/.local/share/applications"
+  cp -R "$bundle" "$dest"
+  ln -sf "$dest/agents-deck" "$HOME/.local/bin/agents-deck"
+  desktop="$HOME/.local/share/applications/dev.agents-deck.menubar.desktop"
+  write_desktop_entry > "$desktop"
+  echo "  tray app → ~/.local/share/agents-deck/app (agents-deck, and in your app menu)"
+  autostart_file="$HOME/.config/autostart/dev.agents-deck.menubar.desktop"
+  if [ "$autostart" = 1 ]; then
+    mkdir -p "$HOME/.config/autostart"
+    # --background: at login the tray may come up after the app; wait for it.
+    { write_desktop_entry | sed 's|^Exec=.*|& --background|'; echo "X-GNOME-Autostart-enabled=true"; } > "$autostart_file"
+    echo "  starts at login → ~/.config/autostart/dev.agents-deck.menubar.desktop"
+  elif [ -f "$autostart_file" ]; then
+    echo "  still starts at login: remove ~/.config/autostart/dev.agents-deck.menubar.desktop to stop that"
+  fi
+  if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    (nohup "$dest/agents-deck" >/dev/null 2>&1 &)
+  fi
+  case "${XDG_CURRENT_DESKTOP:-}" in
+    *GNOME*) echo "note: GNOME shows tray icons only with the AppIndicator extension (gnome-shell-extension-appindicator; Ubuntu has it on)" ;;
+  esac
+}
+
+write_desktop_entry() {
+  cat <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=agents deck
+Comment=Your coding agents in the system tray
+Exec=$dest/agents-deck
+Icon=$dest/data/app_icon.png
+Terminal=false
+Categories=Development;
+StartupNotify=false
+StartupWMClass=dev.agents-deck.menubar
+DESKTOP
 }
 
 if [ "$source" = 1 ]; then
@@ -120,7 +178,7 @@ if [ "$source" = 1 ]; then
   if [ "$daemon" = 1 ]; then setup_daemon; fi
   if [ "$app" = 1 ]; then
     if [ "$os" != Darwin ]; then
-      app_note_linux
+      install_linux_app
     else
       command -v flutter >/dev/null 2>&1 || { echo "--app needs Flutter 3.44+: brew install --cask flutter" >&2; exit 1; }
       (cd "$root/clients/macos" && flutter pub get >/dev/null && flutter build macos --release)

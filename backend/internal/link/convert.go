@@ -77,7 +77,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		w := &linkpb.Prompt{Id: a.Waiting.ID, Kind: promptKinds[a.Waiting.Kind], Title: a.Waiting.Title,
 			Detail: a.Waiting.Detail, Context: a.Waiting.Context}
 		for _, o := range a.Waiting.Options {
-			w.Options = append(w.Options, &linkpb.Option{Key: o.Key, Label: o.Label, Primary: o.Primary})
+			w.Options = append(w.Options, &linkpb.Option{Key: o.Key, Label: o.Label, Primary: o.Primary, Selected: o.Selected})
 		}
 		p.Waiting = w
 	}

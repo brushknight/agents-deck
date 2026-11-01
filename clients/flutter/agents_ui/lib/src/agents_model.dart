@@ -35,6 +35,7 @@ class AgentOption {
     required this.key,
     required this.label,
     this.primary = false,
+    this.selected = false,
   });
 
   /// Sent back verbatim as the answer's `key`.
@@ -42,10 +43,15 @@ class AgentOption {
   final String label;
   final bool primary;
 
+  /// Ticked: an answer picked so far on a pick-any question (sending its
+  /// key again unticks it).
+  final bool selected;
+
   static AgentOption fromJson(Map<String, dynamic> j) => AgentOption(
     key: _str(j['key']),
     label: _str(j['label']),
     primary: j['primary'] == true,
+    selected: j['selected'] == true,
   );
 
   /// Question options arrive as "title — explanation"; the rows show the

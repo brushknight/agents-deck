@@ -166,6 +166,13 @@ class FakeAgentsSource implements AgentsSource {
         if (!keys.contains(body?['key'])) {
           return const AgentsResult(AgentsResultKind.rejected, 'not an option');
         }
+        // Fixtures can chain prompts ("next": the following step of a
+        // question form), the way the daemon walks one step at a time.
+        if (w['next'] case final Map<String, dynamic> next) {
+          a['waiting'] = next;
+          _emit();
+          return AgentsResult.ok;
+        }
         _setStatus(a, 'running');
         a['activity'] = {'tool': 'Bash', 'detail': w['detail'] ?? ''};
       case 'interrupt':

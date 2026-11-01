@@ -6,7 +6,7 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 |---|---|---|
 | desk panel (Flutter, 720×720), later a phone app | HTTPS on the network, `:7341`, **TLS 1.3 only** | a **client certificate per device**, signed by the deck's CA; scope view, act or admin |
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
-| menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions: your macOS user |
+| menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions: your user |
 | ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board (at once when plugged into a registered USB port, unless turned off); scope view, act or admin |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
 
@@ -119,7 +119,25 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
     { "key": "3", "label": "no" }
   ]
 }
+
+// Option — "selected": true marks a ticked answer of a pick-any question (omitted otherwise)
+{ "key": "2", "label": "cheese", "selected": true }
 ```
+
+A question with several parts (Claude's form: more than one question, or one where you can pick more
+than one answer) comes one step at a time, each with a new `id`:
+
+- each question in turn, `kind: "question"`, with `context` like `"size · question 2 of 3"`. Answering
+  picks and moves to the next question.
+- a pick-any question (`context` ends in `"pick any"`) lists its answers with `selected` on the ticked
+  ones; answering one ticks or unticks it and sends a new prompt with the ticks updated. Its last
+  option, `"next — …"`, moves on.
+- the review: `title: "submit these answers?"`, the answers in `detail` (one per line), options
+  `1` submit answers and `2` cancel.
+
+Free text ("type something") stays at the terminal. An answer typed at the terminal moves the deck's
+prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
+answers or the form is cancelled.
 
 Status meanings (what the tiles show):
 

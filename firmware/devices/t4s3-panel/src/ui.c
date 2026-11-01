@@ -841,7 +841,8 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 			para(p, &lv_font_montserrat_16, C_DIM, a->waiting.context);
 		for (pb_size_t i = 0; i < a->waiting.options_count; i++) {
 			const agentsdeck_link_v1_Option *o = &a->waiting.options[i];
-			snprintf(b, sizeof b, "%s. %s", o->key, o->label);
+			/* selected: a ticked answer of a pick-any question */
+			snprintf(b, sizeof b, "%s. %s%s", o->key, o->selected ? LV_SYMBOL_OK " " : "", o->label);
 			button(p, b, o->primary, ACTION_ANSWER, o->key);
 		}
 		if (a->waiting.options_count == 0)

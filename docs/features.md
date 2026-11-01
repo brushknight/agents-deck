@@ -12,7 +12,7 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 - **Colour.** Orange means working; a solid orange tile means the agent needs you (a permission prompt or a question).
 - **The border** fills clockwise with the agent's context window.
 - **Hungry.** An agent that finished but whose result you haven't reviewed gets sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task.
-- **Subagents.** A small critter in the tile's top-left corner means subagents are at work too, with a count when there are several. The agent's card shows each one, posed by what it's doing.
+- **Subagents.** A small critter in the tile's top-left corner means subagents are at work too, with a count when there are several. The agent's card lists them under "doing now", one to a row: a small critter posed by what it's doing, then its task and its type.
 - **Pages.** The deck holds 16 agents per page (page = slot ÷ 16). With more, the tiles get a little shorter (they keep their width) and a row of bars appears under the grid, in the same square: the current page bright, another page orange when an agent there needs you. Swipe left and right (touch or trackpad), use ← / →, or tap a bar.
 - **Arranging.** Drag a tile onto any free spot to move it there, or onto another tile to swap them (long-press on touch screens). The layout is shared by every view. `agentctl move <agent> <n>` does the same from the terminal.
 
@@ -23,7 +23,7 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 Tap a tile for its card:
 
 - **Overview.** What it's doing now, context used, tokens, estimated cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop** (or **resume** / **remove** once it has exited).
-- **Permission prompts** show the exact command with Claude's own options; **questions** show their choices. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
+- **Permission prompts** show the exact command with Claude's own options; **questions** show their choices; a question with several parts goes one question at a time (pick-any ones tick, then **next**), then **submit answers**. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
 - **Free-text input** can't be typed on the deck: the card sends you to the terminal.
 
 <p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>
@@ -33,6 +33,7 @@ Tap a tile for its card:
 | | |
 |---|---|
 | **Menu bar** | A critter icon that turns orange when an agent needs you; the deck drops down in the top-right corner. Esc, the ‹ button or a click elsewhere hides it; right-click opens the web dashboard. |
+| **System tray (Linux)** | The same app and critter icon in the system tray. A click opens the deck next to the icon; Esc or a click elsewhere hides it; the icon's menu has the deck, the web dashboard and Quit. Details in [clients/macos/README.md](../clients/macos/README.md#linux). |
 | **Browser** | `agentctl web` opens the dashboard with a one-time login link. It has a grid view and a panel view that mirrors the 720×720 desk panel. |
 | **Wall panel** | A 4″ 720×720 touch panel ([Wall Panel](https://github.com/dotstartech/wall-panel): Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi: TLS 1.3 with its own client certificate (`agentctl pair desk-panel --bundle -`). Cards close with an edge swipe. |
 | **Serial boards** | ESP32 boards on USB with Deck Link: see below. |

@@ -13,6 +13,7 @@
 // (server.time_ms) and every Ping (time_ms, every 5 s); "now" is the last one
 // plus millis() since. Ages are therefore never more than 5 s of drift off.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "deck_link.h"
@@ -93,8 +94,13 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
     for (pb_size_t i = 0; i < in.waiting.options_count && a.optCount < kMaxOptions; i++) {
       Option& o = a.opts[a.optCount++];
       copyLine(o.key, sizeof o.key, in.waiting.options[i].key);
-      copyLine(o.label, sizeof o.label, in.waiting.options[i].label);
       o.primary = in.waiting.options[i].primary;
+      o.selected = in.waiting.options[i].selected;
+      // A ticked answer of a pick-any question (answering it again unticks
+      // it). The fonts have no check mark; every layout shows the label.
+      char label[sizeof in.waiting.options[i].label + 4];  // clipped on a UTF-8 boundary below
+      snprintf(label, sizeof label, "%s%s", o.selected ? "[x] " : "", in.waiting.options[i].label);
+      copyLine(o.label, sizeof o.label, label);
     }
   }
   copyLine(a.errMsg, sizeof a.errMsg, in.error);

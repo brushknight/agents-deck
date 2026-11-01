@@ -158,6 +158,21 @@ int main() {
     assert(!strcmp(a.subs[2].title, "task 2 second line") && !strcmp(a.subs[2].tool, "Grep"));
     assert(!strcmp(kHatShapes[a.hat - 1], "propeller") && !strcmp(kHatColors[a.hatColor], "blue"));
 
+    // A pick-any question step: ticked answers read "[x] …" on every layout.
+    in.waiting.kind = agentsdeck_link_v1_PromptKind_PROMPT_QUESTION;
+    in.waiting.options_count = 3;
+    snprintf(in.waiting.options[0].key, sizeof in.waiting.options[0].key, "1");
+    snprintf(in.waiting.options[0].label, sizeof in.waiting.options[0].label, "cheese");
+    in.waiting.options[0].selected = true;
+    snprintf(in.waiting.options[1].key, sizeof in.waiting.options[1].key, "2");
+    snprintf(in.waiting.options[1].label, sizeof in.waiting.options[1].label, "ham");
+    snprintf(in.waiting.options[2].key, sizeof in.waiting.options[2].key, "3");
+    snprintf(in.waiting.options[2].label, sizeof in.waiting.options[2].label, "next — review your answers");
+    in.waiting.options[2].primary = true;
+    agentFromLink(in, a);
+    assert(a.optCount == 3 && a.opts[0].selected && !strcmp(a.opts[0].label, "[x] cheese"));
+    assert(!a.opts[1].selected && !strcmp(a.opts[1].label, "ham") && a.opts[2].primary);
+
     // No hat, an unknown shape, an unknown colour; a Claude agent with nothing else.
     agentsdeck_link_v1_Agent b = la("b", 0, agentsdeck_link_v1_Status_STATUS_IDLE);
     agentFromLink(b, a);

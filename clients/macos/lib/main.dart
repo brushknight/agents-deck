@@ -1,9 +1,12 @@
+import 'dart:io' show Platform;
+
 import 'package:agents_deck_ui/agents_deck_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// The native side (AppDelegate.swift): the menu bar icon and the window.
+/// The native side: the menu bar or tray icon and the window
+/// (macos/Runner/AppDelegate.swift, linux/runner/my_application.cc).
 const _menubar = MethodChannel('agents_deck/menubar');
 
 void main() {
@@ -17,7 +20,7 @@ void main() {
   runApp(MenuBarDeck(source: source, visible: visible));
 }
 
-/// Tells the menu bar icon how many agents need you (0 = plain icon).
+/// Tells the menu bar or tray icon how many agents need you (0 = plain icon).
 int _lastReported = -1;
 void _report(AgentsSnapshot snap) {
   final n = snap.state?.waitingCount ?? 0;
@@ -77,7 +80,7 @@ class MenuBarDeck extends StatelessWidget {
   }
 }
 
-/// No daemon config on this Mac yet.
+/// No daemon running on this computer yet.
 class _NotPaired extends StatelessWidget {
   const _NotPaired({this.problem});
 
@@ -104,7 +107,7 @@ class _NotPaired extends StatelessWidget {
           const SizedBox(height: 18),
           Text(
             'install it and start the daemon:\n\n'
-            '  agentctl install\n\n'
+            '${Platform.isLinux ? '  systemctl --user start agents-deck' : '  agentctl install'}\n\n'
             'the deck connects by itself once it is up.',
             style: DeckHud.mono(
               size: 20,

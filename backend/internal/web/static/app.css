@@ -515,6 +515,9 @@ body.offline .main { opacity: 0.4; }
 .p-accent .opt.primary { background: var(--bg); color: var(--accent); border-color: var(--bg); }
 .p-accent .opt.primary:active { background: transparent; color: var(--bg); }
 .opt.sent::after { content: "sent"; margin-left: auto; padding-left: 12px; font-size: 13px; }
+.opt .tick { margin-left: auto; padding-left: 12px; font-family: var(--f-head); font-weight: 700; font-size: 18px; }
+.opt.sent .tick { display: none; }
+.p-detail { white-space: pre-line; }
 
 /* question */
 .p-question .opt {

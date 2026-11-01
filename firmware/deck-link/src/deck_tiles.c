@@ -77,6 +77,7 @@ static void fill(deck_tile_t *d, const agentsdeck_link_v1_Agent *a)
 			copy_str(o->key, sizeof o->key, p->options[i].key);
 			copy_str(o->label, sizeof o->label, p->options[i].label);
 			o->primary = p->options[i].primary;
+			o->selected = p->options[i].selected;
 		}
 	}
 }

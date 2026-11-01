@@ -80,7 +80,7 @@ With every slot taken, the deck pages left and right instead of the pager tile:
 
 ## Later
 
-- **Linux and Windows:** after macOS. Each needs its own tray app as the companion to the menu bar app. Linux: `agentctl` compiles; it needs a systemd user unit and terminal focus without iTerm. Windows: agents run in tmux, so WSL is the likely path.
+- **Linux and Windows:** after macOS. Linux: `install.sh` builds `agentctl` with a systemd user unit, and `--app` the tray app (the menu bar app built for GTK); left are release archives and terminal focus without iTerm. Windows: agents run in tmux, so WSL is the likely path, and it needs its own tray app.
 - **Homebrew:** a tap with a formula for `agentctl` and a cask for the menu bar app, once the above has been used for a while.
 
 ## Parked ideas

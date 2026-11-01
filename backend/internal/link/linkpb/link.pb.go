@@ -2163,6 +2163,7 @@ type Option struct {
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	Primary       bool                   `protobuf:"varint,3,opt,name=primary,proto3" json:"primary,omitempty"`
+	Selected      bool                   `protobuf:"varint,4,opt,name=selected,proto3" json:"selected,omitempty"` // ticked: a pick-any question's answer so far
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2214,6 +2215,13 @@ func (x *Option) GetLabel() string {
 func (x *Option) GetPrimary() bool {
 	if x != nil {
 		return x.Primary
+	}
+	return false
+}
+
+func (x *Option) GetSelected() bool {
+	if x != nil {
+		return x.Selected
 	}
 	return false
 }
@@ -4170,11 +4178,12 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x16\n" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x18\n" +
 	"\acontext\x18\x05 \x01(\tR\acontext\x124\n" +
-	"\aoptions\x18\x06 \x03(\v2\x1a.agentsdeck.link.v1.OptionR\aoptions\"J\n" +
+	"\aoptions\x18\x06 \x03(\v2\x1a.agentsdeck.link.v1.OptionR\aoptions\"f\n" +
 	"\x06Option\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x18\n" +
-	"\aprimary\x18\x03 \x01(\bR\aprimary\"v\n" +
+	"\aprimary\x18\x03 \x01(\bR\aprimary\x12\x1a\n" +
+	"\bselected\x18\x04 \x01(\bR\bselected\"v\n" +
 	"\x06Tokens\x12\x14\n" +
 	"\x05input\x18\x01 \x01(\x03R\x05input\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\x03R\x06output\x12\x1d\n" +

@@ -199,7 +199,8 @@ static void render()
 		if (t->has_prompt)
 			strncat(l[1], t->prompt_title, sizeof l[1] - strlen(l[1]) - 1);
 		if (mode == PICK_OPTION && option < t->option_count)
-			snprintf(l[2], sizeof l[2], "> %s %s%s", t->options[option].key, t->options[option].label,
+			snprintf(l[2], sizeof l[2], "> %s %s%s%s", t->options[option].key, t->options[option].selected ? "[x] " : "",
+				 t->options[option].label,
 				 t->options[option].primary ? " *" : "");
 		else if (t->has_prompt && t->option_count > 0)
 			snprintf(l[2], sizeof l[2], "press to answer");

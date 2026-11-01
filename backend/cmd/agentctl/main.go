@@ -550,16 +550,23 @@ func list() error {
 		fmt.Println("no agents — start one with `agentctl new`")
 		return nil
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	acctCol := false
+	// One row per agent, like `docker ps`: the id, the name and the status
+	// first, always in the same columns; what a waiting agent asks goes last
+	// so it never pushes the other columns around.
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 3, ' ', 0)
+	acctCol, waitCol := false, false
 	for _, a := range s.Agents {
 		acctCol = acctCol || a.Account != nil
+		waitCol = waitCol || a.Waiting != nil
 	}
+	head := []string{"ID", "NAME", "STATUS", "CONTEXT", "COST", "FOLDER"}
 	if acctCol {
-		fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER\tACCOUNT")
-	} else {
-		fmt.Fprintln(tw, "ID\tTITLE\tSTATUS\tCONTEXT\tCOST\tFOLDER")
+		head = append(head, "ACCOUNT")
 	}
+	if waitCol {
+		head = append(head, "WAITING ON")
+	}
+	fmt.Fprintln(tw, strings.Join(head, "\t"))
 	lost := 0
 	for _, a := range s.Agents {
 		ctx := "-"
@@ -570,23 +577,29 @@ func list() error {
 		if a.Lost {
 			st = "lost"
 			lost++
-		}
-		if a.Waiting != nil {
-			st += ": " + a.Waiting.Title
+		} else if !a.StatusSince.IsZero() && a.Status != model.Exited {
+			st += " " + humanAgo(time.Since(a.StatusSince))
 		}
 		cost := fmt.Sprintf("$%.2f", a.CostUSD)
 		if a.External {
 			cost = "—" // Codex reports no prices
 		}
+		row := []string{a.ID, clip(listName(a.Title), 40), st, ctx, cost, clip(a.Folder, 24)}
 		if acctCol {
 			acct := ""
 			if a.Account != nil {
 				acct = a.Account.Name
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder, acct)
-		} else {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.ID, a.Title, st, ctx, cost, a.Folder)
+			row = append(row, acct)
 		}
+		if waitCol {
+			w := ""
+			if a.Waiting != nil {
+				w = clip(oneLine(a.Waiting.Title), 60)
+			}
+			row = append(row, w)
+		}
+		fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -748,6 +761,19 @@ func ago(t time.Time) string {
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
+
+// listName is a title for one table cell: the name as it was set (with
+// /rename it can hold any punctuation, quotes too), only kept on one line.
+func listName(s string) string {
+	s = oneLine(s)
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+// oneLine joins a text's lines and runs of spaces.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func clip(s string, n int) string {
 	r := []rune(s)
