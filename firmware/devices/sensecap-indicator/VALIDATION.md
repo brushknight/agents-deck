@@ -37,3 +37,5 @@
 - Latin-1 in allen 15 Schriften ergänzt. Alle 2565 vorherigen Glyphen sind bytegleich; Zellgrössen unverändert.
 - Regressionstest prüft Glyphenabdeckung, Darstellung gegenüber Fragezeichen, deutsche NFC/NFD-Äquivalenz und Kürzung nach sichtbarer Zeichenanzahl. Der erste Test gegen die alte Schrift schlug mit einer Assertion fehl; nach dem Fix besteht die vollständige ASan/UBSan-Hosttestsuite. Das ursprüngliche temporäre Testprogramm wurde durch die erfolgreiche Version ersetzt.
 - Render-Vorschau mit tatsächlichem Canvas und den SenseCAP-Schriftgrössen geprüft. SenseCAP USB, IDF5 und Waveshare USB bauen erfolgreich; Deck Link (1628 Prüfungen), Go vet und Go tests erfolgreich.
+
+- Umlautfix als USB-Firmware `0.2.0+c6dfb05` geflasht und Geräteverbindung wiederhergestellt. Die physische Sichtkontrolle auf dem Display bleibt von der erfolgreichen Canvas-Vorschau getrennt.
