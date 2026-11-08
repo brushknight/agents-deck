@@ -63,7 +63,7 @@ Der Pixeltakt bleibt 12 MHz: Beim ursprünglichen Bring-up verursachten 18 MHz e
 ## Optionales WLAN
 
 ```sh
-uvx --from platformio==6.1.19 pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
+uvx --from platformio pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
 # Flashen wie beim USB-Build, aber mit -d .../idf5 -e idf5.
 agentctl link wifi <board> --ssid <network>
 ```
@@ -74,4 +74,11 @@ Das Passwort wird interaktiv abgefragt. Erst per USB verbinden und das Geräteze
 
 Eine belegte Kachel mindestens 600 ms ruhig halten, dann zur Zielzelle ziehen und loslassen. Orange Umrandungen markieren Quelle und Ziel. Belegte Ziele werden vom Daemon getauscht; Loslassen ausserhalb der Zellen bricht ab. Kurzes Tippen öffnet weiterhin die Karte, schnelles Wischen wechselt die Seite. Verschieben über Seitengrenzen ist in dieser Version nicht vorgesehen.
 
-Für pioarduino 55.03.311 ist PlatformIO Core 6.1.19 verbindlich. Core 6.2.0 führt beim IDF-Build zu einem SCons-Fehler; der Prebuild-Check meldet die erforderliche Version frühzeitig. Siehe [Upstream-Issue 556](https://github.com/pioarduino/platform-espressif32/issues/556). Die explizite IDF5-Partitionstabelle behält die NVS- und App-Offsets des USB-Builds bei.
+Beim ersten IDF5-Build können sich Core und der interne pioarduino-Unterprozess über SCons-Versionen widersprechen. Ein Versionspin allein reicht nicht, da pioarduino einen eigenen Core installiert. Das Repository enthält dafür bereits den gemeinsamen Vorbereitungsschritt (ab Repositorywurzel):
+
+```sh
+PLATFORMIO_CORE_DIR="$HOME/.platformio-pioarduino" uv run --no-project --with platformio sh .github/scripts/pioarduino-scons.sh firmware/devices/sensecap-indicator/idf5 idf5
+uvx --from platformio pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
+```
+
+Siehe auch [allgemeine Build-Fehlerbehebung](../../../docs/flashing.md#troubleshooting) und [Upstream-Issue 556](https://github.com/pioarduino/platform-espressif32/issues/556). Die explizite IDF5-Partitionstabelle behält die NVS- und App-Offsets des USB-Builds bei.

@@ -3,11 +3,6 @@ import subprocess
 
 Import("env")
 
-# pioarduino 55.03.311 requires this Core version (upstream issue #556).
-if env["PIOENV"].startswith("idf5"):
-    from platformio import __version__ as core_version
-    if core_version != "6.1.19":
-        raise RuntimeError("IDF5 requires PlatformIO Core 6.1.19; use uvx --from platformio==6.1.19 pio")
 
 
 def git(*args):
