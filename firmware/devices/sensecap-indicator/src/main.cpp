@@ -21,7 +21,9 @@
 #include "grid_app.h"
 #include "layout_big.h"
 
-#define FW_VERSION "0.1.0"
+#ifndef FW_VERSION
+#define FW_VERSION "0.2.0+unknown"
+#endif
 
 // ---------------------------------------------------------------- pins
 constexpr int kW = 480, kH = 480;
