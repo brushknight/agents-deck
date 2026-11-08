@@ -5,7 +5,7 @@ Status: offen, umgesetzt, geprüft oder externe Prüfung offen. Jede Priorität 
 
 | ID | Priorität | Aufgabe | Abnahmekriterium | Status |
 |---|---|---|---|---|
-| SC-01 | P1 | Touchdiagnose und Hardwareabnahme | Eckpunkte, Achsen und Taste prüfbar; reale Abnahme separat protokolliert | offen |
+| SC-01 | P1 | Touchdiagnose und Hardwareabnahme | Eckpunkte, Achsen und Taste prüfbar; reale Abnahme separat protokolliert | Diagnose umgesetzt; physische Abnahme offen |
 | SC-02 | P2 | Firmware aktualisieren | Aktuelles panel-core mit Mehrfachauswahlmarkierungen gebaut und auf USB-Gerät geprüft | offen |
 | SC-03 | P3 | Build identifizieren | Hello meldet Version und Git-Hash, Dirty-Builds sind markiert | offen |
 | SC-04 | P4 | Port dokumentieren und PR vorbereiten | README, Pinbelegung, Flash- und Rückfallanleitung; überprüfbarer Upstream-Beitrag | offen |

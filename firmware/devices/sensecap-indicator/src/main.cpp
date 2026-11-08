@@ -249,7 +249,32 @@ static void brightness(uint8_t level) {
   ledcWrite(0, level);
 }
 
+#ifdef SENSECAP_TOUCH_DIAGNOSTIC
+// Standalone bring-up: no Deck Link and no actions on real agents.
+static void diagnosticFrame() {
+  int x = 0, y = 0;
+  const bool down = touch(x, y);
+  lcd->fillScreen(0x0000);
+  lcd->setTextColor(0xFFFF);
+  lcd->setTextSize(2);
+  lcd->setCursor(65, 205);
+  lcd->print("Touch all four targets");
+  lcd->setCursor(65, 235);
+  lcd->printf("x %3d y %3d %s", x, y, down ? "down" : "up");
+  lcd->setCursor(65, 265);
+  lcd->printf("top button: %s", digitalRead(PIN_USER) == LOW ? "down" : "up");
+  const int targets[4][2] = {{30, 30}, {449, 30}, {30, 449}, {449, 449}};
+  for (const auto& t : targets) lcd->drawCircle(t[0], t[1], 18, 0xFD20);
+  if (down) lcd->fillCircle(x, y, 8, 0x07E0);
+  Cache_WriteBack_Addr((uint32_t)panelFb, kW * kH * 2);
+}
+#endif
+
 void setup() {
+#ifdef SENSECAP_TOUCH_DIAGNOSTIC
+  pinMode(PIN_USER, INPUT_PULLUP);
+  if (boardBegin()) { brightness(255); diagnosticFrame(); }
+#else
   GridBoard b{};
   b.type = "sensecap-indicator";
   static const BigPanel layout(specBig480());   // the desk panel's UI at 2/3
@@ -262,6 +287,14 @@ void setup() {
   b.brightActive = 255;
   b.brightIdle = 60;
   gridAppSetup(b, FW_VERSION);
+#endif
 }
 
-void loop() { gridAppLoop(); }
+void loop() {
+#ifdef SENSECAP_TOUCH_DIAGNOSTIC
+  if (panelFb) diagnosticFrame();
+  delay(30);
+#else
+  gridAppLoop();
+#endif
+}
