@@ -44,4 +44,4 @@
 
 - Ursache: Strukturierte Orca-Chats werden vom Codex-Watcher als Codex-Threads erkannt; der bisherige Orca-Watcher unterstützt nur echte Terminals. Der bisherige Fokus öffnete dadurch einen codex-Deeplink in der anderen App.
 - Regressionstests: exakte Provider-ID, mehrere Chats im selben Ordner, fehlende/alte Journale, Providerwechsel, geschlossene Chats, mehrdeutige Ownership, unveränderte Journaldatei und Fehlerweitergabe ohne falschen App-Fokus erfolgreich.
-- Go vet und vollständige Go-Tests erfolgreich. Liveprüfung nach Installation des aktualisierten Daemons folgt.
+- Go vet und vollständige Go-Tests erfolgreich. Aktualisierter Mac-Daemon aus Commit `69a33f5` installiert und gestartet. Liveprüfung desselben Fokus-Endpunkts: HTTP 204, Vordergrund-App com.stablyai.orca, korrekter Zielworkspace aktiv; Daemon protokolliert orca chat workspace. SenseCAP nach Neustart wieder verbunden; dessen Firmware bleibt unverändert.
