@@ -58,12 +58,12 @@ Der Pixeltakt bleibt 12 MHz: Beim ursprünglichen Bring-up verursachten 18 MHz e
 
 ## Entwicklungsstand
 
-[Backlog](BACKLOG.md), [Spezifikation](SPECIFICATION.md) und [Prüfprotokoll](VALIDATION.md). Physische Touch- und WLAN-Abnahmen werden getrennt von erfolgreichen Builds ausgewiesen. Für die Upstream-Einreichung: Hardwareport und Dokumentation als eigener Beitrag; Änderungen am gemeinsamen Gesten-UI separat reviewen.
+[Backlog](BACKLOG.md), [Spezifikation](SPECIFICATION.md) und [Prüfprotokoll](VALIDATION.md). Physische Touch- und WLAN-Abnahmen werden getrennt von erfolgreichen Builds ausgewiesen. Für die Upstream-Einreichung: Hardwareport, Dokumentation und Änderungen am gemeinsamen Gesten-UI liegen in getrennten Commits und können separat geprüft werden.
 
 ## Optionales WLAN
 
 ```sh
-pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
+uvx --from platformio==6.1.19 pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
 # Flashen wie beim USB-Build, aber mit -d .../idf5 -e idf5.
 agentctl link wifi <board> --ssid <network>
 ```
@@ -73,3 +73,5 @@ Das Passwort wird interaktiv abgefragt. Erst per USB verbinden und das Geräteze
 ## Kacheln verschieben
 
 Eine belegte Kachel mindestens 600 ms ruhig halten, dann zur Zielzelle ziehen und loslassen. Orange Umrandungen markieren Quelle und Ziel. Belegte Ziele werden vom Daemon getauscht; Loslassen ausserhalb der Zellen bricht ab. Kurzes Tippen öffnet weiterhin die Karte, schnelles Wischen wechselt die Seite. Verschieben über Seitengrenzen ist in dieser Version nicht vorgesehen.
+
+Für pioarduino 55.03.311 ist PlatformIO Core 6.1.19 verbindlich. Core 6.2.0 führt beim IDF-Build zu einem SCons-Fehler; der Prebuild-Check meldet die erforderliche Version frühzeitig. Siehe [Upstream-Issue 556](https://github.com/pioarduino/platform-espressif32/issues/556). Die explizite IDF5-Partitionstabelle behält die NVS- und App-Offsets des USB-Builds bei.
