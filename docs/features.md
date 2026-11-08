@@ -200,3 +200,7 @@ device, see [link/new-device.md](link/new-device.md).
 | `header` | `on` (default), `off`: the band at the top of agent terminals |
 | `web` | `local` (default), `lan`: also serve the dashboard on your local network |
 | `hat` | `agentctl set hat <agent|folder> <shape> [colour]`, `none` or `auto`: the hat of a working folder (stored in `config.json` `"hats"`) |
+
+### Moving tiles on the 4×4 touch boards
+
+Hold an occupied tile still for 600 ms, then drag it to another cell and release. Orange outlines show the source and destination. This needs scope `act` or `admin`. An occupied destination swaps slots through the daemon. Releasing in a gap or outside the grid cancels the move. A quick swipe still changes pages; a short tap opens the card. Dragging between pages is not supported.

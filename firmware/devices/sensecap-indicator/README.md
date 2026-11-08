@@ -69,3 +69,7 @@ agentctl link wifi <board> --ssid <network>
 ```
 
 Das Passwort wird interaktiv abgefragt. Erst per USB verbinden und das Gerätezertifikat provisionieren lassen. Danach USB-Datenverbindung trennen und separat mit Strom versorgen. WLAN muss über TLS 1.3 mit Clientzertifikat verbinden. USB übernimmt bei erneuter Verbindung zum Daemon. Ohne erfolgreiche Abnahme (falsches Passwort, Neustart, Verbindungsverlust, USB-Rückkehr und Bildruhe) bleibt dieser Build experimentell. Der optionale Bounce-Buffer ist mit `SENSECAP_BOUNCE_PX=0` standardmässig deaktiviert; Aktivierung nur nach visueller Prüfung.
+
+## Kacheln verschieben
+
+Eine belegte Kachel mindestens 600 ms ruhig halten, dann zur Zielzelle ziehen und loslassen. Orange Umrandungen markieren Quelle und Ziel. Belegte Ziele werden vom Daemon getauscht; Loslassen ausserhalb der Zellen bricht ab. Kurzes Tippen öffnet weiterhin die Karte, schnelles Wischen wechselt die Seite. Verschieben über Seitengrenzen ist in dieser Version nicht vorgesehen.
