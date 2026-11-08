@@ -64,6 +64,7 @@ From the root of the clone, the command for your board:
 | 2.8″ round | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
 | 2.1″ round | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5 -t upload` |
 | 4″ square | 2.0.17 (USB only, for now) | `pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload` |
+| SenseCAP Indicator | USB standard; optional experimental IDF5 | `pio run -d firmware/devices/sensecap-indicator -e sensecap-indicator -t upload` |
 | 1.8″ AMOLED | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload` |
 | LilyGO T4-S3 | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5 -t upload` |
 | 1.47″ strip | 2.0.17 (USB only) | `pio run -d firmware/devices/waveshare-lcd-147 -t upload` |

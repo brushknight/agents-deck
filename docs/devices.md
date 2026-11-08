@@ -17,6 +17,7 @@ draws the same pixels as the boards, from the made-up fleet in
 | <img src="images/devices/round-28-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.8C](#waveshare-esp32-s3-touch-lcd-28c-round-28) | 2.8″ round, 480×480 | the spring: 9 agents round the ring | yes, multi-touch | yes | [`waveshare-touch-lcd-28c`](../firmware/devices/waveshare-touch-lcd-28c) |
 | <img src="images/devices/round-21-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.1](#waveshare-esp32-s3-touch-lcd-21-round-21) | 2.1″ round, 480×480 | the spring: 7 agents round the ring | yes | yes | [`waveshare-touch-lcd-21`](../firmware/devices/waveshare-touch-lcd-21) |
 | <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | experimental | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
+| | [Seeed SenseCAP Indicator](#seeed-sensecap-indicator) | 4 inch square, 480x480 | shared 4x4 grid | yes, physical acceptance pending | experimental IDF5 build | [`sensecap-indicator`](../firmware/devices/sensecap-indicator) |
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
@@ -190,3 +191,9 @@ Any board with a USB serial port can join: [Deck Link](link/protocol.md) is the 
 [firmware kit](../firmware/deck-link) does it in C (with a status LED, an OLED tile and a knob as
 examples), and [new-device.md](link/new-device.md) walks through adding a device. A new touch screen
 usually needs only its drivers and a layout spec in [`firmware/panel-core`](../firmware/panel-core).
+
+## Seeed SenseCAP Indicator
+
+The shared 480x480 grid UI on an ESP32-S3 Indicator, with ST7701S display, FT6336 touch and TCA9535 IO expander. The default build uses USB through its CH340 bridge at 115200 baud. A separate ESP-IDF 5 build adds TLS 1.3 Wi-Fi; it remains experimental until physical Wi-Fi and image-stability acceptance. The RP2040 is left alone.
+
+Hold a tile for 600 ms and drag to another cell to move it (scope act). Quick swipes change pages; taps open the agent card. A standalone diagnostic build helps verify touch orientation without sending agent actions. Build, pinout and acceptance details: [device README](../firmware/devices/sensecap-indicator/README.md).
