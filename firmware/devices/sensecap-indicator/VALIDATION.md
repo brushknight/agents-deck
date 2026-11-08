@@ -26,3 +26,7 @@
 - Netzwerkabnahme ohne USB (Zugangsdaten, TLS-Verbindung zum Mac, Wiederverbindung und Bildruhe) erfordert ein eingerichtetes WLAN und physische Prüfung. Ohne diese bleibt WLAN experimentell.
 
 - WLAN-Releasebuild erfolgreich: 1269666 Bytes App, 77308 Bytes statisches RAM. TLS-1.3-Konfiguration und TLS-1.3-Symbole im tatsächlichen Firmware-ELF bestätigt.
+
+- IDF5-Release und IDF5-Debug erfolgreich gebaut. IDF5-Release `0.2.0+37647e7` auf Hardware geflasht: startet, verbindet sich mit dem Daemon über USB und meldet WLAN-Unterstützung (`not set`, statt `not supported`). Das ist keine Prüfung einer tatsächlichen WLAN-/TLS-Verbindung; Netzwerk und Zertifikatsverbindung bleiben abzunehmen.
+- Der Kurzweg `-t nobuild -t upload` lieferte beim pioarduino-Upload unvollständige esptool-Argumente und wurde verworfen. Für reproduzierbare Uploads den normalen Build-und-Upload-Befehl im README verwenden.
+- Nach dem Starttest wird die USB-Standardfirmware wieder installiert; der Diagnosebuild bleibt ein bewusst separat zu flashendes Werkzeug.
