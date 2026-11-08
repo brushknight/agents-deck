@@ -14,6 +14,8 @@ Status: offen, umgesetzt, geprüft oder externe Prüfung offen. Jede Priorität 
 
 | SC-07 | P1 | Umlaute und Latin-1 darstellen | Alle Schriftgrössen enthalten Umlaute; NFC und deutsche NFD-Umlaute rendern gleich | implementiert, geprüft und als USB-Firmware 0.2.0+c6dfb05 installiert |
 
+| SC-08 | P1 | Orca-Chat korrekt fokussieren | Exakte Thread-Zuordnung aktiviert den Orca-Workspace; kein Codex-Deeplink für laufende Orca-Chats | implementiert; Backendtests erfolgreich; Liveprüfung folgt |
+
 Keine automatische Erweiterung auf admin. Keine produktiven Agents für Tests stoppen oder Freigaben beantworten.
 
 Upstream: [Draft-PR #21](https://github.com/brushknight/agents-deck/pull/21). Physische Abnahmen bleiben ausdrücklich offen.

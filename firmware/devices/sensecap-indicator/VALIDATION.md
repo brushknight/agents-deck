@@ -39,3 +39,9 @@
 - Render-Vorschau mit tatsächlichem Canvas und den SenseCAP-Schriftgrössen geprüft. SenseCAP USB, IDF5 und Waveshare USB bauen erfolgreich; Deck Link (1628 Prüfungen), Go vet und Go tests erfolgreich.
 
 - Umlautfix als USB-Firmware `0.2.0+c6dfb05` geflasht und Geräteverbindung wiederhergestellt. Die physische Sichtkontrolle auf dem Display bleibt von der erfolgreichen Canvas-Vorschau getrennt.
+
+## Orca-Chatfokus
+
+- Ursache: Strukturierte Orca-Chats werden vom Codex-Watcher als Codex-Threads erkannt; der bisherige Orca-Watcher unterstützt nur echte Terminals. Der bisherige Fokus öffnete dadurch einen codex-Deeplink in der anderen App.
+- Regressionstests: exakte Provider-ID, mehrere Chats im selben Ordner, fehlende/alte Journale, Providerwechsel, geschlossene Chats, mehrdeutige Ownership, unveränderte Journaldatei und Fehlerweitergabe ohne falschen App-Fokus erfolgreich.
+- Go vet und vollständige Go-Tests erfolgreich. Liveprüfung nach Installation des aktualisierten Daemons folgt.

@@ -64,6 +64,7 @@ func RuntimeFile() string {
 
 // Agent is one agent row of `orca worktree ps`: status from the agent's hooks.
 type Agent struct {
+	StructuredHostOwned  bool       `json:"structuredHostOwned"`
 	PaneKey              string     `json:"paneKey"` // "<tabId>:<leafId>"
 	State                string     `json:"state"`   // working | blocked | waiting | done
 	AgentType            string     `json:"agentType"`

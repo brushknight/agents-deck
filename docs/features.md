@@ -71,8 +71,8 @@ agent's transcript when it's a Claude session.
 
 From the deck, **open in orca** switches Orca to the agent's terminal and brings Orca forward; answers
 and **interrupt** are typed into that terminal; **hide** takes the agent off the deck until it's active
-again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
-`send`, `switch`). `config.json`: `"orca": false` turns it off.
+again. Terminal actions go through the `orca` CLI (`worktree ps`, `terminal list`, `read`,
+`send`, `switch`). Codex chat sessions also appear in Codex's database: focus resolves their exact provider thread ID from Orca's read-only session journal, confirms a live Orca-owned chat through `worktree ps`, then activates that workspace with `worktree activate` and brings Orca forward. The CLI cannot select an individual chat tab, so a workspace with several chats keeps its selected tab. No chat content is read from the journal. Native Codex-app threads retain their deep link. `config.json`: `"orca": false` turns it off.
 
 ### herdr
 

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,10 +12,13 @@ import (
 )
 
 type fakeOrca struct {
-	fronted  int // Front calls: the real one would open the Orca app
-	screen   string
-	sent     []string
-	switched []string
+	codexHandled bool
+	codexErr     error
+	codexFocused []string
+	fronted      int // Front calls: the real one would open the Orca app
+	screen       string
+	sent         []string
+	switched     []string
 }
 
 func (f *fakeOrca) Read() (orca.Snapshot, error)  { return orca.Snapshot{}, nil }
@@ -186,5 +190,40 @@ func TestTabTitle(t *testing.T) {
 		if got := tabTitle(in); got != want {
 			t.Errorf("tabTitle(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func (f *fakeOrca) FocusCodex(id string) (bool, error) {
+	f.codexFocused = append(f.codexFocused, id)
+	return f.codexHandled, f.codexErr
+}
+
+func TestCodexFocusRoutesToOrcaChat(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	f := &fakeOrca{codexHandled: true}
+	d.orca.client = f
+	e := &store.Entry{External: true, SessionID: "thread-one", A: model.Agent{ID: "x12345", Tool: "codex", External: true, Unseen: true}}
+	d.Store.Add(e)
+	if err := d.Focus(e.A.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.codexFocused) != 1 || f.codexFocused[0] != "thread-one" {
+		t.Fatalf("wrong target: %v", f.codexFocused)
+	}
+	if len(f.switched) != 0 {
+		t.Fatal("chat was treated as a terminal")
+	}
+	if current, _ := d.Store.Get(e.A.ID); current.A.Unseen {
+		t.Fatal("focus did not mark reviewed")
+	}
+	// A failed Orca focus must not open the thread in another app or mark it seen.
+	expected := errors.New("workspace unavailable")
+	f.codexErr = expected
+	d.Store.Update(e.A.ID, func(x *store.Entry) bool { x.A.Unseen = true; return true })
+	if err := d.Focus(e.A.ID); !errors.Is(err, expected) {
+		t.Fatalf("lost focus error: %v", err)
+	}
+	if current, _ := d.Store.Get(e.A.ID); !current.A.Unseen {
+		t.Fatal("failed focus marked reviewed")
 	}
 }

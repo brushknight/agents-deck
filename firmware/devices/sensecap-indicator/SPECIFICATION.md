@@ -17,6 +17,10 @@ Der SenseCAP Indicator dient als 480×480-Agent-Dashboard. Originales panel-core
 
 SC-07: Alle Bitmap-Schriftgrössen enthalten den druckbaren Latin-1-Zeichensatz einschliesslich ä ö ü Ä Ö Ü. Die deutsche Kombination aus A/O/U/a/o/u und U+0308 wird vor Breitenberechnung, Kürzung und Darstellung in die entsprechende Umlautglyphe überführt. Andere Unicode-Zeichen ausserhalb des vorhandenen Zeichensatzes behalten die bisherige Ersatzdarstellung. Vorhandene Glyphen und Zellgrössen dürfen sich nicht verändern.
 
+## Fokus auf dem Mac
+
+SC-08: Ein Codex-Thread, dessen Provider-ID einer laufenden Orca-Chat-Session gehört, aktiviert über die Orca-CLI deren konkreten Workspace und bringt Orca nach vorne. Die Zuordnung liest ausschliesslich Session-/Thread-IDs aus dem Orca-Journal im Read-only-Modus und bestätigt aktive Ownership über worktree ps. Keine heuristische Ordner-/Titelzuordnung. Nicht zugehörige Codex-App-Threads behalten ihren bisherigen Fokusweg. Bei mehrdeutiger Ownership oder fehlgeschlagener Orca-Aktivierung Fehler melden statt eine andere App zu öffnen. Der aktuelle CLI-Vertrag erlaubt keine Auswahl eines bestimmten Chat-Tabs; bei mehreren Chats bleibt die dortige Auswahl bestehen. Gerätesoftware und Berechtigung bleiben unverändert.
+
 ## Validierung
 
 Hosttests für panel-core mit ASan/UBSan und Deck Link; PlatformIO-Builds für USB, Diagnose und IDF5 sowie Waveshare als Regression; Go vet und Tests für Backend. Auf Hardware: Version, Verbindung und Protokollzustand. Physische Prüfungen (Touch, Bildruhe, WLAN ohne USB) getrennt dokumentieren. Gerätescope bleibt act.
