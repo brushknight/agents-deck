@@ -59,3 +59,13 @@ Der Pixeltakt bleibt 12 MHz: Beim ursprünglichen Bring-up verursachten 18 MHz e
 ## Entwicklungsstand
 
 [Backlog](BACKLOG.md), [Spezifikation](SPECIFICATION.md) und [Prüfprotokoll](VALIDATION.md). Physische Touch- und WLAN-Abnahmen werden getrennt von erfolgreichen Builds ausgewiesen. Für die Upstream-Einreichung: Hardwareport und Dokumentation als eigener Beitrag; Änderungen am gemeinsamen Gesten-UI separat reviewen.
+
+## Optionales WLAN
+
+```sh
+pio run -d firmware/devices/sensecap-indicator/idf5 -e idf5
+# Flashen wie beim USB-Build, aber mit -d .../idf5 -e idf5.
+agentctl link wifi <board> --ssid <network>
+```
+
+Das Passwort wird interaktiv abgefragt. Erst per USB verbinden und das Gerätezertifikat provisionieren lassen. Danach USB-Datenverbindung trennen und separat mit Strom versorgen. WLAN muss über TLS 1.3 mit Clientzertifikat verbinden. USB übernimmt bei erneuter Verbindung zum Daemon. Ohne erfolgreiche Abnahme (falsches Passwort, Neustart, Verbindungsverlust, USB-Rückkehr und Bildruhe) bleibt dieser Build experimentell. Der optionale Bounce-Buffer ist mit `SENSECAP_BOUNCE_PX=0` standardmässig deaktiviert; Aktivierung nur nach visueller Prüfung.

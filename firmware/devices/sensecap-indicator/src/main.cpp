@@ -54,6 +54,14 @@ constexpr uint16_t EXP_OUTPUTS = EXP_LCD_CS | EXP_LCD_RST | EXP_TP_RST | EXP_RP2
 #ifndef LCD_PCLK_HZ
 #define LCD_PCLK_HZ 12000000
 #endif
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+#ifndef SENSECAP_BOUNCE_PX
+#define SENSECAP_BOUNCE_PX 0
+#endif
+#define SENSECAP_RGB_EXTRA , GFX_NOT_DEFINED, false, 0, 0, SENSECAP_BOUNCE_PX
+#else
+#define SENSECAP_RGB_EXTRA
+#endif
 static Arduino_ESP32RGBPanel* rgbPanel = new Arduino_ESP32RGBPanel(
     18 /* DE */, 17 /* VSYNC */, 16 /* HSYNC */, 21 /* PCLK */,
     4, 3, 2, 1, 0,               // R0..R4
@@ -61,7 +69,7 @@ static Arduino_ESP32RGBPanel* rgbPanel = new Arduino_ESP32RGBPanel(
     15, 14, 13, 12, 11,          // B0..B4
     1, 10, 8, 50,                // hsync polarity, front porch, pulse width, back porch
     1, 10, 8, 20,                // vsync
-    0 /* pclk on the rising edge */, LCD_PCLK_HZ);
+    0 /* pclk on the rising edge */, LCD_PCLK_HZ SENSECAP_RGB_EXTRA);
 static Arduino_RGB_Display* lcd = new Arduino_RGB_Display(
     kW, kH, rgbPanel, 0, false /* we flush */, nullptr, GFX_NOT_DEFINED, nullptr, 0);
 static uint16_t* panelFb = nullptr;
@@ -244,11 +252,19 @@ static void push(const uint16_t* src) {
 static void brightness(uint8_t level) {
   static bool attached = false;
   if (!attached) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(PIN_BL, 20000, 8);
+#else
     ledcSetup(0, 20000, 8);
     ledcAttachPin(PIN_BL, 0);
+#endif
     attached = true;
   }
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(PIN_BL, level);
+#else
   ledcWrite(0, level);
+#endif
 }
 
 #ifdef SENSECAP_TOUCH_DIAGNOSTIC
