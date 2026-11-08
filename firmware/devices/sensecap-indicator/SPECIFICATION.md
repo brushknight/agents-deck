@@ -1,0 +1,18 @@
+# SenseCAP Indicator Spezifikation
+
+## Ziel und Rahmen
+
+Der SenseCAP Indicator dient als 480×480-Agent-Dashboard. Originales panel-core und Deck Link bleiben gemeinsam mit Waveshare nutzbar. USB ist der stabile Standard; WLAN wird optional und zunächst experimentell angeboten. Pixeltakt bleibt 12 MHz. RP2040 und Sensoranwendungen sind ausserhalb des Umfangs.
+
+## Anforderungen
+
+- SC-01: Separater Diagnosebuild zeigt vier Eckziele und gemessene Touchkoordinaten. Er sendet keine Agent-Aktionen. Kalibrierung über explizite X/Y-Invertierungsflags. Physische Touchabnahme darf ohne tatsächliche Bedienung nicht als bestanden gelten.
+- SC-02: Firmware aus aktuellem Originalcode bauen. Mehrfachauswahl zeigt ausgewählte Optionen mit [x]. Board verbindet sich nach Flashen wieder mit dem Daemon; Datenanzeige wird über den Protokollstatus geprüft. Flash nur auf dem registrierten SenseCAP-Port.
+- SC-03: Buildversion enthält semantische Version und kurzen Git-Hash. Uncommittierte Änderungen werden mit dirty markiert. Keine absoluten Pfade, Gerätekennungen oder Zugangsdaten einchecken.
+- SC-04: Dokumentation enthält Hardwareanbindung, Buildvarianten, sichere serielle Überwachung, Wiederherstellung, bekannte Grenzen und Abnahmestand. Upstream-Beitrag trennt Hardwareport von Änderungen am gemeinsamen UI.
+- SC-05: Arduino-ESP32 3.x/ESP-IDF 5, TLS 1.3 und vorhandene Deck-Link-Zertifikatsprüfung verwenden. Keine unverschlüsselte Netzwerkalternative. USB hat Vorrang. Keine WLAN-Zugangsdaten im Repository. Ohne physische WLAN-Abnahme bleibt der Build experimentell.
+- SC-06: Auf der 4×4-Startseite aktiviert mindestens 600 ms stationäres Halten das Verschieben, ab Scope act. Anschliessendes Ziehen und Loslassen über einer anderen Zelle sendet genau einen vorhandenen Deck-Link-Move-Befehl mit nullbasiertem Zielslot. Schnelle Bewegung bleibt Wischen; kurzes Tippen öffnet die Karte. Quelle anhand Agent-ID verfolgen; bei verschwundener Quelle oder verweigerten Rechten abbrechen. Keine optimistische Änderung des Fleet-Modells. Visuelle Rückmeldung für Quelle und Ziel. Seitenwechsel während des Ziehens gehört nicht zur ersten Version.
+
+## Validierung
+
+Hosttests für panel-core mit ASan/UBSan und Deck Link; PlatformIO-Builds für USB, Diagnose und IDF5 sowie Waveshare als Regression; Go vet und Tests für Backend. Auf Hardware: Version, Verbindung und Protokollzustand. Physische Prüfungen (Touch, Bildruhe, WLAN ohne USB) getrennt dokumentieren. Gerätescope bleibt act.
