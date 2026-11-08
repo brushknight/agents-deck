@@ -13,6 +13,10 @@ Der SenseCAP Indicator dient als 480×480-Agent-Dashboard. Originales panel-core
 - SC-05: Arduino-ESP32 3.x/ESP-IDF 5, TLS 1.3 und vorhandene Deck-Link-Zertifikatsprüfung verwenden. Keine unverschlüsselte Netzwerkalternative. USB hat Vorrang. Keine WLAN-Zugangsdaten im Repository. Ohne physische WLAN-Abnahme bleibt der Build experimentell.
 - SC-06: Auf der 4×4-Startseite aktiviert mindestens 600 ms stationäres Halten das Verschieben, ab Scope act. Anschliessendes Ziehen und Loslassen über einer anderen Zelle sendet genau einen vorhandenen Deck-Link-Move-Befehl mit nullbasiertem Zielslot. Schnelle Bewegung bleibt Wischen; kurzes Tippen öffnet die Karte. Quelle anhand Agent-ID verfolgen; bei verschwundener Quelle oder verweigerten Rechten abbrechen. Keine optimistische Änderung des Fleet-Modells. Visuelle Rückmeldung für Quelle und Ziel. Seitenwechsel während des Ziehens gehört nicht zur ersten Version.
 
+## Textdarstellung
+
+SC-07: Alle Bitmap-Schriftgrössen enthalten den druckbaren Latin-1-Zeichensatz einschliesslich ä ö ü Ä Ö Ü. Die deutsche Kombination aus A/O/U/a/o/u und U+0308 wird vor Breitenberechnung, Kürzung und Darstellung in die entsprechende Umlautglyphe überführt. Andere Unicode-Zeichen ausserhalb des vorhandenen Zeichensatzes behalten die bisherige Ersatzdarstellung. Vorhandene Glyphen und Zellgrössen dürfen sich nicht verändern.
+
 ## Validierung
 
 Hosttests für panel-core mit ASan/UBSan und Deck Link; PlatformIO-Builds für USB, Diagnose und IDF5 sowie Waveshare als Regression; Go vet und Tests für Backend. Auf Hardware: Version, Verbindung und Protokollzustand. Physische Prüfungen (Touch, Bildruhe, WLAN ohne USB) getrennt dokumentieren. Gerätescope bleibt act.

@@ -32,6 +32,7 @@ FONTS = [
 
 CODES = (
     list(range(0x20, 0x7F))
+    + list(range(0x00A0, 0x0100))  # Latin-1: German umlauts and Western European text
     + [0x0401] + list(range(0x0410, 0x0450)) + [0x0451]
     + [0x00B7, 0x00AB, 0x00BB, 0x2013, 0x2014, 0x2026, 0x2192, 0x2116]
     + [0x00D7, 0x2039, 0x203A, 0x2190]
@@ -56,7 +57,7 @@ def render(name: str, cell_w: int, weight: int):
     font = load(cell_w, weight)
     ascent, descent = font.getmetrics()
     cell_h = ascent + descent
-    codes = sorted(c for c in CODES if has_glyph(font, c))
+    codes = sorted({c for c in CODES if has_glyph(font, c)})
     stride = (cell_w + 1) // 2
     bits = bytearray()
     for code in codes:

@@ -12,6 +12,8 @@ Status: offen, umgesetzt, geprüft oder externe Prüfung offen. Jede Priorität 
 | SC-05 | P5 | Optionales WLAN | Separater IDF5-Build, TLS 1.3 und Clientzertifikat; USB-Rückfall; Hardwareabnahme separat | Release/Debug gebaut; Start und WLAN-Fähigkeit auf Hardware geprüft; WLAN-Verbindung offen |
 | SC-06 | P6 | Kacheln verschieben | Halten und Ziehen sendet Move; Tippen und Wischen bleiben bedienbar; Tests für Berechtigungen und Abbruch | implementiert; Hosttests erfolgreich; physische Prüfung offen |
 
+| SC-07 | P1 | Umlaute und Latin-1 darstellen | Alle Schriftgrössen enthalten Umlaute; NFC und deutsche NFD-Umlaute rendern gleich | implementiert; Hosttests und Firmwarebuilds erfolgreich |
+
 Keine automatische Erweiterung auf admin. Keine produktiven Agents für Tests stoppen oder Freigaben beantworten.
 
 Upstream: [Draft-PR #21](https://github.com/brushknight/agents-deck/pull/21). Physische Abnahmen bleiben ausdrücklich offen.

@@ -30,3 +30,10 @@
 - IDF5-Release und IDF5-Debug erfolgreich gebaut. IDF5-Release `0.2.0+37647e7` auf Hardware geflasht: startet, verbindet sich mit dem Daemon über USB und meldet WLAN-Unterstützung (`not set`, statt `not supported`). Das ist keine Prüfung einer tatsächlichen WLAN-/TLS-Verbindung; Netzwerk und Zertifikatsverbindung bleiben abzunehmen.
 - Der Kurzweg `-t nobuild -t upload` lieferte beim pioarduino-Upload unvollständige esptool-Argumente und wurde verworfen. Für reproduzierbare Uploads den normalen Build-und-Upload-Befehl im README verwenden.
 - Nach dem Starttest ist die USB-Standardfirmware `0.2.0+37647e7` wieder installiert und verbunden, mit unverändertem Produktionsscope act. Während des IDF5-Tests wurde auch ein WLAN-Gerätezertifikat ausgestellt. Eine WLAN-Verbindung wurde nicht getestet. Der Diagnosebuild bleibt ein bewusst separat zu flashendes Werkzeug.
+
+## Umlautkorrektur
+
+- Ursache reproduziert: Der Zeichensatz enthielt ASCII und kyrillische Zeichen, aber keine deutschen Umlaute. Der Renderer ersetzte fehlende Glyphen durch ein Fragezeichen.
+- Latin-1 in allen 15 Schriften ergänzt. Alle 2565 vorherigen Glyphen sind bytegleich; Zellgrössen unverändert.
+- Regressionstest prüft Glyphenabdeckung, Darstellung gegenüber Fragezeichen, deutsche NFC/NFD-Äquivalenz und Kürzung nach sichtbarer Zeichenanzahl. Der erste Test gegen die alte Schrift schlug mit einer Assertion fehl; nach dem Fix besteht die vollständige ASan/UBSan-Hosttestsuite. Das ursprüngliche temporäre Testprogramm wurde durch die erfolgreiche Version ersetzt.
+- Render-Vorschau mit tatsächlichem Canvas und den SenseCAP-Schriftgrössen geprüft. SenseCAP USB, IDF5 und Waveshare USB bauen erfolgreich; Deck Link (1628 Prüfungen), Go vet und Go tests erfolgreich.
