@@ -74,6 +74,10 @@ struct PanelUi {
   PanelHit pressed;            // drawn pressed until the finger moves or lifts
   bool holdFired = false;      // the stop hold already sent its Dismiss
   bool caught = false;         // the finger stopped a moving list: not a tap
+  // Big grid: stationary hold followed by a drag. Track identity across snapshots.
+  bool tileMoving = false;
+  char tileMoveId[12] = "";
+  int tileMovePage = 0, tileMoveSlot = -1;
   int selected = -1;           // big panels: the prompt's chosen option (sent with "send")
   uint32_t stopArmedUntil = 0; // big panels: "tap again to stop" until then
 

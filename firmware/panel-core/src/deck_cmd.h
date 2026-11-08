@@ -12,10 +12,11 @@ enum class DeckScope : uint8_t { View, Act, Admin };
 static inline bool canAct(DeckScope s) { return s != DeckScope::View; }
 
 // What the board should send.
-enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss, Resume };
+enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss, Resume, Move };
 
 struct DeckCommand {
   DeckCmd cmd = DeckCmd::None;
+  uint32_t slot = 0;  // Move: zero-based destination; occupied slots swap on the daemon
   char agent[12] = "", prompt[16] = "", key[8] = "";
 };
 

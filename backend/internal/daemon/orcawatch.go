@@ -33,6 +33,7 @@ type orcaAPI interface {
 	Send(handle, text string, enter bool) error
 	Switch(handle string) error
 	Front() error
+	FocusCodex(threadID string) (bool, error)
 }
 
 func orcaAgentID(pane string) string {

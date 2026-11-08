@@ -119,6 +119,7 @@ static void send(const DeckCommand& c) {
     case DeckCmd::Focus:     ui.cmdSeq = deck_focus(link(), c.agent); break;
     case DeckCmd::Interrupt: ui.cmdSeq = deck_interrupt(link(), c.agent); break;
     case DeckCmd::Dismiss:   ui.cmdSeq = deck_dismiss(link(), c.agent); break;
+    case DeckCmd::Move:      ui.cmdSeq = deck_move(link(), c.agent, c.slot); break;
     case DeckCmd::Resume:    ui.cmdSeq = deck_resume(link(), c.agent); break;
     default: return;
   }
@@ -162,7 +163,12 @@ static void touchPump() {
   if (!down && !ui.down) return;
   const uint32_t ms = millis();
   lastActiveMs = ms;
-  if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; return; }
+  if (!fleet->have || linkState() != LinkState::Live) {
+    ui.down = false;
+    ui.tileMoving = false;
+    ui.pressed = PanelHit();
+    return;
+  }
   send(board.layout->touch(ui, fleet->fleet, down, x, y, scope(), ms));
   dirty = true;
 }

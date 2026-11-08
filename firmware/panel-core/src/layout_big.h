@@ -114,6 +114,16 @@ static inline Rect bigCell(const BigGrid& g, int cell) {
   return Rect{g.x0 + (cell % 4) * (g.cell + g.gap), g.y0 + (cell / 4) * (g.cellH + g.gap), g.cell, g.cellH};
 }
 
+// Gaps and the page-bar row are not drop targets.
+static inline int bigDropSlot(const BigSpec& S, const PanelUi& ui, const Fleet& f, int x, int y) {
+  const BigGrid g = bigGrid(S, bigPages(f), ui.wifi);
+  for (int cell = 0; cell < 16; cell++)
+    if (bigCell(g, cell).contains(x, y)) return ui.page * 16 + cell;
+  return -1;
+}
+
+constexpr uint32_t kTileHoldMs = 600;
+
 static inline int bigAgentAt(const Fleet& f, int page, int cell) {
   if (cell < 0 || cell >= 16) return -1;
   for (int i = 0; i < f.count; i++)
@@ -361,17 +371,49 @@ static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f
       ui.x0 = ui.x = x;
       ui.y0 = ui.y = y;
       ui.downMs = ms;
+      ui.tileMoving = false;
+      ui.tileMoveSlot = -1;
+      ui.tileMovePage = ui.page;
+      ui.tileMoveId[0] = '\0';
       ui.pressed = bigHit(S, ui, f, x, y, scope);
+      if (ui.pressed.kind == Hit::Tile)
+        snprintf(ui.tileMoveId, sizeof ui.tileMoveId, "%s", f.agents[ui.pressed.agent].id);
       return out;
     }
     ui.x = x;
     ui.y = y;
     const int dx = x - ui.x0, dy = y - ui.y0;
+    if (!ui.tileMoving && ui.screen == Screen::Home && canAct(scope) &&
+        ui.pressed.kind == Hit::Tile && ms - ui.downMs >= kTileHoldMs &&
+        dx * dx + dy * dy <= slop * slop && findAgent(f, ui.tileMoveId) >= 0) {
+      ui.tileMoving = true;
+      ui.pressed = PanelHit();
+      uiToast(ui, "drag to another tile", ms, 1200);
+    }
+    if (ui.tileMoving) {
+      ui.tileMoveSlot = bigDropSlot(S, ui, f, x, y);
+      return out;
+    }
     if (dx * dx + dy * dy > slop * slop) ui.pressed = PanelHit();   // it became a swipe
     return out;
   }
   if (!ui.down) return out;
   ui.down = false;
+  if (ui.tileMoving) {
+    ui.tileMoving = false;
+    ui.pressed = PanelHit();
+    const int source = findAgent(f, ui.tileMoveId), slot = ui.tileMoveSlot;
+    ui.tileMoveSlot = -1;
+    if (!canAct(scope)) uiToast(ui, "not allowed: scope", ms);
+    else if (source < 0 || ui.screen != Screen::Home || ui.page != ui.tileMovePage)
+      uiToast(ui, "move cancelled", ms);
+    else if (slot >= 0 && slot != f.agents[source].slot) {
+      out = commandFor(DeckCmd::Move, f.agents[source]);
+      out.slot = (uint32_t)slot;
+      uiToast(ui, "move requested", ms, 1200);
+    }
+    return out;
+  }
   const PanelHit pressed = ui.pressed;
   ui.pressed = PanelHit();
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
@@ -568,6 +610,16 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
     else {
       c.rect(r.x, r.y, r.w, r.h, T.emptyFill);
       c.frame(r.x, r.y, r.w, r.h, T.emptyOutline);
+    }
+  }
+  if (ui.tileMoving) {
+    const int source = findAgent(f, ui.tileMoveId);
+    for (int cell = 0; cell < 16; cell++) {
+      const int slot = page * 16 + cell;
+      if (slot != ui.tileMoveSlot && (source < 0 || slot != f.agents[source].slot)) continue;
+      const Rect r = bigCell(g, cell);
+      c.frame(r.x, r.y, r.w, r.h, T.accent);
+      c.frame(r.x + 2, r.y + 2, r.w - 4, r.h - 4, T.accent);
     }
   }
   if (ui.wifi && g.bars.w)                           // the Wi-Fi mark (round_geom.h), right-aligned with the grid

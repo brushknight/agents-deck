@@ -71,8 +71,8 @@ agent's transcript when it's a Claude session.
 
 From the deck, **open in orca** switches Orca to the agent's terminal and brings Orca forward; answers
 and **interrupt** are typed into that terminal; **hide** takes the agent off the deck until it's active
-again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
-`send`, `switch`). `config.json`: `"orca": false` turns it off.
+again. Terminal actions go through the `orca` CLI (`worktree ps`, `terminal list`, `read`,
+`send`, `switch`). Codex chat sessions also appear in Codex's database: focus resolves their exact provider thread ID from Orca's read-only session journal, confirms a live Orca-owned chat through `worktree ps`, then activates that workspace with `worktree activate` and brings Orca forward. The CLI cannot select an individual chat tab, so a workspace with several chats keeps its selected tab. No chat content is read from the journal. Native Codex-app threads retain their deep link. `config.json`: `"orca": false` turns it off.
 
 ### herdr
 
@@ -200,3 +200,7 @@ device, see [link/new-device.md](link/new-device.md).
 | `header` | `on` (default), `off`: the band at the top of agent terminals |
 | `web` | `local` (default), `lan`: also serve the dashboard on your local network |
 | `hat` | `agentctl set hat <agent|folder> <shape> [colour]`, `none` or `auto`: the hat of a working folder (stored in `config.json` `"hats"`) |
+
+### Moving tiles on the 4×4 touch boards
+
+Hold an occupied tile still for 600 ms, then drag it to another cell and release. Orange outlines show the source and destination. This needs scope `act` or `admin`. An occupied destination swaps slots through the daemon. Releasing in a gap or outside the grid cancels the move. A quick swipe still changes pages; a short tap opens the card. Dragging between pages is not supported.

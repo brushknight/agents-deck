@@ -106,6 +106,19 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 
 // focusExternal opens the thread in the Codex app (codex:// deep link; no Apple events).
 func (d *Daemon) focusExternal(e store.Entry) error {
+	// Orca chats also appear in Codex's database. Resolve their owner before
+	// opening a codex:// link, which would bring up the wrong app.
+	if c := d.orcaClient(); c != nil {
+		handled, err := c.FocusCodex(e.SessionID)
+		if err != nil {
+			return err
+		}
+		if handled {
+			d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
+			log.Printf("focus %s: orca chat workspace", e.A.ID)
+			return nil
+		}
+	}
 	d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
 	if err := exec.Command("/usr/bin/open", "codex://threads/"+e.SessionID).Run(); err != nil {
 		return err

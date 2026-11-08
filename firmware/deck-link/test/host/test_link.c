@@ -514,6 +514,13 @@ static void test_handshake(void)
 	CHECK(s[4].body.add_live.slot == -1);
 	CHECK(s[5].which_body == agentsdeck_link_v1_Frame_get_state_tag);
 
+	/* A grid drag uses the existing Move contract, including page-relative slots. */
+	tx_len = 0;
+	uint32_t qm = deck_move(&link, "k3f9a2", 31);
+	CHECK(qm == q6 + 1 && sent_frames(s, 16) == 1);
+	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_move_tag && s[0].seq == qm);
+	CHECK(strcmp(s[0].body.move.agent_id, "k3f9a2") == 0 && s[0].body.move.slot == 31);
+
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;
 	clock_ms += 14999;

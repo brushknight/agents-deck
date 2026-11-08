@@ -23,7 +23,7 @@ static inline uint16_t blend565(uint16_t bg, uint16_t fg, uint8_t a) {
 }
 
 // Decodes one code point and advances `p`. A malformed byte yields U+FFFD.
-static inline uint32_t utf8Next(const char*& p) {
+static inline uint32_t utf8Codepoint(const char*& p) {
   const unsigned char c = (unsigned char)*p++;
   if (c < 0x80) return c;
   int extra = (c & 0xE0) == 0xC0 ? 1 : (c & 0xF0) == 0xE0 ? 2 : (c & 0xF8) == 0xF0 ? 3 : -1;
@@ -34,6 +34,28 @@ static inline uint32_t utf8Next(const char*& p) {
     if ((n & 0xC0) != 0x80) return 0xFFFD;
     cp = cp << 6 | (n & 0x3F);
     p++;
+  }
+  return cp;
+}
+
+// One display cell. macOS folder names can use a letter followed by U+0308
+// instead of a precomposed umlaut. Compose these six German characters before
+// measuring, clipping or drawing; other UTF-8 keeps its existing behavior.
+static inline uint32_t utf8Next(const char*& p) {
+  const uint32_t cp = utf8Codepoint(p);
+  uint32_t composed;
+  switch (cp) {
+    case 'A': composed = 0x00C4; break;
+    case 'O': composed = 0x00D6; break;
+    case 'U': composed = 0x00DC; break;
+    case 'a': composed = 0x00E4; break;
+    case 'o': composed = 0x00F6; break;
+    case 'u': composed = 0x00FC; break;
+    default: return cp;
+  }
+  if ((unsigned char)p[0] == 0xCC && (unsigned char)p[1] == 0x88) {
+    p += 2;
+    return composed;
   }
   return cp;
 }
