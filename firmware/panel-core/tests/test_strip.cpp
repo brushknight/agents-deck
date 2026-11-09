@@ -118,7 +118,28 @@ static void checkScreens() {
       }
 }
 
+// The Wi-Fi mark in the header: shown once an SSID is set, even while on USB.
+static void checkWifiMark() {
+  static DeckFleet d;
+  d = DeckFleet();
+  assert(fixture::load(FIXTURE, d));
+  std::vector<uint16_t> a(strip::W * strip::H), b(strip::W * strip::H);
+  PanelUi ui;
+  NetView net;
+  net.wifiCapable = true;
+  PanelInput in{&d.fleet, LinkState::Live, "board", DeckScope::Act, 300, d.fleet.serverTime, &ui, 0, &net};
+  Canvas ca{a.data(), strip::W, strip::H}, cb{b.data(), strip::W, strip::H};
+  P.draw(ca, in);
+  snprintf(net.ssid, sizeof net.ssid, "home");
+  P.draw(cb, in);
+  assert(a != b);
+  net.wifiCapable = false;
+  P.draw(cb, in);
+  assert(a == b);
+}
+
 int main() {
+  checkWifiMark();
   // ---- the row: geometry, scrolling, settling
   {
     assert(P.width() == 640 && P.height() == 172);
