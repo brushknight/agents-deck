@@ -25,6 +25,7 @@ type orcaWatch struct {
 	mu     sync.Mutex
 	client orcaAPI
 	hidden map[string]int64 // pane key -> the agent's updatedAt when you hid it
+	now    func() time.Time // the clock; nil is time.Now
 }
 
 // orcaAPI is what the deck asks of Orca (orca.Client; a fake in tests).
@@ -72,6 +73,15 @@ func (d *Daemon) WatchOrca() {
 	}
 }
 
+func (d *Daemon) orcaNow() time.Time {
+	d.orca.mu.Lock()
+	defer d.orca.mu.Unlock()
+	if d.orca.now != nil {
+		return d.orca.now()
+	}
+	return time.Now()
+}
+
 func (d *Daemon) orcaClient() orcaAPI {
 	d.orca.mu.Lock()
 	defer d.orca.mu.Unlock()
@@ -93,11 +103,12 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 	hidden := d.orca.hidden
 	d.orca.mu.Unlock()
 	want := map[string]orcaRow{}
+	now := d.orcaNow()
 	for _, w := range snap.Worktrees {
 		for _, a := range w.Agents {
 			t, ok := terms[a.PaneKey]
 			if a.IsChat() {
-				if w.IsArchived {
+				if w.IsArchived || (a.State == "done" && now.Sub(time.UnixMilli(a.UpdatedAt)) > orcaChatIdle) {
 					continue
 				}
 			} else if !ok || !t.Connected {
@@ -337,6 +348,9 @@ func orcaTitle(r orcaRow) string {
 	if n := r.a.ConversationName; n != "" && n != defaultChatName {
 		return clipText(n, 80)
 	}
+	if r.a.IsChat() {
+		return chatWorkspaceTitle(r.w)
+	}
 	if t := tabTitle(r.t.Title); t != "" {
 		return t
 	}
@@ -346,10 +360,30 @@ func orcaTitle(r orcaRow) string {
 	return filepath.Base(r.w.Path)
 }
 
+// orcaChatIdle: a finished chat has no terminal to prove it is still open, so
+// it leaves the deck after this long, until it is active again.
+const orcaChatIdle = 24 * time.Hour
+
 // defaultChatName is Orca's name for a chat nobody renamed.
 const defaultChatName = "Claude Chat"
 
 var errOrcaChat = errors.New("this agent runs in Orca's chat: answer or stop it there")
+
+// chatWorkspaceTitle names an unrenamed chat after its workspace. A repo's main
+// workspace is named after its branch, so the repo leads ("frontend · main"). A URL
+// as a workspace name gives way to the branch.
+func chatWorkspaceTitle(w orca.Worktree) string {
+	name := w.DisplayName
+	if name == "" || strings.Contains(name, "://") {
+		if name = orcaBranch(w.Branch); name == "" {
+			name = filepath.Base(w.Path)
+		}
+	}
+	if !w.IsMainWorktree || w.Repo == "" || w.Repo == name {
+		return clipText(name, 80)
+	}
+	return clipText(w.Repo+" · "+name, 80)
+}
 
 func orcaBranch(b string) string { return strings.TrimPrefix(b, "refs/heads/") }
 
