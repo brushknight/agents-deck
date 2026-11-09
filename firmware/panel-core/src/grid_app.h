@@ -35,6 +35,7 @@ struct GridBoard {
   int bootPin;                             // the BOOT button (active low), -1 for none
   uint8_t brightActive, brightIdle;
   const char* boardId;                     // Hello.board_id; nullptr: DeckLink::chipId() (the MAC, "AA:BB:...")
+  int (*battery)();                        // percent on battery power, -1 on USB; nullptr: no battery
 };
 
 namespace grid_app {
@@ -143,6 +144,7 @@ static void render() {
   // A firmware update, a passkey or "forget Bluetooth?": its notice (net_model.h's words) instead of the agents.
   const bool notice = net.ota.phase != OtaPhase::None || netOverlay(net);
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
+  in.battery = board.battery ? board.battery() : -1;
   board.layout->draw(canvas, in);
   board.push(frame);
 }

@@ -22,6 +22,17 @@ for spec in lcd4:waveshare-touch-lcd-4 amoled18:waveshare-touch-amoled-18 t4s3:l
     out/$layout/wifi-wrong-password.ppm out/$layout/wifi-cert-rejected.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
+# The 3.49" strip (640 x 172): every screen, and the Wi-Fi sheet two across.
+docs=../devices/waveshare-touch-lcd-349/docs
+rm -rf out/strip && mkdir -p out/strip "$docs"
+out/render ../../docs/fixtures/state.json out/strip 300 strip
+rm -f "$docs"/*.png
+for f in out/strip/*.ppm; do
+  "$PY" tools/ppm2png.py "$docs/$(basename "$f" .ppm).png" "$f" --gap 0 >/dev/null
+done
+"$PY" tools/ppm2png.py "$docs/wifi.png" out/strip/home-wifi.ppm out/strip/wifi-joining.ppm \
+  out/strip/wifi-wrong-password.ppm out/strip/wifi-cert-rejected.ppm --cols 2 --gap 8 >/dev/null
+echo "$docs"
 for spec in spring28:waveshare-touch-lcd-28c spring:waveshare-touch-lcd-21; do
   layout=${spec%%:*}
   docs=../devices/${spec#*:}/docs
