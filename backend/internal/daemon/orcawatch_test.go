@@ -287,3 +287,26 @@ func TestOrcaChatActions(t *testing.T) {
 		t.Fatal("dismissed chat still on the deck")
 	}
 }
+
+// A chat reports its background work as children, not subagents.
+func TestOrcaChatChildrenAreSubagents(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.client = &fakeOrca{}
+	id := orcaAgentID(chatPane)
+	snap := orcaChatSnap("working", "", "", 100)
+	snap.Worktrees[0].Agents[0].Children = []orca.Child{
+		{ID: "c1", Kind: "command", Description: "Start the dev server", State: "working", Membership: "live"},
+		{ID: "c2", Kind: "command", Description: "Run the unit tests", State: "done", Membership: "live"},
+	}
+	d.syncOrca(snap)
+	e, _ := d.Store.Get(id)
+	if len(e.A.Subagents) != 1 || e.A.Subagents[0].ID != "c1" || e.A.Subagents[0].Title != "Start the dev server" || e.A.Subagents[0].Type != "command" {
+		t.Fatalf("subagents: %+v", e.A.Subagents)
+	}
+
+	snap.Worktrees[0].Agents[0].Children = nil
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); len(e.A.Subagents) != 0 {
+		t.Fatalf("finished children still shown: %+v", e.A.Subagents)
+	}
+}

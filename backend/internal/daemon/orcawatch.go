@@ -285,6 +285,12 @@ func orcaSubagents(a orca.Agent) []model.Subagent {
 		}
 		out = append(out, model.Subagent{ID: s.ID, Title: s.Description, Type: s.AgentType})
 	}
+	for _, c := range a.Children {
+		if c.State == "done" || c.State == "completed" || (c.Membership != "" && c.Membership != "live") {
+			continue
+		}
+		out = append(out, model.Subagent{ID: c.ID, Title: c.Description, Type: c.Kind})
+	}
 	return out
 }
 
