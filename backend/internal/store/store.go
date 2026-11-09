@@ -31,6 +31,8 @@ type Entry struct {
 	OrcaTerminal  string      `json:"-"`                  // an agent in Orca: its terminal handle
 	OrcaPane      string      `json:"-"`                  // …and Orca's pane key (stable id)
 	OrcaTurn      int64       `json:"-"`                  // …stateStartedAt of the state its prompt was built for
+	OrcaChat      bool        `json:"-"`                  // …it runs in Orca's chat UI: no terminal to read or type into
+	OrcaWorktree  string      `json:"-"`                  // …its workspace id, to open it in Orca
 	HerdrSocket   string      `json:"-"`                  // an agent in herdr: its session's socket
 	HerdrPane     string      `json:"-"`                  // …its pane ("w1:p2"; changes when panes move)
 	HerdrTurn     int64       `json:"-"`                  // …state_change_seq of the state its prompt was built for

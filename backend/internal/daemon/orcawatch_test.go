@@ -3,7 +3,9 @@ package daemon
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/orca"
 	"github.com/brushknight/agents-deck/backend/internal/server"
@@ -11,10 +13,11 @@ import (
 )
 
 type fakeOrca struct {
-	fronted  int // Front calls: the real one would open the Orca app
-	screen   string
-	sent     []string
-	switched []string
+	fronted   int // Front calls: the real one would open the Orca app
+	screen    string
+	sent      []string
+	switched  []string
+	activated []string
 }
 
 func (f *fakeOrca) Read() (orca.Snapshot, error)  { return orca.Snapshot{}, nil }
@@ -23,8 +26,9 @@ func (f *fakeOrca) Send(h, text string, _ bool) error {
 	f.sent = append(f.sent, h+" "+text)
 	return nil
 }
-func (f *fakeOrca) Switch(h string) error { f.switched = append(f.switched, h); return nil }
-func (f *fakeOrca) Front() error          { f.fronted++; return nil }
+func (f *fakeOrca) Switch(h string) error   { f.switched = append(f.switched, h); return nil }
+func (f *fakeOrca) Activate(w string) error { f.activated = append(f.activated, w); return nil }
+func (f *fakeOrca) Front() error            { f.fronted++; return nil }
 
 const permissionScreen = `
  Bash command
@@ -186,5 +190,173 @@ func TestTabTitle(t *testing.T) {
 		if got := tabTitle(in); got != want {
 			t.Errorf("tabTitle(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func orcaChatSnap(state, tool, input string, started int64) orca.Snapshot {
+	return orca.Snapshot{Worktrees: []orca.Worktree{{WorktreeID: "w1", Path: "/work/app", Branch: "refs/heads/fix-login", DisplayName: "fix-login",
+		Agents: []orca.Agent{{PaneKey: "structured-agent-session-claude_abc:uuid1", State: state, AgentType: "claude",
+			ConversationName: "login plan", Prompt: "plan the fix", ToolName: tool, ToolInput: input,
+			StateStartedAt: started, UpdatedAt: started}}}}}
+}
+
+// chatNow is the clock of the chat tests: a moment after their agents' timestamps.
+func chatNow() time.Time { return time.UnixMilli(1000) }
+
+const chatPane = "structured-agent-session-claude_abc:uuid1"
+
+func TestOrcaChatAgentsOnTheDeck(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.now = chatNow
+	d.orca.client = &fakeOrca{}
+	id := orcaAgentID(chatPane)
+
+	d.syncOrca(orcaChatSnap("working", "Bash", "go test ./...", 100))
+	e, ok := d.Store.Get(id)
+	if !ok || e.A.Status != model.Running || e.A.Title != "login plan" || e.A.App != "orca" || !e.OrcaChat ||
+		e.OrcaWorktree != "w1" || e.A.Activity == nil || e.A.Activity.Tool != "Bash" || e.A.LastPrompt != "plan the fix" {
+		t.Fatalf("working chat: %+v", e)
+	}
+
+	// Waiting: a prompt to answer in Orca, with no options the deck could type.
+	d.syncOrca(orcaChatSnap("blocked", "Bash", "rm -rf build", 200))
+	e, _ = d.Store.Get(id)
+	p := e.A.Waiting
+	if e.A.Status != model.Waiting || p == nil || p.Kind != "input" || len(p.Options) != 0 || !strings.Contains(p.Context, "in Orca") {
+		t.Fatalf("blocked chat: %+v / %+v", e.A, p)
+	}
+
+	d.syncOrca(orcaChatSnap("done", "", "", 300))
+	if e, _ = d.Store.Get(id); e.A.Status != model.Idle || !e.A.Unseen {
+		t.Fatalf("done chat: %+v", e.A)
+	}
+
+	// Orca's default chat name is no title; the workspace names it.
+	snap := orcaChatSnap("done", "", "", 300)
+	snap.Worktrees[0].Agents[0].ConversationName = "Claude Chat"
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); e.A.Title != "fix-login" {
+		t.Fatalf("title %q", e.A.Title)
+	}
+
+	// A repo's main workspace is named after its branch: the repo leads.
+	snap.Worktrees[0].Repo = "app"
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); e.A.Title != "fix-login" {
+		t.Fatalf("title %q", e.A.Title)
+	}
+	snap.Worktrees[0].IsMainWorktree = true
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); e.A.Title != "app · fix-login" {
+		t.Fatalf("title %q", e.A.Title)
+	}
+
+	// A workspace named after a URL falls back to its branch.
+	snap.Worktrees[0].DisplayName = "https://example.test/some/page"
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); e.A.Title != "app · fix-login" {
+		t.Fatalf("title %q", e.A.Title)
+	}
+
+	arch := orcaChatSnap("working", "", "", 400)
+	arch.Worktrees[0].IsArchived = true
+	d.syncOrca(arch)
+	if _, ok := d.Store.Get(id); ok {
+		t.Fatal("chat of an archived workspace on the deck")
+	}
+
+	d.syncOrca(orcaChatSnap("done", "", "", 300))
+	d.syncOrca(orca.Snapshot{})
+	if _, ok := d.Store.Get(id); ok {
+		t.Fatal("closed chat still on the deck")
+	}
+}
+
+// A hand-started Claude session in the chat's folder is not the chat's.
+func TestOrcaChatKeepsOffOtherSessions(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.now = chatNow
+	d.orca.client = &fakeOrca{}
+	d.live.reported = []claude.Live{{Cwd: "/work/app", SessionID: "s1"}}
+	d.syncOrca(orcaChatSnap("working", "", "", 100))
+	if e, _ := d.Store.Get(orcaAgentID(chatPane)); e.SessionID != "" {
+		t.Fatalf("chat took session %q", e.SessionID)
+	}
+}
+
+func TestOrcaChatActions(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.now = chatNow
+	f := &fakeOrca{}
+	d.orca.client = f
+	id := orcaAgentID(chatPane)
+	d.syncOrca(orcaChatSnap("working", "Bash", "go test ./...", 100))
+	d.syncOrca(orcaChatSnap("done", "", "", 200)) // hungry
+
+	if err := d.Focus(id); err != nil || len(f.activated) != 1 || f.activated[0] != "w1" || f.fronted != 1 || len(f.switched) != 0 {
+		t.Fatalf("focus: %v activated=%v fronted=%d switched=%v", err, f.activated, f.fronted, f.switched)
+	}
+	if e, _ := d.Store.Get(id); e.A.Unseen {
+		t.Fatal("still hungry after focus")
+	}
+	if err := d.Interrupt(id); err == nil || len(f.sent) != 0 {
+		t.Fatalf("interrupt of a chat: %v %v", err, f.sent)
+	}
+	e, _ := d.Store.Get(id)
+	if err := d.orcaSend(e, "1"); err == nil || len(f.sent) != 0 {
+		t.Fatalf("send to a chat: %v %v", err, f.sent)
+	}
+	if err := d.Dismiss(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := d.Store.Get(id); ok {
+		t.Fatal("dismissed chat still on the deck")
+	}
+}
+
+// A chat reports its background work as children, not subagents.
+func TestOrcaChatChildrenAreSubagents(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.now = chatNow
+	d.orca.client = &fakeOrca{}
+	id := orcaAgentID(chatPane)
+	snap := orcaChatSnap("working", "", "", 100)
+	snap.Worktrees[0].Agents[0].Children = []orca.Child{
+		{ID: "c1", Kind: "command", Description: "Start the dev server", State: "working", Membership: "live"},
+		{ID: "c2", Kind: "command", Description: "Run the unit tests", State: "done", Membership: "live"},
+	}
+	d.syncOrca(snap)
+	e, _ := d.Store.Get(id)
+	if len(e.A.Subagents) != 1 || e.A.Subagents[0].ID != "c1" || e.A.Subagents[0].Title != "Start the dev server" || e.A.Subagents[0].Type != "command" {
+		t.Fatalf("subagents: %+v", e.A.Subagents)
+	}
+
+	snap.Worktrees[0].Agents[0].Children = nil
+	d.syncOrca(snap)
+	if e, _ = d.Store.Get(id); len(e.A.Subagents) != 0 {
+		t.Fatalf("finished children still shown: %+v", e.A.Subagents)
+	}
+}
+
+// A finished chat has no terminal to prove it's open: after a day it leaves the
+// deck until it's active again.
+func TestOrcaFinishedChatsFadeAfterADay(t *testing.T) {
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.orca.client = &fakeOrca{}
+	id := orcaAgentID(chatPane)
+	day := int64(24 * time.Hour / time.Millisecond)
+	d.orca.now = func() time.Time { return time.UnixMilli(day + 2000) }
+
+	d.syncOrca(orcaChatSnap("done", "", "", 1000)) // finished 1 s over a day ago
+	if _, ok := d.Store.Get(id); ok {
+		t.Fatal("a chat finished over a day ago is on the deck")
+	}
+	d.syncOrca(orcaChatSnap("done", "", "", 3000)) // finished just now
+	if _, ok := d.Store.Get(id); !ok {
+		t.Fatal("a chat finished just now is not on the deck")
+	}
+	d.syncOrca(orcaChatSnap("working", "", "", 1000)) // working chats stay, however old their row
+	if e, ok := d.Store.Get(id); !ok || e.A.Status != model.Running {
+		t.Fatalf("working chat: %+v", e.A)
 	}
 }

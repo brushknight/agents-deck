@@ -561,8 +561,8 @@ String agentMetaLine(Agent a, AgentsState state, [DateTime? localNow]) {
   switch (a.status) {
     case AgentStatus.running:
       final verb = a.activity?.verb;
-      return '${verb == null || verb.isEmpty ? 'working' : verb}'
-          ' · ${a.contextPercent}% ctx';
+      final ctx = a.contextWindow > 0 ? ' · ${a.contextPercent}% ctx' : '';
+      return '${verb == null || verb.isEmpty ? 'working' : verb}$ctx';
     case AgentStatus.waiting:
       final p = a.waiting;
       if (p == null) return 'needs you';

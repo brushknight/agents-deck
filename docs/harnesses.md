@@ -25,6 +25,10 @@ How the three that exist get these:
 | herdr | `session.snapshot` on its socket | herdr's hook, else the pane's process | `pane.read`, `pane.send_text`, `pane.send_keys`, `agent.focus` |
 | cmux | its Claude hooks' file, `~/.cmuxterm/claude-hook-sessions.json` | in that file | `surface.read_text`, `send_text`, `send_key`, `focus` on its socket |
 
+Orca's chat UI is read-only on the deck: its agents show in `orca worktree ps` but have no terminal. The deck
+shows their status and brings Orca forward; you answer or stop them in Orca. They show no tokens, context or
+cost: the deck can't tell which Claude session a chat is.
+
 Prefer what the harness documents (a CLI, a socket API, a state file) over reading its window or its
 private storage. If it only offers part of the list, a read-only integration (tiles with status, answered
 in the harness) is still worth having; say so in the docs.

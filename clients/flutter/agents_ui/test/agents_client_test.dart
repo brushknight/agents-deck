@@ -360,6 +360,15 @@ void main() {
       expect(meta('1nfr4t'), 'api 529 overloaded · retrying');
     });
 
+    test('a running agent without context numbers shows no ctx', () {
+      final j = jsonDecode(_fixture) as Map<String, dynamic>;
+      final k = (j['agents'] as List).firstWhere((a) => a['id'] == 'k3f9a2')
+          as Map<String, dynamic>;
+      k['context'] = {'used': 0, 'window': 0};
+      final s = AgentsState.fromJson(j);
+      expect(agentMetaLine(s.byId('k3f9a2')!, s, s.receivedAt), 'edit');
+    });
+
     test('durations follow the daemon clock, not ours', () {
       final s = AgentsState.fromJson(
         jsonDecode(_fixture),

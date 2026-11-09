@@ -88,7 +88,7 @@ const hungry = (a) => a.status === 'idle' && a.unseen;
 function tileMeta(a) {
   if (hungry(a)) return 'hungry · feed me';
   switch (a.status) {
-    case 'running': return `${verb(a.activity?.tool)} · ${ctxPct(a)}% ctx`;
+    case 'running': return `${verb(a.activity?.tool)}${a.context?.window ? ` · ${ctxPct(a)}% ctx` : ''}`;
     case 'waiting': {
       const w = a.waiting || {};
       if (w.kind === 'permission') {
@@ -1093,10 +1093,12 @@ function buildInfo(a) {
   if (a.tool === 'claude' && a.account) for (const acc of accounts) if (acc.name !== a.account.name) actions.append(handoffButton(a, acc, note));
 
   panel.className = 'detail' + (a.status === 'error' ? ' p-error' : ['idle', 'starting', 'exited'].includes(a.status) ? ' p-dim' : '');
+  const ctxSec = h('div', { class: 'sec' }, h('div', { class: 'ctx-head' }, h('span', { class: 'h' }, 'context', ctxNums), ctxPctEl), bar);
+  const stats = h('div', { class: 'stats' }, S.map((s) => s[0]));
   panel.replaceChildren(hd.el,
     h('div', { class: 'sec' }, doingLbl, doing),
-    h('div', { class: 'sec' }, h('div', { class: 'ctx-head' }, h('span', { class: 'h' }, 'context', ctxNums), ctxPctEl), bar),
-    h('div', { class: 'stats' }, S.map((s) => s[0])),
+    ctxSec,
+    stats,
     h('div', { class: 'sec grow' }, h('span', { class: 'lbl', text: 'last prompt' }), prompt),
     h('div', { class: 'd-foot' }, foot, server),
     actions, note);
@@ -1115,6 +1117,8 @@ function buildInfo(a) {
       setText(doing, x.status === 'idle' ? `finished · ${rel(x.statusSince)} ago` : x.status === 'starting' ? 'starting…' : `exited · ${rel(x.statusSince)} ago`);
       doing.className = 'val';
     }
+    const noNumbers = !x.context?.window && !x.turns; // e.g. a chat in Orca: nothing to count
+    ctxSec.style.display = stats.style.display = noNumbers ? 'none' : '';
     const pct = ctxPct(x);
     setText(ctxNums, `${fmtN(x.context?.used)} / ${fmtN(x.context?.window)}`);
     setText(ctxPctEl, `${pct}%`);
