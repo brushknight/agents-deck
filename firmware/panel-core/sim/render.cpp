@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|strip|orbit|dial|spring|spring28|selftest28|selftest21]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -23,6 +23,7 @@
 #include "layout_147.h"
 #include "layout_big.h"
 #include "layout_square.h"
+#include "layout_strip.h"
 #include "fixture.h"
 #include "round_shots.h"
 
@@ -177,6 +178,96 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
   return 0;
 }
 
+// The strip (640 x 172): every screen, and the prompt with six long options.
+static int renderStrip(const std::string& dir, const char* device, DeckFleet& deck, uint32_t ms, int64_t now) {
+  const StripPanel P;
+  std::vector<uint16_t> buf(strip::W * strip::H);
+  Canvas c{buf.data(), strip::W, strip::H};
+  const Fleet& f = deck.fleet;
+  PanelUi ui;
+  PanelInput in{&f, LinkState::Live, device, DeckScope::Admin, ms, now, &ui, 0};
+  auto shot = [&](const char* name) {
+    P.draw(c, in);
+    writePpm(dir + "/" + name + ".ppm", c);
+  };
+  shot("home");
+  in.battery = 64;
+  shot("home-battery");
+  in.battery = 9;
+  shot("home-battery-low");
+  in.battery = -1;
+  ui.scroll = 180;
+  ui.dragging = true;
+  shot("home-scrolling");
+  ui.dragging = false;
+  ui.scroll = 0;
+
+  auto open = [&](const char* id, Screen s) {
+    snprintf(ui.openId, sizeof ui.openId, "%s", id);
+    ui.screen = s;
+  };
+  open("k3f9a2", Screen::Card);
+  shot("card");
+  ui.down = true;                                  // stop held half way
+  ui.pressed = PanelHit{Hit::Stop, findAgent(f, "k3f9a2"), -1};
+  ui.downMs = ms - 500;
+  shot("card-stop-held");
+  ui.down = false;
+  ui.pressed = PanelHit();
+  in.scope = DeckScope::Act;
+  open("scr4tc", Screen::Card);
+  shot("card-idle-act");
+  in.scope = DeckScope::View;
+  open("k3f9a2", Screen::Card);
+  shot("card-view");
+  in.scope = DeckScope::Admin;
+  open("1nfr4t", Screen::Card);
+  shot("card-error");
+  open("h0m3l4", Screen::Prompt);
+  shot("permission");
+  ui.pressed = PanelHit{Hit::Option, findAgent(f, "h0m3l4"), 0};
+  shot("permission-pressed");
+  ui.pressed = PanelHit();
+  open("4uthfl", Screen::Prompt);
+  shot("question");
+
+  // Six options with long labels and hints: the two-column grid.
+  static DeckFleet six;
+  six = deck;
+  Agent& q = six.fleet.agents[findAgent(six.fleet, "4uthfl")];
+  q.optCount = kMaxOptions;
+  for (int i = 0; i < kMaxOptions; i++) {
+    snprintf(q.opts[i].key, sizeof q.opts[i].key, "%d", i + 1);
+    snprintf(q.opts[i].label, sizeof q.opts[i].label, "option number %d with a long label \xE2\x80\x94 and a hint", i + 1);
+  }
+  in.fleet = &six.fleet;
+  shot("question-six");
+  in.fleet = &f;
+
+  ui.screen = Screen::Home;
+  ui.openId[0] = '\0';
+  uiToast(ui, "sent", ms);
+  shot("toast");
+  ui.toast[0] = '\0';
+  wifiShots(shot, in, ui, f, ms);
+
+  in.link = LinkState::Lost;
+  shot("home-offline");
+  static Fleet empty;
+  snprintf(empty.server, sizeof empty.server, "workstation");
+  in.silentSec = 120;
+  const struct { const char* name; LinkState link; const Fleet* f; } kNotices[] = {
+      {"connecting", LinkState::Connecting, nullptr}, {"not-approved", LinkState::Unapproved, nullptr},
+      {"no-agents", LinkState::Live, &empty},           {"offline", LinkState::Lost, nullptr},
+  };
+  for (const auto& n : kNotices) {
+    in.link = n.link;
+    in.fleet = n.f;
+    shot(n.name);
+  }
+  return 0;
+}
+
 // The big panels: every screen at one scale.
 static int renderBig(const std::string& dir, const BigSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
                      int64_t now) {
@@ -295,6 +386,7 @@ int main(int argc, char** argv) {
   if (layout == "lcd4-small") return renderSquare(dir, specLcd4(), "waveshare-touch-lcd-2a5390", deck, ms, now);
   if (layout == "amoled18") return renderSquare(dir, specAmoled18(), "waveshare-touch-amol-fea2ac", deck, ms, now);
   if (layout == "t4s3") return renderSquare(dir, specT4S3(), "t4s3-panel-a1b2c3", deck, ms, now);
+  if (layout == "strip") return renderStrip(dir, "waveshare-touch-lcd-349-5b2e71", deck, ms, now);
   if (layout == "orbit") {
     static const OrbitPanel orbit(layoutOrbit28());
     return round_shots::render(dir, orbit, "waveshare-touch-lcd-28c-3c71bf", fleet, ms, now);
@@ -315,7 +407,7 @@ int main(int argc, char** argv) {
   if (layout == "selftest21")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-21", "tca9554 ok" DECK_DOT "cst820 ok", 16000000);
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, strip, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
     return 2;
   }
 

@@ -35,6 +35,7 @@ struct GridBoard {
   int bootPin;                             // the BOOT button (active low), -1 for none
   uint8_t brightActive, brightIdle;
   const char* boardId;                     // Hello.board_id; nullptr: DeckLink::chipId() (the MAC, "AA:BB:...")
+  int (*battery)();                        // percent on battery power, -1 on USB; nullptr: no battery
 };
 
 namespace grid_app {
@@ -138,6 +139,7 @@ static void render() {
   net = net_link::view();
   ui.wifi = net.via == NetVia::Wifi;       // home's Wi-Fi mark (and the grid's row for it; touch follows the last frame)
   PanelInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
+  in.battery = board.battery ? board.battery() : -1;
   board.layout->draw(canvas, in);
   board.push(frame);
 }

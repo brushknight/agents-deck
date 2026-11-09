@@ -103,6 +103,7 @@ struct PanelInput {
   const PanelUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
   const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
+  int battery = -1;            // percent on battery power; -1: on USB, or no battery to show
 };
 
 class PanelLayout {
