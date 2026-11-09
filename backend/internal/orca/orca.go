@@ -76,12 +76,22 @@ type Agent struct {
 	StateStartedAt       int64      `json:"stateStartedAt"`
 	UpdatedAt            int64      `json:"updatedAt"`
 	Subagents            []Subagent `json:"subagents"`
+	Children             []Child    `json:"children"` // a chat's background work (commands, agents)
 }
 
 // chatPanePrefix marks agents that run in Orca's chat UI: they have no terminal.
 const chatPanePrefix = "structured-agent-session-"
 
 func (a Agent) IsChat() bool { return strings.HasPrefix(a.PaneKey, chatPanePrefix) }
+
+// Child is one piece of background work of a chat agent.
+type Child struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"` // "command" so far
+	Description string `json:"description"`
+	State       string `json:"state"`
+	Membership  string `json:"membership"` // "live" while Orca still tracks it
+}
 
 type Subagent struct {
 	ID          string `json:"id"`
