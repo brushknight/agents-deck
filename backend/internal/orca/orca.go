@@ -102,14 +102,15 @@ type Subagent struct {
 
 // Worktree is one workspace of `orca worktree ps`.
 type Worktree struct {
-	WorktreeID  string  `json:"worktreeId"`
-	Repo        string  `json:"repo"`
-	Path        string  `json:"path"`
-	Branch      string  `json:"branch"`
-	DisplayName string  `json:"displayName"`
-	Unread      bool    `json:"unread"`
-	IsArchived  bool    `json:"isArchived"`
-	Agents      []Agent `json:"agents"`
+	WorktreeID     string  `json:"worktreeId"`
+	Repo           string  `json:"repo"`
+	Path           string  `json:"path"`
+	Branch         string  `json:"branch"`
+	DisplayName    string  `json:"displayName"`
+	Unread         bool    `json:"unread"`
+	IsArchived     bool    `json:"isArchived"`
+	IsMainWorktree bool    `json:"isMainWorktree"`
+	Agents         []Agent `json:"agents"`
 }
 
 // Terminal is one terminal of `orca terminal list`.
