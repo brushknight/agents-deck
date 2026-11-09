@@ -85,17 +85,18 @@ void loop() {
 
 constexpr int PIN_BAT_ADC = 4;                // VBAT through a 1:3 divider
 constexpr uint32_t kPowerOffHoldMs = 1500;
+constexpr int kBatteryMinMv = 2500;            // below this no cell is attached
 
-// Percent on battery power, -1 while a USB host is there. Read every 10 s:
+// Percent of the battery, -1 when none is attached (a bare pin reads far below a cell).
+// On USB the charger lifts the reading, so it runs high there. Read every 10 s:
 // the voltage sags while the radio sends.
 static int batteryPercent() {
   static int pct = -1;
   static uint32_t lastRead = 0;
-  if (HWCDC::isPlugged()) return -1;
-  if (pct >= 0 && millis() - lastRead < 10000) return pct;
+  if (lastRead && millis() - lastRead < 10000) return pct;
   lastRead = millis();
   const int mv = (int)analogReadMilliVolts(PIN_BAT_ADC) * 3;
-  pct = constrain((mv - 3300) * 100 / (4150 - 3300), 0, 100);
+  pct = mv < kBatteryMinMv ? -1 : constrain((mv - 3300) * 100 / (4150 - 3300), 0, 100);
   return pct;
 }
 

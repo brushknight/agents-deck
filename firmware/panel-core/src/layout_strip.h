@@ -299,13 +299,13 @@ static inline void header(Canvas& c, const Theme& T, const PanelInput& in) {
   c.rect(0, 0, W, kHeaderH, T.bg);
   const int ty = (kHeaderH - FONT_L.cellH) / 2 + 1;
   c.text(FONT_L, M + 2, ty, "agents", T.ink);
-  if (in.ui->wifi) wifiMark(c, T, M + 2 + textW(FONT_L, "agents") + 22, ty + FONT_L.cellH * 3 / 4);
+  if (in.ui->wifi || (in.net && in.net->wifiCapable && in.net->ssid[0])) wifiMark(c, T, M + 2 + textW(FONT_L, "agents") + 22, ty + FONT_L.cellH * 3 / 4);
   int right = W - M;
   if (in.battery >= 0) {
     char pct[16];
     snprintf(pct, sizeof pct, "%d%%", in.battery);
     battery(c, T, right, (kHeaderH - 12) / 2, in.battery);
-    right -= 30 + textW(FONT_XS, pct);
+    right -= 36 + textW(FONT_XS, pct);
     c.text(FONT_XS, right + 2, (kHeaderH - FONT_XS.cellH) / 2 + 1, pct, in.battery <= 15 ? T.accent : T.dim);
     right -= 14;
   }
