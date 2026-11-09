@@ -68,6 +68,7 @@ type Agent struct {
 	State                string     `json:"state"`   // working | blocked | waiting | done
 	AgentType            string     `json:"agentType"`
 	Prompt               string     `json:"prompt"`
+	ConversationName     string     `json:"conversationName"` // a chat's title; "Claude Chat" until renamed
 	LastAssistantMessage string     `json:"lastAssistantMessage"`
 	ToolName             string     `json:"toolName"`
 	ToolInput            string     `json:"toolInput"`
@@ -76,6 +77,11 @@ type Agent struct {
 	UpdatedAt            int64      `json:"updatedAt"`
 	Subagents            []Subagent `json:"subagents"`
 }
+
+// chatPanePrefix marks agents that run in Orca's chat UI: they have no terminal.
+const chatPanePrefix = "structured-agent-session-"
+
+func (a Agent) IsChat() bool { return strings.HasPrefix(a.PaneKey, chatPanePrefix) }
 
 type Subagent struct {
 	ID          string `json:"id"`
@@ -92,6 +98,7 @@ type Worktree struct {
 	Branch      string  `json:"branch"`
 	DisplayName string  `json:"displayName"`
 	Unread      bool    `json:"unread"`
+	IsArchived  bool    `json:"isArchived"`
 	Agents      []Agent `json:"agents"`
 }
 
@@ -202,6 +209,11 @@ func (c Client) Send(handle, text string, enter bool) error {
 // Switch shows a terminal's tab in Orca.
 func (c Client) Switch(handle string) error {
 	return c.call(nil, "terminal", "switch", "--terminal", handle)
+}
+
+// Activate opens a workspace in Orca; the CLI can't focus one chat tab.
+func (c Client) Activate(worktreeID string) error {
+	return c.call(nil, "worktree", "activate", "--worktree", "id:"+worktreeID)
 }
 
 // Front brings the Orca app forward (macOS).
