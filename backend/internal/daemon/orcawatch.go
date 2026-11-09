@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,7 @@ type orcaAPI interface {
 	Screen(handle string) (string, error)
 	Send(handle, text string, enter bool) error
 	Switch(handle string) error
+	Activate(worktreeID string) error
 	Front() error
 }
 
@@ -94,7 +96,11 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 	for _, w := range snap.Worktrees {
 		for _, a := range w.Agents {
 			t, ok := terms[a.PaneKey]
-			if !ok || !t.Connected {
+			if a.IsChat() {
+				if w.IsArchived {
+					continue
+				}
+			} else if !ok || !t.Connected {
 				continue // its terminal is gone or asleep
 			}
 			if h, ok := hidden[a.PaneKey]; ok && h >= a.UpdatedAt {
@@ -112,7 +118,8 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 	}
 	for id, r := range want {
 		if _, ok := d.Store.Get(id); !ok {
-			e := &store.Entry{External: true, OrcaPane: r.a.PaneKey, OrcaTerminal: r.t.Handle}
+			e := &store.Entry{External: true, OrcaPane: r.a.PaneKey, OrcaTerminal: r.t.Handle,
+				OrcaChat: r.a.IsChat(), OrcaWorktree: r.w.WorktreeID}
 			e.A = model.Agent{ID: id, Tool: orcaTool(r.a.AgentType), External: true, App: "orca", Status: model.Idle,
 				Title: orcaTitle(r), Cwd: r.w.Path, Folder: filepath.Base(r.w.Path), Branch: orcaBranch(r.w.Branch)}
 			d.Store.Add(e)
@@ -120,10 +127,13 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 		// A new question: its options are on the agent's screen (Orca sends
 		// only a one-line summary of the tool call). Read it outside the lock.
 		var screen string
-		if cur, ok := d.Store.Get(id); ok && (r.a.State == "blocked" || r.a.State == "waiting") && cur.OrcaTurn != r.a.StateStartedAt {
+		if cur, ok := d.Store.Get(id); ok && !r.a.IsChat() && (r.a.State == "blocked" || r.a.State == "waiting") && cur.OrcaTurn != r.a.StateStartedAt {
 			screen, _ = d.orcaClient().Screen(r.t.Handle)
 		}
-		session := d.orcaSession(r.w.Path)
+		var session claude.Live // a chat has none: the folder lookup could claim a hand-started session
+		if !r.a.IsChat() {
+			session = d.orcaSession(r.w.Path)
+		}
 		d.Store.Update(id, func(e *store.Entry) bool {
 			changed := false
 			if e.OrcaTerminal != r.t.Handle {
@@ -196,6 +206,9 @@ func orcaApply(e *store.Entry, a orca.Agent, screen string) bool {
 		if e.A.Status != model.Waiting || e.OrcaTurn != a.StateStartedAt {
 			e.SetStatus(model.Waiting)
 			e.A.Waiting = orcaPrompt(e, a, screen)
+			if e.OrcaChat {
+				e.A.Waiting.Kind, e.A.Waiting.Options = "input", nil // the CLI can't type into a chat
+			}
 			e.OrcaTurn = a.StateStartedAt
 			changed = true
 		}
@@ -315,6 +328,9 @@ func orcaTool(agentType string) string {
 // title without the glyphs an agent puts in front ("✳ "), unless that is only
 // the agent's or the shell's own name. Then the workspace names it.
 func orcaTitle(r orcaRow) string {
+	if n := r.a.ConversationName; n != "" && n != defaultChatName {
+		return clipText(n, 80)
+	}
 	if t := tabTitle(r.t.Title); t != "" {
 		return t
 	}
@@ -323,6 +339,11 @@ func orcaTitle(r orcaRow) string {
 	}
 	return filepath.Base(r.w.Path)
 }
+
+// defaultChatName is Orca's name for a chat nobody renamed.
+const defaultChatName = "Claude Chat"
+
+var errOrcaChat = errors.New("this agent runs in Orca's chat: answer or stop it there")
 
 func orcaBranch(b string) string { return strings.TrimPrefix(b, "refs/heads/") }
 
@@ -339,7 +360,13 @@ func clipText(s string, n int) string {
 // orcaFocus shows the agent's terminal in Orca and brings Orca forward.
 func (d *Daemon) orcaFocus(e store.Entry) error {
 	d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
-	if err := d.orcaClient().Switch(e.OrcaTerminal); err != nil {
+	var err error
+	if e.OrcaChat {
+		err = d.orcaClient().Activate(e.OrcaWorktree) // the CLI can't pick the chat tab
+	} else {
+		err = d.orcaClient().Switch(e.OrcaTerminal)
+	}
+	if err != nil {
 		return err
 	}
 	_ = d.orcaClient().Front()
@@ -349,11 +376,17 @@ func (d *Daemon) orcaFocus(e store.Entry) error {
 
 // orcaSend types the option's key into the agent's Orca terminal.
 func (d *Daemon) orcaSend(e store.Entry, key string) error {
+	if e.OrcaChat {
+		return errOrcaChat
+	}
 	return d.orcaClient().Send(e.OrcaTerminal, key, false)
 }
 
 // orcaInterrupt sends Esc, which stops the agent's current turn.
 func (d *Daemon) orcaInterrupt(e store.Entry) error {
+	if e.OrcaChat {
+		return errOrcaChat
+	}
 	return d.orcaClient().Send(e.OrcaTerminal, "\x1b", false)
 }
 
