@@ -11,7 +11,7 @@ CPPFLAGS += -I$(SRC) -D_POSIX_C_SOURCE=200809L
 # (below) build the same sources with mbedTLS 3 and TLS 1.3.
 TEST_CPPFLAGS := -DDECK_LINK_NO_WIFI
 CORE := $(SRC)/deck_link.c $(SRC)/deck_tiles.c $(SRC)/cobs.c $(SRC)/crc16.c \
-	$(SRC)/deck_store.c $(SRC)/deck_pair.c $(SRC)/deck_tls.c \
+	$(SRC)/deck_store.c $(SRC)/deck_pair.c $(SRC)/deck_tls.c $(SRC)/deck_fw.c \
 	$(SRC)/proto/link.pb.c $(SRC)/proto/pb_common.c $(SRC)/proto/pb_encode.c $(SRC)/proto/pb_decode.c
 HDRS := $(wildcard $(SRC)/*.h $(SRC)/proto/*.h)
 OUT := build

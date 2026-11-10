@@ -16,6 +16,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "ota_model.h"
+
 enum class NetVia : uint8_t { Usb, Wifi };
 
 // What the Wi-Fi side is doing, for the screen and NetStatus.
@@ -37,6 +39,7 @@ struct NetView {
   NetPhase phase = NetPhase::Off;
   bool wifiCapable = false;   // this firmware has Wi-Fi (TLS 1.3)
   char ssid[33] = "";
+  OtaView ota;                // a firmware update over Wi-Fi (ota.h): the notice says how it goes
 };
 
 // What net_link.h should do next.
@@ -155,7 +158,8 @@ static inline void netDeckFailed(NetPlan& p, uint32_t now, bool certRejected) {
 
 // ---------------------------------------------------------------- words
 
-// The notice for a board that isn't live yet: a title and up to two lines
+// The notice for a board that isn't live yet, or that is updating its
+// firmware (the apps show it then, whatever the link): a title and up to two lines
 // (nullptr when not needed). For USB with Wi-Fi off it is the usual
 // "connecting / waiting for the deck / on USB".
 struct NetNotice {
@@ -165,12 +169,23 @@ struct NetNotice {
   bool problem;   // drawn as a failure
 };
 
+// The words outlive v: callers pass a temporary (round_ui.h), so text taken
+// from it is copied here first.
 static inline NetNotice netNotice(const NetView& v) {
+  static char line[48], error[sizeof v.ota.error], ssidBuf[sizeof v.ssid];
+  if (v.ota.phase != OtaPhase::None) {
+    OtaView o = v.ota;
+    const OtaWords w = otaWords(o, line, sizeof line);
+    memcpy(error, o.error, sizeof error);
+    return {w.title, w.line1 == o.error ? error : w.line1, w.line2, w.problem};
+  }
+  memcpy(ssidBuf, v.ssid, sizeof ssidBuf);
+  const char* ssid = ssidBuf;
   if (v.via == NetVia::Usb) return {"connecting", "waiting for the deck", "on USB", false};
   switch (v.phase) {
-    case NetPhase::Joining:         return {"joining Wi-Fi", v.ssid[0] ? v.ssid : nullptr, nullptr, false};
+    case NetPhase::Joining:         return {"joining Wi-Fi", ssid[0] ? ssid : nullptr, nullptr, false};
     case NetPhase::WrongPassword:   return {"Wi-Fi failed", "wrong password", "set it again over USB", true};
-    case NetPhase::NoNetwork:       return {"Wi-Fi failed", "network not found", v.ssid[0] ? v.ssid : nullptr, true};
+    case NetPhase::NoNetwork:       return {"Wi-Fi failed", "network not found", ssid[0] ? ssid : nullptr, true};
     case NetPhase::WifiFailed:      return {"Wi-Fi failed", "retrying\xE2\x80\xA6", nullptr, true};
     case NetPhase::DeckUnreachable: return {"deck not reachable", "over Wi-Fi", "retrying\xE2\x80\xA6", true};
     case NetPhase::CertRejected:    return {"certificate", "rejected", "pair again over USB", true};

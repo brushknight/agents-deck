@@ -50,6 +50,9 @@ var limits = map[string]limit{
 	"CertIssued.server_fingerprint": {size: 32}, "CertIssued.device_name": {size: 40}, "CertIssued.cert_serial": {size: 40},
 	"WifiConfig.ssid": {size: 33}, "WifiConfig.password": {size: 65},
 	"NetStatus.ssid": {size: 33}, "NetStatus.ip": {size: 40},
+	// Firmware updates over Wi-Fi.
+	"FirmwareOffer.board": {size: 32}, "FirmwareOffer.version": {size: 24}, "FirmwareOffer.sha256": {size: 32},
+	"FirmwareOffer.path": {size: 96}, "FirmwareStatus.error": {size: 96},
 }
 
 // clipMessage cuts every string and list in m (recursively) to its limit.

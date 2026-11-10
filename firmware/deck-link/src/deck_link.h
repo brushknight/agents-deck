@@ -122,6 +122,13 @@ typedef struct {
 	/* The deck sends Wi-Fi credentials (forget: drop them). Return the code
 	 * the core answers with: 204 stored, 400 bad, 500 failed. Unset: 501. */
 	uint32_t (*on_wifi_config)(deck_link_t *ctx, const char *ssid, const char *password, bool forget);
+
+	/* Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+	 * over Wi-Fi"). The deck offers a new firmware: check it
+	 * (deck_firmware_offer_check), download it (deck_fw.h) and report with
+	 * deck_firmware_status(). Unset: the core answers REFUSED ("this firmware
+	 * can't update over Wi-Fi"). */
+	void (*on_firmware_offer)(deck_link_t *ctx, const agentsdeck_link_v1_FirmwareOffer *offer);
 } deck_link_config_t;
 
 typedef struct {
@@ -204,6 +211,18 @@ uint32_t deck_net_status(deck_link_t *ctx, const agentsdeck_link_v1_NetStatus *s
  * Welcome ("" for none). A board whose stored certificate has another serial
  * asks for a new one. */
 const char *deck_link_cert_serial(const deck_link_t *ctx);
+
+/* Firmware updates over Wi-Fi. deck_firmware_status tells the deck how an
+ * update goes (percent 0..100; error for FAILED and REFUSED, may be NULL).
+ * deck_firmware_offer_check says whether an offer is one this board can take:
+ * its board is `board` (this firmware's, e.g. "lilygo-t4-s3"), it has a size
+ * and a 32-byte SHA-256, the size fits in `slot_size` bytes (0: don't check)
+ * and its path is on the deck's /v1/firmware/. On false, why (if not NULL)
+ * gets the reason for REFUSED. */
+uint32_t deck_firmware_status(deck_link_t *ctx, agentsdeck_link_v1_FirmwareState state, uint32_t percent,
+			      const char *error);
+bool deck_firmware_offer_check(const agentsdeck_link_v1_FirmwareOffer *offer, const char *board, uint64_t slot_size,
+			       char *why, size_t why_size);
 
 /* Low level: encodes one frame (seq + the body field `tag` holding `msg` of
  * type `fields`) into wire bytes, delimiter included. Returns the length, or

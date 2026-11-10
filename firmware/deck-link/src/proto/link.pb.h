@@ -81,6 +81,15 @@ typedef enum _agentsdeck_link_v1_WifiState {
     agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED = 10 /* the deck refused the certificate (revoked): pair again over USB */
 } agentsdeck_link_v1_WifiState;
 
+typedef enum _agentsdeck_link_v1_FirmwareState {
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_UNSPECIFIED = 0,
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_DOWNLOADING = 1, /* percent: how much is written */
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_VERIFYING = 2, /* the image is in; checking it */
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_RESTARTING = 3, /* checked: the board restarts into it now */
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED = 4, /* error says why; the board keeps its firmware */
+    agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED = 5 /* the board won't take this offer (another board's image, on USB, no second slot, busy) */
+} agentsdeck_link_v1_FirmwareState;
+
 /* Struct definitions */
 typedef struct _agentsdeck_link_v1_Display {
     uint32_t width;
@@ -429,6 +438,30 @@ typedef struct _agentsdeck_link_v1_NetStatus {
     bool has_cert; /* it holds a client certificate */
 } agentsdeck_link_v1_NetStatus;
 
+typedef PB_BYTES_ARRAY_T(32) agentsdeck_link_v1_FirmwareOffer_sha256_t;
+/* A new firmware for the board, sent by the deck when you update a board on
+ Wi-Fi. The board checks that board is its own, downloads the app image
+ from path on the deck's network listener (TLS 1.3, its certificate; HTTP
+ Range to resume), writes it to its other firmware slot, checks size and
+ sha256, restarts into it and keeps it only once it reaches the deck again.
+ It answers with FirmwareStatus (REFUSED when it can't take it). */
+typedef struct _agentsdeck_link_v1_FirmwareOffer {
+    char board[32]; /* the board the image is for (firmware/devices/<board>, e.g. "lilygo-t4-s3") */
+    char version[24]; /* e.g. "0.2.1": what Hello.firmware says once it runs */
+    uint64_t size; /* the image's size in bytes */
+    agentsdeck_link_v1_FirmwareOffer_sha256_t sha256; /* its SHA-256 (32 bytes) */
+    char path[96]; /* where to GET it on the network listener: /v1/firmware/{board}/{version} */
+} agentsdeck_link_v1_FirmwareOffer;
+
+/* How an update is going, board to deck: after the offer, then every few
+ percent while it downloads. The new firmware's Hello (its version) says it
+ started; a Hello with the old version after RESTARTING means it went back. */
+typedef struct _agentsdeck_link_v1_FirmwareStatus {
+    agentsdeck_link_v1_FirmwareState state;
+    uint32_t percent; /* 0..100 */
+    char error[96]; /* for FAILED and REFUSED */
+} agentsdeck_link_v1_FirmwareStatus;
+
 typedef struct _agentsdeck_link_v1_Frame {
     uint32_t seq;
     pb_size_t which_body;
@@ -472,6 +505,11 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_CertIssued cert_issued; /* deck → board: the reply to CertRequest (or a Result on failure) */
         agentsdeck_link_v1_WifiConfig wifi_config; /* deck → board, over USB serial only: join this network; the board answers with a Result */
         agentsdeck_link_v1_NetStatus net_status; /* board → deck: how it is connected, after each Welcome and whenever that changes */
+        /* Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+     over Wi-Fi"). Board management, not web API commands: the board
+     downloads the image with GET /v1/firmware/{board}/{version}. */
+        agentsdeck_link_v1_FirmwareOffer firmware_offer; /* deck → board, over Wi-Fi only: a new firmware to download */
+        agentsdeck_link_v1_FirmwareStatus firmware_status; /* board → deck: how the update is going */
     } body;
 } agentsdeck_link_v1_Frame;
 
@@ -512,6 +550,10 @@ extern "C" {
 #define _agentsdeck_link_v1_WifiState_MIN agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED
 #define _agentsdeck_link_v1_WifiState_MAX agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED
 #define _agentsdeck_link_v1_WifiState_ARRAYSIZE ((agentsdeck_link_v1_WifiState)(agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED+1))
+
+#define _agentsdeck_link_v1_FirmwareState_MIN agentsdeck_link_v1_FirmwareState_FIRMWARE_UNSPECIFIED
+#define _agentsdeck_link_v1_FirmwareState_MAX agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED
+#define _agentsdeck_link_v1_FirmwareState_ARRAYSIZE ((agentsdeck_link_v1_FirmwareState)(agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED+1))
 
 
 #define agentsdeck_link_v1_Hello_inputs_ENUMTYPE agentsdeck_link_v1_Input
@@ -570,6 +612,9 @@ extern "C" {
 #define agentsdeck_link_v1_NetStatus_wifi_ENUMTYPE agentsdeck_link_v1_WifiState
 
 
+#define agentsdeck_link_v1_FirmwareStatus_state_ENUMTYPE agentsdeck_link_v1_FirmwareState
+
+
 /* Initializer values for message structs */
 #define agentsdeck_link_v1_Frame_init_default    {0, 0, {agentsdeck_link_v1_Hello_init_default}}
 #define agentsdeck_link_v1_Hello_init_default    {0, "", "", "", false, agentsdeck_link_v1_Display_init_default, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
@@ -620,6 +665,8 @@ extern "C" {
 #define agentsdeck_link_v1_CertIssued_init_default {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
 #define agentsdeck_link_v1_WifiConfig_init_default {"", "", 0}
 #define agentsdeck_link_v1_NetStatus_init_default {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
+#define agentsdeck_link_v1_FirmwareOffer_init_default {"", "", 0, {0, {0}}, ""}
+#define agentsdeck_link_v1_FirmwareStatus_init_default {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
 #define agentsdeck_link_v1_Frame_init_zero       {0, 0, {agentsdeck_link_v1_Hello_init_zero}}
 #define agentsdeck_link_v1_Hello_init_zero       {0, "", "", "", false, agentsdeck_link_v1_Display_init_zero, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
 #define agentsdeck_link_v1_Display_init_zero     {0, 0, 0}
@@ -669,6 +716,8 @@ extern "C" {
 #define agentsdeck_link_v1_CertIssued_init_zero  {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
 #define agentsdeck_link_v1_WifiConfig_init_zero  {"", "", 0}
 #define agentsdeck_link_v1_NetStatus_init_zero   {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
+#define agentsdeck_link_v1_FirmwareOffer_init_zero {"", "", 0, {0, {0}}, ""}
+#define agentsdeck_link_v1_FirmwareStatus_init_zero {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define agentsdeck_link_v1_Display_width_tag     1
@@ -822,6 +871,14 @@ extern "C" {
 #define agentsdeck_link_v1_NetStatus_ip_tag      4
 #define agentsdeck_link_v1_NetStatus_rssi_tag    5
 #define agentsdeck_link_v1_NetStatus_has_cert_tag 6
+#define agentsdeck_link_v1_FirmwareOffer_board_tag 1
+#define agentsdeck_link_v1_FirmwareOffer_version_tag 2
+#define agentsdeck_link_v1_FirmwareOffer_size_tag 3
+#define agentsdeck_link_v1_FirmwareOffer_sha256_tag 4
+#define agentsdeck_link_v1_FirmwareOffer_path_tag 5
+#define agentsdeck_link_v1_FirmwareStatus_state_tag 1
+#define agentsdeck_link_v1_FirmwareStatus_percent_tag 2
+#define agentsdeck_link_v1_FirmwareStatus_error_tag 3
 #define agentsdeck_link_v1_Frame_seq_tag         1
 #define agentsdeck_link_v1_Frame_hello_tag       10
 #define agentsdeck_link_v1_Frame_welcome_tag     11
@@ -856,6 +913,8 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_cert_issued_tag 61
 #define agentsdeck_link_v1_Frame_wifi_config_tag 62
 #define agentsdeck_link_v1_Frame_net_status_tag  63
+#define agentsdeck_link_v1_Frame_firmware_offer_tag 64
+#define agentsdeck_link_v1_Frame_firmware_status_tag 65
 
 /* Struct field encoding specification for nanopb */
 #define agentsdeck_link_v1_Frame_FIELDLIST(X, a) \
@@ -892,7 +951,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_request,body.cert_request),  60) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_issued,body.cert_issued),  61) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,wifi_config,body.wifi_config),  62) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63)
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_offer,body.firmware_offer),  64) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_status,body.firmware_status),  65)
 #define agentsdeck_link_v1_Frame_CALLBACK NULL
 #define agentsdeck_link_v1_Frame_DEFAULT NULL
 #define agentsdeck_link_v1_Frame_body_hello_MSGTYPE agentsdeck_link_v1_Hello
@@ -928,6 +989,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63)
 #define agentsdeck_link_v1_Frame_body_cert_issued_MSGTYPE agentsdeck_link_v1_CertIssued
 #define agentsdeck_link_v1_Frame_body_wifi_config_MSGTYPE agentsdeck_link_v1_WifiConfig
 #define agentsdeck_link_v1_Frame_body_net_status_MSGTYPE agentsdeck_link_v1_NetStatus
+#define agentsdeck_link_v1_Frame_body_firmware_offer_MSGTYPE agentsdeck_link_v1_FirmwareOffer
+#define agentsdeck_link_v1_Frame_body_firmware_status_MSGTYPE agentsdeck_link_v1_FirmwareStatus
 
 #define agentsdeck_link_v1_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol,          1) \
@@ -1293,6 +1356,22 @@ X(a, STATIC,   SINGULAR, BOOL,     has_cert,          6)
 #define agentsdeck_link_v1_NetStatus_CALLBACK NULL
 #define agentsdeck_link_v1_NetStatus_DEFAULT NULL
 
+#define agentsdeck_link_v1_FirmwareOffer_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   board,             1) \
+X(a, STATIC,   SINGULAR, STRING,   version,           2) \
+X(a, STATIC,   SINGULAR, UINT64,   size,              3) \
+X(a, STATIC,   SINGULAR, BYTES,    sha256,            4) \
+X(a, STATIC,   SINGULAR, STRING,   path,              5)
+#define agentsdeck_link_v1_FirmwareOffer_CALLBACK NULL
+#define agentsdeck_link_v1_FirmwareOffer_DEFAULT NULL
+
+#define agentsdeck_link_v1_FirmwareStatus_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    state,             1) \
+X(a, STATIC,   SINGULAR, UINT32,   percent,           2) \
+X(a, STATIC,   SINGULAR, STRING,   error,             3)
+#define agentsdeck_link_v1_FirmwareStatus_CALLBACK NULL
+#define agentsdeck_link_v1_FirmwareStatus_DEFAULT NULL
+
 extern const pb_msgdesc_t agentsdeck_link_v1_Frame_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Hello_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Display_msg;
@@ -1342,6 +1421,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_CertRequest_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_CertIssued_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_WifiConfig_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareOffer_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define agentsdeck_link_v1_Frame_fields &agentsdeck_link_v1_Frame_msg
@@ -1393,6 +1474,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
 #define agentsdeck_link_v1_CertIssued_fields &agentsdeck_link_v1_CertIssued_msg
 #define agentsdeck_link_v1_WifiConfig_fields &agentsdeck_link_v1_WifiConfig_msg
 #define agentsdeck_link_v1_NetStatus_fields &agentsdeck_link_v1_NetStatus_msg
+#define agentsdeck_link_v1_FirmwareOffer_fields &agentsdeck_link_v1_FirmwareOffer_msg
+#define agentsdeck_link_v1_FirmwareStatus_fields &agentsdeck_link_v1_FirmwareStatus_msg
 
 /* Maximum encoded size of messages (where known) */
 #define AGENTSDECK_LINK_V1_LINK_PB_H_MAX_SIZE    agentsdeck_link_v1_Frame_size
@@ -1410,6 +1493,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
 #define agentsdeck_link_v1_Context_size          22
 #define agentsdeck_link_v1_Dismiss_size          13
 #define agentsdeck_link_v1_Display_size          14
+#define agentsdeck_link_v1_FirmwareOffer_size    200
+#define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
 #define agentsdeck_link_v1_Frame_size            3382
 #define agentsdeck_link_v1_GetState_size         0

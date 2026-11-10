@@ -83,6 +83,9 @@ const usage = `agentctl — agents-terminal
                                  give a board on USB its Wi-Fi network (asks for the password; never
                                  stored on the Mac); from then on it connects over Wi-Fi when not on USB
   agentctl link pair <board>     a new Wi-Fi certificate for a board (it pairs again over USB)
+  agentctl link update <board> --image FILE --board B --version V
+                                 put an app image from this Mac on a board on Wi-Fi (it goes back
+                                 to its old firmware if the new one doesn't reach the deck)
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
@@ -1148,6 +1151,7 @@ func serve(args []string) error {
 		return wifiDefault.Set(ssid, password)
 	}
 	srv.LinkWifiUseDefault = hub.SendDefault
+	srv.LinkFirmware, srv.LinkFirmwareStatus = hub.UpdateFromFile, func() any { return hub.Firmware() }
 	var deviceTLS *tls.Config
 	if cfg.DeviceAddr != "" {
 		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))
@@ -1165,6 +1169,7 @@ func serve(args []string) error {
 		srv.DeviceHosts = append([]string{host}, lanIPs()...)
 		srv.DevicePort, _ = strconv.Atoi(port)
 		srv.DeviceLink = link.DeviceUpgradeHandler(link.ServerDeck{S: srv}, hub)
+		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // no source yet: 503
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates

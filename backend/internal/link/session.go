@@ -94,10 +94,11 @@ type Session struct {
 	sent map[string][]byte // agent id -> the AgentChanged it last got
 	ping uint32
 
-	board atomic.Pointer[string] // the board's device name, for status (any goroutine)
-	live  atomic.Bool            // approved, for Hub (any goroutine)
-	net   atomic.Pointer[linkpb.NetStatus]
-	since time.Time
+	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
+	helloSeen atomic.Pointer[linkpb.Hello] // its Hello, for Hub (any goroutine)
+	live      atomic.Bool                  // approved, for Hub (any goroutine)
+	net       atomic.Pointer[linkpb.NetStatus]
+	since     time.Time
 
 	// Requests from the deck to the board (WifiConfig), from other
 	// goroutines: sent by Run, answered by the board's Result.
@@ -167,6 +168,18 @@ func (s *Session) request(ctx context.Context, f *linkpb.Frame) (*linkpb.Result,
 		return nil, ErrClosed
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// post sends a frame to the board from any goroutine (no reply expected).
+func (s *Session) post(ctx context.Context, f *linkpb.Frame) error {
+	select {
+	case s.outbox <- f:
+		return nil
+	case <-s.done:
+		return ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -345,6 +358,11 @@ func (s *Session) handle(in Decoded) error {
 		return nil
 	case *linkpb.Frame_CertRequest:
 		return s.onCertRequest(f.Seq, b.CertRequest)
+	case *linkpb.Frame_FirmwareStatus:
+		if s.Hub != nil && s.dev.Name != "" {
+			s.Hub.firmwareStatus(s.dev.Name, b.FirmwareStatus)
+		}
+		return nil
 	}
 	if sub, ok := f.Body.(*linkpb.Frame_Subscribe); ok {
 		s.sub = sub.Subscribe
@@ -387,6 +405,10 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 	}
 	s.hello, s.mode, s.sub, s.sent = h, mode, nil, nil
 	s.setDevice(d)
+	s.helloSeen.Store(h)
+	if s.Hub != nil {
+		s.Hub.firmwareHello(d.Name, h.Firmware)
+	}
 	s.maxFrame = MaxFrame
 	if m := int(h.MaxFrame); m >= MinFrame && m < MaxFrame {
 		s.maxFrame = m

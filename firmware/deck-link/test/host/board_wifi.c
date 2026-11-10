@@ -12,6 +12,10 @@
  *       loads the certificate from DIR and connects to the deck it names,
  *       host by host, over TLS 1.3 (GET /v1/link), then runs the usual
  *       session: Hello, Welcome, Subscribe, the snapshot.
+ *   --firmware-board B --firmware-out FILE  (with --wifi)
+ *       takes the deck's FirmwareOffer when its board is B: checks a Range
+ *       request, downloads the image with deck_fw.c into FILE, checks it and
+ *       reports FirmwareStatus as a board does (without the restart).
  *
  * stderr, one event per line:
  *   welcome name=<n> scope=<0-3> approved=<0|1> cert=<serial or ->
@@ -21,6 +25,9 @@
  *   tls connected host=<h>        tls failed host=<h> error=<n> <text>
  *   snapshot_begin agents=<n>     agent id=<id> status=<s>    snapshot_end
  *   closed error=<n> <text>
+ *   firmware offer board=<b> version=<v> size=<n>   firmware refused <why>
+ *   firmware range from=<n> status=<n> length=<n>   firmware failed error=<n> <why>
+ *   firmware written bytes=<n>
  * Exit status: 0 at --seconds or EOF, 3 when no host could be reached, 4
  * when the certificate was rejected.
  */
@@ -33,6 +40,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "deck_fw.h"
 #include "deck_link.h"
 #include "deck_pair.h"
 #include "deck_store.h"
@@ -121,6 +129,61 @@ static uint32_t now_ms(void *user)
 }
 
 static bool over_serial;
+static const char *fw_board, *fw_out, *tls_host;
+static FILE *fw_file;
+static uint32_t fw_last_pct;
+
+static bool fw_write(void *u, uint64_t off, const uint8_t *d, size_t n)
+{
+	(void)u, (void)off;
+	return fwrite(d, 1, n, fw_file) == n;
+}
+
+static void fw_progress(void *u, uint64_t done, uint64_t total)
+{
+	deck_link_t *c = (deck_link_t *)u;
+	uint32_t pct = (uint32_t)(done * 100 / total);
+	if (pct >= fw_last_pct + 10 || done == total) {
+		fw_last_pct = pct;
+		deck_firmware_status(c, agentsdeck_link_v1_FirmwareState_FIRMWARE_DOWNLOADING, pct, NULL);
+	}
+}
+
+/* A board takes an offer: here synchronously (a board runs it in a task). */
+static void on_firmware_offer(deck_link_t *c, const agentsdeck_link_v1_FirmwareOffer *o)
+{
+	char why[96];
+	fprintf(stderr, "firmware offer board=%s version=%s size=%llu\n", o->board, o->version, (unsigned long long)o->size);
+	if (!deck_firmware_offer_check(o, fw_board, 0x640000, why, sizeof why)) {
+		fprintf(stderr, "firmware refused %s\n", why);
+		deck_firmware_status(c, agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED, 0, why);
+		return;
+	}
+	/* Resuming: the rest from the middle. */
+	deck_tls_t t;
+	int status = 0;
+	int64_t length = -1;
+	uint64_t from = o->size / 2;
+	deck_tls_err_t e = deck_tls_get(&t, &cert, tls_host, NULL, o->path, from, 4000, &status, &length);
+	fprintf(stderr, "firmware range from=%llu status=%d length=%lld error=%d\n", (unsigned long long)from, status,
+		(long long)length, (int)e);
+	deck_tls_close(&t);
+
+	fw_file = fopen(fw_out, "wb");
+	fw_last_pct = 0;
+	deck_fw_sink_t sink = {fw_write, fw_progress, c, NULL, 4000, 2};
+	deck_fw_err_t r = fw_file ? deck_fw_download(&cert, tls_host, NULL, o, &sink, why, sizeof why) : DECK_FW_SINK;
+	if (fw_file)
+		fclose(fw_file);
+	if (r != DECK_FW_OK) {
+		fprintf(stderr, "firmware failed error=%d %s\n", (int)r, why);
+		deck_firmware_status(c, agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED, fw_last_pct, why);
+		return;
+	}
+	deck_firmware_status(c, agentsdeck_link_v1_FirmwareState_FIRMWARE_VERIFYING, 100, NULL);
+	deck_firmware_status(c, agentsdeck_link_v1_FirmwareState_FIRMWARE_RESTARTING, 100, NULL);
+	fprintf(stderr, "firmware written bytes=%llu\n", (unsigned long long)o->size);
+}
 
 static void on_welcome(deck_link_t *c, const char *name, agentsdeck_link_v1_Scope scope, bool approved)
 {
@@ -195,7 +258,7 @@ static void on_snapshot_end(deck_link_t *c)
 
 static void usage(void)
 {
-	fprintf(stderr, "usage: board_wifi (--serial | --wifi) --store DIR [--board-id ID] [--seconds N]\n");
+	fprintf(stderr, "usage: board_wifi (--serial | --wifi) --store DIR [--board-id ID] [--seconds N]\n\t[--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
 	exit(2);
 }
 
@@ -222,6 +285,12 @@ int main(int argc, char **argv)
 			store_dir = v, i++;
 		else if (strcmp(a, "--board-id") == 0)
 			cfg.board_id = v, i++;
+		else if (strcmp(a, "--firmware-board") == 0)
+			fw_board = v, i++;
+		else if (strcmp(a, "--firmware-out") == 0)
+			fw_out = v, i++;
+		else if (strcmp(a, "--firmware") == 0)
+			cfg.firmware = v, i++;
 		else if (strcmp(a, "--seconds") == 0)
 			seconds = strtol(v, NULL, 10), i++;
 		else
@@ -258,6 +327,7 @@ int main(int argc, char **argv)
 			e = deck_tls_open(&tls, &cert, cert.hosts[i], NULL, 4000);
 			if (e == DECK_TLS_OK) {
 				fprintf(stderr, "tls connected host=%s\n", cert.hosts[i]);
+				tls_host = cert.hosts[i];
 				break;
 			}
 			fprintf(stderr, "tls failed host=%s error=%d %s (mbedtls -0x%04x)\n", cert.hosts[i], (int)e,
@@ -270,6 +340,8 @@ int main(int argc, char **argv)
 			return 3;
 		cfg.write = deck_tls_write;
 		cfg.user = &tls;
+		if (fw_out)
+			cfg.on_firmware_offer = on_firmware_offer;
 		in_fd = tls.fd;
 	}
 	deck_link_init(&link, &cfg);

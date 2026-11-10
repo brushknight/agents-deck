@@ -33,6 +33,13 @@ func (d ServerDeck) Do(dev devices.Device, method, path string, body []byte) (in
 	return d.S.Dispatch(dev, method, path, body)
 }
 
+// Audit appends to the deck's audit log (the firmware download).
+func (d ServerDeck) Audit(e devices.AuditEntry) {
+	if d.S.Audit != nil {
+		d.S.Audit.Log(e)
+	}
+}
+
 // AutoApprove approves a new board plugged into a registered USB port, when
 // the registry's setting allows it, and audits it.
 func (d ServerDeck) AutoApprove(dev devices.Device, port string) (devices.Device, bool) {

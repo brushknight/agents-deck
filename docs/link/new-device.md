@@ -57,6 +57,13 @@ Name the folder after what the device is (`desk-strip`, `eink-badge`), lowercase
 Fix every warning in your code. CI builds every folder under `firmware/devices` and
 `firmware/deck-link/examples` the same way.
 
+A device on panel-core adds `extra_scripts = pre:<path>/panel-core/tools/build_info.py` to its
+`platformio.ini` (the others do): it tells the firmware its board (the folder's name) and, in a
+release build, the version to report. A board on Wi-Fi then gets firmware updates from the deck
+without more code (`firmware/panel-core/README.md`, "Firmware updates over Wi-Fi"); it needs two app
+slots in its partition table. A device on the kit alone refuses update offers until it handles
+`on_firmware_offer` (`firmware/deck-link/README.md`).
+
 ## 5. Test it
 
 Without hardware, the host tests run the kit against the real deck code:

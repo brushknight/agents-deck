@@ -66,6 +66,12 @@ func (s *Server) DeviceHandler() http.Handler {
 			s.DeviceLink(w, r, d)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/v1/firmware/") && s.DeviceFirmware != nil {
+			// A board's firmware update (Deck Link FirmwareOffer): boards only.
+			s.Devices.Seen(d.Name)
+			s.DeviceFirmware(w, r, d)
+			return
+		}
 		if need := NeedScope(r.Method, r.URL.Path); !d.Scope.Allows(need) {
 			writeErr(w, http.StatusForbidden, d.Name+" may "+string(d.Scope)+", this needs "+string(need)+": agentctl devices scope "+d.Name+" "+string(need))
 			return
