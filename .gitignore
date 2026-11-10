@@ -2,3 +2,4 @@
 /backend/agentctl
 *.test
 .idea/
+__pycache__/
