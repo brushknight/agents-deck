@@ -1,0 +1,16 @@
+{
+  "name": "Waveshare ESP32-S3-Touch-LCD-4",
+  "chip": "esp32s3",
+  "types": [
+    "waveshare-touch-lcd-4"
+  ],
+  "usb": [
+    {
+      "vid": "303a",
+      "pid": "1001"
+    }
+  ],
+  "flash_size": 16777216,
+  "wifi": false,
+  "picture": "docs/images/devices/lcd4-home.png"
+}

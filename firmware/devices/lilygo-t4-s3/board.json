@@ -1,0 +1,16 @@
+{
+  "name": "LilyGO T4-S3",
+  "chip": "esp32s3",
+  "types": [
+    "t4s3-panel"
+  ],
+  "usb": [
+    {
+      "vid": "303a",
+      "pid": "1001"
+    }
+  ],
+  "flash_size": 16777216,
+  "wifi": true,
+  "picture": "docs/images/devices/t4s3-home.png"
+}
