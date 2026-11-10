@@ -50,8 +50,12 @@ address: links elsewhere open in the default browser.
 ## macOS
 
 `macos/Runner/AppDelegate.swift`: a status item, a borderless window pinned under the menu bar, no
-Dock icon. Install with `./install.sh --app` (from a release) or `./install.sh --source --app` (from a
-clone, needs Flutter 3.44+). Right-click the icon for Settings, the web dashboard and Quit.
+Dock icon. Right-click the icon for Settings, the web dashboard and Quit.
+
+Install it from a release's `.dmg` (drag it to Applications; `agentctl` comes inside the app, in
+`Contents/MacOS/`), with `install.sh --app` (to `~/Applications`), or from a clone with
+`./install.sh --source --app` (needs Flutter 3.44+). What goes where, updating and removing it:
+[docs/install.md](../../docs/install.md#macos).
 
 `macos/Runner/SettingsWindow.swift`: the Settings window, a WKWebView in a normal window (900 × 640
 to start; it remembers where you put it). While it is open the app has a Dock icon and a menu bar
@@ -94,6 +98,12 @@ compositor then decides where the deck appears. A panel that only ever opens the
 the click, still has **Show the deck** in it.
 
 ### Install
+
+From a release: the `.deb` (Debian and Ubuntu) puts the app in `/opt/agents-deck` with `agentctl`
+next to it, a systemd user service, an app menu entry and a udev rule for the boards' USB ports; the
+`.tar.gz` is the same app folder for other distributions, which `install.sh --app` sets up in your
+home folder. Both are described, with updating and removing them, in
+[docs/install.md](../../docs/install.md#linux).
 
 From a clone, with Go 1.24+, Flutter 3.44+ and Flutter's Linux build tools
 (`sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev` on

@@ -1,12 +1,15 @@
 # Devices
 
-The deck runs on your Mac (the menu bar and the browser) and, if you like, on a screen on your desk.
+The deck runs on your computer (the menu bar or tray, and the browser) and, if you like, on a screen
+on your desk.
 This page is the tour of every screen it supports: what each one looks like, what's special about it,
 how you use it, which build to flash, and what isn't finished yet.
 
-New to microcontrollers? Start with the [README](../README.md#flash-a-board) and
-[flashing.md](flashing.md): they walk through flashing a board from zero. Each board's own README
-(linked below) has the full detail: every screen, every build option, pins, tests.
+New to microcontrollers? Plug the board in and open Settings, Boards in the app: it finds the board,
+asks which one it is (with the pictures on this page) and installs the firmware.
+[flashing.md](flashing.md) has that and the other ways (the web flasher, the terminal, building it
+yourself). Each board's own README (linked below) has the full detail: every screen, every build
+option, pins, tests.
 
 The screenshots come from the host renderer (`firmware/panel-core/tools/render_overview.py`), which
 draws the same pixels as the boards, from the made-up fleet in
@@ -27,24 +30,28 @@ draws the same pixels as the boards, from the made-up fleet in
 - **One deck.** Every board shows the same agents as the web dashboard and the menu bar: who's
   working, who needs you, who's done, with the same critters, hats and colours. Orange means an
   agent needs you; a finished agent you haven't looked at yet is "hungry".
-- **Plugged in, it just works.** Register the USB port once (`agentctl link add`) and any board you
-  plug into it is approved at once and can answer prompts, focus an agent's terminal and interrupt it
-  (scope `act`). Stopping an agent takes scope `admin`, which you give by hand
-  (`agentctl devices scope <board> admin`).
-- **Wi-Fi when you unplug it** (every touch board except where noted). Set your network once on the
-  Mac (`agentctl link wifi --default --ssid "my network"`); every board you plug in gets it. Unplug it,
-  power it from any USB charger, and it reaches the deck over Wi-Fi: TLS 1.3 with a certificate of its
-  own, made over the USB cable when you first plugged it in. Plug it back into the Mac and it's on USB
-  again at once.
-- **Revocable.** `agentctl devices` lists every board; `agentctl devices revoke <board>` cuts one off,
-  on USB and Wi-Fi.
+- **Plugged in, it just works.** Confirm the USB port once (Settings, Boards, or `agentctl link add`)
+  and any board you plug into it is approved at once and can answer prompts, focus an agent's
+  terminal and interrupt it (scope `act`). Stopping an agent takes scope `admin`, which you give by
+  hand (Settings, Boards, or `agentctl devices scope <board> admin`).
+- **Wi-Fi when you unplug it** (every touch board except where noted). Set your network once
+  (Settings, Network, or `agentctl link wifi --default --ssid "my network"`); every board you plug in
+  gets it. Unplug it, power it from any USB charger, and it reaches the deck over Wi-Fi: TLS 1.3 with
+  a certificate of its own, made over the USB cable when you first plugged it in. Plug it back into
+  your computer and it's on USB again at once.
+- **Updatable.** Settings, Boards says when a release has newer firmware for a board. On USB it's
+  flashed again; a board on Wi-Fi updates over the air and goes back to its old firmware if the new
+  one can't reach the deck. Its name, certificate and Wi-Fi stay.
+- **Revocable.** Settings, Boards (or `agentctl devices`) lists every board; removing one there (or
+  `agentctl devices revoke <board>`) cuts it off, on USB and Wi-Fi.
 - **AMOLED and LCD care.** The screens dim when every agent is idle and nobody touched them for a
   while.
 
-Builds: every touch board has two PlatformIO projects. The one in the board's folder is
-arduino-esp32 2.0.17 and talks over USB only. The one in its `idf5/` folder is arduino-esp32 3.x
-(ESP-IDF 5), which has the TLS 1.3 the Wi-Fi link needs; it's the one to flash on every board except
-the 4″ (see [below](#waveshare-esp32-s3-touch-lcd-4-square-4)). The first `idf5` build downloads about
+Builds (only if you [build the firmware yourself](flashing.md#build-from-source); the app and the
+web flasher pick the right one for you): every touch board has two PlatformIO projects. The one in
+the board's folder is arduino-esp32 2.0.17 and talks over USB only. The one in its `idf5/` folder is
+arduino-esp32 3.x (ESP-IDF 5), which has the TLS 1.3 the Wi-Fi link needs; it's the one released, and
+the one to flash, on every board except the 4″ (see [below](#waveshare-esp32-s3-touch-lcd-4-square-4)). The first `idf5` build downloads about
 1 GB and takes about five minutes.
 
 ---
