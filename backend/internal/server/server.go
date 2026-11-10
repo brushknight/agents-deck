@@ -103,6 +103,10 @@ type Server struct {
 	// DeviceLink serves GET /v1/link on the network listener: a paired
 	// board's Deck Link session over TLS (link.DeviceUpgradeHandler).
 	DeviceLink func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// DeviceFirmware serves GET /v1/firmware/{board}/{version} on the network
+	// listener: the app image a board on Wi-Fi was offered
+	// (link.FirmwareHandler, which checks and audits it).
+	DeviceFirmware func(w http.ResponseWriter, r *http.Request, d devices.Device)
 	// LinkWifi sends Wi-Fi credentials to a board connected over USB serial
 	// (POST /local/link/wifi); it returns the board's answer.
 	LinkWifi func(device, ssid, password string, forget bool) (int, string)

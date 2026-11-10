@@ -90,3 +90,8 @@ agentsdeck.link.v1.WifiConfig.ssid       max_size:33
 agentsdeck.link.v1.WifiConfig.password   max_size:65
 agentsdeck.link.v1.NetStatus.ssid        max_size:33
 agentsdeck.link.v1.NetStatus.ip          max_size:40
+agentsdeck.link.v1.FirmwareOffer.board  max_size:32
+agentsdeck.link.v1.FirmwareOffer.version max_size:24
+agentsdeck.link.v1.FirmwareOffer.sha256 max_size:32
+agentsdeck.link.v1.FirmwareOffer.path   max_size:96
+agentsdeck.link.v1.FirmwareStatus.error max_size:96

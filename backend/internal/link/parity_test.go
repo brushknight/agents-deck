@@ -70,12 +70,32 @@ func TestEndpointParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Endpoints that aren't board commands, and their Deck Link side (a
+	// Frame field; "" for none): the stream is Subscribe + updates; pairing
+	// is for network devices; a board downloads its firmware update after
+	// the deck's FirmwareOffer, which names the path.
+	notCommands := map[string]string{
+		"GET /v1/events":                     "subscribe",
+		"POST /v1/pair":                      "",
+		"GET /v1/firmware/{board}/{version}": "firmware_offer",
+	}
+	frame := (&linkpb.Frame{}).ProtoReflect().Descriptor().Fields()
 	endpoints := map[string]bool{}
 	for _, m := range regexp.MustCompile("(?m)^\\| (GET|POST) \\| `(/v1/[^`]+)`").FindAllStringSubmatch(string(doc), -1) {
-		if m[2] == "/v1/events" || m[2] == "/v1/pair" {
-			continue // the stream is Subscribe + updates; pairing is for network devices
+		e := m[1] + " " + m[2]
+		if side, ok := notCommands[e]; ok {
+			if side != "" && frame.ByName(protoreflect.Name(side)) == nil {
+				t.Errorf("%s: its Deck Link side %s isn't in link.proto", e, side)
+			}
+			delete(notCommands, e)
+			continue
 		}
-		endpoints[m[1]+" "+m[2]] = true
+		endpoints[e] = true
+	}
+	for e, side := range notCommands {
+		if side != "" {
+			t.Errorf("%s isn't in docs/protocol.md", e)
+		}
 	}
 	if len(endpoints) < 12 {
 		t.Fatalf("found only %d endpoints in docs/protocol.md", len(endpoints))

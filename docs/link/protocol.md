@@ -284,6 +284,54 @@ After each `Welcome`, and whenever it changes, a board may say how it is connect
 These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49
 and checks these are documented here.
 
+## Firmware updates over Wi-Fi
+
+A board on Wi-Fi can be updated without its cable. A board on USB is updated by writing the full image
+over the cable (the flasher), so the deck never offers an update over USB, and a board refuses one
+there.
+
+```
+board (on Wi-Fi)                                     deck
+  │◀── FirmwareOffer {board, version, size, sha256, path}      you pressed "update"
+  │ FirmwareStatus {DOWNLOADING, percent} … ──▶│
+  │ GET /v1/firmware/{board}/{version}  (TLS 1.3, its certificate; Range to resume) ──▶ app image
+  │ FirmwareStatus {VERIFYING} ──▶│
+  │ FirmwareStatus {RESTARTING} ──▶│
+  ╳ restarts into the new firmware
+  │ Hello {firmware: version} ──▶│◀── Welcome           the board keeps the new firmware now
+```
+
+- `FirmwareOffer` names the `board` the image is for (its folder under `firmware/devices`, e.g.
+  `lilygo-t4-s3`), the `version` it reports once it runs, the image's `size` and `sha256` (32 bytes), and
+  the `path` to download it from on the deck's network listener, `/v1/firmware/{board}/{version}`
+  ([protocol.md](../protocol.md#endpoints)). The image is the app alone (`agents-deck-<board>-<version>.app.bin`
+  in a release), not the full image flashed over USB: the board's name, certificate and Wi-Fi stay.
+- The board answers with `FirmwareStatus`: `REFUSED` with a reason when it won't take the offer (the
+  `board` isn't its own, it is on USB, it has no second firmware slot or the image is bigger than it,
+  it is already updating, or its firmware can't update over Wi-Fi: the kit answers that for firmware
+  without a handler), then `DOWNLOADING` with `percent` every few percent, `VERIFYING`, `RESTARTING`, or
+  `FAILED` with a reason. After `FAILED` it keeps the firmware it runs.
+- The download uses the same TLS 1.3 connection rules as `GET /v1/link` (the board's certificate, the
+  deck's CA or fingerprint), on a second connection beside the Deck Link session. The deck serves an
+  image only to a Deck Link board whose type runs that board's firmware, and audits every request. A
+  dropped connection resumes with `Range: bytes=<written>-`.
+- The board writes the image to its other firmware slot (every released Wi-Fi board has two of 6.25
+  MB), checks its size and SHA-256 while it writes, and only then marks it to boot. It restarts into it
+  and keeps it only once the deck answers its `Hello` with a `Welcome` (over Wi-Fi or USB). If the new
+  firmware doesn't reach the deck within 5 minutes, or restarts before it does (a crash, a power cut),
+  the board goes back to its old firmware, once; its `Hello` then reports the old version, and the deck
+  shows the update as rolled back.
+- The deck keeps per board the version it runs (`Hello.firmware`) and the last update's state
+  (offered, downloading, verifying, restarting, done, failed, refused, rolled back) for the management
+  API. Updates are never automatic.
+
+| message | direction | field | over |
+|---|---|---|---|
+| `FirmwareOffer` | deck → board | 64 | Wi-Fi |
+| `FirmwareStatus` | board → deck | 65 | either (the board may have moved to USB meanwhile) |
+
+Like pairing, these set up the board itself: they are not web API commands and have no route.
+
 ## Limits
 
 The deck clips text to the sizes in `link.options` (on a UTF-8 boundary, ending in "…") and sends at

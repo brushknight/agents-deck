@@ -1143,6 +1143,7 @@ func serve(args []string) error {
 		srv.DeviceHosts = append([]string{host}, lanIPs()...)
 		srv.DevicePort, _ = strconv.Atoi(port)
 		srv.DeviceLink = link.DeviceUpgradeHandler(link.ServerDeck{S: srv}, hub)
+		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // no source yet: 503
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates

@@ -17,9 +17,15 @@ import (
 // board on USB serial).
 type Hub struct {
 	Wifi *WifiDefault // the default network (optional): its status per board
+	// OnFirmware is told every change of a board update over Wi-Fi (ota.go),
+	// for the management API's jobs and events (optional).
+	OnFirmware func(FirmwareJob)
 
-	mu   sync.Mutex
-	live map[*Session]bool
+	mu       sync.Mutex
+	live     map[*Session]bool
+	firmware FirmwareSource // nil until SetFirmwareSource: no updates over Wi-Fi
+	fwOnce   sync.Once
+	fwBook   *firmwareBook
 }
 
 func (h *Hub) add(s *Session) {

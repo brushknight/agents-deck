@@ -7,6 +7,7 @@
 
 #include "cobs.h"
 #include "crc16.h"
+#include "deck_fw.h"
 #include "deck_link.h"
 #include "deck_pair.h"
 #include "deck_store.h"
@@ -665,6 +666,93 @@ static void test_pairing_messages(void)
 	      s[0].body.net_status.rssi == -61 && strcmp(s[0].body.net_status.ip, "192.0.2.23") == 0);
 }
 
+/* ---- firmware updates over Wi-Fi ---------------------------------------------- */
+
+static int ev_offer;
+static agentsdeck_link_v1_FirmwareOffer offered;
+static void rec_offer(deck_link_t *c, const agentsdeck_link_v1_FirmwareOffer *o)
+{
+	(void)c;
+	ev_offer++;
+	offered = *o;
+}
+
+static agentsdeck_link_v1_Frame mk_offer(const char *board, uint64_t size)
+{
+	agentsdeck_link_v1_Frame f = mk(0, agentsdeck_link_v1_Frame_firmware_offer_tag);
+	agentsdeck_link_v1_FirmwareOffer *o = &f.body.firmware_offer;
+	snprintf(o->board, sizeof o->board, "%s", board);
+	strcpy(o->version, "0.2.0");
+	o->size = size;
+	o->sha256.size = 32;
+	for (int i = 0; i < 32; i++)
+		o->sha256.bytes[i] = (uint8_t)i;
+	snprintf(o->path, sizeof o->path, "/v1/firmware/%s/0.2.0", board);
+	return f;
+}
+
+static void test_firmware_messages(void)
+{
+	static agentsdeck_link_v1_Frame s[16];
+	char why[96];
+	reset_fake();
+	deck_link_begin(&link);
+
+	/* Firmware without a handler refuses, so the deck knows at once. */
+	tx_len = 0;
+	agentsdeck_link_v1_Frame f = mk_offer("lilygo-t4-s3", 1500000);
+	feed_frame(&f);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_firmware_status_tag &&
+	      s[0].body.firmware_status.state == agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED &&
+	      strstr(s[0].body.firmware_status.error, "can't update") != NULL);
+
+	/* With one: the offer as sent, the largest one the deck can send included. */
+	link.cfg.on_firmware_offer = rec_offer;
+	ev_offer = 0;
+	tx_len = 0;
+	f = mk_offer("waveshare-touch-lcd-28c", 6553600);
+	memset(f.body.firmware_offer.path, 'p', sizeof f.body.firmware_offer.path - 1);
+	feed_frame(&f);
+	CHECK(ev_offer == 1 && tx_len == 0 && offered.size == 6553600 && strcmp(offered.board, "waveshare-touch-lcd-28c") == 0 &&
+	      offered.sha256.size == 32 && offered.sha256.bytes[31] == 31 && strlen(offered.path) == sizeof offered.path - 1);
+
+	/* Status goes out with the percent capped and the error cut to fit. */
+	CHECK(deck_firmware_status(&link, agentsdeck_link_v1_FirmwareState_FIRMWARE_DOWNLOADING, 42, NULL) != 0);
+	char longer[200];
+	memset(longer, 'e', sizeof longer - 1);
+	longer[sizeof longer - 1] = 0;
+	CHECK(deck_firmware_status(&link, agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED, 140, longer) != 0);
+	CHECK(sent_frames(s, 16) == 2 && s[0].body.firmware_status.percent == 42 && s[0].body.firmware_status.error[0] == 0 &&
+	      s[1].body.firmware_status.state == agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED &&
+	      s[1].body.firmware_status.percent == 100 && strlen(s[1].body.firmware_status.error) == 95);
+
+	/* The checks a board makes before it takes an offer. */
+	agentsdeck_link_v1_FirmwareOffer o = mk_offer("lilygo-t4-s3", 1500000).body.firmware_offer;
+	CHECK(deck_firmware_offer_check(&o, "lilygo-t4-s3", 0x640000, why, sizeof why));
+	CHECK(!deck_firmware_offer_check(&o, "waveshare-touch-lcd-21", 0x640000, why, sizeof why) &&
+	      strcmp(why, "this is waveshare-touch-lcd-21, not lilygo-t4-s3") == 0);
+	CHECK(!deck_firmware_offer_check(&o, NULL, 0, why, sizeof why) && strstr(why, "doesn't know its board"));
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 1000000, why, sizeof why) && strstr(why, "bigger"));
+	o.sha256.size = 31;
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why));
+	o.sha256.size = 32;
+	o.size = 0;
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, NULL, 0));
+	o.size = 10;
+	strcpy(o.path, "/v1/link");
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why) && strstr(why, "path"));
+	strcpy(o.path, "/v1/firmware/../state");
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why));
+
+	/* Without TLS 1.3 there is no download. */
+	deck_cert_t none;
+	memset(&none, 0, sizeof none);
+	deck_fw_sink_t sink;
+	memset(&sink, 0, sizeof sink);
+	CHECK(deck_fw_download(&none, "deck.local", NULL, &o, &sink, why, sizeof why) == DECK_FW_UNSUPPORTED &&
+	      strstr(why, "TLS 1.3"));
+}
+
 /* A fake key-value store (NVS on the board). */
 #define KV_MAX 8
 static struct {
@@ -898,6 +986,7 @@ int main(void)
 	test_handshake();
 	test_tiles();
 	test_pairing_messages();
+	test_firmware_messages();
 	test_store();
 	if (failures) {
 		printf("FAIL: %d of %d checks failed\n", failures, checks);

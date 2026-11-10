@@ -35,6 +35,7 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
 | POST | `/v1/agents/{id}/handoff` | `{"account": "personal"}` | `200` `{"id": "k3f9a2"}` — continues a Claude session in another account, for when one runs out of usage: its transcript is copied into that account's folder and Claude resumes it there. An agent the deck started stops and comes back in the same slot (same `id`); a watched session keeps running in its own terminal and the copy starts as a new agent (its `id`) |
+| GET | `/v1/firmware/{board}/{version}` | – | `200` the app image (`application/octet-stream`, `ETag` and `X-Firmware-SHA256` its SHA-256); `206` for a `Range` request. **Network listener only, Deck Link boards only**: the board's certificate must belong to a board whose type runs that board's firmware (`403` otherwise), `503` while the service has no firmware catalog, `404` for a version it doesn't have. Every request is audited. A board fetches it after the deck's `FirmwareOffer` ([link/protocol.md](link/protocol.md#firmware-updates-over-wi-fi)); it is board management, not a command, so it has no Deck Link command of its own |
 
 Errors are `{"error": "message"}` with a 4xx/5xx status.
 
@@ -197,6 +198,14 @@ nothing. The one exception is the default network (`agentctl link wifi --default
 approved board that is paired and lacks it, once per connection, unless the board was given its own
 network. It is never logged or audited (`"action": "wifi default set"` without the network or password).
 
+**Firmware updates over Wi-Fi.** A board on Wi-Fi is updated through the same listener and the same
+certificate: the deck sends it `FirmwareOffer` over its Deck Link session (never automatically: you
+start it), and the board downloads the image from `GET /v1/firmware/{board}/{version}` with its
+certificate. Only Deck Link boards may download, only images for their own kind of board, each request
+is audited (with the byte range), and a board revoked mid-download is cut off. The board checks the
+image's SHA-256 from the offer before it restarts into it, and goes back to its old firmware if the new
+one doesn't reach the deck. A board on USB is updated over the cable instead.
+
 **Pairing.** Two ways:
 
 - `agentctl pair desk-panel --bundle panel.json` makes the device's key and certificate on the Mac and
@@ -218,7 +227,8 @@ each board is connected right now (USB or Wi-Fi);
 `agentctl devices revoke|approve|remove <name>` and `agentctl devices scope <name> <scope>` manage them.
 
 **Audit.** Every request that changes something is appended to `audit.log` as one JSON line:
-`{"time", "device", "action": "POST /v1/agents/k3f9a2/answer", "status": 204}`; the web dashboard is
+`{"time", "device", "action": "POST /v1/agents/k3f9a2/answer", "status": 204}`; firmware downloads
+(`GET /v1/firmware/…`) are recorded too, with the byte range in `detail`; the web dashboard is
 `web`, the unix socket `local`.
 
 ## Demo mode
