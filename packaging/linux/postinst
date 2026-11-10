@@ -1,0 +1,18 @@
+#!/bin/sh
+# agents deck: apply the udev rule to boards already plugged in, and say how
+# to start the service. Nothing runs as root: the service is per user.
+set -e
+
+if [ "$1" = configure ]; then
+  if command -v udevadm >/dev/null 2>&1 && [ -d /run/udev ]; then
+    udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=tty --action=change || true
+  fi
+  cat <<'MSG'
+agents deck is installed. Open "agents deck" from your app menu: it starts
+the service for you. Or start the service yourself, as your user (not root):
+  systemctl --user enable --now agents-deck.service
+MSG
+fi
+
+exit 0

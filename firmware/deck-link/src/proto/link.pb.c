@@ -153,6 +153,14 @@ PB_BIND(agentsdeck_link_v1_WifiConfig, agentsdeck_link_v1_WifiConfig, AUTO)
 PB_BIND(agentsdeck_link_v1_NetStatus, agentsdeck_link_v1_NetStatus, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+
+
 
 
 

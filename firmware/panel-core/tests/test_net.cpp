@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "../sim/fixture.h"
+#include "layout_big.h"
 #include "layout_dial.h"
 #include "layout_orbit.h"
 #include "layout_spring.h"
+#include "layout_square.h"
 #include "net_model.h"
 
 static void bootChoice() {
@@ -161,10 +163,106 @@ static void drawing() {
   }
 }
 
+// A firmware update over Wi-Fi (ota_model.h): what the screen says, how
+// often the deck hears, and what a board does at boot after the update.
+static void firmwareUpdate() {
+  // Progress: every 5 %, or after 3 s when it moved, and always at 100.
+  assert(!otaReportDue(0, 0, 4, 1000) && otaReportDue(0, 0, 5, 1000));
+  assert(otaReportDue(10, 0, 11, 3000) && !otaReportDue(10, 0, 10, 9000) && otaReportDue(97, 0, 100, 10));
+
+  // At boot.
+  OtaMark m;
+  assert(otaBootDecision(false, m, "app0") == OtaBoot::Normal);
+  assert(otaBootDecision(true, m, "app1") == OtaBoot::PendingBootloader);   // the bootloader rolls back on a reset
+  m.pending = 1;
+  strcpy(m.next, "app1");
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::Normal);             // no old slot named: nothing to go back to
+  strcpy(m.prev, "app0");
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::PendingApp);
+  assert(otaBootDecision(false, m, "app0") == OtaBoot::Normal);             // the bootloader already went back
+  m.boots = kOtaMaxBoots - 1;
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::PendingApp);
+  m.boots = kOtaMaxBoots;
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::RevertNow);
+  assert(otaBootDecision(true, m, "app1") == OtaBoot::PendingBootloader);   // the bootloader's own state wins
+  assert(!otaGiveUp(1000, 1000 + kOtaConfirmMs - 1) && otaGiveUp(1000, 1000 + kOtaConfirmMs));
+  assert(otaGiveUp(0xFFFFF000u, 0xFFFFF000u + kOtaConfirmMs));      // across the millis() wrap
+
+  // The board's mark in an image, read in chunks: found across a chunk's end,
+  // and only whole ("...-lcd-2" isn't "...-lcd-21").
+  {
+    static uint8_t img[5000];
+    memset(img, 0xFF, sizeof img);
+    const char mark[] = "agents-deck-board:waveshare-touch-lcd-21";
+    auto reader = [](uint32_t off, uint8_t* to, uint32_t n) {
+      memcpy(to, img + off, n);
+      return true;
+    };
+    uint8_t buf[64 + sizeof mark];
+    for (size_t at : {(size_t)0, (size_t)30, (size_t)60, (size_t)63, (size_t)64, (size_t)100, (size_t)4000, sizeof img - sizeof mark}) {
+      memset(img, 0xFF, sizeof img);
+      memcpy(img + at, mark, sizeof mark);
+      assert(otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+      assert(!otaFindMark(mark, sizeof mark, (uint32_t)(at + sizeof mark - 1), buf, sizeof buf, reader));   // cut short
+    }
+    memset(img, 0xFF, sizeof img);
+    memcpy(img + 500, "agents-deck-board:waveshare-touch-lcd-2", 40);   // with its NUL
+    assert(!otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+    const char shorter[] = "agents-deck-board:waveshare-touch-lcd-2";
+    memset(img, 0xFF, sizeof img);
+    memcpy(img + 900, mark, sizeof mark);   // "...-lcd-21" isn't a mark for "...-lcd-2"
+    assert(!otaFindMark(shorter, sizeof shorter, sizeof img, buf, sizeof buf, reader));
+    assert(otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+    assert(!otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, [](uint32_t, uint8_t*, uint32_t) { return false; }));
+  }
+
+  // The words: the update wins over the link's notice, on USB too.
+  NetView v;
+  v.ota.phase = OtaPhase::Downloading;
+  v.ota.percent = 42;
+  strcpy(v.ota.version, "0.2.1");
+  NetNotice n = netNotice(v);
+  assert(strcmp(n.title, "updating") == 0 && strcmp(n.line1, "0.2.1 \xC2\xB7 42%") == 0 && !n.problem);
+  v.ota.phase = OtaPhase::Failed;
+  strcpy(v.ota.error, "the image's SHA-256 doesn't match");
+  n = netNotice(v);
+  assert(strcmp(n.title, "update failed") == 0 && n.problem && strcmp(n.line2, "kept this firmware") == 0);
+  v.ota.error[0] = 0;
+  assert(netNotice(v).line1 == nullptr);
+  v.ota = OtaView();
+  assert(strcmp(netNotice(v).title, "connecting") == 0);
+
+  // Every phase draws on every kind of screen.
+  static std::vector<uint16_t> big(480 * 600);
+  Canvas c{big.data(), 480, 480};
+  const SquarePanel t4s3(specT4S3()), amoled(specAmoled18()), lcd4(specLcd4());
+  const BigPanel big480(specBig480());
+  DialPanel dial(layoutDial21());
+  SpringPanel spring(layoutSpring21());
+  PanelUi pu;
+  RoundUi ru;
+  v.via = NetVia::Wifi;
+  strcpy(v.ota.version, "0.2.1");
+  for (OtaPhase ph : {OtaPhase::Downloading, OtaPhase::Verifying, OtaPhase::Restarting, OtaPhase::Failed}) {
+    v.ota.phase = ph;
+    strcpy(v.ota.error, "the deck refused the download, a long reason");
+    for (const PanelLayout* L : {(const PanelLayout*)&t4s3, (const PanelLayout*)&amoled, (const PanelLayout*)&lcd4,
+                                 (const PanelLayout*)&big480}) {
+      Canvas sc{big.data(), L->width(), L->height()};
+      PanelInput in{nullptr, LinkState::Connecting, "board", DeckScope::View, 1000, 0, &pu, 0, &v};
+      L->draw(sc, in);
+    }
+    for (const RoundLayout* L : {(const RoundLayout*)&dial, (const RoundLayout*)&spring}) {
+      RoundInput in{nullptr, LinkState::Connecting, "board", RoundScope::View, 1000, 0, &ru, 0, &v};
+      L->draw(c, in);
+    }
+  }
+}
+
 // Every toast stays inside the round glass: its pill's corners are inside the circle.
 static void toasts() {
   for (const char* t : {"sent", "focus", "interrupted", "hold to stop", "stopping\xE2\x80\xA6", "paired for Wi-Fi",
-                        "trying Wi-Fi\xE2\x80\xA6", "Wi-Fi works", "Wi-Fi forgotten", "Wi-Fi: wrong password",
+                        "trying Wi-Fi\xE2\x80\xA6", "update installed", "Wi-Fi works", "Wi-Fi forgotten", "Wi-Fi: wrong password",
                         "Wi-Fi: network not found", "Wi-Fi failed", "the prompt changed", "not allowed: scope", "network not found", "wrong password",
                         "a very long toast that cannot fit anywhere at all"}) {
     // Dial and Orbit: no higher than 300; the spring: under its context bar.
@@ -192,5 +290,6 @@ int main() {
   retries();
   words();
   drawing();
+  firmwareUpdate();
   return 0;
 }

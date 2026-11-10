@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: agents deck
+Source: https://github.com/brushknight/agents-deck
+
+Files: *
+Copyright: 2025-2026 the agents deck contributors
+License: none-yet
+ The repository has no licence file yet. The Flutter engine and the
+ libraries in /opt/agents-deck/lib keep their own licences (BSD-3-Clause
+ for Flutter; see /opt/agents-deck/data/flutter_assets/NOTICES.Z).

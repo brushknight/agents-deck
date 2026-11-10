@@ -59,6 +59,12 @@ message Frame {
     CertIssued cert_issued = 61;    // deck → board: the reply to CertRequest (or a Result on failure)
     WifiConfig wifi_config = 62;    // deck → board, over USB serial only: join this network; the board answers with a Result
     NetStatus net_status = 63;      // board → deck: how it is connected, after each Welcome and whenever that changes
+
+    // Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+    // over Wi-Fi"). Board management, not web API commands: the board
+    // downloads the image with GET /v1/firmware/{board}/{version}.
+    FirmwareOffer firmware_offer = 64;    // deck → board, over Wi-Fi only: a new firmware to download
+    FirmwareStatus firmware_status = 65;  // board → deck: how the update is going
   }
 }
 
@@ -441,4 +447,38 @@ message NetStatus {
   string ip = 4;            // on Wi-Fi
   int32 rssi = 5;           // dBm, 0 = unknown
   bool has_cert = 6;        // it holds a client certificate
+}
+
+// ---- firmware updates over Wi-Fi -------------------------------------------
+
+// A new firmware for the board, sent by the deck when you update a board on
+// Wi-Fi. The board checks that board is its own, downloads the app image
+// from path on the deck's network listener (TLS 1.3, its certificate; HTTP
+// Range to resume), writes it to its other firmware slot, checks size and
+// sha256, restarts into it and keeps it only once it reaches the deck again.
+// It answers with FirmwareStatus (REFUSED when it can't take it).
+message FirmwareOffer {
+  string board = 1;    // the board the image is for (firmware/devices/<board>, e.g. "lilygo-t4-s3")
+  string version = 2;  // e.g. "0.2.1": what Hello.firmware says once it runs
+  uint64 size = 3;     // the image's size in bytes
+  bytes sha256 = 4;    // its SHA-256 (32 bytes)
+  string path = 5;     // where to GET it on the network listener: /v1/firmware/{board}/{version}
+}
+
+enum FirmwareState {
+  FIRMWARE_UNSPECIFIED = 0;
+  FIRMWARE_DOWNLOADING = 1;  // percent: how much is written
+  FIRMWARE_VERIFYING = 2;    // the image is in; checking it
+  FIRMWARE_RESTARTING = 3;   // checked: the board restarts into it now
+  FIRMWARE_FAILED = 4;       // error says why; the board keeps its firmware
+  FIRMWARE_REFUSED = 5;      // the board won't take this offer (another board's image, on USB, no second slot, busy)
+}
+
+// How an update is going, board to deck: after the offer, then every few
+// percent while it downloads. The new firmware's Hello (its version) says it
+// started; a Hello with the old version after RESTARTING means it went back.
+message FirmwareStatus {
+  FirmwareState state = 1;
+  uint32 percent = 2;  // 0..100
+  string error = 3;    // for FAILED and REFUSED
 }

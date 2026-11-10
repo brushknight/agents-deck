@@ -3,7 +3,9 @@
 <p align="center">
   <a href="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml"><img src="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
   <a href="https://github.com/brushknight/agents-deck/releases/latest"><img src="https://img.shields.io/github/v/release/brushknight/agents-deck?label=release&color=FF4D00&labelColor=1b1b18" alt="latest release"></a>
-  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-7A776F?labelColor=1b1b18" alt="macOS on Apple Silicon">
+  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%7C%20Intel-7A776F?labelColor=1b1b18" alt="macOS on Apple Silicon and Intel">
+  <img src="https://img.shields.io/badge/Linux-x64%20%7C%20arm64-7A776F?labelColor=1b1b18" alt="Linux on x64 and arm64">
+  <img src="https://img.shields.io/badge/Windows-preview-7A776F?labelColor=1b1b18" alt="Windows, preview">
 </p>
 
 # agents deck
@@ -11,72 +13,58 @@
 **Mission control for your Claude Code and Codex agents**: in your menu bar, in the browser, on your
 desk, and on a little screen you flash yourself.
 
-A small program on your Mac (the daemon, `agentctl`) keeps track of every coding agent you run: who's
-working, who needs you, what each one is doing, its context and cost. You see them all as a deck of
-tiles, each agent a pixel critter, and you can answer an agent's question or permission prompt, stop
-it, or jump to its terminal from any screen. Everything stays on your Mac. The boards are optional
-and cheap: plug one in with a USB cable and it shows the same deck; give it your Wi-Fi once and it
-works from anywhere on your desk.
+A small program on your computer keeps track of every coding agent you run: who's working, who needs
+you, what each one is doing, its context and cost. You see them all as a deck of tiles, each agent a
+pixel critter, and you can answer an agent's question or permission prompt, stop it, or jump to its
+terminal from any screen. Everything stays on your computer. The boards are optional and cheap: plug
+one in with a USB cable and it shows the same deck; give it your Wi-Fi once and it works from anywhere
+on your desk.
 
-- [What you need](#what-you-need)
-- [Quick start](#quick-start-the-mac-part)
+- [What you need](#what-you-need) · [Quick start](#quick-start)
 - [Pick a display](#pick-a-display) · [Flash a board](#flash-a-board) · [Wi-Fi](#wi-fi)
-- [Set it up with an AI agent](#set-it-up-with-an-ai-agent)
-- [Where else it shows up](#where-else-it-shows-up) · [Harnesses](#works-with-your-harness) · [Commands](#commands) · [How it works](#how-it-works) · [Security](#security--privacy) · [Docs](#docs)
+- [What works where](#what-works-where) · [Where else it shows up](#where-else-it-shows-up) · [Harnesses](#works-with-your-harness)
+- [For the terminal](#for-the-terminal) · [How it works](#how-it-works) · [Security](#security--privacy) · [Docs](#docs)
 
 ## What you need
 
-- **A Mac with Apple Silicon.** Linux works when built from source ([below](#on-linux)); Windows isn't
-  supported yet ([where each platform stands](docs/releasing.md#platforms)).
-- **Claude Code or Codex**, however you like to run them. Optional: tmux (`brew install tmux`) for
-  agents you start with `agentctl new`, and iTerm2 so the deck can jump to an agent's tab.
+- **A Mac, a Linux PC or a Windows PC.** macOS 13 or later (Apple Silicon or Intel); Linux on x64 or
+  arm64 with a desktop that shows tray icons; Windows 10 or 11, 64-bit, as a
+  [preview](#what-works-where).
+- **Claude Code or Codex**, however you like to run them.
 - **Optional: a board.** One of the [displays below](#pick-a-display) and a USB-C cable that carries
   data. No soldering, no wiring: the screen, touch and USB are all on the board.
 
-## Quick start (the Mac part)
+## Quick start
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/brushknight/agents-deck/main/install.sh | sh -s -- --app
-```
+**1. Download the app for your computer** from the
+[latest release](https://github.com/brushknight/agents-deck/releases/latest) (under **Assets**):
 
-That downloads the latest release, checks it against the release's `SHA256SUMS`, installs `agentctl` to
-`~/.local/bin`, starts the daemon at login, and puts the menu bar app in `~/Applications` (leave out
-`--app` to skip it).
+| your computer | the file | then |
+|---|---|---|
+| **Mac** | `agents-deck_<version>_macos_universal.dmg` | open it, drag **agents deck** to Applications, open it from there |
+| **Windows** (preview) | `agents-deck_<version>_windows_amd64_setup.exe` | run it; no administrator password needed |
+| **Linux**, Debian or Ubuntu | `agents-deck_<version>_linux_amd64.deb` (`arm64` for ARM) | open it with your software installer, then **agents deck** from the app menu |
+| **Linux**, anything else | `agents-deck_<version>_linux_amd64.tar.gz` (`arm64` for ARM) | see [install.md](docs/install.md#other-distributions-the-targz) |
 
-Or build the same from a clone (needs Go 1.24+, and Flutter 3.44+ for the app). Do this if you want
-the newest board features before they're in a release:
+The app brings everything with it and starts it when you log in. A critter appears in the menu bar
+(the system tray on Linux); click it and the deck opens. On Windows, for now, **agents deck** in the
+Start menu opens the deck in your browser. Agents you already run in Claude Code, Codex, Orca, herdr
+or cmux show up on it right away. The gear under the deck opens **Settings**.
 
-```bash
-git clone https://github.com/brushknight/agents-deck && cd agents-deck
-./install.sh --source --app
-```
+**2. Plug in a board** (optional). Open Settings, **Boards**: a new board on USB shows up there.
+Say it's yours, pick which board it is, and click **Install firmware**. About a minute later it shows
+your agents. [Flash a board](#flash-a-board) has the details.
 
-### On Linux
+What each download puts where, how to update and how to remove it: [docs/install.md](docs/install.md).
 
-There are no Linux release archives yet, so build from a clone (Go 1.24+; for the tray app, Flutter
-3.44+ and its Linux build tools: `sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev`):
+**Warnings you may see the first time:**
 
-```bash
-git clone https://github.com/brushknight/agents-deck && cd agents-deck
-./install.sh --source --app --autostart
-```
-
-The daemon runs as a systemd user service (`agents-deck`). `--app` builds the tray app: the menu bar
-app's deck in your system tray, installed to `~/.local/share/agents-deck` with an entry in your app
-menu; `--autostart` starts it at login. KDE Plasma, XFCE, Cinnamon and MATE show tray icons as they
-are; GNOME needs the AppIndicator extension (Ubuntu has it on). More in
-[clients/macos/README.md](clients/macos/README.md#linux).
-
-Agents you already run in Orca, herdr, cmux or Codex show up right away. To start your own:
-
-```bash
-cd ~/dev/my-project
-agentctl new         # a Claude agent for this folder, in tmux (ctrl-q detaches)
-agentctl web         # the dashboard in your browser (a one-time login link)
-```
-
-Want a full deck without spending tokens? `agentctl sim start --root ~/dev --slots 12` fills it with
-pretend agents; `agentctl sim stop` clears them.
+- **Windows** says **Windows protected your PC**, because the preview installer isn't signed yet.
+  Click **More info**, then **Run anyway**.
+- **macOS**, for a build that isn't notarized by Apple, says it could not verify the app. Click
+  **Done**, then System Settings, Privacy & Security, **Open Anyway**. Notarized releases open without
+  it. Either way, macOS then tells you a background item was added: that's the agents deck service,
+  which watches your agents and boards even when the app is closed. Leave it on.
 
 ## Pick a display
 
@@ -127,98 +115,62 @@ screen, and how you'd use it. 👍 the requests you'd like too: the most-wanted 
 
 ## Flash a board
 
-You do this once per board. Plug it into the Mac with a USB-C cable that carries data (many cables
-that come with chargers only carry power), then:
+You do this once per board. Plug it in with a USB-C cable that carries data (many cables that come
+with chargers only carry power). Then pick one way:
 
-**1. Put the firmware on it.** The quick way is the **web flasher (coming soon)**: open it in Chrome
-or Edge on your Mac, pick your board, click **Connect**, choose the board's USB port, and click
-**Install**. It writes the ready-made image from the latest release; nothing to install, about a
-minute. (It uses Web Serial, which Safari and Firefox don't have.)
+- **From the app.** Settings, **Boards** shows the new board. Click **Yes, it's mine**, pick the board
+  from the pictures, and click **Install firmware**. The app downloads the image from the latest
+  release, checks its signature, writes and verifies it. When it's done the board restarts, pairs and
+  shows your agents. Later firmware updates are a button on the same page; a board on Wi-Fi updates
+  over the air.
+- **From the web flasher (coming soon)**, if you haven't installed anything: open it in Chrome or
+  Edge, pick your board, click **Connect**, choose the board's USB port, and click **Install**. (It
+  uses Web Serial, which Safari and Firefox don't have.)
+- **From a terminal**, with `agentctl flash`, or by building the firmware yourself with PlatformIO
+  to run the newest code.
 
-Until it's online, or to run the newest code, build and flash it yourself with PlatformIO:
-[docs/flashing.md](docs/flashing.md) takes you through it, about 15 minutes the first time.
+All of them, step by step, with the BOOT and RST rescue for a board that doesn't answer:
+[docs/flashing.md](docs/flashing.md).
 
-**2. Let the deck talk to it.** The deck only ever opens USB ports you register:
-
-```bash
-agentctl link ports                          # lists USB serial ports, e.g. /dev/cu.usbmodem1101
-agentctl link add /dev/cu.usbmodem1101       # once per port
-```
-
-**3. Watch it come up.** The board says "connecting", and a few seconds later shows your agents. On a
-registered port a new board is approved at once and can answer prompts, focus a terminal and
-interrupt an agent (scope `act`). To let it stop agents too:
-
-```bash
-agentctl devices                                   # every board and device, with its name
-agentctl devices scope <board-name> admin          # admin adds stop
-```
-
-Prefer to approve each board by hand? `agentctl devices auto-approve usb off`; a new board then shows
-"waiting for approval" with the exact `agentctl devices approve …` command on its screen. Something
-not working? See [troubleshooting](docs/flashing.md#troubleshooting).
+A board you confirm in Settings is approved at once and can answer prompts, focus a terminal and
+interrupt an agent (scope `act`): plugging it into your computer counts as your consent. Giving it
+**admin** (it adds stop), approving boards by hand, renaming or removing one: all in Settings,
+Boards. Something not working? See [troubleshooting](docs/flashing.md#troubleshooting).
 
 ## Wi-Fi
 
-Every touch board except the 4″ (for now) can leave the Mac and run from any USB charger.
+Every touch board except the 4″ (for now) can leave your computer and run from any USB charger. Set
+your Wi-Fi network once in Settings, **Network**; every board that's plugged in gets it, and so does
+every board you plug in later. Then unplug it, power it anywhere on the same network, and it finds
+the deck. Plug it back in and it's on USB again at once. Boards use 2.4 GHz Wi-Fi only.
 
-```bash
-agentctl link wifi --default --ssid "my network"    # asks for the password; kept in your Keychain
-```
-
-You set it once. Every approved board that's plugged into the Mac gets the network by itself (a toast
-says "trying Wi-Fi…", then whether it worked), and so does every board you plug in later. Then unplug
-it, power it anywhere on the same network, and it finds the deck. Plug it back into the Mac and it's on
-USB again at once. `agentctl link` shows how each board is connected.
-
-Security in one sentence: a board on Wi-Fi talks to your Mac only over TLS 1.3 with a certificate of
-its own, made over the USB cable when you first plugged it in, and `agentctl devices revoke <board>`
-cuts it off. The details are in [docs/protocol.md](docs/protocol.md) and
+Security in one sentence: a board on Wi-Fi talks to your computer only over TLS 1.3 with a
+certificate of its own, made over the USB cable when you first plugged it in, and removing it in
+Settings, Boards cuts it off. The details are in [docs/protocol.md](docs/protocol.md) and
 [docs/link/protocol.md](docs/link/protocol.md#pairing-and-wi-fi).
 
-## Set it up with an AI agent
+## What works where
 
-Every board's README is written so a coding agent can follow it step by step, and they're
-independent, so you can give each board to its own subagent and flash several in parallel. Paste this
-into Claude Code or Codex in a fresh clone of this repository (fill in your board):
+| | macOS | Linux | Windows (preview) |
+|---|---|---|---|
+| see Claude Code and Codex sessions, answer prompts | yes | yes | yes, where the tool has hooks |
+| the deck next to an icon (menu bar or tray) | yes | yes ([desktops](clients/macos/README.md#where-it-works)) | not yet: the deck and Settings open in your browser |
+| Settings, web dashboard | yes | yes | yes, in the browser |
+| boards on USB and Wi-Fi, flashing, updates | yes | yes | yes |
+| start agents with `agentctl new`, restore after a restart | yes (needs tmux) | yes (needs tmux) | not yet: needs tmux |
+| jump to the agent's terminal | iTerm2, Orca, cmux, Codex app | where the harness supports it | not yet |
+| updates itself | yes | yes (the `.deb` tells you; your package manager installs) | yes |
+| signed by the platform | notarized by Apple, once the project's certificate is set up | no platform signing | not yet: SmartScreen warns |
 
-````text
-Set up agents deck on this Mac from this clone, and get my <board name, e.g. Waveshare
-ESP32-S3-Touch-LCD-2.8C> working on it, first over USB, then over Wi-Fi.
-
-1. Read AGENTS.md, README.md ("Flash a board" and "Wi-Fi"), docs/flashing.md, docs/devices.md, and
-   the README in the board's folder under firmware/devices/. Follow the board README where it is
-   more specific.
-2. Check prerequisites and install what's missing with Homebrew, telling me before each install:
-   Go 1.24+, PlatformIO (`pio`), tmux. Flutter only if I want the menu bar app.
-3. Build and install agentctl from this clone: `./install.sh --source` (add `--app` for the menu bar
-   app). Check the daemon is up with `agentctl ls`.
-4. Ask me to plug the board in with a data USB-C cable. Run `agentctl link ports`, and if no new port
-   appears, tell me to try another cable (charge-only cables are common). Register the port with
-   `agentctl link add <port>`.
-5. Build and flash from source as docs/flashing.md says, with the env it lists for this board and
-   `--upload-port <port>`. If the upload can't connect, ask me to hold BOOT, press RST, release
-   BOOT, and try again. Don't edit firmware source or build flags to make it work; tell me what
-   failed instead.
-6. Verify: `agentctl link status` shows the board on that port, and `agentctl devices` lists it as
-   approved (scope act). Ask me whether I want scope admin (it adds stop) before setting it.
-7. Wi-Fi (skip for boards without it): ask me for the network name only, then tell me to run
-   `agentctl link wifi --default --ssid "<name>"` myself in a terminal and type the password at its
-   prompt. Never ask me for the password, never put it on a command line, in a file or in your
-   notes. Then check `agentctl link` for the result.
-8. Tell me what to check by eye: the board shows my agents (or `agentctl sim start --root ~/dev
-   --slots 6` for pretend ones); tapping an agent opens its card; a waiting agent has orange on it;
-   after I unplug it and power it from a charger it comes back with a small Wi-Fi mark.
-9. Finish with a short report: what you installed, the board's name, its port, its scope, and how it
-   is connected now.
-````
+Every release, on every platform, also carries our own signature, and agents deck installs no update
+or firmware without it.
 
 ## Where else it shows up
 
 | | |
 |---|---|
 | <img src="docs/images/menubar-deck-v2.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/web-board-v2.png" alt="web dashboard"> |
-| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. On Linux the same app sits in the system tray. | **Browser.** The same board, a panel view, and every agent's card. It works on your phone too ([docs/phone.md](docs/phone.md)). |
+| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. On Linux the same app sits in the system tray; on Windows, for now, the deck opens in the browser. | **Browser.** The same board, a panel view, and every agent's card. It works on your phone too ([docs/phone.md](docs/phone.md)). |
 | <img src="docs/images/panel-question-v2.png" alt="a question on the desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi ([Wall Panel](https://github.com/dotstartech/wall-panel)), paired with `agentctl pair`. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
@@ -243,7 +195,59 @@ nothing to set up: the deck finds them and lets you answer, interrupt and jump t
 **Your harness missing?** Open a pull request ([docs/harnesses.md](docs/harnesses.md) walks through
 adding one), or name it in the [harness tracking issue](https://github.com/brushknight/agents-deck/issues/7).
 
-## Commands
+## For the terminal
+
+Everything in the app is also a command, and you don't need the app at all if you'd rather not.
+
+**Install from a terminal** (macOS or Linux): the service and `agentctl`, with `--app` the menu bar or
+tray app as well:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/brushknight/agents-deck/main/install.sh | sh -s -- --app
+```
+
+That downloads the latest release, checks it against the release's `SHA256SUMS`, installs `agentctl`
+to `~/.local/bin`, and starts the service at login. On Linux, `--autostart` starts the tray app at
+login too.
+
+**From a clone** (Go 1.24+; Flutter 3.44+ for `--app`), for the newest code before it's in a
+release. A build from source never updates itself:
+
+```bash
+git clone https://github.com/brushknight/agents-deck && cd agents-deck
+./install.sh --source --app
+```
+
+On Linux the tray app needs Flutter's Linux build tools:
+`sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev`.
+More in [clients/macos/README.md](clients/macos/README.md#linux).
+
+**Start agents of your own** (macOS and Linux, needs tmux):
+
+```bash
+cd ~/dev/my-project
+agentctl new         # a Claude agent for this folder, in tmux (ctrl-q detaches)
+agentctl web         # the dashboard in your browser (a one-time login link)
+```
+
+Want a full deck without spending tokens? `agentctl sim start --root ~/dev --slots 12` fills it with
+pretend agents; `agentctl sim stop` clears them.
+
+**Boards from the terminal:**
+
+```bash
+agentctl link ports                              # USB serial ports, with their USB ids
+agentctl flash /dev/cu.usbmodem1101 agents-deck-<board>-<version>.bin   # write a release image
+agentctl link add /dev/cu.usbmodem1101           # let the deck open this port (once per port)
+agentctl devices scope <board-name> admin        # admin adds stop
+agentctl link wifi --default --ssid "my network" # the Wi-Fi every board gets (asks for the password)
+```
+
+The deck only ever opens USB ports you register (that's what **Yes, it's mine** in Settings does).
+Prefer to approve each board by hand? `agentctl devices auto-approve usb off`; a new board then shows
+"waiting for approval" with the exact `agentctl devices approve …` command on its screen.
+
+### Commands
 
 ```text
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]   start an agent and attach (-d: stay detached)
@@ -257,12 +261,17 @@ agentctl restore                    bring back agents lost with the tmux server 
 agentctl rm <id|title>              stop and forget an agent
 agentctl link [ports | add <port>]  boards: how each is connected, find ports, register one
 agentctl link wifi --default --ssid NAME   the Wi-Fi network every board gets (asks for the password)
+agentctl flash <port> <image.bin>   write a board's firmware over USB (--probe: only read the chip)
 agentctl devices [approve | scope | revoke <name>]   boards and paired devices
 agentctl pair <name> [--bundle F]   pair the desk panel: its own certificate, scope view|act|admin
+agentctl install | uninstall        start the service at login, or stop that
+agentctl status                     is the service running, where are its files
+agentctl update [--check]           check for a new version and install it
 agentctl sim start|stop             pretend agents for demos
 ```
 
-`agentctl help` lists the rest (accounts, hats, handoff, terminal and mouse settings).
+`agentctl help` lists the rest (accounts, hats, handoff, terminal and mouse settings). Building and
+flashing boards with a coding agent's help: [docs/flashing.md](docs/flashing.md#let-a-coding-agent-do-it).
 
 ## How it works
 
@@ -277,7 +286,7 @@ flowchart LR
     L["Claude Code<br/>in any terminal"]
     X["Codex app and CLI"]
   end
-  D["agentctl serve<br/>(the daemon, on your Mac)"]:::a
+  D["agentctl serve<br/>(the service, on your computer)"]:::a
   subgraph see["where you see them"]
     direction TB
     W["web dashboard"]
@@ -300,7 +309,7 @@ flowchart LR
 ```
 
 On the left, wherever your agents run; on the right, every screen that shows them; in the middle, one
-daemon. Agents started with `agentctl new` run in their own tmux server (`tmux -L agentsterm`), each
+service. Agents started with `agentctl new` run in their own tmux server (`tmux -L agentsterm`), each
 with its own hook settings, so your global `~/.claude/settings.json` is never touched. Hooks report
 prompts, tool calls, permission requests, compaction and stops; Claude's transcripts
 (`~/.claude/projects/*.jsonl`) give tokens, context, model and title. Answers are typed into the
@@ -311,30 +320,40 @@ protobuf version of it.
 
 ## Security & privacy
 
-- **Nothing leaves your machine:** no telemetry, no update checks. The only Go dependency is Google's protobuf module.
-- **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks.
-- **The menu bar app** (and the Linux tray app) uses the daemon's unix socket: nothing crosses the network.
+- **Nothing about you leaves your computer:** no telemetry. The only thing agents deck fetches is this
+  project's GitHub releases, to check for updates and download firmware, and it installs nothing
+  whose signature doesn't match the key built into it. The only Go dependency is Google's protobuf
+  module.
+- **The web dashboard and Settings are loopback-only** (`127.0.0.1`), behind a one-time login link, a
+  strict CSP and host and origin checks. Settings is never reachable from the network, by a board or
+  by anyone else.
+- **The menu bar app** (and the Linux tray app) uses the service's local socket: nothing crosses the
+  network.
 - **The desk panel and boards on Wi-Fi** connect over TLS 1.3 with their own client certificate,
-  signed by the deck's local CA (its key is in the macOS Keychain). Each device has a scope (view, act
-  or admin), shows up in `agentctl devices`, can be revoked on its own, and every action it takes lands
-  in an audit log.
-- **Boards on USB** are only heard on ports you registered (`agentctl link add`). A new board plugged
-  into one is approved at once with scope `act`: physical USB on your Mac counts as your consent
-  (`agentctl devices auto-approve usb off` makes them wait for `agentctl devices approve`). Never over
-  Wi-Fi, never a revoked board; `admin` is always given by hand. A board's certificate is only ever
-  issued over USB.
-- **Codex files are only read.** App control is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
-- **Secrets** live in `~/.local/share/agents-terminal/` (`0700` / `0600`); the default Wi-Fi password in the Keychain.
+  signed by the deck's local CA (its key is in the macOS Keychain, or the data folder elsewhere). Each
+  device has a scope (view, act or admin), shows up in Settings, Boards and `agentctl devices`, can be
+  revoked on its own, and every action it takes lands in an audit log. Updates over Wi-Fi travel on
+  the same connection, and a board refuses firmware made for another board.
+- **Boards on USB** are only heard on ports you confirmed (Settings, Boards, or `agentctl link add`);
+  a new port is listed from its USB id alone, without opening it. A new board on a confirmed port is
+  approved at once with scope `act`: physical USB on your computer counts as your consent
+  (`agentctl devices auto-approve usb off` makes them wait). Never over Wi-Fi, never a revoked board;
+  `admin` is always given by hand. A board's certificate is only ever issued over USB.
+- **Codex files are only read.** App control on a Mac is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
+- **Secrets** live in your data folder (`~/.local/share/agents-terminal/` on macOS and Linux,
+  `%LOCALAPPDATA%\agents-deck` on Windows; `0700` / `0600`), and on a Mac the deck's key and the
+  default Wi-Fi password in the Keychain.
 
 ## Docs
 
-[Devices](docs/devices.md) · [Flashing](docs/flashing.md) · [Features](docs/features.md) · [Protocol](docs/protocol.md) · [Deck Link](docs/link/protocol.md) · [New device](docs/link/new-device.md) · [Harnesses](docs/harnesses.md) · [Releasing](docs/releasing.md) · [Roadmap](docs/roadmap.md)
+[Install](docs/install.md) · [Devices](docs/devices.md) · [Flashing](docs/flashing.md) · [Features](docs/features.md) · [Protocol](docs/protocol.md) · [Deck Link](docs/link/protocol.md) · [New device](docs/link/new-device.md) · [Harnesses](docs/harnesses.md) · [Releasing](docs/releasing.md) · [Roadmap](docs/roadmap.md)
 
 | path | |
 |---|---|
 | `backend/` | Go daemon and CLI (`agentctl`), with the web UI embedded. `go test -race ./...` |
 | `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell), and the Linux tray app (the same Flutter app + a small GTK shell). |
+| `packaging/`, `install.sh` | The installers: the macOS `.dmg`, the Linux `.deb` and archive, the Windows setup, and the install script ([releasing](docs/releasing.md)). |
 | `proto/` | `link.proto`: the Deck Link contract for boards. |
 | `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
 | `firmware/devices` | Firmware for each board, one folder each ([devices](docs/devices.md)). |

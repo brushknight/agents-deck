@@ -104,6 +104,14 @@ type Server struct {
 	// DeviceLink serves GET /v1/link on the network listener: a paired
 	// board's Deck Link session over TLS (link.DeviceUpgradeHandler).
 	DeviceLink func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// DeviceFirmware serves GET /v1/firmware/{board}/{version} on the network
+	// listener: the app image a board on Wi-Fi was offered
+	// (link.FirmwareHandler, which checks and audits it).
+	DeviceFirmware func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// LinkFirmware offers a board on Wi-Fi an image file (POST
+	// /local/link/firmware, linkfirmware.go); LinkFirmwareStatus is its GET.
+	LinkFirmware       func(device, board, version, file string) (int, string)
+	LinkFirmwareStatus func() any
 	// LinkWifi sends Wi-Fi credentials to a board connected over USB serial
 	// (POST /local/link/wifi); it returns the board's answer.
 	LinkWifi func(device, ssid, password string, forget bool) (int, string)
@@ -517,6 +525,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	}
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
+	mux.HandleFunc("/local/link/firmware", s.linkFirmware)
 	mux.HandleFunc("GET /local/link", func(w http.ResponseWriter, r *http.Request) {
 		if s.LinkStatus == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ports": []any{}, "boards": []any{}})

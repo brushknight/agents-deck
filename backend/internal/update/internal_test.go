@@ -135,6 +135,7 @@ func TestDetectKind(t *testing.T) {
 		{"darwin", "/Users/someone/.local/bin/agentctl", "0.2.0", KindArchive},
 		{"darwin", "/Applications/agents deck.app/Contents/MacOS/agentctl", "dev", KindSource},
 		{"linux", "/usr/bin/agentctl", "0.2.0", KindDeb},
+		{"linux", "/opt/agents-deck/agentctl", "0.2.0", KindDeb},
 		{"linux", "/usr/local/bin/agentctl", "0.2.0", KindArchive},
 		{"linux", "/home/someone/.local/bin/agentctl", "0.2.0", KindArchive},
 		{"linux", "/home/someone/.local/bin/agentctl", "v0.2.0-1-gabcdef0", KindSource},

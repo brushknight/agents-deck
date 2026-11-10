@@ -62,7 +62,7 @@ typedef struct {
 	bool has_fp;
 	bool inited;
 #endif
-	uint8_t pre[512]; /* stream bytes that came with the HTTP answer */
+	uint8_t pre[1024]; /* stream (or body) bytes that came with the HTTP answer */
 	size_t pre_len, pre_off;
 	uint32_t write_timeout_ms;
 	int mbedtls_error; /* the last mbedTLS error, for logs */
@@ -75,9 +75,20 @@ typedef struct {
  * certificate. Call deck_tls_close() after, whatever it returns. */
 deck_tls_err_t deck_tls_open(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr,
 			     uint32_t timeout_ms);
+/* An HTTP GET of path on the deck's network listener, from byte `from` on
+ * (Range), with the same TLS 1.3 and certificate as deck_tls_open: for a
+ * firmware update's image (deck_fw.h). On DECK_TLS_OK the body follows
+ * through deck_tls_read: status is 200 or 206 and length the body's length
+ * (-1 unknown). Any other status (403, 404, 503) also returns DECK_TLS_OK
+ * with length -1: read the error text, or close. 401 is CERT_REJECTED.
+ * Call deck_tls_close() after, whatever it returns. */
+deck_tls_err_t deck_tls_get(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr, const char *path,
+			    uint64_t from, uint32_t timeout_ms, int *status, int64_t *length);
 /* Reads what has arrived: > 0 bytes, 0 nothing yet, < 0 -deck_tls_err_t
  * (the connection is over). */
 int deck_tls_read(deck_tls_t *t, uint8_t *buf, size_t cap);
+/* deck_tls_read, waiting up to timeout_ms for something (0: nothing came). */
+int deck_tls_read_wait(deck_tls_t *t, uint8_t *buf, size_t cap, uint32_t timeout_ms);
 /* A deck_write_fn: user is the deck_tls_t. Writes all or nothing. */
 size_t deck_tls_write(const uint8_t *data, size_t len, void *user);
 void deck_tls_close(deck_tls_t *t);

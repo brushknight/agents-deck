@@ -137,7 +137,9 @@ static void render() {
   static NetView net;
   net = net_link::view();
   ui.wifi = net.via == NetVia::Wifi;       // home's Wi-Fi mark (and the grid's row for it; touch follows the last frame)
-  PanelInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
+  // A firmware update: its notice (net_model.h's words) instead of the agents.
+  if (net.ota.phase != OtaPhase::None) net.via = NetVia::Wifi;
+  PanelInput in{f, net.ota.phase != OtaPhase::None ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
   board.layout->draw(canvas, in);
   board.push(frame);
 }
@@ -162,7 +164,10 @@ static void touchPump() {
   if (!down && !ui.down) return;
   const uint32_t ms = millis();
   lastActiveMs = ms;
-  if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; return; }
+  if (!fleet->have || linkState() != LinkState::Live || net_link::view().ota.phase != OtaPhase::None) {
+    ui.down = false;
+    return;
+  }
   send(board.layout->touch(ui, fleet->fleet, down, x, y, scope(), ms));
   dirty = true;
 }
@@ -188,6 +193,7 @@ static void buttonPump() {
 static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   using namespace grid_app;
   board = b;
+  ota::begin();                             // an update waiting for its confirm? (before anything that could crash)
   const int W = b.layout->width(), H = b.layout->height();
   // The USB serial driver drops what doesn't fit in its RX queue (256 bytes
   // by default), and a frame takes ~50 ms to draw: a snapshot or a busy deck
@@ -216,6 +222,7 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   cfg.on_offline = onLink;
   cfg.on_cert_issued = onCertIssued;
   cfg.on_wifi_config = net_link::wifiConfigHook();   // nullptr without Wi-Fi: the core answers 501
+  cfg.on_firmware_offer = net_link::firmwareOfferHook();   // nullptr without Wi-Fi: the core refuses
   deck.begin(Serial, cfg);
   net_link::begin(deck.core(), cfg, net_link::Hooks{onSwitched, onToast});
   lastActiveMs = lastHeardMs = millis();

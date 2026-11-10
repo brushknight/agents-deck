@@ -83,10 +83,15 @@ const usage = `agentctl — agents-terminal
                                  give a board on USB its Wi-Fi network (asks for the password; never
                                  stored on the Mac); from then on it connects over Wi-Fi when not on USB
   agentctl link pair <board>     a new Wi-Fi certificate for a board (it pairs again over USB)
+  agentctl link update <board> --image FILE --board B --version V
+                                 put an app image from this Mac on a board on Wi-Fi (it goes back
+                                 to its old firmware if the new one doesn't reach the deck)
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
-  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]   write firmware to an ESP32-S3 over USB
+                                 test a board's firmware against a demo deck (stop the daemon's use: link rm)
+  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]
+                                 write a firmware image to an ESP32-S3 board over USB
   agentctl flash --board <board> [--version v] <port>
                                  the service downloads, checks and writes the board's firmware
   agentctl ports [register|identify|forget <port>]
@@ -97,7 +102,8 @@ const usage = `agentctl — agents-terminal
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
-                                 test a board's firmware against a demo deck (stop the daemon's use: link rm)
+  agentctl update [--check]      look for a new release, and install it
+  agentctl firmware ls           the boards and firmware in the latest release
   agentctl serve [--demo] [--log FILE]
                                  run the service (normally started at login, see install)
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now
@@ -1167,6 +1173,7 @@ func serve(args []string) error {
 		return wifiDefault.Set(ssid, password)
 	}
 	srv.LinkWifiUseDefault = hub.SendDefault
+	srv.LinkFirmware, srv.LinkFirmwareStatus = hub.UpdateFromFile, func() any { return hub.Firmware() }
 	var deviceTLS *tls.Config
 	if cfg.DeviceAddr != "" {
 		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))
@@ -1184,6 +1191,7 @@ func serve(args []string) error {
 		srv.DeviceHosts = append([]string{host}, lanIPs()...)
 		srv.DevicePort, _ = strconv.Atoi(port)
 		srv.DeviceLink = link.DeviceUpgradeHandler(link.ServerDeck{S: srv}, hub)
+		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // no source yet: 503
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates

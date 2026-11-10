@@ -1,0 +1,16 @@
+# agents deck: the service (agentctl serve) for one user. Enable it with
+#   systemctl --user enable --now agents-deck.service
+# or open agents deck from the app menu, which does that for you.
+[Unit]
+Description=agents deck service (agentctl serve)
+Documentation=https://github.com/brushknight/agents-deck
+After=default.target
+
+[Service]
+ExecStart=/usr/bin/agentctl serve
+Restart=on-failure
+# Agents run in tmux with your tools: look in ~/.local/bin as well.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+
+[Install]
+WantedBy=default.target

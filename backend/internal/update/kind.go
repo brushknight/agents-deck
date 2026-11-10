@@ -44,9 +44,11 @@ func detectKind(goos, exe, version string) string {
 			return KindApp
 		}
 	case "linux":
-		// A .deb puts agentctl under /usr; install.sh and the archives under the
-		// user's home (or /usr/local, which no package owns).
-		if strings.HasPrefix(exe, "/usr/") && !strings.HasPrefix(exe, "/usr/local/") {
+		// A .deb puts agentctl in /opt/agents-deck with a link in /usr/bin (the
+		// path here has its links resolved); install.sh and the archives go
+		// under the user's home (or /usr/local, which no package owns).
+		if strings.HasPrefix(exe, "/opt/agents-deck/") ||
+			(strings.HasPrefix(exe, "/usr/") && !strings.HasPrefix(exe, "/usr/local/")) {
 			return KindDeb
 		}
 	}

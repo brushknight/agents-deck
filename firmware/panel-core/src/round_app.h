@@ -195,7 +195,8 @@ static void render() {
 #else
   net = net_link::view();
 #endif
-  RoundInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent, &net};
+  // A firmware update: its notice (net_model.h's words) instead of the agents.
+  RoundInput in{f, net.ota.phase != OtaPhase::None ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent, &net};
   in.partial = true;   // the frame keeps the last one
   const uint32_t t0 = micros();
   if (strip && board.layout->drawStrips(in, strip, kStripRows, board.pushStrip)) {
@@ -281,12 +282,21 @@ static const char* gestureName(RoundGesture g) {
 }
 #endif
 
+// A firmware update is on the screen (ota.h): touches wait.
+static bool updating() {
+#ifdef ROUND_BENCH
+  return false;
+#else
+  return net_link::view().ota.phase != OtaPhase::None;
+#endif
+}
+
 static void touchPump() {
   if (!touchQueue) return;
   TouchSample s;
   while (xQueueReceive(touchQueue, &s, 0) == pdTRUE) {
     lastActiveMs = millis();
-    if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; ui.pinch = PinchTracker(); continue; }
+    if (!fleet->have || linkState() != LinkState::Live || updating()) { ui.down = false; ui.pinch = PinchTracker(); continue; }
     const bool was = ui.down;
     ui.lastGesture = RoundGesture::None;
     const RoundCommand c =
@@ -366,6 +376,9 @@ static void benchScript() {
 static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   using namespace round_app;
   board = b;
+#ifndef ROUND_BENCH
+  ota::begin();                             // an update waiting for its confirm? (before anything that could crash)
+#endif
   // The USB serial driver drops what doesn't fit in its RX queue (256 bytes
   // by default) while a frame is drawn: give a snapshot or a busy deck room.
   Serial.setRxBufferSize(kRxBuffer);
@@ -402,6 +415,7 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
 #else
   cfg.on_cert_issued = onCertIssued;
   cfg.on_wifi_config = net_link::wifiConfigHook();   // nullptr without Wi-Fi: the core answers 501
+  cfg.on_firmware_offer = net_link::firmwareOfferHook();   // nullptr without Wi-Fi: the core refuses
   deck.begin(Serial, cfg);
   net_link::begin(deck.core(), cfg, net_link::Hooks{onSwitched, onToast});
 #endif

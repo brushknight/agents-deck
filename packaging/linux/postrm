@@ -1,0 +1,11 @@
+#!/bin/sh
+# agents deck: the udev rule is gone after removal; reload so it stops applying.
+set -e
+
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+  if command -v udevadm >/dev/null 2>&1 && [ -d /run/udev ]; then
+    udevadm control --reload-rules || true
+  fi
+fi
+
+exit 0
