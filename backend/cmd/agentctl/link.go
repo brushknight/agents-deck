@@ -15,6 +15,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/link/linkpb"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/serial"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
@@ -129,12 +130,18 @@ func linkPorts() error {
 		fmt.Println("no USB serial ports found: plug the board in (and use a data cable)")
 		return nil
 	}
+	infos := map[string]serial.Info{}
+	if all, err := serial.List(); err == nil {
+		for _, i := range all {
+			infos[i.Path] = i
+		}
+	}
 	for _, p := range ports {
 		mark := "  "
 		if registered[p] {
 			mark = "✓ "
 		}
-		fmt.Println(mark + p)
+		fmt.Println(mark + p + portNote(infos[p]))
 	}
 	fmt.Println("\nregister one with: agentctl link add <port>   (only registered ports are ever opened)")
 	return nil
