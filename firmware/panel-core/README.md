@@ -41,6 +41,8 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/round_app.h` | the firmware of a round board minus its drivers (Arduino) |
 | `src/net_model.h` | USB or Wi-Fi: which link a board uses and when it retries, and what the screen says about it |
 | `src/net_link.h` | Wi-Fi for any touch board (Arduino, ESP32): pairing over USB, credentials and certificate in NVS, joining, the TLS 1.3 link to the deck |
+| `src/ota_model.h`, `src/ota.h` | firmware updates over Wi-Fi: the words on the screen, when to tell the deck, the boot-time decision (host-tested); the download into the other app slot and the confirm or roll back (Arduino, ESP32, idf5 builds) |
+| `tools/build_info.py` | the PlatformIO pre-script every device project uses: `AGENTS_DECK_BOARD` (the device folder) and `AGENTS_DECK_VERSION` (from the environment) |
 | `sim/` | `render.cpp` (every screen of a layout to PPM), `panel_sim.cpp`, `fixture.h` (host only) |
 | `tests/run.sh` | the host tests, with ASan and UBSan |
 
@@ -94,6 +96,51 @@ a notice sits low, clear of its text. `PanelUi::wifi` (set by `grid_app.h`) puts
 at the right of the page bars' row in a grid (the 4″), which then stays with one page too, and
 hit-testing follows it. The 4″, the 1.8″ AMOLED and the T4-S3 have `idf5` projects; the 1.47″ is on 2.0.17 and
 USB only.
+
+## Firmware updates over Wi-Fi
+
+`ota.h` lets the deck update a board on Wi-Fi (docs/link/protocol.md, "Firmware updates over Wi-Fi");
+a board on USB is updated over the cable. `net_link.h` gives both Deck Link cores the offer callback,
+and `grid_app.h` and `round_app.h` show the update's notice (`netNotice()` words: "updating", the
+version and percent, "keep it powered") instead of the agents while it runs, and ignore touches.
+
+- **The offer.** Taken only over the Wi-Fi link, only when its `board` is this build's
+  (`AGENTS_DECK_BOARD`), the other app slot exists and the image fits it, and no update is running or
+  waiting for its confirm. Otherwise the board answers `REFUSED` with the reason.
+- **The download.** A task of its own (12 KB of stack, core 0, like the link's TLS connect) runs the
+  kit's `deck_fw_download()`: a second TLS 1.3 connection with the board's certificate to
+  `GET /v1/firmware/{board}/{version}`, 4 KB at a time, SHA-256 as it goes, resumed with `Range`
+  after a drop. `esp_ota_begin(OTA_WITH_SEQUENTIAL_WRITES)` erases the other slot as the image
+  arrives and `esp_ota_write()` fills it, so RAM use stays at the one buffer plus mbedTLS's. The
+  main loop sends `FirmwareStatus` every 5 % (or 3 s).
+- **The switch.** `esp_ota_end()` checks it is a valid app for the chip; the SHA-256 must be the
+  offer's. Only then the board writes an NVS mark (`decklink`/`ota`: the old slot's name), calls
+  `esp_ota_set_boot_partition()`, says `RESTARTING` and restarts.
+- **Confirm or go back.** The new firmware keeps itself only when the deck answers its `Hello` (a
+  `Welcome` on either link), and shows "update installed".
+  - arduino-esp32 3.x's prebuilt bootloader is built with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`
+    (the `sdkconfig` in pioarduino's `framework-arduinoespressif32-libs/esp32s3`, and the
+    `ESP_OTA_IMG_PENDING_VERIFY` handling in its `bootloader_*.elf`). The idf5 builds use that
+    bootloader as is (`custom_sdkconfig` rebuilds the libraries, not the bootloader), so a new image
+    starts `PENDING_VERIFY` and the bootloader goes back to the old one if the board resets before
+    the confirm: a crash, a watchdog, a power cut. `ota.h` defines `verifyRollbackLater()` so the
+    Arduino core doesn't confirm the image at start-up, and gives up itself
+    (`esp_ota_mark_app_invalid_rollback_and_reboot()`) after 5 minutes without a deck.
+  - With a bootloader without rollback (the image's state stays `NEW`), the app does the same with
+    the NVS mark: it counts starts (going back after the third without a deck) and the 5 minutes,
+    and switches back with `esp_ota_set_boot_partition()`. The mark is cleared before it switches, so
+    it never loops.
+- **2.0.17 builds** (USB only) have no TLS 1.3: `firmwareOfferHook()` is `nullptr` and the kit
+  answers every offer with `REFUSED` ("this firmware can't update over Wi-Fi").
+
+The version a board reports in `Hello` is `AGENTS_DECK_VERSION` when the build has it, otherwise the
+`FW_VERSION` in its `main.cpp` (`panelFirmware()` in `deck_model.h`). Every device project's
+`platformio.ini` runs `tools/build_info.py`, which sets it from the environment variable of the same
+name (the release workflow exports it) and sets `AGENTS_DECK_BOARD` from the project's folder:
+
+```bash
+AGENTS_DECK_VERSION=0.2.1 pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5
+```
 
 ## Tests and pictures
 

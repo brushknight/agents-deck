@@ -14,8 +14,12 @@
 //     addresses), TLS 1.3 with the certificate (deck_tls.h, in a task of its
 //     own so the screen keeps drawing), and a second Deck Link core on it.
 //
+//   - Firmware updates over Wi-Fi: ota.h (the offer, the download, the
+//     confirm after the restart); the screen follows view().ota.
+//
 // Builds without TLS 1.3 (arduino-esp32 2.0.x) get the USB-only part:
-// active() is always the USB link and the deck hears "no Wi-Fi" (501).
+// active() is always the USB link, the deck hears "no Wi-Fi" (501), and the
+// kit refuses firmware offers.
 #if defined(ARDUINO)
 #include <Arduino.h>
 
@@ -34,6 +38,8 @@
 #ifndef NET_LOG
 #define NET_LOG(...) do {} while (0)
 #endif
+
+#include "ota.h"
 
 namespace net_link {
 
@@ -69,6 +75,7 @@ static volatile Conn conn = Conn::Idle;
 static volatile deck_tls_err_t connErr = DECK_TLS_OK;
 static volatile bool connAbandon = false;   // USB took over while it ran
 static char connHost[DECK_HOST_SIZE] = "";
+static char connAddr[48] = "";              // where connHost resolved to
 
 // Wi-Fi events (from the Wi-Fi task).
 static volatile bool evJoined = false, evLost = false;
@@ -93,7 +100,11 @@ static deck_link_t* active() {
   return usb;
 }
 
-static NetView view() { return plan.view; }
+static NetView view() {
+  NetView v = plan.view;
+  v.ota = ota::view;
+  return v;
+}
 
 // Over Wi-Fi but not (yet) talking to the deck: the screen shows where it is.
 static bool wifiPending() {
@@ -239,6 +250,7 @@ static void connectTask(void*) {
       continue;
     }
     e = deck_tls_open(&tls, &cert, cert.hosts[i], addr, 6000);
+    if (e == DECK_TLS_OK) snprintf(connAddr, sizeof connAddr, "%s", addr);
     NET_LOG("net: %s (%s): %s, mbedtls -0x%04x, alert %d", cert.hosts[i], addr, deck_tls_strerror(e),
             (unsigned)-tls.mbedtls_error, tls.alert);
     if (e == DECK_TLS_OK) {
@@ -300,8 +312,14 @@ static void apply(NetAction a) {
 
 // ---------------------------------------------------------------- the USB link's callbacks
 
+// A Welcome on either link: the deck is there, so a new firmware keeps itself.
+static void confirmFirmware() {
+  if (ota::welcome() && hooks.toast) hooks.toast("update installed");
+}
+
 // Every Welcome on the USB link: USB wins, and pairing when needed.
 static void usbWelcome(bool approved, const char* name) {
+  confirmFirmware();
   if (name && name[0]) snprintf(boardName, sizeof boardName, "%s", name);
   apply(netStep(plan, millis(), true, canWifi()));
   // A request nobody answered (an older deck ignores it, or the deck went away): forget it.
@@ -436,6 +454,7 @@ static void loop() {
     statusDue = false;
     sendStatus();
   }
+  ota::loop(active());
 #if DECK_LINK_HAS_TLS13
   // A credentials test on USB.
   if (testing) {
@@ -503,7 +522,28 @@ static void loop() {
 }
 
 // A Welcome on the Wi-Fi link: the deck hears how the board is connected.
-static void wifiWelcome() { sendStatus(); }
+static void wifiWelcome() {
+  confirmFirmware();
+  sendStatus();
+}
+
+#if DECK_LINK_HAS_TLS13
+// The deck offers a new firmware (either link; ota.h refuses it on USB).
+static void firmwareOffer(deck_link_t* ctx, const agentsdeck_link_v1_FirmwareOffer* o) {
+  const bool onWifi = ctx == &wcore && tlsUp;
+  ota::offered(ctx, o, onWifi, &cert, connHost, connAddr);
+}
+#endif
+
+// The callback for both cores' on_firmware_offer (nullptr: no updates over
+// Wi-Fi in this build, the kit answers REFUSED).
+static void (*firmwareOfferHook())(deck_link_t*, const agentsdeck_link_v1_FirmwareOffer*) {
+#if DECK_LINK_HAS_TLS13
+  return firmwareOffer;
+#else
+  return nullptr;
+#endif
+}
 
 }  // namespace net_link
 

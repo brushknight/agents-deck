@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "../sim/fixture.h"
+#include "layout_big.h"
 #include "layout_dial.h"
 #include "layout_orbit.h"
 #include "layout_spring.h"
+#include "layout_square.h"
 #include "net_model.h"
 
 static void bootChoice() {
@@ -161,10 +163,76 @@ static void drawing() {
   }
 }
 
+// A firmware update over Wi-Fi (ota_model.h): what the screen says, how
+// often the deck hears, and what a board does at boot after the update.
+static void firmwareUpdate() {
+  // Progress: every 5 %, or after 3 s when it moved, and always at 100.
+  assert(!otaReportDue(0, 0, 4, 1000) && otaReportDue(0, 0, 5, 1000));
+  assert(otaReportDue(10, 0, 11, 3000) && !otaReportDue(10, 0, 10, 9000) && otaReportDue(97, 0, 100, 10));
+
+  // At boot.
+  OtaMark m;
+  assert(otaBootDecision(false, m) == OtaBoot::Normal);
+  assert(otaBootDecision(true, m) == OtaBoot::PendingBootloader);   // the bootloader rolls back on a reset
+  m.pending = 1;
+  assert(otaBootDecision(false, m) == OtaBoot::Normal);             // no old slot named: nothing to go back to
+  strcpy(m.prev, "app0");
+  assert(otaBootDecision(false, m) == OtaBoot::PendingApp);
+  m.boots = kOtaMaxBoots - 1;
+  assert(otaBootDecision(false, m) == OtaBoot::PendingApp);
+  m.boots = kOtaMaxBoots;
+  assert(otaBootDecision(false, m) == OtaBoot::RevertNow);
+  assert(otaBootDecision(true, m) == OtaBoot::PendingBootloader);   // the bootloader's own state wins
+  assert(!otaGiveUp(1000, 1000 + kOtaConfirmMs - 1) && otaGiveUp(1000, 1000 + kOtaConfirmMs));
+  assert(otaGiveUp(0xFFFFF000u, 0xFFFFF000u + kOtaConfirmMs));      // across the millis() wrap
+
+  // The words: the update wins over the link's notice, on USB too.
+  NetView v;
+  v.ota.phase = OtaPhase::Downloading;
+  v.ota.percent = 42;
+  strcpy(v.ota.version, "0.2.1");
+  NetNotice n = netNotice(v);
+  assert(strcmp(n.title, "updating") == 0 && strcmp(n.line1, "0.2.1 \xC2\xB7 42%") == 0 && !n.problem);
+  v.ota.phase = OtaPhase::Failed;
+  strcpy(v.ota.error, "the image's SHA-256 doesn't match");
+  n = netNotice(v);
+  assert(strcmp(n.title, "update failed") == 0 && n.problem && strcmp(n.line2, "kept this firmware") == 0);
+  v.ota.error[0] = 0;
+  assert(netNotice(v).line1 == nullptr);
+  v.ota = OtaView();
+  assert(strcmp(netNotice(v).title, "connecting") == 0);
+
+  // Every phase draws on every kind of screen.
+  static std::vector<uint16_t> big(480 * 600);
+  Canvas c{big.data(), 480, 480};
+  const SquarePanel t4s3(specT4S3()), amoled(specAmoled18()), lcd4(specLcd4());
+  const BigPanel big480(specBig480());
+  DialPanel dial(layoutDial21());
+  SpringPanel spring(layoutSpring21());
+  PanelUi pu;
+  RoundUi ru;
+  v.via = NetVia::Wifi;
+  strcpy(v.ota.version, "0.2.1");
+  for (OtaPhase ph : {OtaPhase::Downloading, OtaPhase::Verifying, OtaPhase::Restarting, OtaPhase::Failed}) {
+    v.ota.phase = ph;
+    strcpy(v.ota.error, "the deck refused the download, a long reason");
+    for (const PanelLayout* L : {(const PanelLayout*)&t4s3, (const PanelLayout*)&amoled, (const PanelLayout*)&lcd4,
+                                 (const PanelLayout*)&big480}) {
+      Canvas sc{big.data(), L->width(), L->height()};
+      PanelInput in{nullptr, LinkState::Connecting, "board", DeckScope::View, 1000, 0, &pu, 0, &v};
+      L->draw(sc, in);
+    }
+    for (const RoundLayout* L : {(const RoundLayout*)&dial, (const RoundLayout*)&spring}) {
+      RoundInput in{nullptr, LinkState::Connecting, "board", RoundScope::View, 1000, 0, &ru, 0, &v};
+      L->draw(c, in);
+    }
+  }
+}
+
 // Every toast stays inside the round glass: its pill's corners are inside the circle.
 static void toasts() {
   for (const char* t : {"sent", "focus", "interrupted", "hold to stop", "stopping\xE2\x80\xA6", "paired for Wi-Fi",
-                        "trying Wi-Fi\xE2\x80\xA6", "Wi-Fi works", "Wi-Fi forgotten", "Wi-Fi: wrong password",
+                        "trying Wi-Fi\xE2\x80\xA6", "update installed", "Wi-Fi works", "Wi-Fi forgotten", "Wi-Fi: wrong password",
                         "Wi-Fi: network not found", "Wi-Fi failed", "the prompt changed", "not allowed: scope", "network not found", "wrong password",
                         "a very long toast that cannot fit anywhere at all"}) {
     // Dial and Orbit: no higher than 300; the spring: under its context bar.
@@ -192,5 +260,6 @@ int main() {
   retries();
   words();
   drawing();
+  firmwareUpdate();
   return 0;
 }

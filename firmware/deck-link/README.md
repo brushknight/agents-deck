@@ -142,6 +142,23 @@ the round boards' `idf5/platformio.ini`). On ESP-IDF 4.4 (arduino-esp32 2.0.x, m
 pairing and TLS calls compile to stubs that return "unsupported" (`deck_net_config.h`,
 `DECK_LINK_HAS_TLS13`), so a board there stays on USB. `-DDECK_LINK_NO_WIFI` turns it off anywhere.
 
+## Firmware updates over Wi-Fi
+
+The deck can update a board on Wi-Fi (docs/link/protocol.md, "Firmware updates over Wi-Fi"):
+
+- `on_firmware_offer` gets the deck's `FirmwareOffer`. Without it, the core answers `REFUSED`
+  ("this firmware can't update over Wi-Fi"). `deck_firmware_offer_check()` does the checks every
+  board makes first (its own board, a size and SHA-256, the image fits the slot, a path on
+  `/v1/firmware/`), and `deck_firmware_status()` reports (`DOWNLOADING` with a percent,
+  `VERIFYING`, `RESTARTING`, `FAILED`, `REFUSED`).
+- `deck_fw.h`: `deck_fw_download()` fetches the image over TLS 1.3 with the board's certificate
+  (`deck_tls_get()`, an HTTP GET with `Range`), hands it to your sink in order, 4 KB at a time,
+  checks size and SHA-256, and resumes after a drop. It blocks: run it in a task and report from
+  your loop. Writing to the flash, switching slots and the confirm after the restart are the
+  board's: panel-core's `ota.h` does it with `esp_ota_*`.
+- `test/host/board_wifi --firmware-board B --firmware-out FILE` takes offers on the host; the Go
+  test `TestFirmwareKitUpdateOverWifi` runs it against the deck.
+
 ## Memory
 
 Measured on ESP32 (xtensa gcc) with the defaults:
