@@ -19,7 +19,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +36,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -87,8 +87,11 @@ const usage = `agentctl — agents-terminal
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
-  agentctl serve [--demo]        run the daemon (normally via launchd)
-  agentctl install               install + start the launchd agent
+  agentctl serve [--demo] [--log FILE]
+                                 run the service (normally started at login, see install)
+  agentctl install               start the service at login (launchd, systemd, Windows startup) and now
+  agentctl uninstall             stop the service and no longer start it at login
+  agentctl status [--json]       is the service running, does it start at login, where are its files
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -103,6 +106,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	if err := platformSupports(cmd); err != nil {
+		fmt.Fprintln(os.Stderr, "agentctl:", err)
+		os.Exit(1)
+	}
 	var err error
 	switch cmd {
 	case "hook":
@@ -164,6 +171,10 @@ func main() {
 		err = linkCmd(args)
 	case "install":
 		err = install()
+	case "uninstall":
+		err = uninstall()
+	case "status":
+		err = status(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -828,16 +839,10 @@ func openWeb(args []string) error {
 	return nil
 }
 
-// openBrowser opens url in the default browser: `open` on macOS, `xdg-open`
-// elsewhere (Linux). The one-time login code expires quickly, so callers
-// should mint it immediately before calling this.
-func openBrowser(url string) error {
-	opener := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		opener = "open"
-	}
-	return exec.Command(opener, url).Run()
-}
+// openBrowser opens url in the default browser (see proc.Open). The
+// one-time login code expires quickly, so callers should mint it
+// immediately before calling this.
+func openBrowser(url string) error { return proc.Open(url) }
 
 func pair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
@@ -1053,10 +1058,15 @@ func loadConfig() fileConfig {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	demoMode := fs.Bool("demo", false, "serve a simulated fleet instead of real agents")
+	logFile := fs.String("log", "", "append the log to `FILE` instead of printing it")
 	_ = fs.Parse(args)
 	if err := paths.Ensure(); err != nil {
 		return err
 	}
+	if err := serviceLog(*logFile); err != nil {
+		return err
+	}
+	defer servicePID()()
 	cfg := loadConfig()
 	if cfg.LocalAddr == "" || !strings.HasPrefix(cfg.LocalAddr, "127.0.0.1:") {
 		return errors.New("localAddr must be 127.0.0.1:<port> (the web UI is loopback-only)")
@@ -1232,7 +1242,7 @@ func getCmd(args []string) error {
 
 // openLink opens the link a click in an agent terminal landed on: the
 // hyperlink under the mouse, else a URL-looking word. Only http, https and
-// file links go to macOS open, like ⌘-click in iTerm.
+// file links are opened (macOS open), like ⌘-click in iTerm.
 func openLink(args []string) {
 	var link, word string
 	for _, a := range args {
@@ -1243,7 +1253,7 @@ func openLink(args []string) {
 		}
 	}
 	if u := linkTarget(link, word); u != "" {
-		_ = exec.Command("/usr/bin/open", u).Run()
+		_ = proc.Open(u)
 	}
 }
 
@@ -1358,61 +1368,4 @@ func simAgent(args []string) error {
 	}
 	return sim.Run(sim.Config{ID: id, Socket: sock, Dir: *dir, Transcript: *transcript,
 		Seed: time.Now().UnixNano() ^ int64(len(id))<<20, Speed: *speed, Patience: pat})
-}
-
-// ---- install ---------------------------------------------------------------------
-
-const plistLabel = "dev.agents-deck.agentctl"
-
-func install() error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	self, _ = filepath.EvalSymlinks(self)
-	if err := paths.Ensure(); err != nil {
-		return err
-	}
-	home, _ := os.UserHomeDir()
-	plist := filepath.Join(home, "Library", "LaunchAgents", plistLabel+".plist")
-	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key><string>%s</string>
-	<key>ProgramArguments</key>
-	<array><string>%s</string><string>serve</string></array>
-	<key>EnvironmentVariables</key>
-	<dict><key>PATH</key><string>%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
-	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
-	<key>ProcessType</key><string>Interactive</string>
-	<key>StandardOutPath</key><string>%s</string>
-	<key>StandardErrorPath</key><string>%s</string>
-</dict>
-</plist>
-`, plistLabel, self, home, paths.Log(), paths.Log())
-	uid := fmt.Sprint(os.Getuid())
-	job := "gui/" + uid + "/" + plistLabel
-	// Same login item already registered: just restart the daemon (it picks
-	// up a rebuilt binary). Re-registering makes macOS announce a new
-	// background item every time.
-	if cur, err := os.ReadFile(plist); err == nil && string(cur) == content &&
-		exec.Command("launchctl", "print", job).Run() == nil {
-		if out, err := exec.Command("launchctl", "kickstart", "-k", job).CombinedOutput(); err != nil {
-			return fmt.Errorf("launchctl kickstart: %v: %s", err, out)
-		}
-		fmt.Println("restarted", plistLabel)
-		return nil
-	}
-	if err := os.WriteFile(plist, []byte(content), 0o644); err != nil {
-		return err
-	}
-	_ = exec.Command("launchctl", "bootout", job).Run()
-	time.Sleep(500 * time.Millisecond)
-	if out, err := exec.Command("launchctl", "bootstrap", "gui/"+uid, plist).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
-	}
-	fmt.Println("installed", plist)
-	return nil
 }

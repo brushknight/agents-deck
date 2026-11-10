@@ -3,7 +3,6 @@
 package tmux
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -12,27 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var Socket = "agentsterm" // a variable only so tests can use their own server
-
-// Bin is the tmux binary; launchd's PATH is minimal, so look in the usual places.
-var Bin = func() string {
-	for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return "tmux"
-}()
-
-func run(args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, Bin, append([]string{"-L", Socket}, args...)...).Output()
-	return strings.TrimRight(string(out), "\n"), err
-}
 
 // NewSession starts a detached session running argv in dir with extra env.
 func NewSession(name, dir string, env []string, argv []string) error {

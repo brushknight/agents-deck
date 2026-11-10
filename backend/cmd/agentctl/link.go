@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -516,15 +515,12 @@ func askPassword(prompt string) (string, error) {
 	tty := fi != nil && fi.Mode()&os.ModeCharDevice != 0
 	if tty {
 		fmt.Fprint(os.Stderr, prompt)
-		off := exec.Command("stty", "-echo")
-		off.Stdin = os.Stdin
-		if err := off.Run(); err != nil {
+		restore, err := echoOff(os.Stdin)
+		if err != nil {
 			return "", fmt.Errorf("can't hide the password as you type (%v): pass --password", err)
 		}
 		defer func() {
-			on := exec.Command("stty", "echo")
-			on.Stdin = os.Stdin
-			_ = on.Run()
+			restore()
 			fmt.Fprintln(os.Stderr)
 		}()
 	}
