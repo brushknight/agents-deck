@@ -178,6 +178,12 @@ func main() {
 		err = uninstall()
 	case "status":
 		err = status(args)
+	case "release-key":
+		err = releaseKeyCmd(args)
+	case "update":
+		err = updateCmd(args)
+	case "firmware":
+		err = firmwareCmd(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
