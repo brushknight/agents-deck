@@ -86,6 +86,7 @@ const usage = `agentctl — agents-terminal
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
+  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]   write firmware to an ESP32-S3 over USB
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
   agentctl serve [--demo]        run the daemon (normally via launchd)
   agentctl install               install + start the launchd agent
@@ -162,6 +163,8 @@ func main() {
 		err = devicesCmd(args)
 	case "link":
 		err = linkCmd(args)
+	case "flash":
+		err = flashCmd(args)
 	case "install":
 		err = install()
 	case "version", "--version":
