@@ -19,6 +19,7 @@ draws the same pixels as the boards, from the made-up fleet in
 | <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | experimental | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
+| <img src="images/devices/lcd349-home.png" width="130" alt=""> | [Waveshare ESP32-S3-Touch-LCD-3.49](#waveshare-esp32-s3-touch-lcd-349-strip) | 3.49″ strip, 640×172 | one row of tiles, five on screen | yes | untested | [`waveshare-touch-lcd-349`](../firmware/devices/waveshare-touch-lcd-349) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
 | <img src="images/panel-board-v2.png" width="90" alt=""> | [Desk panel](#desk-panel-4-720720) | 4″ square, 720×720 | the full deck (Flutter app) | yes | yes (that's how it connects) | [`clients/flutter`](../clients/flutter/agents_ui) |
 
@@ -153,6 +154,27 @@ card's numbers one to a line.
   [`t4s3-panel`](../firmware/devices/t4s3-panel) is superseded and kept for reference only.
 - **Get one:** [LilyGO T4-S3](https://lilygo.cc/products/t4-s3) (about $59 in LilyGO's shop, October 2026). Details:
   [the board's README](../firmware/devices/lilygo-t4-s3/README.md).
+
+## Waveshare ESP32-S3-Touch-LCD-3.49 (strip)
+
+A long, thin bar in landscape that fits under a monitor: one row of tiles, five on screen, with touch.
+
+| home | card |
+|---|---|
+| <img src="images/devices/lcd349-home.png" width="360" alt="five tiles in a row under the header"> | <img src="images/devices/lcd349-card.png" width="360" alt="an agent's card with its buttons on the right"> |
+| **permission** | **joining Wi-Fi** |
+| <img src="images/devices/lcd349-permission.png" width="360" alt="an orange permission with the command and its answers"> | <img src="images/devices/lcd349-wifi.png" width="360" alt="the joining Wi-Fi notice"> |
+
+- **What's special:** the shape. The card and the prompt are laid out side by side: the question on
+  the left, the answers on the right (two columns for four to six). On battery power the header shows
+  the charge, and holding PWR switches it off.
+- **Gestures:** drag sideways to scroll (it settles on a tile; a flick carries further); tap a tile for
+  its card; swipe right or press BOOT to go back; hold stop for a second.
+- **Build:** `idf5` (`pio run -d firmware/devices/waveshare-touch-lcd-349/idf5 -e idf5 -t upload`).
+- **Known issues:** the backlight is on or off (no dimming). Wi-Fi, the battery and switching off
+  with PWR are untested so far.
+- **Get one:** [Waveshare ESP32-S3-Touch-LCD-3.49](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-3.49).
+  Details: [the board's README](../firmware/devices/waveshare-touch-lcd-349/README.md).
 
 ## Waveshare ESP32-S3-LCD-1.47B (strip)
 
