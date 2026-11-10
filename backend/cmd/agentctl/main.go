@@ -1130,8 +1130,9 @@ func serve(args []string) error {
 	// the OS secret store (the login Keychain on macOS), never in a file here.
 	wifiDefault := &link.WifiDefault{Store: pki.DefaultKeystore(paths.Data())}
 	hub := &link.Hub{Wifi: wifiDefault}
+	adm := newAdmin(st, srv, self, *logFile)
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
-		Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
+		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}
 	go links.Run(context.Background())
 	srv.LinkUpgrade = link.UpgradeHandler(link.ServerDeck{S: srv}, hub)
 	srv.LinkStatus = func() any {
@@ -1168,6 +1169,8 @@ func serve(args []string) error {
 			_ = os.Remove(filepath.Join(paths.Data(), old))
 		}
 	}
+
+	wireAdmin(adm, srv, hub, links, wifiDefault, deviceTLS != nil, *demoMode)
 
 	if lc != nil {
 		go func() { errc <- fmt.Errorf("unix socket: %w", server.ServeUnix(paths.Socket(), srv.UnixHandler(lc))) }()

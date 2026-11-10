@@ -1,0 +1,1094 @@
+// agents deck Settings. Every control calls the service's management API
+// (/admin/v1, docs/protocol.md): the same calls the CLI makes. Plain DOM, no
+// innerHTML: names and messages from the service are always text.
+
+const PAGES = ['general', 'agents', 'boards', 'network', 'updates', 'troubleshoot', 'about'];
+const SCOPES = [
+  { value: 'view', text: 'look only' },
+  { value: 'act', text: 'can answer' },
+  { value: 'admin', text: 'can manage' },
+];
+const scopeWords = (s) => (SCOPES.find((x) => x.value === s) || { text: s }).text;
+
+const S = {
+  page: '', arg: '',
+  system: null, settings: null, devices: null, ports: null, update: null, agents: null, live: null, diag: null,
+  jobs: {},
+  open: { more: '', wifi: '', name: '' },
+  nb: null, // the new-board flow
+  confirmLoginOff: false,
+  pairing: null,
+  showReport: false,
+  laterUpdate: '',
+  rates: {}, // job id -> {t, done} for time left
+  errors: {},
+};
+
+// ---- small helpers -----------------------------------------------------------------
+
+const $ = (sel, el = document) => el.querySelector(sel);
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, '');
+    else el.setAttribute(k, String(v));
+  }
+  for (const c of kids.flat()) {
+    if (c === undefined || c === null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+class ApiError extends Error {
+  constructor(status, msg, data) { super(msg); this.status = status; this.data = data || {}; }
+}
+
+let connOK = true;
+function setConn(ok, why) {
+  connOK = ok;
+  const c = $('#conn');
+  c.textContent = ok ? '' : 'not connected';
+  c.classList.toggle('bad', !ok);
+  const b = $('#banner');
+  if (ok) { b.hidden = true; } else { b.hidden = false; b.textContent = why || "The service isn't answering. It may be restarting: this page tries again by itself."; }
+  $('#foot-state').textContent = ok ? 'service running' : 'service not answering';
+}
+
+async function api(method, path, body) {
+  let r;
+  try {
+    r = await fetch(path, {
+      method, credentials: 'same-origin', cache: 'no-store',
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    setConn(false);
+    throw new ApiError(0, "The service isn't answering. It may be restarting.");
+  }
+  if (r.status === 401) { showExpired(); throw new ApiError(401, 'Your session ended.'); }
+  setConn(true);
+  const text = await r.text();
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+  if (!r.ok) {
+    let msg = (data && data.error) || r.statusText || 'Something went wrong';
+    if (r.status === 404 && path.startsWith('/admin/') && !(data && data.error)) msg = 'This service is too old for Settings: update agents deck.';
+    throw new ApiError(r.status, msg, data);
+  }
+  return data;
+}
+
+function showExpired() { $('#expired').hidden = false; }
+
+let toastTimer = 0;
+function toast(msg, bad) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('bad', !!bad);
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, bad ? 7000 : 4000);
+}
+
+function ago(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!t) return '';
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} minutes ago`;
+  if (s < 2 * 3600) return 'an hour ago';
+  if (s < 24 * 3600) return `${Math.round(s / 3600)} hours ago`;
+  if (s < 48 * 3600) return 'yesterday';
+  return `${Math.round(s / 86400)} days ago`;
+}
+
+const mb = (n) => (n / 1048576).toFixed(1);
+
+// busy runs an action with its button marked busy; errors become a toast.
+async function busy(btn, fn, okMsg) {
+  if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
+  try {
+    const r = await fn();
+    if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg);
+    return r;
+  } catch (e) {
+    if (e.status !== 401) toast(e.message, true);
+    return undefined;
+  } finally {
+    if (btn && btn.isConnected) { btn.disabled = false; btn.removeAttribute('aria-busy'); }
+  }
+}
+
+// ---- controls ------------------------------------------------------------------------
+
+function toggle(label, on, onChange, opts = {}) {
+  return h('button', {
+    class: 'tg', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label,
+    disabled: opts.disabled, 'data-k': opts.key || label,
+    onclick: (e) => onChange(!on, e.currentTarget),
+  });
+}
+
+// seg: a group of choices, one picked (a radio group: arrow keys move).
+function seg(label, options, current, onChange, opts = {}) {
+  const group = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label });
+  options.forEach((o) => {
+    const on = o.value === current;
+    group.append(h('button', {
+      type: 'button', role: 'radio', 'aria-checked': on ? 'true' : 'false', tabindex: on ? '0' : '-1',
+      disabled: opts.disabled, 'data-k': `${opts.key || label}:${o.value}`,
+      onclick: () => { if (!on) onChange(o.value); },
+      onkeydown: (e) => radioKeys(e, group, onChange, options),
+    }, o.text));
+  });
+  if (!options.some((o) => o.value === current) && group.firstChild) group.firstChild.tabIndex = 0;
+  return group;
+}
+
+function radioKeys(e, group, onChange, options) {
+  const keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+  if (!(e.key in keys)) return;
+  e.preventDefault();
+  const items = [...group.querySelectorAll('[role="radio"]')];
+  const i = items.indexOf(e.currentTarget);
+  const n = (i + keys[e.key] + items.length) % items.length;
+  items[n].focus();
+  if (options) onChange(options[n].value);
+  else items[n].click();
+}
+
+function row(title, meta, right, opts = {}) {
+  return h('div', { class: `row${opts.hot ? ' hot' : ''}${opts.tall ? ' tall' : ''}`, 'data-row': opts.id },
+    opts.pic,
+    h('div', { class: 'tx' },
+      h('div', { class: `t${opts.off ? ' off' : ''}`, id: opts.titleId }, title),
+      meta ? h('div', { class: 'm' }, meta) : null),
+    right && right.length !== 0 ? h('div', { class: 'r' }, right) : null,
+    opts.extra);
+}
+
+const lab = (text) => h('div', { class: 'lab' }, text);
+const btn = (text, onclick, cls, attrs = {}) => h('button', { type: 'button', class: cls, onclick, ...attrs }, text);
+
+function shapeOf(s) {
+  s = (s || '').toLowerCase();
+  if (/round/.test(s)) return 'round';
+  if (/strip|1\.47/.test(s)) return 'strip';
+  if (/t4|tall/.test(s)) return 'tall';
+  if (/amoled|1\.8/.test(s)) return 'small';
+  if (/phone/.test(s)) return 'phone';
+  return 'square';
+}
+const pic = (shape, off) => h('div', { class: `g${off ? ' off' : ''}`, 'aria-hidden': 'true' }, h('i', { class: `sh-${shape}` }));
+
+// render swaps a page body, keeping focus on the same control when it is
+// still there, and leaves it alone while you type in it.
+function render(id, build) {
+  const body = document.getElementById(id);
+  const active = document.activeElement;
+  if (active && body.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !build.force) return;
+  const key = active && body.contains(active) ? active.getAttribute('data-k') : null;
+  const frag = document.createDocumentFragment();
+  const out = build();
+  frag.append(...[out].flat().filter(Boolean));
+  body.replaceChildren(frag);
+  if (key) {
+    const again = body.querySelector(`[data-k="${CSS.escape(key)}"]`);
+    if (again) again.focus();
+  }
+}
+
+function errorBox(msg, retry) {
+  return h('div', { class: 'box err', role: 'alert' },
+    h('p', {}, msg),
+    retry ? h('div', { class: 'actions' }, btn('Try again', retry)) : null);
+}
+
+// ---- data ------------------------------------------------------------------------------
+
+async function load(what) {
+  const paths = {
+    system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
+    ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
+    live: '/v1/live',
+  };
+  try {
+    S[what] = await api('GET', paths[what]);
+    delete S.errors[what];
+  } catch (e) {
+    S.errors[what] = e;
+  }
+  return S[what];
+}
+
+const loadAll = (...names) => Promise.all(names.map(load));
+
+function needs(page) {
+  return {
+    general: ['settings'], agents: ['agents', 'live'], boards: ['devices', 'ports'], network: ['settings', 'devices'],
+    updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
+    newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
+  }[page] || [];
+}
+
+function firstError(page) {
+  for (const n of needs(page)) if (S.errors[n]) return S.errors[n];
+  return null;
+}
+
+// ---- system: badges and the sidebar footer -----------------------------------------
+
+function showSystem(sys) {
+  if (!sys) return;
+  S.system = sys;
+  $('#foot-version').textContent = `agents deck ${sys.version}`;
+  const nb = $('#n-boards');
+  const newPorts = sys.ports?.new || 0;
+  const pending = sys.boards?.pending || 0;
+  nb.hidden = !(newPorts || pending);
+  nb.textContent = newPorts ? `${newPorts} new` : `${pending} waiting`;
+  const nu = $('#n-updates');
+  const n = (['ready', 'available'].includes(sys.update?.state) ? 1 : 0) + (sys.firmware_updates || 0);
+  nu.hidden = !n;
+  nu.textContent = String(n);
+}
+
+// ---- General -----------------------------------------------------------------------------
+
+async function patchSettings(body, btnEl) {
+  const r = await busy(btnEl, () => api('PATCH', '/admin/v1/settings', body));
+  if (!r) return;
+  S.settings = r.settings;
+  if (r.message) toast(r.message);
+  else if (r.restartNeeded) toast('Saved. It applies when the service restarts.');
+  else toast('Saved');
+  draw();
+  return r;
+}
+
+function drawGeneral() {
+  const s = S.settings;
+  const out = [];
+  out.push(lab('starting'));
+  if (s.startAtLogin === null || s.startAtLogin === undefined) {
+    out.push(row('Start when I log in', 'Not available on this computer: start the service with agentctl serve.', []));
+  } else if (S.confirmLoginOff) {
+    out.push(row('Start when I log in', 'Turning this off also stops the service now. Boards then show "waiting for the deck" until you start it again from the app or with agentctl serve.', [
+      btn('Keep it on', () => { S.confirmLoginOff = false; draw(); }, '', { 'data-k': 'login-keep' }),
+      btn('Turn off and stop', (e) => { S.confirmLoginOff = false; patchSettings({ startAtLogin: false }, e.currentTarget); }, 'p'),
+    ]));
+  } else {
+    const note = s.loginNote ? `${s.loginNote}.` : 'The service and the tray icon. Without it, boards show "waiting for the deck".';
+    out.push(row('Start when I log in', note, [toggle('Start when I log in', s.startAtLogin, (on, el) => {
+      if (!on) { S.confirmLoginOff = true; draw(); $('[data-k="login-keep"]')?.focus(); return; }
+      patchSettings({ startAtLogin: true }, el);
+    })]));
+  }
+  out.push(row('After a restart, bring agents back', 'Agents you started with agentctl are resumed where they stopped.', [
+    seg('Restore agents', [{ value: 'ask', text: 'ask me' }, { value: 'auto', text: 'automatically' }], s.restore, (v) => patchSettings({ restore: v })),
+  ]));
+  out.push(lab('notifications'));
+  out.push(row('Tell me', 'A click on a notification opens that agent\'s card.', [
+    seg('Notifications', [
+      { value: 'off', text: 'never' }, { value: 'attention', text: 'when an agent needs me' }, { value: 'finished', text: 'also when one finishes' },
+    ], s.notifications, (v) => patchSettings({ notifications: v })),
+  ]));
+  out.push(row('Play a sound', null, [toggle('Play a sound', s.sound, (on, el) => patchSettings({ sound: on }, el), { disabled: s.notifications === 'off' })]));
+  out.push(lab('for the terminal'));
+  const cli = s.cli || {};
+  const cliMeta = cli.installed
+    ? `Installed${cli.path ? ` at ${cli.path}` : ''}. Type agentctl in any terminal to start and list agents.`
+    : 'Not installed. With it you can type agentctl in any terminal to start and list agents.';
+  const cliBtn = cli.canChange
+    ? btn(cli.installed ? 'Remove' : 'Install', (e) => busy(e.currentTarget, async () => {
+      S.settings.cli = await api('POST', '/admin/v1/cli', { installed: !cli.installed });
+      draw();
+    }, cli.installed ? 'Removed the agentctl command' : 'Installed the agentctl command'))
+    : null;
+  out.push(row('The agentctl command', cliMeta, [cliBtn]));
+  out.push(row('The dashboard in your browser', 'The same deck and these settings, on this computer only.', [h('a', { class: 'b', href: '/' }, 'Open')]));
+  return out;
+}
+
+// ---- Agents ------------------------------------------------------------------------------
+
+function drawAgents() {
+  const a = S.agents;
+  const out = [lab('tools')];
+  const grid = h('div', { class: 'tools' });
+  for (const t of a.tools) {
+    let meta = 'not installed';
+    if (!t.on) meta = 'turned off';
+    else if (t.id === 'tmux') meta = t.found ? `found · ${t.agents ? `${t.agents} agents` : 'for agents you start here'}` : 'not installed';
+    else if (t.agents) meta = `connected · ${t.agents} agent${t.agents === 1 ? '' : 's'}`;
+    else if (t.found) meta = 'found · no agents right now';
+    const off = !t.found || !t.on;
+    const chip = off ? 'chip' : `chip ${t.id === 'claude' ? 'c-claude' : t.id === 'codex' ? 'c-codex' : 'c-on'}`;
+    grid.append(h('div', { class: `tool${off ? ' off' : ''}` },
+      h('div', { class: 'hd' }, h('span', { class: chip, 'aria-hidden': 'true' }), h('span', { class: 't' }, t.name)),
+      h('div', { class: 'm', title: t.note || '' }, meta)));
+  }
+  out.push(grid);
+
+  out.push(lab('running here, not on the deck'));
+  const live = (S.live?.sessions || []).filter((s) => !s.onBoard);
+  if (S.errors.live) out.push(h('p', { class: 'note' }, `Couldn't list them: ${S.errors.live.message}`));
+  else if (!live.length) out.push(h('p', { class: 'note' }, 'Nothing: every Claude session on this computer is on the deck.'));
+  for (const s of live) {
+    const where = s.background ? 'in the background' : 'in a terminal';
+    out.push(row(s.title || s.folder || 'Claude session', `Claude Code · started ${ago(s.started)} · ${where}`, [
+      btn('Add to deck', (e) => busy(e.currentTarget, async () => {
+        await api('POST', `/v1/live/${encodeURIComponent(s.sessionId)}/add`, {});
+        await load('live'); draw();
+      }, 'Added to the deck')),
+    ]));
+  }
+
+  out.push(lab('accounts'));
+  if (!a.accounts.length) out.push(h('p', { class: 'note' }, 'One Claude account. Add another with agentctl accounts add, to run agents in it.'));
+  for (const ac of a.accounts) {
+    const next = a.colors[(a.colors.indexOf(ac.color) + 1) % a.colors.length];
+    out.push(row(ac.name, ac.default ? 'new agents start here' : null, [
+      `${ac.agents} agent${ac.agents === 1 ? '' : 's'} · $${ac.costUsd.toFixed(2)}`,
+      btn('Colour', (e) => busy(e.currentTarget, async () => {
+        await api('POST', `/admin/v1/accounts/${encodeURIComponent(ac.name)}/color`, { color: next });
+        await load('agents'); draw();
+      }), '', { 'aria-label': `Colour of ${ac.name}: ${ac.color}. Change to ${next}` }),
+    ], { pic: h('span', { class: `chip c-${ac.color}`, 'aria-hidden': 'true' }) }));
+  }
+  return out;
+}
+
+// ---- Boards ------------------------------------------------------------------------------
+
+function deviceMeta(d) {
+  const parts = [];
+  parts.push(d.model || (d.kind === 'network' ? 'phone or panel' : d.type || 'board'));
+  if (d.online) parts.push({ usb: 'USB', wifi: 'Wi-Fi', network: 'over the network' }[d.connection] || 'connected');
+  else parts.push(d.lastSeen ? `last seen ${ago(d.lastSeen)}` : 'never connected');
+  if (d.firmware) parts.push(`firmware ${d.firmware}`);
+  if (d.state === 'revoked') parts.push('cut off');
+  else parts.push(scopeWords(d.scope));
+  return parts.join(' · ');
+}
+
+async function deviceAction(d, action, body, btnEl, okMsg) {
+  const r = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/${action}`, body), okMsg);
+  await loadAll('devices', 'system');
+  showSystem(S.system);
+  draw();
+  return r;
+}
+
+async function updateDevice(d, btnEl) {
+  const job = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/update`, {}));
+  if (job && job.id) {
+    S.jobs[job.id] = job;
+    location.hash = `#flash/${job.id}`;
+  }
+}
+
+function wifiForm(d, onDone) {
+  const ssidId = `ssid-${d.id}`, pwId = `pw-${d.id}`;
+  const err = h('p', { class: 'm err', role: 'alert' });
+  const form = h('div', { class: 'inline-form' },
+    h('div', { class: 'grid2' },
+      h('div', {}, h('label', { for: ssidId }, 'Network name'), h('input', { id: ssidId, type: 'text', autocomplete: 'off', value: S.settings?.wifi?.ssid || S.devices?.wifiDefault || '', 'data-k': ssidId })),
+      h('div', {}, h('label', { for: pwId }, 'Password'), h('input', { id: pwId, type: 'password', autocomplete: 'new-password', 'data-k': pwId }))),
+    err,
+    h('div', { class: 'actions' },
+      h('p', { class: 'note' }, 'Sent over the USB cable. The password is never kept on this computer.'),
+      h('div', { class: 'r' },
+        btn('Cancel', () => { S.open.wifi = ''; draw(); }),
+        btn('Send', async (e) => {
+          err.textContent = '';
+          const b = e.currentTarget;
+          b.disabled = true;
+          try {
+            const r = await api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/wifi`, { ssid: $(`#${CSS.escape(ssidId)}`).value.trim(), password: $(`#${CSS.escape(pwId)}`).value });
+            S.open.wifi = '';
+            toast(r?.message || 'Sent');
+            if (onDone) await onDone();
+            draw();
+          } catch (ex) {
+            err.textContent = ex.message;
+            if (b.isConnected) b.disabled = false;
+          }
+        }, 'p'))));
+  return form;
+}
+
+function morePanel(d) {
+  const nameId = `name-${d.id}`;
+  const lines = [];
+  lines.push(h('div', { class: 'line' }, h('label', { for: nameId, class: 'sr' }, 'Name'), h('span', { 'aria-hidden': 'true' }, 'name'),
+    h('input', { id: nameId, type: 'text', value: d.name, maxlength: '40', 'data-k': nameId }),
+    btn('Rename', (e) => deviceAction(d, 'rename', { name: $(`#${CSS.escape(nameId)}`).value }, e.currentTarget, 'Renamed'))));
+  if (d.state !== 'revoked') {
+    lines.push(h('div', { class: 'line' }, h('span', {}, 'it may'),
+      seg(`What ${d.name} may do`, SCOPES, d.scope, (v) => deviceAction(d, 'scope', { scope: v }, null, `${d.name} may now: ${scopeWords(v)}`), { key: `scope-${d.id}` })));
+  }
+  const fw = [h('span', {}, 'firmware'), d.firmware || 'unknown'];
+  if (d.connection === 'usb' && d.port) {
+    fw.push(btn('Install firmware again', () => { location.hash = `#new-board/${encodeURIComponent(d.port)}`; }));
+  }
+  if (d.update && d.update.ready) fw.push(btn(`Update to ${d.update.version}`, (e) => updateDevice(d, e.currentTarget), 'a'));
+  else if (d.update) fw.push(h('span', { class: 'note' }, `${d.update.version} is out: ${d.update.note}`));
+  if (d.kind === 'serial') lines.push(h('div', { class: 'line' }, ...fw));
+  const acts = [];
+  if (d.state === 'waiting') acts.push(btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'p'));
+  if (d.state !== 'revoked') acts.push(btn('Cut it off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`)));
+  acts.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
+  lines.push(h('div', { class: 'line' }, h('span', {}, ''), ...acts));
+  return h('div', { class: 'more-panel', id: `more-${d.id}` }, lines);
+}
+
+function moreButton(d) {
+  const open = S.open.more === d.id;
+  return btn('···', () => { S.open.more = open ? '' : d.id; draw(); }, 'more', {
+    'aria-label': `More for ${d.name}`, 'aria-expanded': open ? 'true' : 'false', 'aria-controls': `more-${d.id}`, 'data-k': `more-${d.id}`,
+  });
+}
+
+function deviceRow(d) {
+  const shape = d.kind === 'network' ? 'phone' : shapeOf(d.board || d.type || d.model);
+  const right = [];
+  if (d.online) {
+    if (d.update && d.update.ready) right.push(btn(`Update to ${d.update.version}`, (e) => updateDevice(d, e.currentTarget), 'a'));
+    if (d.connection === 'usb' && d.canWifi && !(d.wifi && d.wifi.ssid) && S.open.wifi !== d.id) {
+      right.push(btn('Give it Wi-Fi', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
+    }
+  } else {
+    right.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
+  }
+  if (d.job) right.push(h('a', { class: 'b', href: `#flash/${d.job}` }, 'Installing…'));
+  right.push(moreButton(d));
+  const extra = [];
+  if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
+  if (S.open.more === d.id) extra.push(morePanel(d));
+  return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online), off: !d.online, id: d.id, extra });
+}
+
+function portWords(p) {
+  if (p.likely === 'esp32-usb') return 'looks like an ESP32-S3';
+  if (p.likelyName) return `looks like an ESP32 board (${p.likelyName})`;
+  return p.product || 'a USB serial port';
+}
+
+async function portAction(p, action, body, btnEl, okMsg) {
+  const r = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(p.id)}/${action}`, body), okMsg);
+  await loadAll('ports', 'system');
+  showSystem(S.system);
+  draw();
+  return r;
+}
+
+function drawBoards() {
+  const out = [];
+  const ports = S.ports.ports || [];
+  const devs = S.devices.devices || [];
+  for (const p of ports.filter((x) => x.state === 'new')) {
+    out.push(row('A new board was plugged in', `USB port · ${portWords(p)} · not opened yet`, [
+      btn('Not mine', (e) => portAction(p, 'forget', {}, e.currentTarget, 'It won\'t be asked about again')),
+      btn('Set it up', () => { location.hash = `#new-board/${encodeURIComponent(p.id)}`; }, 'k'),
+    ], { hot: true, pic: pic('new') }));
+  }
+  for (const d of devs.filter((x) => x.state === 'waiting')) {
+    out.push(row(`${d.name} is waiting for you`, `${d.model || d.type || 'board'} · plugged in over USB · approve it to show your deck`, [
+      btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)),
+      btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'k'),
+    ], { hot: true, pic: pic(shapeOf(d.board || d.type)) }));
+  }
+  if (S.devices.catalogError && !S.devices.latest) {
+    out.push(h('p', { class: 'note' }, `Couldn't read the latest firmware list, so updates aren't shown: ${S.devices.catalogError}`));
+  }
+  const on = devs.filter((d) => d.online && d.state !== 'waiting');
+  const off = devs.filter((d) => !d.online && d.state !== 'waiting');
+  if (on.length) { out.push(lab('connected')); on.forEach((d) => out.push(deviceRow(d))); }
+  if (off.length) { out.push(lab('not connected')); off.forEach((d) => out.push(deviceRow(d))); }
+
+  const reg = ports.filter((p) => p.registered && !p.device);
+  if (reg.length) {
+    out.push(lab('usb ports you registered'));
+    for (const p of reg) {
+      const meta = {
+        registered: 'registered · waiting for the board to say hello',
+        busy: `registered · ${p.detail || 'in use by another program'}`,
+        flashing: 'the service is writing to the board',
+        unplugged: 'registered · not plugged in',
+      }[p.state] || p.detail || p.state;
+      const right = [];
+      if (p.state === 'flashing' && p.job) right.push(h('a', { class: 'b', href: `#flash/${p.job}` }, 'Show progress'));
+      if (p.state !== 'flashing' && p.state !== 'unplugged') right.push(btn('Set it up', () => { location.hash = `#new-board/${encodeURIComponent(p.id)}`; }));
+      if (p.state !== 'flashing') right.push(btn('Forget', (e) => portAction(p, 'forget', {}, e.currentTarget, 'The deck no longer opens it')));
+      out.push(row(p.id, meta, right, { pic: pic('new', p.state === 'unplugged') }));
+    }
+  }
+  if (!devs.length && !ports.some((p) => p.state === 'new' || p.registered)) {
+    out.push(h('div', { class: 'box' },
+      h('p', {}, 'No boards yet.'),
+      h('p', { class: 'note' }, 'Plug one in with a USB cable that carries data (many charging cables don\'t). It shows up here within a few seconds; nothing opens it until you say it\'s yours.')));
+  }
+  const others = ports.filter((p) => p.state === 'ignored' || p.state === 'other');
+  if (others.length) {
+    const det = h('details', { class: 'quiet' }, h('summary', {}, `Other USB serial ports (${others.length})`));
+    for (const p of others) {
+      det.append(row(p.id, p.state === 'ignored' ? `you said it isn't a board · ${portWords(p)}` : portWords(p), [
+        btn('It\'s a board', () => { location.hash = `#new-board/${encodeURIComponent(p.id)}`; }),
+      ]));
+    }
+    out.push(det);
+  }
+  return out;
+}
+
+// ---- New board, and any flash in progress --------------------------------------------------
+
+function stepsAt(n, show) {
+  const ol = $('#nb-steps');
+  ol.hidden = !show;
+  ol.querySelectorAll('li').forEach((li) => {
+    const s = Number(li.dataset.step);
+    li.classList.toggle('past', s < n);
+    if (s === n) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+  });
+}
+
+function bootHelp(extra) {
+  return row('Board not answering?', 'Hold BOOT, press RST, let go of BOOT, then try again. On boards without buttons, unplug it, hold BOOT while plugging it back in.', extra || []);
+}
+
+function boardCards(list, chosen, onPick) {
+  const group = h('div', { class: 'cards', role: 'radiogroup', 'aria-label': 'Which board is it?' });
+  list.forEach((b, i) => {
+    const on = b.board === chosen;
+    const spec = [b.flash_size ? `${Math.round(b.flash_size / 1048576)} MB` : null, b.wifi ? 'Wi-Fi' : 'USB only'].filter(Boolean).join(' · ');
+    group.append(h('button', {
+      type: 'button', class: 'card', role: 'radio', 'aria-checked': on ? 'true' : 'false',
+      tabindex: on || (!chosen && i === 0) ? '0' : '-1', 'data-k': `card-${b.board}`,
+      onclick: () => onPick(b.board),
+      onkeydown: (e) => radioKeys(e, group, (v) => onPick(v), list.map((x) => ({ value: x.board }))),
+    }, h('span', { class: 'pic', 'aria-hidden': 'true' }, h('i', { class: `sh-${shapeOf(b.board + ' ' + b.name)}` })),
+    h('span', { class: 'nm' }, b.name), h('span', { class: 'sp' }, spec)));
+  });
+  return group;
+}
+
+async function nbIdentify() {
+  const nb = S.nb;
+  nb.step = 2; nb.identity = null; nb.error = null; nb.looking = true;
+  draw();
+  try {
+    nb.identity = await api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/identify`, {});
+    const id = nb.identity;
+    if (id.board) nb.choice = id.board.board;
+    else if (id.candidates.length === 1) nb.choice = id.candidates[0].board;
+  } catch (e) {
+    nb.error = e;
+  }
+  nb.looking = false;
+  if (S.nb === nb) draw();
+}
+
+async function nbInstall(btnEl) {
+  const nb = S.nb;
+  const job = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/flash`, { board: nb.choice }));
+  if (job && job.id) {
+    S.jobs[job.id] = job;
+    nb.job = job.id;
+    location.hash = `#flash/${job.id}`;
+  }
+}
+
+function drawNewBoard() {
+  const nb = S.nb;
+  const p = (S.ports.ports || []).find((x) => x.id === nb.port);
+  $('#h-newboard').textContent = 'Set up a new board';
+  if (!p) {
+    stepsAt(1, true);
+    return [errorBox('This port isn\'t there any more. Is the board still plugged in?', () => load('ports').then(draw)), h('a', { class: 'b', href: '#boards' }, 'Back to Boards')];
+  }
+  if (!p.registered) {
+    stepsAt(1, true);
+    return [
+      row(`USB port ${p.id}`, `${portWords(p)}${p.vid ? ` · ${p.vid}:${p.pid}` : ''} · not opened yet`, []),
+      h('p', {}, 'Is this one of your boards?'),
+      h('p', { class: 'note' }, 'Yes lets agents deck open this port and look at the board. It never opens a port you haven\'t said yes to.'),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Not mine', async (e) => { await portAction(p, 'forget', {}, e.currentTarget, 'It won\'t be asked about again'); location.hash = '#boards'; }),
+        btn('Yes, it\'s mine', async (e) => {
+          const r = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(p.id)}/register`, {}));
+          if (!r) return;
+          await load('ports');
+          nbIdentify();
+        }, 'p', { 'data-k': 'nb-yes' }))),
+    ];
+  }
+  if (!nb.identity && !nb.error && !nb.looking) { nbIdentify(); }
+  stepsAt(2, true);
+  if (nb.looking) {
+    return [row(`USB port ${p.id}`, 'Looking at the board. This takes a few seconds; its screen may flicker.', []), h('p', { class: 'note', role: 'status' }, 'Asking the board…')];
+  }
+  if (nb.error) {
+    const out = [errorBox(nb.error.message)];
+    if (nb.error.data?.bootHelp) out.push(bootHelp([btn('Try again', () => nbIdentify(), 'p')]));
+    else out.push(h('div', { class: 'actions' }, h('div', { class: 'r' }, h('a', { class: 'b', href: '#boards' }, 'Cancel'), btn('Try again', () => nbIdentify(), 'p'))));
+    return out;
+  }
+  const id = nb.identity;
+  const out = [];
+  if (id.source === 'session') {
+    const d = id.device || {};
+    out.push(row(`${d.model || d.type || 'A board'} · firmware ${d.firmware || 'unknown'}`, `It already runs agents deck, as ${d.name || 'a board'}.${id.latest ? ` The latest firmware is ${id.latest}.` : ''}`, []));
+  } else {
+    const fs = id.flashSize ? ` · ${Math.round(id.flashSize / 1048576)} MB flash` : '';
+    const n = id.candidates.length;
+    out.push(row(`${id.chip}${fs}`, `No agents deck firmware on it yet. ${n === 0 ? 'No board in the latest release uses this chip.' : n === 1 ? 'One board matches this chip.' : `${n} boards match this chip.`}`, []));
+  }
+  if (id.note) out.push(h('p', { class: 'note' }, id.note));
+  if (id.candidates.length) out.push(boardCards(id.candidates, nb.choice, (v) => { nb.choice = v; draw(); }));
+  if (!id.releaseKey) {
+    out.push(h('p', { class: 'note err' }, 'This build has no release key, so it can\'t check that firmware from the network is genuine and never installs it. Flash the board by hand with agentctl flash <port> <image.bin>.'));
+  }
+  const chosen = id.candidates.find((b) => b.board === nb.choice);
+  const label = chosen ? `Install firmware ${chosen.version || id.latest}` : 'Pick the board first';
+  out.push(h('div', { class: 'actions' },
+    h('p', { class: 'note' }, 'Picked the wrong one? Nothing breaks: install again with the right board.'),
+    h('div', { class: 'r' }, h('a', { class: 'b', href: '#boards' }, 'Cancel'),
+      btn(label, (e) => nbInstall(e.currentTarget), 'p', { disabled: !chosen || !id.releaseKey, 'data-k': 'nb-install' }))));
+  return out;
+}
+
+const FLASH_STEPS = [
+  { at: ['download'], todo: (j) => `Download firmware ${j.version || ''} from GitHub`, done: (j) => `Downloaded firmware ${j.version || ''}`, side: (j) => (j.steps?.[0]?.match(/\(([^)]+)\)/) || [])[1] || '' },
+  { at: ['download'], todo: () => 'Check its signature and checksum', done: () => 'Checked its signature and checksum', side: () => 'ok' },
+  { at: ['connect'], todo: () => 'Board answers in install mode', done: () => 'Board answered in install mode', side: (j) => j.chip || S.nb?.identity?.chip || '' },
+  { at: ['erase', 'write'], todo: () => 'Write', done: () => 'Written', side: () => '' },
+  { at: ['verify'], todo: () => 'Verify what was written', done: () => 'Verified what was written', side: () => '' },
+  { at: ['reset'], todo: () => 'Restart and pair', done: () => 'Restarted', side: () => '' },
+];
+const STAGE_ORDER = ['download', 'connect', 'erase', 'write', 'verify', 'reset'];
+
+function timeLeft(j) {
+  if (j.stage !== 'write' || !j.total || !j.done) { delete S.rates[j.id]; return ''; }
+  const now = Date.now();
+  const r = S.rates[j.id];
+  if (!r) { S.rates[j.id] = { t: now, done: j.done }; return ''; }
+  const rate = (j.done - r.done) / ((now - r.t) / 1000);
+  if (!(rate > 0)) return '';
+  const s = Math.round((j.total - j.done) / rate);
+  return s < 60 ? ` · about ${Math.max(5, Math.round(s / 5) * 5)} seconds left` : ` · about ${Math.round(s / 60)} minutes left`;
+}
+
+function drawFlash() {
+  const j = S.jobs[S.arg];
+  if (!j) {
+    stepsAt(0, false);
+    return [h('p', { class: 'loading' }, 'Loading…')];
+  }
+  const dev = (S.devices?.devices || []).find((d) => d.id === j.device);
+  const fromSetup = S.nb && S.nb.job === j.id;
+  const boardName = (S.nb?.identity?.candidates || []).find((b) => b.board === j.board)?.name || dev?.model || j.board;
+  $('#h-newboard').textContent = j.kind === 'board-update' ? `${j.state === 'done' ? 'Updated' : 'Updating'} ${dev?.name || j.device}` : `${j.state === 'done' ? 'Installed on' : 'Installing on'} ${boardName}`;
+  const ended = j.state !== 'running';
+  stepsAt(ended && j.state === 'done' ? 4 : 3, fromSetup);
+  const out = [];
+  if (j.stage === 'offer') { // over the air
+    out.push(row(j.message, j.error || '', []));
+    if (ended) out.push(h('a', { class: 'b', href: '#boards' }, 'Back to Boards'));
+    return out;
+  }
+  const words = { download: 'downloading', connect: 'waiting for the board', erase: 'erasing', write: 'writing', verify: 'checking', reset: 'restarting' }[j.stage] || j.stage || '';
+  const size = j.total && (j.stage === 'write' || j.stage === 'verify') ? ` · ${mb(j.done)} of ${mb(j.total)} MB` : '';
+  const pct = h('div', { class: 'pct' }, `${j.percent}%`);
+  const bar = h('div', {});
+  bar.style.width = `${j.percent}%`;
+  if (!ended) {
+    out.push(h('div', { class: 'progress' },
+      h('div', { class: 'big' }, pct, h('div', { class: 'what' }, `${words}${size}${timeLeft(j)}`)),
+      h('div', { class: 'bar', role: 'progressbar', 'aria-label': j.message || 'Installing firmware', 'aria-valuenow': j.percent, 'aria-valuemin': '0', 'aria-valuemax': '100' }, bar),
+      h('div', {}, 'Keep the cable plugged in. The board\'s screen stays dark until it restarts.')));
+  }
+  const cur = STAGE_ORDER.indexOf(j.stage);
+  const list = h('ol', { class: 'list', 'aria-label': 'Steps' });
+  FLASH_STEPS.forEach((s, i) => {
+    const at = Math.min(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
+    const last = Math.max(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
+    let state = 'todo';
+    if (j.state === 'done' || cur > last || (i < 2 && cur > 0)) state = 'done';
+    else if (cur >= at && cur <= last && !ended) state = 'cur';
+    const text = state === 'done' ? s.done(j) : s.todo(j);
+    list.append(h('li', { class: state === 'done' ? '' : state }, h('i', { 'aria-hidden': 'true' }), text,
+      state === 'done' ? h('span', {}, s.side(j)) : null,
+      state === 'cur' ? h('span', { class: 'sr' }, '(now)') : null));
+  });
+  out.push(list);
+  if (j.state === 'done') {
+    const b = (S.nb?.identity?.candidates || []).find((x) => x.board === j.board);
+    out.push(h('div', { class: 'box', role: 'status' },
+      h('h2', {}, 'Done'),
+      h('p', {}, `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        b && b.wifi ? h('a', { class: 'b', href: '#network' }, 'Give it Wi-Fi') : null,
+        h('a', { class: 'b p', href: '#boards' }, 'Back to Boards')))));
+  } else if (ended) {
+    out.push(h('div', { class: 'box err', role: 'alert' }, h('p', {}, j.state === 'cancelled' ? j.message : `It didn't work: ${j.error}`)));
+    out.push(bootHelp([
+      h('a', { class: 'b', href: '#boards' }, 'Back to Boards'),
+      j.port && j.kind === 'flash' ? btn('Try again', async (e) => {
+        const job = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(j.port)}/flash`, { board: j.board, version: j.version }));
+        if (job?.id) { S.jobs[job.id] = job; if (S.nb) S.nb.job = job.id; location.hash = `#flash/${job.id}`; }
+      }, 'p') : null,
+    ]));
+  } else {
+    out.push(bootHelp([btn('Stop', (e) => busy(e.currentTarget, () => api('POST', `/admin/v1/jobs/${encodeURIComponent(j.id)}/cancel`, {})), '', { 'data-k': 'flash-stop' })]));
+  }
+  return out;
+}
+
+// ---- Network -------------------------------------------------------------------------------
+
+function drawNetwork() {
+  const s = S.settings;
+  const out = [];
+  const pending = s.network !== s.networkRunning;
+  out.push(row('Let paired devices connect over the network',
+    pending ? (s.network ? 'On after the service restarts.' : 'Off after the service restarts.') + ' Encrypted, and only devices you paired.' : 'Encrypted, and only devices you paired. Off means USB only.',
+    [pending ? btn('Restart now', (e) => restartService(e.currentTarget)) : null,
+      toggle('Let paired devices connect over the network', s.network, (on, el) => patchSettings({ network: on }, el))]));
+
+  out.push(lab('wi-fi for boards'));
+  const err = h('p', { class: 'm err', role: 'alert' });
+  const box = h('div', { class: 'box' },
+    h('div', { class: 'grid2' },
+      h('div', {}, h('label', { for: 'ssid' }, 'Network name'), h('input', { id: 'ssid', type: 'text', autocomplete: 'off', value: s.wifi?.ssid || '', 'data-k': 'ssid' })),
+      h('div', {}, h('label', { for: 'pw' }, 'Password'), h('input', { id: 'pw', type: 'password', autocomplete: 'new-password', placeholder: s.wifi?.ssid ? 'type it again to change it' : '', 'data-k': 'pw' }))),
+    err,
+    h('div', { class: 'actions' },
+      h('p', { class: 'note' }, 'Boards get this while they\'re on USB. They use 2.4 GHz Wi-Fi only.'),
+      h('div', { class: 'r' },
+        s.wifi?.ssid ? btn('Forget', (e) => patchSettings({ wifi: { forget: true } }, e.currentTarget)) : null,
+        btn('Save and send to boards', async (e) => {
+          err.textContent = '';
+          const b = e.currentTarget;
+          b.disabled = true;
+          try {
+            const r = await api('PATCH', '/admin/v1/settings', { wifi: { ssid: $('#ssid').value.trim(), password: $('#pw').value, send: true } });
+            S.settings = r.settings;
+            const n = (r.sent || []).length;
+            toast(n ? `Saved and sent to ${n} board${n === 1 ? '' : 's'} on USB` : 'Saved. Boards get it when they\'re plugged in.');
+            $('#pw').value = '';
+            $('#pw').blur();
+            draw();
+          } catch (ex) {
+            err.textContent = ex.message;
+          } finally {
+            if (b.isConnected) b.disabled = false;
+          }
+        }, 'p'))));
+  out.push(box);
+  const boards = (S.devices?.devices || []).filter((d) => d.kind === 'serial' && d.state === 'active');
+  for (const d of boards) {
+    let meta;
+    if (d.wifi?.ssid) meta = `on ${d.wifi.ssid} · ${d.wifi.state || 'unknown'}`;
+    else if (d.connection === 'usb') meta = d.canWifi === false && d.board ? 'on USB · this board has no Wi-Fi' : 'on USB · has no Wi-Fi yet';
+    else if (d.connection === 'wifi') meta = 'on Wi-Fi';
+    else meta = 'not connected';
+    if (d.wifi?.note) meta += ` · ${d.wifi.note}`;
+    const right = [];
+    if (d.connection === 'usb' && d.canWifi !== false && S.open.wifi !== d.id) {
+      right.push(btn('Use another network', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
+      if (s.wifi?.ssid && (d.wifi?.own || !d.wifi?.ssid)) {
+        right.push(btn('Send Wi-Fi', (e) => deviceAction(d, 'wifi', { useDefault: true }, e.currentTarget, (r) => r?.message || 'Sent')));
+      }
+    } else if (d.connection !== 'usb') {
+      meta += ' · plug it in to change its Wi-Fi';
+    }
+    out.push(row(d.name, meta, right, { extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null }));
+  }
+
+  out.push(lab('phone'));
+  if (!S.pairing) {
+    out.push(row('Pair a phone', 'Shows a code to enter in the phone. The phone sees the deck while it\'s on your network.', [
+      btn('Show code', () => { S.pairing = { form: true }; draw(); $('#pair-name')?.focus(); }, '', { disabled: !s.networkRunning }),
+    ]));
+    if (!s.networkRunning) out.push(h('p', { class: 'note' }, 'Turn on Let paired devices connect over the network (and restart the service) to pair a phone.'));
+  } else if (S.pairing.form) {
+    let scope = S.pairing.scope || 'view';
+    out.push(h('div', { class: 'box' },
+      h('div', { class: 'grid2' },
+        h('div', {}, h('label', { for: 'pair-name' }, 'A name for it'), h('input', { id: 'pair-name', type: 'text', value: S.pairing.name || 'phone', 'data-k': 'pair-name' })),
+        h('div', {}, h('label', {}, 'It may'), seg('What the phone may do', SCOPES.slice(0, 2), scope, (v) => { S.pairing.scope = v; S.pairing.name = $('#pair-name').value; draw(); }))),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Cancel', () => { S.pairing = null; draw(); }),
+        btn('Make a code', async (e) => {
+          const r = await busy(e.currentTarget, () => api('POST', '/admin/v1/pair', { name: $('#pair-name').value.trim(), scope }));
+          if (r) { S.pairing = { code: r }; draw(); }
+        }, 'p')))));
+  } else {
+    const c = S.pairing.code;
+    out.push(h('div', { class: 'box' },
+      h('p', {}, `Enter these in the app on the phone. The code works once, for 2 minutes.`),
+      h('div', { class: 'code-box', 'aria-label': 'Pairing details' }, `address ${c.url}`, h('br'), `code ${c.code}`, h('br'), `deck ${c.ca}`),
+      h('div', { class: 'actions' }, h('div', { class: 'r' }, btn('Done', () => { S.pairing = null; draw(); }, 'p')))));
+  }
+  return out;
+}
+
+async function restartService(btnEl) {
+  const r = await busy(btnEl, () => api('POST', '/admin/v1/restart', {}));
+  if (r) {
+    toast(r.message);
+    setTimeout(() => refresh(true), 4000);
+  }
+}
+
+// ---- Updates -------------------------------------------------------------------------------
+
+function notesLines(notes) {
+  return (notes || '').split('\n').map((l) => l.replace(/^\s*(?:[-*]|#+)\s*/, '').trim()).filter(Boolean).slice(0, 6);
+}
+
+function drawUpdates() {
+  const u = S.update;
+  $('#updates-sub').textContent = `You have ${u.current}${u.install === 'source' ? ' (built from source)' : ''}. ${u.checked ? `Last checked ${ago(u.checked)}.` : 'Not checked yet.'}`;
+  const out = [];
+  const job = u.job ? S.jobs[u.job] : null;
+  if (job && job.state === 'running') {
+    out.push(row(`Installing agents deck ${job.version || u.version}`, job.message, [], { hot: true, tall: true }));
+  } else if ((u.state === 'ready' || u.state === 'available') && S.laterUpdate !== u.version) {
+    const notes = notesLines(u.notes);
+    const can = u.state === 'ready' || (u.state === 'available' && !u.message);
+    const meta = h('div', {}, ...(notes.length ? notes.flatMap((l, i) => (i ? [h('br'), l] : [l])) : ['A new version is out.']));
+    const right = [btn('Later', () => { S.laterUpdate = u.version; draw(); }, 'o')];
+    if (can) right.push(btn('Install and restart', async (e) => {
+      const j = await busy(e.currentTarget, () => api('POST', '/admin/v1/update/apply', {}));
+      if (j?.id) { S.jobs[j.id] = j; await load('update'); draw(); }
+    }, 'k'));
+    else if (u.page) right.push(h('a', { class: 'b', href: u.page, rel: 'noreferrer' }, 'Download page'));
+    out.push(h('div', { class: 'row hot tall' },
+      h('div', { class: 'tx' }, h('div', { class: 't' }, `agents deck ${u.version} ${u.state === 'ready' ? 'is ready' : 'is out'}`), h('div', { class: 'm' }, meta)),
+      h('div', { class: 'r' }, right)));
+    out.push(h('p', { class: 'note' }, u.message || 'Your agents keep running while the app restarts. It takes a few seconds.'));
+  } else if (u.state === 'disabled') {
+    out.push(row('This copy doesn\'t update itself', u.message || '', []));
+  } else if (u.state === 'none' && u.version) {
+    out.push(h('p', { class: 'note' }, `agents deck is up to date (${u.version} is the latest).`));
+  }
+  if (job && job.state === 'failed') out.push(errorBox(`The update didn't install: ${job.error}`));
+  if (u.error) out.push(h('p', { class: 'note err' }, `The last check didn't work: ${u.error}`));
+
+  out.push(lab('how to update'));
+  out.push(row('The app and its service', 'Downloads come from GitHub and are checked before they\'re used.', [
+    seg('Update mode', [{ value: 'notify', text: 'tell me' }, { value: 'auto', text: 'automatic' }, { value: 'off', text: 'never check' }], u.mode, async (v) => {
+      const r = await patchSettings({ updates: v });
+      if (r) { await load('update'); draw(); }
+    }),
+    btn('Check now', (e) => busy(e.currentTarget, async () => {
+      S.update = await api('POST', '/admin/v1/update/check', {});
+      S.laterUpdate = '';
+      draw();
+    }, () => (S.update.state === 'none' ? 'Up to date' : `Found ${S.update.version}`)), '', { 'data-k': 'check-now' }),
+  ]));
+
+  out.push(lab('boards'));
+  const devs = S.devices?.devices || [];
+  const withUpd = devs.filter((d) => d.update);
+  for (const d of withUpd) {
+    const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'not connected · plug it in to update' }[d.update.how];
+    const meta = `${d.firmware} → ${d.update.version} · ${d.update.ready ? how : d.update.note || how}`;
+    out.push(row(d.name, meta, d.update.ready ? [btn('Update', (e) => updateDevice(d, e.currentTarget), 'a')] : [],
+      { pic: pic(shapeOf(d.board || d.type), !d.online), off: !d.online }));
+  }
+  const latest = S.devices?.latest;
+  const current = latest ? devs.filter((d) => d.kind === 'serial' && d.firmware === latest).length : 0;
+  let foot = 'Boards never update by themselves.';
+  if (!devs.some((d) => d.kind === 'serial')) foot += ' No boards yet.';
+  else if (!withUpd.length && latest) foot += ` Every board is on ${latest}.`;
+  else if (current) foot += ` ${current === 1 ? 'One board is' : `${current} boards are`} already on ${latest}.`;
+  if (!latest && S.devices?.catalogError) foot += ` Couldn't read the latest firmware list: ${S.devices.catalogError}`;
+  out.push(h('p', { class: 'note' }, foot));
+  return out;
+}
+
+// ---- Troubleshoot ----------------------------------------------------------------------------
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    const ta = h('textarea', { 'aria-hidden': 'true' });
+    ta.value = text;
+    ta.className = 'sr';
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (x) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+}
+
+function drawTroubleshoot() {
+  const d = S.diag;
+  const sys = S.system || {};
+  const out = [];
+  const stats = h('div', { class: 'stats' });
+  [['service', connOK ? 'running' : 'not answering'], ['up for', d.uptime], ['agents', String(d.agents)], ['boards online', `${d.boardsOnline} of ${d.boards}`]]
+    .forEach(([k, v]) => stats.append(h('div', { class: 'stat' }, h('span', {}, k), h('b', {}, v))));
+  out.push(stats);
+  out.push(row('Restart the service', `Running since ${new Date(d.started).toLocaleString()}. Agents keep running. Boards reconnect in a few seconds.`, [btn('Restart', (e) => restartService(e.currentTarget))]));
+  out.push(row('Copy a report', 'Versions, your system and board models. No project names, folders or prompts.', [
+    btn(S.showReport ? 'Hide it' : 'Show what\'s in it', () => { S.showReport = !S.showReport; draw(); }, '', { 'aria-expanded': S.showReport ? 'true' : 'false', 'aria-controls': 'report', 'data-k': 'show-report' }),
+    btn('Copy', async (e) => {
+      const ok = await copyText(d.report);
+      toast(ok ? 'Copied the report' : 'Couldn\'t copy: use Show what\'s in it and copy it by hand', !ok);
+    }, 'p'),
+  ]));
+  if (S.showReport) out.push(h('pre', { class: 'report', id: 'report', tabindex: '0' }, d.report));
+  out.push(h('div', { class: 'actions' }, h('div', { class: 'lab' }, 'latest from the log'),
+    h('div', { class: 'r' }, btn('Open the log folder', (e) => busy(e.currentTarget, () => api('POST', '/admin/v1/open-data-folder', {}))))));
+  if (!d.log.length) out.push(h('p', { class: 'note' }, 'The log is empty, or the service writes it somewhere else (agentctl serve in a terminal prints it there).'));
+  else {
+    const ul = h('ul', { class: 'log', 'aria-label': 'The last lines of the log' });
+    d.log.forEach((l) => ul.append(h('li', { class: /error|fail|stopped answering|refused/i.test(l) ? 'em' : '' }, l)));
+    out.push(ul);
+  }
+  out.push(lab('where its files are'));
+  out.push(row('Data folder', d.dataDir, []));
+  out.push(row('Log', d.logFile, []));
+  if (sys.platform) out.push(h('p', { class: 'note' }, `agents deck ${sys.version} · ${sys.platform} · installed as ${sys.install}`));
+  return out;
+}
+
+// ---- About ----------------------------------------------------------------------------------
+
+function drawAbout() {
+  const sys = S.system || {};
+  const u = S.update || {};
+  const kinds = { app: 'the app', windows: 'the Windows installer', deb: 'a .deb package', archive: 'install.sh', source: 'built from source' };
+  return [
+    row(`agents deck ${sys.version || ''}`, `${sys.platform || ''} · installed with ${kinds[sys.install] || sys.install || 'unknown'}${u.version && u.version !== sys.version ? ` · ${u.version} is the latest` : ''}`, []),
+    row('Source, licence and issues', 'github.com/brushknight/agents-deck', [h('a', { class: 'b', href: 'https://github.com/brushknight/agents-deck', rel: 'noreferrer' }, 'Open')]),
+    row('Documentation', 'How the deck, the boards and the API work.', [h('a', { class: 'b', href: 'https://github.com/brushknight/agents-deck/tree/main/docs', rel: 'noreferrer' }, 'Open')]),
+    row('The web flasher', 'Put the firmware on a board from Chrome or Edge. Coming soon; until then, Boards here does the same.', []),
+    h('p', { class: 'note' }, 'In a terminal: agentctl version, agentctl status.'),
+  ];
+}
+
+// ---- pages and routing ------------------------------------------------------------------------
+
+const DRAW = {
+  general: ['general-body', drawGeneral], agents: ['agents-body', drawAgents], boards: ['boards-body', drawBoards],
+  newboard: ['newboard-body', drawNewBoard], flash: ['newboard-body', drawFlash], network: ['network-body', drawNetwork],
+  updates: ['updates-body', drawUpdates], troubleshoot: ['troubleshoot-body', drawTroubleshoot], about: ['about-body', drawAbout],
+};
+
+function draw() {
+  const page = S.page;
+  const [id, fn] = DRAW[page];
+  const err = firstError(page);
+  if (err) {
+    if (err.status === 401) return;
+    render(id, () => errorBox(err.status === 0 ? "The service isn't answering. It may be restarting: this page tries again by itself." : err.message, () => refresh(true)));
+    return;
+  }
+  if (needs(page).some((n) => !S[n])) return;
+  render(id, fn);
+}
+
+function parseHash() {
+  const raw = decodeURIComponent((location.hash || '').slice(1));
+  const [page, ...rest] = raw.split('/');
+  if (page === 'new-board') return ['newboard', rest.join('/')];
+  if (page === 'flash') return ['flash', rest.join('/')];
+  return [PAGES.includes(page) ? page : 'general', ''];
+}
+
+async function route(initial) {
+  const [page, arg] = parseHash();
+  const changed = page !== S.page || arg !== S.arg;
+  S.page = page; S.arg = arg;
+  if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
+  if (changed) { S.open = { more: '', wifi: '', name: '' }; S.confirmLoginOff = false; }
+  const section = page === 'flash' ? 'newboard' : page;
+  document.querySelectorAll('main > section').forEach((s) => { s.hidden = s.dataset.page !== section; });
+  const navPage = section === 'newboard' ? 'boards' : section;
+  document.querySelectorAll('.nav a').forEach((a) => {
+    if (a.dataset.page === navPage) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  document.title = `agents deck · ${navPage}`;
+  if (page === 'flash' && arg && !S.jobs[arg]) {
+    try { S.jobs[arg] = await api('GET', `/admin/v1/jobs/${encodeURIComponent(arg)}`); } catch (e) { S.errors.job = e; }
+  }
+  await loadAll(...needs(page));
+  draw();
+  if (changed && !initial) {
+    const hd = document.querySelector(`main > section[data-page="${section}"] h1`);
+    if (hd) { hd.tabIndex = -1; hd.focus(); }
+  }
+}
+
+// refresh reloads the open page's data now and then (boards come and go).
+async function refresh(force) {
+  if (document.hidden && !force) return;
+  const page = S.page;
+  if (!page) return;
+  const sys = await load('system');
+  if (S.errors.system?.status === 404) {
+    $('#banner').hidden = false;
+    $('#banner').textContent = 'This service is too old for Settings: update agents deck.';
+    return;
+  }
+  showSystem(sys);
+  const busyUI = S.open.more || S.open.wifi || S.pairing || S.confirmLoginOff;
+  if (!force && (busyUI || ['general', 'about'].includes(page))) return;
+  await loadAll(...needs(page));
+  if (page === S.page) draw();
+}
+
+// ---- live job progress -----------------------------------------------------------------------
+
+let es = null;
+function listen() {
+  if (es) es.close();
+  es = new EventSource('/admin/v1/events');
+  es.addEventListener('system', (e) => { try { showSystem(JSON.parse(e.data)); setConn(true); } catch (x) { /* ignore */ } });
+  es.addEventListener('job', (e) => {
+    let j;
+    try { j = JSON.parse(e.data); } catch (x) { return; }
+    S.jobs[j.id] = j;
+    if (S.page === 'flash' && S.arg === j.id) draw();
+    if (S.page === 'updates' && j.kind === 'app-update') draw();
+    if (j.state !== 'running' && ['boards', 'updates'].includes(S.page)) refresh(true);
+  });
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) setTimeout(listen, 3000);
+  };
+}
+
+// ---- start ------------------------------------------------------------------------------------
+
+window.addEventListener('hashchange', () => route(false));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(true); });
+setInterval(() => refresh(false), 4000);
+
+(async () => {
+  const sys = await load('system');
+  if (S.errors.system?.status === 404) {
+    $('#banner').hidden = false;
+    $('#banner').textContent = 'This service is too old for Settings: update agents deck.';
+  }
+  showSystem(sys);
+  await route(true);
+  listen();
+})();
