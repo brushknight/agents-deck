@@ -191,10 +191,10 @@ const pic = (shape, off) => h('div', { class: `g${off ? ' off' : ''}`, 'aria-hid
 
 // render swaps a page body, keeping focus on the same control when it is
 // still there, and leaves it alone while you type in it.
-function render(id, build) {
+function render(id, build, force) {
   const body = document.getElementById(id);
   const active = document.activeElement;
-  if (active && body.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !build.force) return;
+  if (active && body.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !force) return;
   const key = active && body.contains(active) ? active.getAttribute('data-k') : null;
   const frag = document.createDocumentFragment();
   const out = build();
@@ -210,6 +210,14 @@ function errorBox(msg, retry) {
   return h('div', { class: 'box err', role: 'alert' },
     h('p', {}, msg),
     retry ? h('div', { class: 'actions' }, btn('Try again', retry)) : null);
+}
+
+// putJob keeps the newest news of a job: the event stream can tell that a
+// job ended before the answer that started it arrives.
+function putJob(j) {
+  const old = S.jobs[j.id];
+  if (old && old.state !== 'running' && j.state === 'running') return;
+  S.jobs[j.id] = j;
 }
 
 // ---- data ------------------------------------------------------------------------------
@@ -270,7 +278,7 @@ async function patchSettings(body, btnEl) {
   if (r.message) toast(r.message);
   else if (r.restartNeeded) toast('Saved. It applies when the service restarts.');
   else toast('Saved');
-  draw();
+  draw(true);
   return r;
 }
 
@@ -387,14 +395,14 @@ async function deviceAction(d, action, body, btnEl, okMsg) {
   const r = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/${action}`, body), okMsg);
   await loadAll('devices', 'system');
   showSystem(S.system);
-  draw();
+  draw(true);
   return r;
 }
 
 async function updateDevice(d, btnEl) {
   const job = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/update`, {}));
   if (job && job.id) {
-    S.jobs[job.id] = job;
+    putJob(job);
     location.hash = `#flash/${job.id}`;
   }
 }
@@ -420,7 +428,7 @@ function wifiForm(d, onDone) {
             S.open.wifi = '';
             toast(r?.message || 'Sent');
             if (onDone) await onDone();
-            draw();
+            draw(true);
           } catch (ex) {
             err.textContent = ex.message;
             if (b.isConnected) b.disabled = false;
@@ -490,7 +498,7 @@ async function portAction(p, action, body, btnEl, okMsg) {
   const r = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(p.id)}/${action}`, body), okMsg);
   await loadAll('ports', 'system');
   showSystem(S.system);
-  draw();
+  draw(true);
   return r;
 }
 
@@ -605,7 +613,7 @@ async function nbInstall(btnEl) {
   const nb = S.nb;
   const job = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/flash`, { board: nb.choice }));
   if (job && job.id) {
-    S.jobs[job.id] = job;
+    putJob(job);
     nb.job = job.id;
     location.hash = `#flash/${job.id}`;
   }
@@ -763,7 +771,7 @@ function drawFlash() {
       h('a', { class: 'b', href: '#boards' }, 'Back to Boards'),
       j.port && j.kind === 'flash' ? btn('Try again', async (e) => {
         const job = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(j.port)}/flash`, { board: j.board, version: j.version }));
-        if (job?.id) { S.jobs[job.id] = job; if (S.nb) S.nb.job = job.id; location.hash = `#flash/${job.id}`; }
+        if (job?.id) { putJob(job); if (S.nb) S.nb.job = job.id; location.hash = `#flash/${job.id}`; }
       }, 'p') : null,
     ]));
   } else {
@@ -804,8 +812,7 @@ function drawNetwork() {
             const n = (r.sent || []).length;
             toast(n ? `Saved and sent to ${n} board${n === 1 ? '' : 's'} on USB` : 'Saved. Boards get it when they\'re plugged in.');
             $('#pw').value = '';
-            $('#pw').blur();
-            draw();
+            draw(true);
           } catch (ex) {
             err.textContent = ex.message;
           } finally {
@@ -879,7 +886,7 @@ function drawUpdates() {
   const u = S.update;
   $('#updates-sub').textContent = `You have ${u.current}${u.install === 'source' ? ' (built from source)' : ''}. ${u.checked ? `Last checked ${ago(u.checked)}.` : 'Not checked yet.'}`;
   const out = [];
-  const job = u.job ? S.jobs[u.job] : null;
+  const job = S.jobs[u.job || S.appJob] || null;
   if (job && job.state === 'running') {
     out.push(row(`Installing agents deck ${job.version || u.version}`, job.message, [], { hot: true, tall: true }));
   } else if ((u.state === 'ready' || u.state === 'available') && S.laterUpdate !== u.version) {
@@ -889,7 +896,7 @@ function drawUpdates() {
     const right = [btn('Later', () => { S.laterUpdate = u.version; draw(); }, 'o')];
     if (can) right.push(btn('Install and restart', async (e) => {
       const j = await busy(e.currentTarget, () => api('POST', '/admin/v1/update/apply', {}));
-      if (j?.id) { S.jobs[j.id] = j; await load('update'); draw(); }
+      if (j?.id) { putJob(j); S.appJob = j.id; await load('update'); draw(true); }
     }, 'k'));
     else if (u.page) right.push(h('a', { class: 'b', href: u.page, rel: 'noreferrer' }, 'Download page'));
     out.push(h('div', { class: 'row hot tall' },
@@ -1011,7 +1018,9 @@ const DRAW = {
   updates: ['updates-body', drawUpdates], troubleshoot: ['troubleshoot-body', drawTroubleshoot], about: ['about-body', drawAbout],
 };
 
-function draw() {
+// draw redraws the open page. The timer's redraw (force false) leaves a page
+// alone while you type in it; a redraw after your own action doesn't.
+function draw(force = true) {
   const page = S.page;
   const [id, fn] = DRAW[page];
   const err = firstError(page);
@@ -1021,7 +1030,7 @@ function draw() {
     return;
   }
   if (needs(page).some((n) => !S[n])) return;
-  render(id, fn);
+  render(id, fn, force);
 }
 
 function parseHash() {
@@ -1071,7 +1080,7 @@ async function refresh(force) {
   const busyUI = S.open.more || S.open.wifi || S.pairing || S.confirmLoginOff;
   if (!force && (busyUI || ['general', 'about'].includes(page))) return;
   await loadAll(...needs(page));
-  if (page === S.page) draw();
+  if (page === S.page) draw(false);
 }
 
 // ---- live job progress -----------------------------------------------------------------------
@@ -1084,9 +1093,10 @@ function listen() {
   es.addEventListener('job', (e) => {
     let j;
     try { j = JSON.parse(e.data); } catch (x) { return; }
-    S.jobs[j.id] = j;
+    putJob(j);
     if (S.page === 'flash' && S.arg === j.id) draw();
-    if (S.page === 'updates' && j.kind === 'app-update') draw();
+    if (j.kind === 'app-update' && j.state === 'failed') toast(`The update didn't install: ${j.error}`, true);
+    if (S.page === 'updates' && j.kind === 'app-update') draw(true);
     if (j.state !== 'running' && ['boards', 'updates'].includes(S.page)) refresh(true);
   });
   es.onerror = () => {
