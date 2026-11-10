@@ -104,6 +104,9 @@ type Settings struct {
 	StartAtLogin *bool  `json:"startAtLogin"`
 	LoginKind    string `json:"loginKind,omitempty"`
 	LoginNote    string `json:"loginNote,omitempty"`
+	// TrayAtLogin: the tray app starts at login too (Linux, when it is
+	// installed); absent where Start when I log in covers only the service.
+	TrayAtLogin *bool `json:"trayAtLogin,omitempty"`
 
 	Notifications string `json:"notifications"` // off | attention | finished
 	Sound         bool   `json:"sound"`
@@ -138,6 +141,10 @@ func (a *Admin) SettingsNow() Settings {
 		reg := a.Login.Registration()
 		on := reg.Registered
 		s.StartAtLogin, s.LoginKind, s.LoginNote = &on, reg.Kind, reg.Note
+	}
+	if a.Tray.Available() {
+		on := a.Tray.Enabled()
+		s.TrayAtLogin = &on
 	}
 	s.Notifications = str(cfg, "notifications", NotifyAttention)
 	s.Sound = boolean(cfg, "sound", false)
@@ -252,6 +259,12 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Wifi.Send && !p.Wifi.Forget {
 			res["sent"] = a.sendDefaultToUSB()
+		}
+	}
+	if p.StartAtLogin != nil && a.Tray.Available() {
+		if err := a.Tray.Set(*p.StartAtLogin); err != nil {
+			writeErr(w, http.StatusInternalServerError, "the tray app's autostart entry: "+err.Error())
+			return
 		}
 	}
 	if p.StartAtLogin != nil {

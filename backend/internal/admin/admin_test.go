@@ -149,10 +149,21 @@ func (u *fakeUpdater) Apply(context.Context) error {
 	return nil
 }
 
-type fakeOTA struct{ offered []string }
+// fakeOTA is the hub: it takes the offer and reports the board's progress.
+type fakeOTA struct {
+	a       *Admin
+	offered []string
+	end     string // the last state the board reports
+}
 
 func (o *fakeOTA) OfferFirmware(dev, board, version string) error {
 	o.offered = append(o.offered, dev+" "+board+" "+version)
+	go func() {
+		for _, st := range []string{link.FirmwareOffered, link.FirmwareDownloading, link.FirmwareVerifying, link.FirmwareRestarting, o.end} {
+			time.Sleep(5 * time.Millisecond)
+			o.a.FirmwareChanged(link.FirmwareJob{Device: dev, Board: board, Version: version, State: st, Percent: 50, Error: "no room"})
+		}
+	}()
 	return nil
 }
 
@@ -589,7 +600,7 @@ func TestDevices(t *testing.T) {
 
 func TestDeviceUpdateOverTheAir(t *testing.T) {
 	r := newRig(t)
-	ota := &fakeOTA{}
+	ota := &fakeOTA{a: r.a, end: link.FirmwareDone}
 	r.a.OTA = ota
 	// The release's board needs an over-the-air image for this.
 	img := bytes.Repeat([]byte{1}, 100)
@@ -606,9 +617,17 @@ func TestDeviceUpdateOverTheAir(t *testing.T) {
 	if code != 202 {
 		t.Fatalf("OTA: %d %v", code, out)
 	}
-	r.waitJob(t, out["id"].(string))
+	if j := r.waitJob(t, out["id"].(string)); j.State != JobDone || j.Percent != 100 {
+		t.Errorf("job: %+v", j)
+	}
 	if len(ota.offered) != 1 || ota.offered[0] != d.Name+" t4s3 0.3.0" {
 		t.Errorf("offered: %v", ota.offered)
+	}
+	// A board that goes back to its old firmware: the job fails in words.
+	ota.end = link.FirmwareRolledBack
+	_, out = r.do(t, "POST", "/admin/v1/devices/"+d.Name+"/update", "")
+	if j := r.waitJob(t, out["id"].(string)); j.State != JobFailed || !strings.Contains(j.Error, "went back") {
+		t.Errorf("rolled back: %+v", j)
 	}
 }
 
@@ -779,5 +798,42 @@ func TestJobsEventsStream(t *testing.T) {
 	}
 	if !strings.Contains(got.String(), "event: system") || !strings.Contains(got.String(), "event: job") {
 		t.Errorf("stream:\n%s", got.String())
+	}
+}
+
+func TestOTASourceBoardTypes(t *testing.T) {
+	r := newRig(t)
+	src := OTASource{Client: r.a.Firmware.(*firmware.Client)}
+	types, err := src.BoardTypes(context.Background(), "t4s3")
+	if err != nil || len(types) != 1 || types[0] != "t4s3-panel" {
+		t.Errorf("types %v, %v", types, err)
+	}
+	if _, err := src.BoardTypes(context.Background(), "nope"); err == nil {
+		t.Error("an unknown board")
+	}
+}
+
+func TestTrayAutostartFollowsStartAtLogin(t *testing.T) {
+	r := newRig(t)
+	r.a.Login = &fakeLogin{}
+	home := t.TempDir()
+	src := filepath.Join(home, "launcher.desktop")
+	os.WriteFile(src, []byte("[Desktop Entry]\nType=Application\nName=agents deck\nExec=/opt/agents-deck/agents-deck\n"), 0o644)
+	r.a.Tray = &TrayAutostart{Home: home, Sources: []string{src}}
+	r.do(t, "PATCH", "/admin/v1/settings", `{"startAtLogin":true}`)
+	b, err := os.ReadFile(filepath.Join(home, ".config", "autostart", trayDesktop))
+	if err != nil || !strings.Contains(string(b), "Exec=/opt/agents-deck/agents-deck --background\n") || !strings.Contains(string(b), "X-GNOME-Autostart-enabled=true") {
+		t.Fatalf("autostart entry: %v\n%s", err, b)
+	}
+	if _, s := r.do(t, "GET", "/admin/v1/settings", ""); s["trayAtLogin"] != true {
+		t.Errorf("trayAtLogin: %v", s["trayAtLogin"])
+	}
+	r.do(t, "PATCH", "/admin/v1/settings", `{"startAtLogin":false}`)
+	if _, err := os.Stat(filepath.Join(home, ".config", "autostart", trayDesktop)); err == nil {
+		t.Error("turning it off leaves the tray app's entry")
+	}
+	r.a.Tray = &TrayAutostart{Home: home, Sources: []string{filepath.Join(home, "none")}}
+	if _, s := r.do(t, "GET", "/admin/v1/settings", ""); s["trayAtLogin"] != nil {
+		t.Error("no tray app installed: no trayAtLogin")
 	}
 }

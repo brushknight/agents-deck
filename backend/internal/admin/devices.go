@@ -402,14 +402,14 @@ func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.D
 		if version == "" {
 			version = board.Version
 		}
+		if j, ok := a.jobs.running(func(j Job) bool { return j.Device == d.Name }); ok {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "the board is already updating", "job": j.ID})
+			return
+		}
 		job := a.jobs.start(Job{Kind: "board-update", Device: d.Name, Board: board.Board, Version: version,
-			Stage: "offer", Message: "Offering " + version + " to the board over Wi-Fi"},
+			Stage: "offered", Message: "Offering " + version + " to the board over Wi-Fi"},
 			func(ctx context.Context, up func(func(*Job))) error {
-				if err := a.OTA.OfferFirmware(d.Name, board.Board, version); err != nil {
-					return err
-				}
-				up(func(j *Job) { j.Message = "The board downloads " + version + " and restarts into it" })
-				return nil
+				return a.runOTA(ctx, up, d.Name, board.Board, version)
 			})
 		writeJSON(w, http.StatusAccepted, job)
 	default:

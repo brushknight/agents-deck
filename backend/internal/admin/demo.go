@@ -90,6 +90,29 @@ func UseDemo(a *Admin) error {
 	a.Flasher = &demoFlasher{}
 	a.Firmware = &demoFirmware{dir: dir}
 	a.Updater = &demoUpdater{current: a.Version}
+	a.OTA = demoOTA{a}
+	return nil
+}
+
+// demoOTA pretends a board on Wi-Fi takes an update in about twenty seconds.
+type demoOTA struct{ a *Admin }
+
+func (o demoOTA) OfferFirmware(device, board, version string) error {
+	go func() {
+		j := link.FirmwareJob{Device: device, Board: board, Version: version, From: "0.1.1", State: link.FirmwareOffered}
+		o.a.FirmwareChanged(j)
+		time.Sleep(time.Second)
+		for p := 0; p <= 100; p += 10 {
+			j.State, j.Percent = link.FirmwareDownloading, p
+			o.a.FirmwareChanged(j)
+			time.Sleep(1200 * time.Millisecond)
+		}
+		for _, st := range []string{link.FirmwareVerifying, link.FirmwareRestarting, link.FirmwareDone} {
+			j.State = st
+			o.a.FirmwareChanged(j)
+			time.Sleep(2 * time.Second)
+		}
+	}()
 	return nil
 }
 

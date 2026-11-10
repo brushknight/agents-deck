@@ -40,6 +40,9 @@ func newAdmin(st *store.Store, srv *server.Server, self, logFile string) *admin.
 	}
 	if home != "" {
 		a.CLIDir = filepath.Join(home, ".local", "bin")
+		if runtime.GOOS == "linux" {
+			a.Tray = &admin.TrayAutostart{Home: home}
+		}
 	}
 	if m, _, err := serviceManager(); err == nil {
 		a.Login = m
@@ -61,16 +64,14 @@ func wireAdmin(a *admin.Admin, srv *server.Server, hub *link.Hub, links *link.Ma
 		return srv.DeviceURL, srv.CA.Fingerprint()
 	}
 
-	// ---- over-the-air updates for boards on Wi-Fi --------------------------------
-	// Plug the Deck Link hub in here once it can offer firmware (W6:
-	// link.Hub.OfferFirmware, with the hub reading images from a.Firmware,
-	// which satisfies link.FirmwareSource):
-	//
-	//	a.OTA = hub
-	//
-	// Until then a board on Wi-Fi answers "over-the-air update is not
-	// available in this build", and boards on USB update through the flasher.
-	a.OTA = nil
+	// Over-the-air updates for boards on Wi-Fi: the hub offers them and serves
+	// the images from the same release catalog the flasher uses; its progress
+	// reaches the jobs through hub.OnFirmware (set where the hub is made).
+	// Boards on USB update through the flasher.
+	if c, ok := a.Firmware.(*firmware.Client); ok {
+		hub.SetFirmwareSource(admin.OTASource{Client: c})
+	}
+	a.OTA = hub
 
 	if demo {
 		if err := admin.UseDemo(a); err != nil {

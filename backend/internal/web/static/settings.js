@@ -286,7 +286,10 @@ function drawGeneral() {
       btn('Turn off and stop', (e) => { S.confirmLoginOff = false; patchSettings({ startAtLogin: false }, e.currentTarget); }, 'p'),
     ]));
   } else {
-    const note = s.loginNote ? `${s.loginNote}.` : 'The service and the tray icon. Without it, boards show "waiting for the deck".';
+    let what = 'The service. Without it, boards show "waiting for the deck".';
+    if (s.trayAtLogin !== undefined) what = 'The service and the tray icon. Without it, boards show "waiting for the deck".';
+    else if ((S.system?.platform || '').startsWith('darwin')) what += ' To open the app at login too, add agents deck in System Settings > General > Login Items.';
+    const note = s.loginNote ? `${s.loginNote}.` : what;
     out.push(row('Start when I log in', note, [toggle('Start when I log in', s.startAtLogin, (on, el) => {
       if (!on) { S.confirmLoginOff = true; draw(); $('[data-k="login-keep"]')?.focus(); return; }
       patchSettings({ startAtLogin: true }, el);
@@ -701,9 +704,24 @@ function drawFlash() {
   const ended = j.state !== 'running';
   stepsAt(ended && j.state === 'done' ? 4 : 3, fromSetup);
   const out = [];
-  if (j.stage === 'offer') { // over the air
-    out.push(row(j.message, j.error || '', []));
-    if (ended) out.push(h('a', { class: 'b', href: '#boards' }, 'Back to Boards'));
+  if (!j.port && j.kind === 'board-update') { // over the air: the board downloads it itself
+    if (!ended) {
+      const bar = h('div', {});
+      bar.style.width = `${j.percent}%`;
+      out.push(h('div', { class: 'progress' },
+        h('div', { class: 'big' }, h('div', { class: 'pct' }, `${j.percent}%`), h('div', { class: 'what' }, `over Wi-Fi · ${j.version}`)),
+        h('div', { class: 'bar', role: 'progressbar', 'aria-label': j.message || 'Updating over Wi-Fi', 'aria-valuenow': j.percent, 'aria-valuemin': '0', 'aria-valuemax': '100' }, bar),
+        h('div', { role: 'status' }, j.message),
+        h('div', { class: 'note' }, 'The board keeps showing your agents while it downloads. If the new firmware doesn\'t reach the deck, it goes back to the old one by itself.')));
+      out.push(h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Stop following', (e) => busy(e.currentTarget, () => api('POST', `/admin/v1/jobs/${encodeURIComponent(j.id)}/cancel`, {}))))));
+    } else if (j.state === 'done') {
+      out.push(h('div', { class: 'box', role: 'status' }, h('h2', {}, 'Done'), h('p', {}, j.message),
+        h('div', { class: 'actions' }, h('div', { class: 'r' }, h('a', { class: 'b p', href: '#boards' }, 'Back to Boards')))));
+    } else {
+      out.push(errorBox(j.state === 'cancelled' ? 'Stopped following the board. It may still finish the update by itself.' : j.error));
+      out.push(h('a', { class: 'b', href: '#boards' }, 'Back to Boards'));
+    }
     return out;
   }
   const words = { download: 'downloading', connect: 'waiting for the board', erase: 'erasing', write: 'writing', verify: 'checking', reset: 'restarting' }[j.stage] || j.stage || '';

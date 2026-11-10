@@ -49,9 +49,9 @@ type Updater interface {
 }
 
 // OTA offers a board on Wi-Fi a new firmware version, which it then downloads
-// from the service over its own link. The Deck Link hub implements it once
-// over-the-air updates are in (link.Hub.OfferFirmware); until then it is nil
-// and a Wi-Fi board says so.
+// from the service over its own link (link.Hub.OfferFirmware). Its progress
+// comes back through FirmwareChanged (link.Hub.OnFirmware). nil: this
+// service can't update boards over Wi-Fi, and a Wi-Fi board says so.
 type OTA interface {
 	OfferFirmware(deviceID, board, version string) error
 }
@@ -91,7 +91,10 @@ type Admin struct {
 	Firmware  Firmware
 	Updater   Updater
 	Login     service.Manager // start at login; nil where there is none
-	OTA       OTA
+	// Tray: the Linux tray app's autostart entry, switched with Start when I
+	// log in (nil elsewhere).
+	Tray *TrayAutostart
+	OTA  OTA
 
 	// NetworkOn: the network listener runs in this process (it starts or
 	// stops only with the service).
@@ -116,6 +119,7 @@ type Admin struct {
 	updMu   sync.Mutex
 	checked time.Time
 	labels  labelBook
+	ota     otaWatch
 }
 
 // Handler serves /admin/v1/… . The caller has already decided who may reach
