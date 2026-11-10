@@ -323,7 +323,8 @@ board (on Wi-Fi)                                     deck
   shows the update as rolled back.
 - The deck keeps per board the version it runs (`Hello.firmware`) and the last update's state
   (offered, downloading, verifying, restarting, done, failed, refused, rolled back) for the management
-  API. Updates are never automatic.
+  API. Updates are never automatic. `agentctl link update <board> --image FILE --board B --version V`
+  offers an image file from the Mac (a build to try) and follows the update.
 
 | message | direction | field | over |
 |---|---|---|---|

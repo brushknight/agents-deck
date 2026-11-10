@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -437,5 +438,60 @@ func TestFirmwareKitUpdateOverWifi(t *testing.T) {
 	}
 	if j := waitJob(t, hub, name, FirmwareRefused); !strings.Contains(j.Error, "not other-board") {
 		t.Fatalf("job: %+v", j)
+	}
+}
+
+// `agentctl link update`: an image file from this Mac, through the unix socket.
+func TestFirmwareFromFile(t *testing.T) {
+	srv, _ := testDeck(t)
+	hub := &Hub{}
+	addr := otaListener(t, srv, hub)
+	srv.LinkFirmware, srv.LinkFirmwareStatus = hub.UpdateFromFile, func() any { return hub.Firmware() }
+	unix := srv.UnixHandler(fakeLocal{&fakeCtl{}})
+	post := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		unix.ServeHTTP(w, httptest.NewRequest("POST", "/local/link/firmware", strings.NewReader(body)))
+		return w
+	}
+	name, cert := pairedBoard(t, srv, "AA:BB:CC:00:00:55", devices.View)
+	dir := t.TempDir()
+	good := filepath.Join(dir, "firmware.bin")
+	img := append([]byte{0xE9}, bytes.Repeat([]byte{7}, 5000)...)
+	_ = os.WriteFile(good, img, 0o600)
+	full := filepath.Join(dir, "full.bin")
+	_ = os.WriteFile(full, []byte{0xFF, 1, 2}, 0o600)
+	body := func(file string) string {
+		return `{"device":"` + name + `","board":"round","version":"0.3.0","file":"` + file + `"}`
+	}
+
+	if w := post(body(good)); w.Code != 404 || !strings.Contains(w.Body.String(), "isn't connected") {
+		t.Fatalf("offline: %d %s", w.Code, w.Body)
+	}
+	got := make(chan []byte, 1)
+	_, closeB := wifiBoard(t, addr, srv, &cert, "AA:BB:CC:00:00:55", "0.1.0", func(b *Board, o *linkpb.FirmwareOffer) {
+		_, data, _, _ := get(httpsAs(srv, &cert), addr, o.Path, "")
+		got <- data
+		status(b, linkpb.FirmwareState_FIRMWARE_RESTARTING, 100, "")
+	})
+	defer closeB()
+	waitFor(t, func() bool { s, _ := hub.wifiSession(name); return s != nil })
+	if w := post(body(full)); w.Code != 400 || !strings.Contains(w.Body.String(), "app image") {
+		t.Fatalf("the full image: %d %s", w.Code, w.Body)
+	}
+	if w := post(body(good)); w.Code != 202 {
+		t.Fatalf("offer: %d %s", w.Code, w.Body)
+	}
+	if data := <-got; !bytes.Equal(data, img) {
+		t.Fatal("the board got another image")
+	}
+	waitJob(t, hub, name, FirmwareRestarting)
+	w := httptest.NewRecorder()
+	unix.ServeHTTP(w, httptest.NewRequest("GET", "/local/link/firmware", nil))
+	if !strings.Contains(w.Body.String(), `"state":"restarting"`) {
+		t.Fatalf("status: %s", w.Body)
+	}
+	audit, _ := os.ReadFile(srv.Audit.Path)
+	if !strings.Contains(string(audit), `"device":"local","action":"firmware `+name+`","status":202,"detail":"round 0.3.0"`) {
+		t.Fatalf("audit: %s", audit)
 	}
 }

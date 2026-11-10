@@ -23,7 +23,8 @@ type Hub struct {
 
 	mu       sync.Mutex
 	live     map[*Session]bool
-	firmware FirmwareSource // nil until SetFirmwareSource: no updates over Wi-Fi
+	firmware FirmwareSource        // nil until SetFirmwareSource: no updates over Wi-Fi
+	local    map[string]localImage // "board/version": images from files (UpdateFromFile)
 	fwOnce   sync.Once
 	fwBook   *firmwareBook
 }

@@ -56,6 +56,8 @@ func linkCmd(args []string) error {
 		return linkCheck(args[1:])
 	case "wifi":
 		return linkWifi(args[1:])
+	case "update":
+		return linkUpdate(args[1:])
 	case "pair":
 		if len(args) != 2 {
 			return errors.New("usage: agentctl link pair <board>")
@@ -66,7 +68,7 @@ func linkCmd(args []string) error {
 		fmt.Printf("%s: its certificate no longer works. On USB and approved, it pairs again by itself (a new key and certificate).\n", args[1])
 		return nil
 	}
-	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port> | wifi <board> | pair <board>]")
+	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port> | wifi <board> | pair <board> | update <board> --image FILE --board B --version V]")
 }
 
 type linkState struct {

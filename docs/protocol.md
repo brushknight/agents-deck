@@ -204,7 +204,9 @@ start it), and the board downloads the image from `GET /v1/firmware/{board}/{ver
 certificate. Only Deck Link boards may download, only images for their own kind of board, each request
 is audited (with the byte range), and a board revoked mid-download is cut off. The board checks the
 image's SHA-256 from the offer before it restarts into it, and goes back to its old firmware if the new
-one doesn't reach the deck. A board on USB is updated over the cable instead.
+one doesn't reach the deck. A board on USB is updated over the cable instead. Until the Settings page
+has a button for it, `agentctl link update <board> --image FILE --board B --version V` starts one with an
+image file from the Mac (`POST /local/link/firmware` on the unix socket, audited as `firmware <board>`).
 
 **Pairing.** Two ways:
 

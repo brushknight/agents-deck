@@ -116,7 +116,7 @@ func (h *Hub) fw() *firmwareBook {
 	return h.fwBook
 }
 
-// setFirmwareSource plugs the catalog in (nil: none).
+// SetFirmwareSource plugs the release catalog in (nil: none).
 func (h *Hub) SetFirmwareSource(src FirmwareSource) {
 	h.mu.Lock()
 	h.firmware = src
@@ -129,6 +129,13 @@ func (h *Hub) source() FirmwareSource {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if len(h.local) > 0 { // images from files on this Mac (ota_local.go) first
+		local := make(map[string]localImage, len(h.local))
+		for k, v := range h.local {
+			local[k] = v
+		}
+		return layered{local: local, next: h.firmware}
+	}
 	return h.firmware
 }
 
