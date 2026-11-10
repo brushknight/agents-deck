@@ -38,8 +38,8 @@ static Agent asking(const char* id, int n, bool perm) {
   if (perm) snprintf(a.waitDetail, sizeof a.waitDetail, "terraform apply -target=module.staging_net -auto-approve -var-file=staging.tfvars");
   a.optCount = (uint8_t)n;
   for (int i = 0; i < n; i++) {
-    snprintf(a.opts[i].key, sizeof a.opts[i].key, "%d", i + 1);
-    snprintf(a.opts[i].label, sizeof a.opts[i].label, "option %d, a long label \xE2\x80\x94 a hint", i + 1);
+    snprintf(a.opts[i].key, sizeof a.opts[i].key, "%d", (i + 1) % 100);
+    snprintf(a.opts[i].label, sizeof a.opts[i].label, "option %d, a long label \xE2\x80\x94 a hint", (i + 1) % 100);
   }
   return a;
 }
