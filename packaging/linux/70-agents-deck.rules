@@ -1,0 +1,9 @@
+# agents deck: the logged-in user may open the serial ports of the boards it
+# talks to and flashes, without joining the dialout group. ModemManager is told
+# to leave them alone (it would probe them as modems).
+# Espressif's own USB (ESP32-S3), and the USB-serial bridges boards carry:
+# WCH CH340/CH343, Silicon Labs CP210x, FTDI.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"

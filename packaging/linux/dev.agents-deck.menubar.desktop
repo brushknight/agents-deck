@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=agents deck
+Comment=Your coding agents in the system tray
+Exec=/usr/bin/agents-deck
+Icon=dev.agents-deck.menubar
+Terminal=false
+Categories=Development;
+StartupNotify=false
+StartupWMClass=dev.agents-deck.menubar
