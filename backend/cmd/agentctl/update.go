@@ -129,6 +129,9 @@ func updateCmd(args []string) error {
 			return errors.New("usage: agentctl update [--check] [--yes]")
 		}
 	}
+	if done, err := updateViaService(check, yes); done { // admin_cli.go
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	u := update.New(version)

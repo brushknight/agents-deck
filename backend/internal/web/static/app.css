@@ -123,6 +123,7 @@ code, .code { font-family: var(--f-head); }
 .toggle:hover { color: var(--ink); border-color: var(--ink); }
 .toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .toggle:active { background: var(--ink); color: var(--bg); }
+a.toggle { display: inline-block; text-decoration: none; }
 
 .banner {
   background: var(--panel);

@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -125,9 +126,13 @@ type Server struct {
 	// {"ports": serial ports, "boards": connected boards on either transport}.
 	LinkUpgrade http.HandlerFunc
 	LinkStatus  func() any
-	logins      loginCodes
-	apiOnce     sync.Once
-	apiMux      *http.ServeMux
+	// Admin serves the management API, /admin/v1 (internal/admin): on the
+	// unix socket and on the loopback dashboard behind its session, never on
+	// the network listener. nil: not served.
+	Admin   http.Handler
+	logins  loginCodes
+	apiOnce sync.Once
+	apiMux  *http.ServeMux
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).
@@ -408,7 +413,7 @@ func (s *Server) LocalHandler() http.Handler {
 	}, func(w http.ResponseWriter, r *http.Request) bool {
 		// The session cookie belongs to 127.0.0.1; send localhost visitors there
 		// so a bookmark on either name works.
-		if strings.HasPrefix(r.Host, "localhost") && r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v1/") {
+		if strings.HasPrefix(r.Host, "localhost") && r.Method == http.MethodGet && !isAPI(r.URL.Path) {
 			http.Redirect(w, r, "http://"+s.LocalAddr+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 			return true
 		}
@@ -433,15 +438,19 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			if s.logins.redeem(r.URL.Query().Get("code")) {
 				http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.WebSession, Path: "/",
 					HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 30 * 24 * 3600})
-				http.Redirect(w, r, "/", http.StatusSeeOther)
+				http.Redirect(w, r, SafeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 				return
 			}
 			writeErr(w, http.StatusUnauthorized, "login link expired — run `agentctl web` again")
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/v1/") {
-			if r.URL.Path == "/fixture.json" {
+		if !isAPI(r.URL.Path) {
+			switch r.URL.Path {
+			case "/fixture.json":
 				http.NotFound(w, r) // dev-only file never served by the daemon
+				return
+			case "/settings", "/settings/":
+				http.ServeFileFS(w, r, s.Static, "settings.html")
 				return
 			}
 			static.ServeHTTP(w, r)
@@ -456,8 +465,44 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			writeErr(w, http.StatusForbidden, "bad origin")
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			if s.Admin == nil {
+				writeErr(w, http.StatusNotFound, "this service has no management API")
+				return
+			}
+			s.audited("web", s.Admin).ServeHTTP(w, r)
+			return
+		}
 		s.audited("web", api).ServeHTTP(w, r)
 	}))
+}
+
+// isAPI: the paths behind the session cookie (everything else is the
+// dashboard's static files).
+func isAPI(path string) bool {
+	return strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/admin/")
+}
+
+// SafeNext is where /login sends you after it set the session: next when it
+// is a path on this dashboard ("/settings"), else "/". Anything that could
+// leave the dashboard (another host, a scheme, "//", backslashes, control
+// characters) is refused.
+func SafeNext(next string) string {
+	if next == "" || len(next) > 512 || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsAny(next, "\\") {
+		return "/"
+	}
+	for _, c := range next {
+		if c < 0x20 || c == 0x7f {
+			return "/"
+		}
+	}
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" || !strings.HasPrefix(u.Path, "/") ||
+		strings.HasPrefix(u.Path, "//") {
+		return "/"
+	}
+	return next
 }
 
 func ServeLocal(addr string, h http.Handler) error {
@@ -471,6 +516,9 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	api := s.api()
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", s.audited("local", api))
+	if s.Admin != nil {
+		mux.Handle("/admin/v1/", s.audited("local", s.Admin))
+	}
 	s.localDevices(mux)
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)

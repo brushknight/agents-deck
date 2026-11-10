@@ -92,6 +92,16 @@ const usage = `agentctl — agents-terminal
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
   agentctl flash <port> <image.bin> [--offset 0x0] [--probe]
                                  write a firmware image to an ESP32-S3 board over USB
+  agentctl flash --board <board> [--version v] <port>
+                                 the service downloads, checks and writes the board's firmware
+  agentctl ports [register|identify|forget <port>]
+                                 USB ports and what is on them (listed without opening them)
+  agentctl devices rename <name> <new name> | update <name>
+                                 a board's name in Settings; update its firmware
+  agentctl system                what the service is doing (boards, new ports, updates)
+  agentctl settings [<key> <value>]
+                                 start-at-login, notifications, sound, restore, updates, network
+  agentctl diagnostics           a report to send when something's wrong (no names or folders)
   agentctl update [--check]      look for a new release, and install it
   agentctl firmware ls           the boards and firmware in the latest release
   agentctl serve [--demo] [--log FILE]
@@ -190,6 +200,14 @@ func main() {
 		err = updateCmd(args)
 	case "firmware":
 		err = firmwareCmd(args)
+	case "system":
+		err = systemCmd(args)
+	case "settings":
+		err = settingsCmd(args)
+	case "ports":
+		err = portsCmd(args)
+	case "diagnostics":
+		err = diagnosticsCmd(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -902,6 +920,9 @@ func pair(args []string) error {
 }
 
 func devicesCmd(args []string) error {
+	if len(args) > 0 && (args[0] == "rename" || args[0] == "update") {
+		return devicesAdminCmd(args) // admin_cli.go
+	}
 	if len(args) > 0 {
 		action := args[0]
 		switch {
@@ -1135,9 +1156,10 @@ func serve(args []string) error {
 	// The default Wi-Fi network for boards plugged in over USB: its password in
 	// the OS secret store (the login Keychain on macOS), never in a file here.
 	wifiDefault := &link.WifiDefault{Store: pki.DefaultKeystore(paths.Data())}
-	hub := &link.Hub{Wifi: wifiDefault}
+	adm := newAdmin(st, srv, self, *logFile)
+	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
-		Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
+		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}
 	go links.Run(context.Background())
 	srv.LinkUpgrade = link.UpgradeHandler(link.ServerDeck{S: srv}, hub)
 	srv.LinkStatus = func() any {
@@ -1169,13 +1191,15 @@ func serve(args []string) error {
 		srv.DeviceHosts = append([]string{host}, lanIPs()...)
 		srv.DevicePort, _ = strconv.Atoi(port)
 		srv.DeviceLink = link.DeviceUpgradeHandler(link.ServerDeck{S: srv}, hub)
-		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // no source yet: 503
+		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // images from the release catalog (wireAdmin)
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))
 		}
 	}
+
+	wireAdmin(adm, srv, hub, links, wifiDefault, deviceTLS != nil, *demoMode)
 
 	if lc != nil {
 		go func() { errc <- fmt.Errorf("unix socket: %w", server.ServeUnix(paths.Socket(), srv.UnixHandler(lc))) }()

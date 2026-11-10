@@ -11,6 +11,8 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
 
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
+The management API (`/admin/v1`, [below](#management-api-admin-v1)) is served only on the unix socket and the
+loopback dashboard, never on the network.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
 mutating request whose `Origin` is not that host.
 
@@ -233,8 +235,64 @@ each board is connected right now (USB or Wi-Fi);
 (`GET /v1/firmware/…`) are recorded too, with the byte range in `detail`; the web dashboard is
 `web`, the unix socket `local`.
 
+## Management API (`/admin/v1`)
+
+The calls the Settings page, the tray app and `agentctl` use to run this computer's deck: settings,
+boards, USB ports and flashing, updates and diagnostics.
+
+**Where it is served.** On the unix socket, and on the loopback dashboard (`127.0.0.1:7340`) behind
+the same session cookie, `Host` check and `Origin` check as `/v1`. **Never on the network listener**:
+`:7341` answers 404 to every `/admin/` path, whatever the device's certificate or scope
+(`TestAdminNeverOnNetwork`). No board or phone can change settings, flash, update or read diagnostics.
+
+**No Deck Link counterpart, by design.** Boards never manage the computer, so none of these calls has
+a `link.proto` command. They sit in their own table below, with paths that start with `/admin/v1`,
+so the parity test (`TestEndpointParity`, which reads the `/v1` table above) is untouched; the
+admin package checks this table against its own routes (`TestDocsListEveryCall`).
+
+| method | admin path | body | result |
+|---|---|---|---|
+| GET | `/admin/v1/system` | – | `{"version", "platform", "install", "started", "boards": {"online", "total", "pending"}, "ports": {"new"}, "update": {"state", "version"}, "firmware_updates"}`: the tray app's status line |
+| GET | `/admin/v1/settings` | – | every setting as one document: `startAtLogin` (`null` where there is none), `trayAtLogin` (Linux, when the tray app is installed), `notifications` (`off`, `attention`, `finished`), `sound`, `restore` (`ask`, `auto`), `updates` (`notify`, `auto`, `off`), `network`, `networkRunning`, `wifi.ssid`, `cli` |
+| PATCH | `/admin/v1/settings` | any of those keys; `"wifi": {"ssid", "password", "send"}` or `{"forget": true}` | `{"settings", "message", "restartNeeded", "sent"}`. The Wi-Fi password goes to the OS secret store and to boards on USB; it is never returned, logged or audited. Start at login registers or removes the service (and the Linux tray app's autostart entry) after answering, since that restarts or stops the service |
+| POST | `/admin/v1/restart` | – | `202`: restarts the service through what starts it at login |
+| POST | `/admin/v1/cli` | `{"installed": true\|false}` | adds or removes `~/.local/bin/agentctl` (a link to this agentctl; never a file it didn't make) |
+| POST | `/admin/v1/open-data-folder` | – | `204`: shows the data folder in the file manager on this computer |
+| GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
+| POST | `/admin/v1/accounts/{name}/color` | `{"color"}` | `204` |
+| GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job"}], "latest", "releaseKey", "ota"}` |
+| POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air |
+| POST | `/admin/v1/pair` | `{"name", "scope"}` | a one-time pairing code, as `agentctl pair` gives |
+| GET | `/admin/v1/ports` | – | `{"ports": [{"id", "path", "vid", "pid", "likely", "state", "registered", "device", "job"}]}`, states `new`, `registered`, `connected`, `busy`, `flashing`, `unplugged`, `ignored`, `other`. Listed from the system's USB ids: **no port is opened to list it** |
+| POST | `/admin/v1/ports/{id}/{action}` | `register`; `identify`; `flash` `{"board", "version"}`; `forget` | `register` is "yes, it's mine" (`config.json` `link.ports`). `identify` and `flash` answer `403` until the port is registered. `identify` answers from the board's Deck Link session when one is live, else borrows the port from the Deck Link manager and asks the ROM bootloader: `{"source", "chip", "flashSize", "candidates"}`. `flash` downloads and checks the image, borrows the port, writes it at the manifest's offset and hands the port back so the board pairs: `202` and a job; one at a time per port. `forget` stops using a registered port, or marks a new one "not mine" |
+| GET | `/admin/v1/firmware` | – | the latest release's boards: `{"version", "boards": [{"board", "name", "chip", "types", "usb", "flash_size", "wifi", "ota", "picture", "version"}], "releaseKey"}` |
+| GET | `/admin/v1/jobs` | – | `{"jobs": […]}`, newest first (kept in memory, the last 50) |
+| GET | `/admin/v1/jobs/{id}` | – | `{"id", "kind": "flash"\|"board-update"\|"app-update", "state": "running"\|"done"\|"failed"\|"cancelled", "percent", "stage", "message", "error", "bootHelp", "steps", "done", "total"}` |
+| POST | `/admin/v1/jobs/{id}/cancel` | – | `202` |
+| GET | `/admin/v1/events` | – | Server-Sent Events: `job` (a Job, on every change) and `system` (as `GET /admin/v1/system`, every 10 seconds and after a job ends) |
+| GET | `/admin/v1/update` | – | the updater's state (`state`, `current`, `version`, `notes`, `message`, `install`) plus `mode`, `checked`, `releaseKey`, `job` |
+| POST | `/admin/v1/update/check` | – | reads the latest release now, then downloads it in the background so it is ready |
+| POST | `/admin/v1/update/apply` | – | `202` and a job: download if needed, then install; the service and the app restart |
+| GET | `/admin/v1/diagnostics` | – | `{"report", "log", "uptime", "agents", "boardsOnline", "boards", "dataDir", "logFile"}`: the report holds versions, the platform, counts and board models; the log's last lines have home paths, folders, quoted text, agent, device, account, user, host and network names and addresses left out. `dataDir` and `logFile` are for this computer's page, not the report |
+
+**Jobs and events.** Jobs come on `/admin/v1/events`, not on `/v1/events`: that stream also goes
+to paired devices on the network and to Deck Link boards, and nothing from the management API does.
+
+**Updates.** The service checks for a new release two minutes after it starts and then once a day,
+as `updates` says: `notify` downloads and checks it and waits for Install; `auto` also installs it;
+`off` never checks. Board firmware is never updated by itself.
+
+**No release key.** A build without `release.pub` still lists releases and the firmware catalog,
+but `flash`, device `update` and `update/apply` answer `409` and say so; nothing from the network is
+installed.
+
+**Errors** are `{"error": "…"}` in plain words; a flash that can't reach the bootloader also sets
+`"bootHelp": true` (hold BOOT, press RST).
+
 ## Demo mode
 
 `agentctl serve --demo` serves a fixed, animated fleet (the agents in `fixtures/state.json`
 with statuses cycling) on both listeners, so the panel and web UI can be developed without
 running real agents. `answer` / `focus` / `interrupt` are accepted and change the demo state.
+The management API pretends too: made-up boards, USB ports, a release and a flasher in a folder of
+its own, so Settings can be tried without touching a serial port, `config.json` or the network.
