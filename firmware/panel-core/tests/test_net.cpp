@@ -172,19 +172,49 @@ static void firmwareUpdate() {
 
   // At boot.
   OtaMark m;
-  assert(otaBootDecision(false, m) == OtaBoot::Normal);
-  assert(otaBootDecision(true, m) == OtaBoot::PendingBootloader);   // the bootloader rolls back on a reset
+  assert(otaBootDecision(false, m, "app0") == OtaBoot::Normal);
+  assert(otaBootDecision(true, m, "app1") == OtaBoot::PendingBootloader);   // the bootloader rolls back on a reset
   m.pending = 1;
-  assert(otaBootDecision(false, m) == OtaBoot::Normal);             // no old slot named: nothing to go back to
+  strcpy(m.next, "app1");
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::Normal);             // no old slot named: nothing to go back to
   strcpy(m.prev, "app0");
-  assert(otaBootDecision(false, m) == OtaBoot::PendingApp);
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::PendingApp);
+  assert(otaBootDecision(false, m, "app0") == OtaBoot::Normal);             // the bootloader already went back
   m.boots = kOtaMaxBoots - 1;
-  assert(otaBootDecision(false, m) == OtaBoot::PendingApp);
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::PendingApp);
   m.boots = kOtaMaxBoots;
-  assert(otaBootDecision(false, m) == OtaBoot::RevertNow);
-  assert(otaBootDecision(true, m) == OtaBoot::PendingBootloader);   // the bootloader's own state wins
+  assert(otaBootDecision(false, m, "app1") == OtaBoot::RevertNow);
+  assert(otaBootDecision(true, m, "app1") == OtaBoot::PendingBootloader);   // the bootloader's own state wins
   assert(!otaGiveUp(1000, 1000 + kOtaConfirmMs - 1) && otaGiveUp(1000, 1000 + kOtaConfirmMs));
   assert(otaGiveUp(0xFFFFF000u, 0xFFFFF000u + kOtaConfirmMs));      // across the millis() wrap
+
+  // The board's mark in an image, read in chunks: found across a chunk's end,
+  // and only whole ("...-lcd-2" isn't "...-lcd-21").
+  {
+    static uint8_t img[5000];
+    memset(img, 0xFF, sizeof img);
+    const char mark[] = "agents-deck-board:waveshare-touch-lcd-21";
+    auto reader = [](uint32_t off, uint8_t* to, uint32_t n) {
+      memcpy(to, img + off, n);
+      return true;
+    };
+    uint8_t buf[64 + sizeof mark];
+    for (size_t at : {(size_t)0, (size_t)30, (size_t)60, (size_t)63, (size_t)64, (size_t)100, (size_t)4000, sizeof img - sizeof mark}) {
+      memset(img, 0xFF, sizeof img);
+      memcpy(img + at, mark, sizeof mark);
+      assert(otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+      assert(!otaFindMark(mark, sizeof mark, (uint32_t)(at + sizeof mark - 1), buf, sizeof buf, reader));   // cut short
+    }
+    memset(img, 0xFF, sizeof img);
+    memcpy(img + 500, "agents-deck-board:waveshare-touch-lcd-2", 40);   // with its NUL
+    assert(!otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+    const char shorter[] = "agents-deck-board:waveshare-touch-lcd-2";
+    memset(img, 0xFF, sizeof img);
+    memcpy(img + 900, mark, sizeof mark);   // "...-lcd-21" isn't a mark for "...-lcd-2"
+    assert(!otaFindMark(shorter, sizeof shorter, sizeof img, buf, sizeof buf, reader));
+    assert(otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, reader));
+    assert(!otaFindMark(mark, sizeof mark, sizeof img, buf, sizeof buf, [](uint32_t, uint8_t*, uint32_t) { return false; }));
+  }
 
   // The words: the update wins over the link's notice, on USB too.
   NetView v;

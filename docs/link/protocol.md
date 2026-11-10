@@ -316,7 +316,8 @@ board (on Wi-Fi)                                     deck
   image only to a Deck Link board whose type runs that board's firmware, and audits every request. A
   dropped connection resumes with `Range: bytes=<written>-`.
 - The board writes the image to its other firmware slot (every released Wi-Fi board has two of 6.25
-  MB), checks its size and SHA-256 while it writes, and only then marks it to boot. It restarts into it
+  MB), checks its size and SHA-256 while it writes, checks it is an app for its chip built for its own
+  board (the build carries its board's name), and only then marks it to boot. It restarts into it
   and keeps it only once the deck answers its `Hello` with a `Welcome` (over Wi-Fi or USB). If the new
   firmware doesn't reach the deck within 5 minutes, or restarts before it does (a crash, a power cut),
   the board goes back to its old firmware, once; its `Hello` then reports the old version, and the deck

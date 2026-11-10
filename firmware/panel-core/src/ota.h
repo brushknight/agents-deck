@@ -54,6 +54,12 @@
 // Keep a new image PENDING_VERIFY past the Arduino core's start-up: ota::welcome()
 // confirms it once the deck answers (arduino-esp32 3.x, esp32-hal-misc.c).
 extern "C" bool verifyRollbackLater() { return true; }
+
+// The board this image is for, in its flash: an update must carry this
+// board's mark, or it isn't installed (another board's build, offered under
+// this board's name, would start but drive the wrong screen).
+#define OTA_BOARD_MARK "agents-deck-board:" AGENTS_DECK_BOARD
+__attribute__((used)) static const char kOtaBoardMark[] = OTA_BOARD_MARK;
 #endif
 
 namespace ota {
@@ -127,7 +133,7 @@ static void begin() {
   esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
   const bool known = run && esp_ota_get_state_partition(run, &st) == ESP_OK;
   (void)loadMark(mark);
-  boot = otaBootDecision(known && st == ESP_OTA_IMG_PENDING_VERIFY, mark);
+  boot = otaBootDecision(known && st == ESP_OTA_IMG_PENDING_VERIFY, mark, run ? run->label : "");
   switch (boot) {
     case OtaBoot::RevertNow:
       revert("it kept restarting");
@@ -143,7 +149,7 @@ static void begin() {
     case OtaBoot::Normal:
       // An image the app switched to by itself (going back) starts NEW: keep it.
       if (known && st == ESP_OTA_IMG_NEW) esp_ota_mark_app_valid_cancel_rollback();
-      if (mark.pending) clearMark();
+      if (mark.pending) clearMark();   // back on the old firmware, or a mark without a slot
       break;
   }
   NET_LOG("ota: slot %s, state %d, %s", run ? run->label : "?", (int)st,
@@ -166,6 +172,13 @@ static void sinkProgress(void*, uint64_t done, uint64_t total) {
   taskTotal = (uint32_t)total;
 }
 
+// Does the written image carry this board's mark (kOtaBoardMark, with its NUL)?
+static bool hasMark(const esp_partition_t* p, uint32_t size) {
+  static uint8_t buf[1024 + sizeof kOtaBoardMark];
+  return otaFindMark(kOtaBoardMark, sizeof kOtaBoardMark, size, buf, sizeof buf,
+                     [p](uint32_t off, uint8_t* to, uint32_t n) { return esp_partition_read(p, off, to, n) == ESP_OK; });
+}
+
 static void downloadTask(void*) {
   taskErr[0] = '\0';
   esp_err_t e = esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &handle);
@@ -182,6 +195,9 @@ static void downloadTask(void*) {
       if (e != ESP_OK) {
         taskResult = DECK_FW_CHECKSUM;
         snprintf(taskErr, sizeof taskErr, "not a valid app image (%s)", esp_err_to_name(e));
+      } else if (!AGENTS_DECK_BOARD[0] || !hasMark(target, (uint32_t)offer.size)) {
+        taskResult = DECK_FW_CHECKSUM;
+        snprintf(taskErr, sizeof taskErr, "the image isn't a build for %s", AGENTS_DECK_BOARD);
       }
     } else {
       esp_ota_abort(handle);
@@ -228,7 +244,8 @@ static void offered(deck_link_t* ctx, const agentsdeck_link_v1_FirmwareOffer* o,
   snprintf(taskAddr, sizeof taskAddr, "%s", addr ? addr : "");
   taskDone = 0;
   taskTotal = (uint32_t)o->size;
-  taskWritten = cancel = false;
+  taskWritten = false;
+  cancel = false;
   view = OtaView();
   view.phase = OtaPhase::Downloading;
   snprintf(view.version, sizeof view.version, "%s", o->version);
@@ -268,6 +285,7 @@ static void loop(deck_link_t* link) {
       OtaMark m;
       m.pending = 1;
       snprintf(m.prev, sizeof m.prev, "%s", run ? run->label : "");
+      snprintf(m.next, sizeof m.next, "%s", target->label);
       const bool saved = saveMark(m);
       const esp_err_t e = saved ? esp_ota_set_boot_partition(target) : ESP_FAIL;
       if (e != ESP_OK) {

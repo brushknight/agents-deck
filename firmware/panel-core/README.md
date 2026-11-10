@@ -114,7 +114,9 @@ version and percent, "keep it powered") instead of the agents while it runs, and
   arrives and `esp_ota_write()` fills it, so RAM use stays at the one buffer plus mbedTLS's. The
   main loop sends `FirmwareStatus` every 5 % (or 3 s).
 - **The switch.** `esp_ota_end()` checks it is a valid app for the chip; the SHA-256 must be the
-  offer's. Only then the board writes an NVS mark (`decklink`/`ota`: the old slot's name), calls
+  offer's; and the image must carry this board's mark (`agents-deck-board:<board>`, which every
+  idf5 build has in its flash), so another board's build sent under this board's name is not
+  installed. Only then the board writes an NVS mark (`decklink`/`ota`: the old slot's name), calls
   `esp_ota_set_boot_partition()`, says `RESTARTING` and restarts.
 - **Confirm or go back.** The new firmware keeps itself only when the deck answers its `Hello` (a
   `Welcome` on either link), and shows "update installed".
