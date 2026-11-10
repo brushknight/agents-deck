@@ -53,6 +53,14 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+# Optional: the Settings window's web view (libwebkit2gtk-4.1-dev). Without
+# it the app opens Settings in the default browser.
+pkg_check_modules(WEBKIT IMPORTED_TARGET webkit2gtk-4.1)
+if(WEBKIT_FOUND)
+  message(STATUS "Settings window: WebKitGTK ${WEBKIT_VERSION}")
+else()
+  message(STATUS "Settings window: no webkit2gtk-4.1, Settings opens in the browser")
+endif()
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")

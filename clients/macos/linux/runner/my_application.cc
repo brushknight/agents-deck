@@ -6,6 +6,7 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "settings_window.h"
 #include "tray.h"
 
 // agents deck in the system tray: a critter icon (orange when an agent needs
@@ -14,6 +15,8 @@
 // channel, so lib/main.dart runs unchanged on both.
 
 static const int kSide = 440;    // the window, in logical pixels (as on macOS)
+static const int kStatusLine = 32;  // the status line under the deck
+static const int kHeight = kSide + kStatusLine;
 static const int kMargin = 8;    // from the screen edges and the panel
 static const char kBackground[] = "#0A0A0A";  // DeckHud.bg
 
@@ -73,7 +76,7 @@ static void place_deck(MyApplication* self) {
               MAX(area.x + kMargin, area.x + area.width - kSide - kMargin));
     const gboolean top_half = py < area.y + area.height / 2;
     y = top_half ? area.y + kMargin
-                 : area.y + area.height - kSide - kMargin;
+                 : area.y + area.height - kHeight - kMargin;
   } else {
     x = area.x + (area.width - kSide) / 2;
     y = area.y + kMargin;
@@ -145,10 +148,38 @@ static void open_dashboard() {
   }
 }
 
+// "Settings…" in the menu: Dart gets a login link from the service and calls
+// settings(url) back. When it can't (the service isn't running), the deck
+// opens instead and says so.
+static void open_settings_done(GObject* object, GAsyncResult* result,
+                               gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
+      FL_METHOD_CHANNEL(object), result, &error);
+  gboolean opened = FALSE;
+  if (response != nullptr) {
+    // Owned by the response.
+    FlValue* value = fl_method_response_get_result(response, nullptr);
+    opened = value != nullptr && fl_value_get_type(value) == FL_VALUE_TYPE_BOOL &&
+             fl_value_get_bool(value);
+  }
+  if (!opened) show_deck(self);
+  g_object_unref(self);
+}
+
+static void open_settings(MyApplication* self) {
+  if (self->channel == nullptr) return;
+  g_autoptr(FlValue) page = fl_value_new_string("general");
+  fl_method_channel_invoke_method(self->channel, "openSettings", page, nullptr,
+                                  open_settings_done, g_object_ref(self));
+}
+
 // Takes the window (and with it the Flutter engine) down before the process
 // ends, so no engine thread is left running during exit.
 static void quit_app(MyApplication* self) {
   g_clear_object(&self->channel);
+  settings_window_close();
   if (self->window != nullptr) {
     GtkWidget* window = GTK_WIDGET(self->window);
     self->window = nullptr;
@@ -168,6 +199,9 @@ static void on_tray_action(TrayAction action, gpointer data) {
       break;
     case TRAY_DASHBOARD:
       open_dashboard();
+      break;
+    case TRAY_SETTINGS:
+      open_settings(self);
       break;
     case TRAY_QUIT:
       quit_app(self);
@@ -209,6 +243,21 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* call,
   } else if (g_strcmp0(method, "hide") == 0) {
     hide_deck(self);
     fl_method_call_respond_success(call, nullptr, nullptr);
+  } else if (g_strcmp0(method, "settings") == 0) {
+    FlValue* args = fl_method_call_get_args(call);
+    const char* url = args != nullptr &&
+                              fl_value_get_type(args) == FL_VALUE_TYPE_STRING
+                          ? fl_value_get_string(args)
+                          : nullptr;
+    if (url == nullptr || !settings_window_is_dashboard(url)) {
+      fl_method_call_respond_error(call, "bad-url",
+                                   "not the dashboard on this computer",
+                                   nullptr, nullptr);
+      return;
+    }
+    hide_deck(self);
+    settings_window_open(GTK_APPLICATION(self), url);
+    fl_method_call_respond_success(call, nullptr, nullptr);
   } else {
     fl_method_call_respond_not_implemented(call, nullptr);
   }
@@ -245,8 +294,8 @@ static void create_deck(MyApplication* self) {
   gtk_window_set_title(window, "agents deck");
   gtk_window_set_decorated(window, FALSE);
   gtk_window_set_resizable(window, FALSE);
-  gtk_window_set_default_size(window, kSide, kSide);
-  gtk_widget_set_size_request(GTK_WIDGET(window), kSide, kSide);
+  gtk_window_set_default_size(window, kSide, kHeight);
+  gtk_widget_set_size_request(GTK_WIDGET(window), kSide, kHeight);
   gtk_window_set_skip_taskbar_hint(window, TRUE);
   gtk_window_set_skip_pager_hint(window, TRUE);
   gtk_window_set_keep_above(window, TRUE);
