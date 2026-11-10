@@ -188,6 +188,39 @@ another program (a flasher, a serial monitor) has it open. `agentctl link sim` i
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
 device, see [link/new-device.md](link/new-device.md).
 
+## The Settings page
+
+`http://127.0.0.1:7340/settings` on the dashboard (a **settings** link at the top of the deck), and
+the tray app's Settings window, which shows the same page. Everything on it is also a command.
+
+| page | what you can do | in a terminal |
+|---|---|---|
+| General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
+| Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
+| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board` |
+| Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB, each board's network, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
+| Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
+| Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |
+| About | version, how it was installed, links | `agentctl version` |
+
+**New boards.** A port is listed from its USB id alone and never opened until you say it's yours.
+Then the service asks the board: a board running agents deck says what it is; anything else is asked
+through the ESP32's bootloader, and you pick from the boards that fit its chip and flash. If it
+doesn't answer: hold BOOT, press RST, let go of BOOT, and try again. Picking the wrong board does no
+harm: install again with the right one.
+
+**Board updates** are never automatic. A board on USB is written by the flasher (it keeps its name,
+pairing and Wi-Fi); a board on Wi-Fi downloads the update from the service over its encrypted link
+and goes back to its old firmware if the new one doesn't reach the deck.
+
+**App updates.** The service looks for a new release two minutes after it starts and then daily.
+"Tell me" downloads and checks it and waits for you; "automatic" also installs it; "never check"
+doesn't look. A build without a release key lists versions but never installs anything from the
+network.
+
+The calls behind the page are the management API, `/admin/v1` ([protocol.md](protocol.md#management-api-admin-v1)):
+on this computer only, never on the network.
+
 ## Settings
 
 `agentctl get` lists them; `agentctl set <key> <value>` changes them.
