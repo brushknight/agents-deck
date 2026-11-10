@@ -86,8 +86,11 @@ const usage = `agentctl — agents-terminal
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
-  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]   write firmware to an ESP32-S3 over USB
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
+  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]
+                                 write a firmware image to an ESP32-S3 board over USB
+  agentctl update [--check]      look for a new release, and install it
+  agentctl firmware ls           the boards and firmware in the latest release
   agentctl serve [--demo] [--log FILE]
                                  run the service (normally started at login, see install)
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now
