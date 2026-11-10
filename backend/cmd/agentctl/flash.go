@@ -21,6 +21,11 @@ const flashUsage = "usage: agentctl flash <port> <image.bin> [--offset 0x0] [--b
 // flashCmd writes a firmware image to an ESP32-S3 over USB, or with --probe
 // only says what chip is on the port.
 func flashCmd(args []string) error {
+	for _, a := range args {
+		if a == "--board" || a == "-board" || strings.HasPrefix(a, "--board=") || strings.HasPrefix(a, "-board=") {
+			return flashBoardCmd(args) // admin_cli.go: through the service
+		}
+	}
 	fs := flag.NewFlagSet("flash", flag.ExitOnError)
 	offsetFlag := fs.String("offset", "0x0", "where in flash the image goes (a multiple of 0x1000)")
 	probe := fs.Bool("probe", false, "only read the chip, its MAC and flash size, then restart it")

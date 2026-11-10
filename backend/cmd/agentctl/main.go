@@ -87,6 +87,16 @@ const usage = `agentctl — agents-terminal
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
   agentctl flash <port> <image.bin> [--offset 0x0] [--probe]   write firmware to an ESP32-S3 over USB
+  agentctl flash --board <board> [--version v] <port>
+                                 the service downloads, checks and writes the board's firmware
+  agentctl ports [register|identify|forget <port>]
+                                 USB ports and what is on them (listed without opening them)
+  agentctl devices rename <name> <new name> | update <name>
+                                 a board's name in Settings; update its firmware
+  agentctl system                what the service is doing (boards, new ports, updates)
+  agentctl settings [<key> <value>]
+                                 start-at-login, notifications, sound, restore, updates, network
+  agentctl diagnostics           a report to send when something's wrong (no names or folders)
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
   agentctl serve [--demo] [--log FILE]
                                  run the service (normally started at login, see install)
@@ -184,6 +194,14 @@ func main() {
 		err = updateCmd(args)
 	case "firmware":
 		err = firmwareCmd(args)
+	case "system":
+		err = systemCmd(args)
+	case "settings":
+		err = settingsCmd(args)
+	case "ports":
+		err = portsCmd(args)
+	case "diagnostics":
+		err = diagnosticsCmd(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -896,6 +914,9 @@ func pair(args []string) error {
 }
 
 func devicesCmd(args []string) error {
+	if len(args) > 0 && (args[0] == "rename" || args[0] == "update") {
+		return devicesAdminCmd(args) // admin_cli.go
+	}
 	if len(args) > 0 {
 		action := args[0]
 		switch {
