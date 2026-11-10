@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/serial"
 )
 
 // PortConfig is one registered serial port (config.json "link.ports").
@@ -234,10 +236,27 @@ func otherUser(lsof string, self int) string {
 
 // CandidatePorts lists USB serial ports that look like boards.
 func CandidatePorts() []string {
+	patterns := []string{"/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.SLAB_USBtoUART*", "/dev/cu.wchusbserial*", "/dev/ttyACM*", "/dev/ttyUSB*"}
 	var out []string
-	for _, g := range []string{"/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.SLAB_USBtoUART*", "/dev/cu.wchusbserial*", "/dev/ttyACM*", "/dev/ttyUSB*"} {
-		m, _ := filepath.Glob(g)
-		out = append(out, m...)
+	ports, err := serial.List()
+	if err != nil {
+		for _, g := range patterns {
+			m, _ := filepath.Glob(g)
+			out = append(out, m...)
+		}
+		sort.Strings(out)
+		return out
+	}
+	for _, p := range ports {
+		ok := strings.HasPrefix(p.Path, "COM") && p.VID != "" // Windows: USB COM ports
+		for _, g := range patterns {
+			if m, _ := filepath.Match(g, p.Path); m {
+				ok = true
+			}
+		}
+		if ok {
+			out = append(out, p.Path)
+		}
 	}
 	sort.Strings(out)
 	return out
