@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -702,13 +701,4 @@ func shellJoin(argv []string) string {
 		q[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 	}
 	return strings.Join(q, " ")
-}
-
-// LookPathLogin resolves a command through the user's login shell PATH.
-func LookPathLogin(name string) string {
-	out, err := exec.Command("/bin/zsh", "-lc", "command -v "+shellJoin([]string{name})).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }

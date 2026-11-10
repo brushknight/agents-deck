@@ -543,7 +543,8 @@ func ServeUnix(path string, h http.Handler) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := restrictSocket(path); err != nil {
+		l.Close()
 		return err
 	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second}

@@ -4,13 +4,13 @@ import (
 	"errors"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/codex"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -105,9 +105,10 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 }
 
 // focusExternal opens the thread in the Codex app (codex:// deep link; no Apple events).
+// It needs the Codex app installed: with only the CLI there is nothing to open.
 func (d *Daemon) focusExternal(e store.Entry) error {
 	d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
-	if err := exec.Command("/usr/bin/open", "codex://threads/"+e.SessionID).Run(); err != nil {
+	if err := proc.Open("codex://threads/" + e.SessionID); err != nil {
 		return err
 	}
 	log.Printf("focus %s: opened codex thread", e.A.ID)
