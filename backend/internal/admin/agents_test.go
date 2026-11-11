@@ -114,7 +114,7 @@ func TestToolsCodexAppOrCommand(t *testing.T) {
 	p := fakeProbe(root)
 	mkdir(t, root, "Applications", "Codex.app")
 	r := rowOf(toolRows(p, map[string]any{}, map[string]int{}, false), "codex")
-	if !r.Found || r.State != "found" || !strings.Contains(r.Detail, "the Codex app") || !strings.Contains(r.Note, "hasn't saved a session") {
+	if !r.Found || r.State != "found" || !strings.HasSuffix(r.Detail, "Codex.app") || !strings.Contains(r.Note, "hasn't saved a session") {
 		t.Fatalf("%+v", r)
 	}
 	// The app counts on macOS only.
@@ -125,7 +125,7 @@ func TestToolsCodexAppOrCommand(t *testing.T) {
 	// A codex program in one of the usual folders a service's PATH misses.
 	program(t, filepath.Join(root, "usr-local-bin"), "codex")
 	r = rowOf(toolRows(p, map[string]any{}, map[string]int{}, false), "codex")
-	if !r.Found || !strings.Contains(r.Detail, "the codex command") {
+	if !r.Found || !strings.Contains(r.Detail, filepath.Join("usr-local-bin", "codex")) {
 		t.Fatalf("%+v", r)
 	}
 	// CODEX_HOME moves the data folder, as it does for the watcher.
@@ -205,7 +205,7 @@ func TestToolsHerdrAndCmux(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	p.herdrSock = func() []string { return []string{"/tmp/example.sock"} }
-	if r := rowOf(toolRows(p, map[string]any{}, map[string]int{}, false), "herdr"); !strings.Contains(r.Note, "No agents in herdr") {
+	if r := rowOf(toolRows(p, map[string]any{}, map[string]int{}, false), "herdr"); r.Note != "" {
 		t.Fatalf("%+v", r)
 	}
 }

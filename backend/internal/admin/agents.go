@@ -30,8 +30,8 @@ type Tool struct {
 	// nothing on the deck right now), "missing" (not on this computer) or
 	// "off" (turned off in config.json).
 	State string `json:"state"`
-	// Detail says what was found ("~/.codex, the Codex app") or, when nothing
-	// was, where the deck looked.
+	// Detail says what was found ("~/.codex · /Applications/Codex.app") or,
+	// when nothing was, where the deck looked.
 	Detail string `json:"detail,omitempty"`
 	// Note is what to know next: why nothing shows, or what is missing.
 	Note string `json:"note,omitempty"`
@@ -168,12 +168,6 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 			have = append(have, what)
 		}
 	}
-	named := func(what, path string) string {
-		if path == "" {
-			return ""
-		}
-		return what + " (" + p.short(path) + ")"
-	}
 	switch id {
 	case "claude":
 		data := filepath.Join(p.home, ".claude")
@@ -181,7 +175,7 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 			data = d
 		}
 		bin := p.bin("claude")
-		add(named("the claude command", bin))
+		add(p.short(bin))
 		if isDir(data) {
 			add(p.short(data))
 		}
@@ -190,8 +184,6 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 			return false, "looked for the claude command and " + p.short(data), "Install Claude Code, or start agents with agentctl new once it is."
 		case bin == "":
 			note = "The claude command isn't on your PATH, so sessions started in a terminal can't be listed to add to the deck."
-		case agents == 0:
-			note = "No Claude Code sessions on the deck right now. Start one with agentctl new, or add one that already runs below."
 		}
 	case "codex":
 		data := filepath.Join(p.home, ".codex")
@@ -202,8 +194,8 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 		if hasData {
 			add(p.short(data))
 		}
-		add(named("the codex command", p.bin("codex")))
-		add(named("the Codex app", p.app("Codex.app")))
+		add(p.short(p.bin("codex")))
+		add(p.short(p.app("Codex.app")))
 		switch {
 		case len(have) == 0:
 			return false, "looked for " + p.short(data) + ", the codex command and the Codex app", "Codex sessions show up here once Codex (the app or the CLI) has run on this computer."
@@ -214,26 +206,23 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 		}
 	case "orca":
 		bin := p.orcaBin()
-		add(named("the orca command", bin))
-		add(named("the Orca app", p.app("Orca.app")))
+		add(p.short(bin))
+		add(p.short(p.app("Orca.app")))
 		switch {
 		case len(have) == 0:
 			return false, "looked for the orca command and the Orca app", ""
 		case bin == "":
 			note = "The deck reads Orca through its orca command, which isn't on this computer's PATH. Turn on Orca's command line tool to see its agents here."
-		case agents == 0:
-			note = "No agents running in Orca right now."
 		}
 	case "tmux":
 		bin := p.bin("tmux")
-		add(named("the tmux command", bin))
+		add(p.short(bin))
 		if bin == "" {
 			return false, "looked for the tmux command", "agentctl new runs agents in tmux: install it to start agents from the deck."
 		}
-		note = "Runs the agents you start with agentctl new."
 	case "herdr":
 		bin := p.bin("herdr")
-		add(named("the herdr command", bin))
+		add(p.short(bin))
 		dir := filepath.Join(p.home, ".config", "herdr")
 		if isDir(dir) {
 			add(p.short(dir))
@@ -243,12 +232,10 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 			return false, "looked for the herdr command and " + p.short(dir), ""
 		case agents == 0 && len(p.herdrSock()) == 0:
 			note = "herdr isn't running. Its agents show up here while it runs."
-		case agents == 0:
-			note = "No agents in herdr right now."
 		}
 	case "cmux":
-		add(named("the cmux app", p.app("cmux.app")))
-		add(named("the cmux command", p.bin("cmux")))
+		add(p.short(p.app("cmux.app")))
+		add(p.short(p.bin("cmux")))
 		state := filepath.Join(p.home, ".cmuxterm")
 		if isDir(state) {
 			add(p.short(state))
@@ -257,10 +244,10 @@ func (p probe) look(id string, agents int, window float64) (found bool, detail, 
 		case len(have) == 0:
 			return false, "looked for the cmux app and " + p.short(state), ""
 		case agents == 0:
-			note = "No Claude sessions in cmux right now. If there are, set Settings > Automation > Socket Control Mode to Automation in cmux."
+			note = "Sessions in cmux missing? In cmux, set Socket Control Mode to Automation."
 		}
 	}
-	return true, strings.Join(have, ", "), note
+	return true, strings.Join(have, " · "), note
 }
 
 func hours(h float64) string {
