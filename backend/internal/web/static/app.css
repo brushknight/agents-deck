@@ -92,6 +92,9 @@ code, .code { font-family: var(--f-head); }
 .top-left, .top-right {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-width: 0;
 }
+.top-right { gap: 8px 16px; }
+/* The computer's name only where there is room (it is also the live dot's tooltip). */
+@media (max-width: 1439px) { .server { display: none; } }
 .wordmark {
   font-family: var(--f-head);
   font-weight: 700;
@@ -124,6 +127,16 @@ code, .code { font-family: var(--f-head); }
 .toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .toggle:active { background: var(--ink); color: var(--bg); }
 a.toggle { display: inline-block; text-decoration: none; }
+.toggle .k { opacity: 0.7; }
+.toggle[aria-pressed="true"] .k { opacity: 0.8; }
+.deck-ctl { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Settings: the last thing in the header, on every page. */
+.settings-link {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 10px;
+  border: 1px solid var(--ink); border-radius: 8px; color: var(--ink); font-size: 13px; text-decoration: none;
+}
+.settings-link:hover { background: var(--ink); color: var(--bg); }
+.settings-link .gear { width: 13px; height: 13px; flex: none; }
 
 .banner {
   background: var(--panel);
@@ -597,10 +610,14 @@ body.offline .main { opacity: 0.4; }
   #conn-label { display: none; }
   .top-right { flex-wrap: nowrap; }
   .toggle { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+  .toggle .k { display: none; }
   .clock { font-size: 16px; }
+  .top-right { flex-wrap: wrap; }
+  .settings-link { padding: 4px 8px; font-size: 12px; }
 }
 @media (max-width: 480px) {
   .server { display: none; }
+  .settings-link span { display: none; }
   .toggle { padding: 3px 10px; font-size: 12px; }
 }
 @media (max-width: 340px) {

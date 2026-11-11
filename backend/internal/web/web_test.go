@@ -105,3 +105,21 @@ func TestScriptsParse(t *testing.T) {
 		}
 	}
 }
+
+// In the app's own window the page drops its top bar (the window's title bar
+// takes its place); in a browser it keeps it. The dashboard names Settings in
+// words, not only with an icon.
+func TestInAppAndSettingsEntry(t *testing.T) {
+	css, _ := fs.ReadFile(web.Static(), "settings.css")
+	if !strings.Contains(string(css), ".in-app .tb { display: none; }") {
+		t.Error("settings.css keeps the top bar in the app")
+	}
+	js, _ := fs.ReadFile(web.Static(), "settings.js")
+	if !strings.Contains(string(js), "window.agentsDeckApp") || !strings.Contains(string(js), "AgentsDeckApp") {
+		t.Error("settings.js doesn't know when it runs in the app")
+	}
+	html, _ := fs.ReadFile(web.Static(), "index.html")
+	if !regexp.MustCompile(`id="settings-link"[^>]*>.*<span>Settings</span></a>`).Match(html) {
+		t.Error("the deck's header has no Settings entry in words")
+	}
+}

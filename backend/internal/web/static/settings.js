@@ -10,6 +10,29 @@ const SCOPES = [
 ];
 const scopeWords = (s) => (SCOPES.find((x) => x.value === s) || { text: s }).text;
 
+// In the agents deck app the page sits in a native window: the shell
+// injects window.agentsDeckApp at document start (and marks <html> with
+// .in-app and .app-<platform>), so the page drops its own top bar. Its user
+// agent carries "AgentsDeckApp/<platform>" too, for older injections.
+const APP = (() => {
+  const a = window.agentsDeckApp;
+  if (a && typeof a.platform === 'string') return a.platform;
+  const m = /AgentsDeckApp\/(\w+)/.exec(navigator.userAgent);
+  return m ? m[1] : '';
+})();
+if (APP) document.documentElement.classList.add('in-app', `app-${APP}`);
+
+// appPost asks the app for something only it can do; false outside the app.
+function appPost(action) {
+  try {
+    if (window.agentsDeckApp && typeof window.agentsDeckApp.post === 'function') {
+      window.agentsDeckApp.post({ action });
+      return true;
+    }
+  } catch (e) { /* no app */ }
+  return false;
+}
+
 const S = {
   page: '', arg: '',
   system: null, settings: null, devices: null, ports: null, update: null, agents: null, live: null, diag: null,
@@ -85,7 +108,10 @@ async function api(method, path, body) {
   return data;
 }
 
-function showExpired() { $('#expired').hidden = false; }
+function showExpired() {
+  if (APP) $('#expired p').textContent = 'Close this window and open Settings again from the agents deck icon.';
+  $('#expired').hidden = false;
+}
 
 let toastTimer = 0;
 function toast(msg, bad) {
@@ -110,7 +136,8 @@ function ago(iso) {
   return `${Math.round(s / 86400)} days ago`;
 }
 
-const mb = (n) => (n / 1048576).toFixed(1);
+// mb: megabytes with one decimal; anything started shows as at least 0.1.
+const mb = (n) => (n > 0 && n < 104858 ? '0.1' : (n / 1048576).toFixed(1));
 
 // busy runs an action with its button marked busy; errors become a toast.
 async function busy(btn, fn, okMsg) {
@@ -165,11 +192,14 @@ function radioKeys(e, group, onChange, options) {
   else items[n].click();
 }
 
+// row: a title, a line of meta, and controls on the right. opts.name marks
+// the title as a name (a board's, an account's): one line, cut with … and
+// whole in its tooltip.
 function row(title, meta, right, opts = {}) {
   return h('div', { class: `row${opts.hot ? ' hot' : ''}${opts.tall ? ' tall' : ''}`, 'data-row': opts.id },
     opts.pic,
     h('div', { class: 'tx' },
-      h('div', { class: `t${opts.off ? ' off' : ''}`, id: opts.titleId }, title),
+      h('div', { class: `t${opts.off ? ' off' : ''}${opts.name ? ' name' : ''}`, id: opts.titleId, title: opts.name && typeof title === 'string' ? title : null }, title),
       meta ? h('div', { class: 'm' }, meta) : null),
     right && right.length !== 0 ? h('div', { class: 'r' }, right) : null,
     opts.extra);
@@ -213,6 +243,7 @@ function render(id, build, force) {
   const out = build();
   frag.append(...[out].flat().filter(Boolean));
   body.replaceChildren(frag);
+  body.removeAttribute('aria-busy');
   if (key) {
     const again = body.querySelector(`[data-k="${CSS.escape(key)}"]`);
     if (again) again.focus();
@@ -338,27 +369,38 @@ function drawGeneral() {
     }, cli.installed ? 'Removed the agentctl command' : 'Installed the agentctl command'))
     : null;
   out.push(row('The agentctl command', cliMeta, [cliBtn]));
-  out.push(row('The dashboard in your browser', 'The same deck and these settings, on this computer only.', [h('a', { class: 'b', href: '/' }, 'Open')]));
+  out.push(row('The dashboard in your browser', 'The same deck and these settings, on this computer only.', [
+    APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : h('a', { class: 'b', href: '/' }, 'Open'),
+  ]));
   return out;
 }
 
 // ---- Agents ------------------------------------------------------------------------------
+
+// What a tool's card says on its first line: is it connected, found, missing or off.
+function toolState(t) {
+  const n = (k) => `${t.agents} ${k}${t.agents === 1 ? '' : 's'}`;
+  switch (t.state || (t.on ? (t.agents ? 'connected' : t.found ? 'found' : 'missing') : 'off')) {
+    case 'connected': return t.id === 'tmux' ? `connected · ${n('agent')} started here` : `connected · ${n(t.id === 'codex' ? 'session' : 'agent')}`;
+    case 'found': return t.id === 'tmux' ? 'found · for agents you start here' : 'found · nothing on the deck now';
+    case 'off': return 'turned off';
+    default: return 'not found';
+  }
+}
 
 function drawAgents() {
   const a = S.agents;
   const out = [lab('tools')];
   const grid = h('div', { class: 'tools' });
   for (const t of a.tools) {
-    let meta = 'not installed';
-    if (!t.on) meta = 'turned off';
-    else if (t.id === 'tmux') meta = t.found ? `found · ${t.agents ? `${t.agents} agents` : 'for agents you start here'}` : 'not installed';
-    else if (t.agents) meta = `connected · ${t.agents} agent${t.agents === 1 ? '' : 's'}`;
-    else if (t.found) meta = 'found · no agents right now';
-    const off = !t.found || !t.on;
+    const state = t.state || '';
+    const off = state === 'off' || state === 'missing' || (!state && (!t.found || !t.on));
     const chip = off ? 'chip' : `chip ${t.id === 'claude' ? 'c-claude' : t.id === 'codex' ? 'c-codex' : 'c-on'}`;
     grid.append(h('div', { class: `tool${off ? ' off' : ''}` },
       h('div', { class: 'hd' }, h('span', { class: chip, 'aria-hidden': 'true' }), h('span', { class: 't' }, t.name)),
-      h('div', { class: 'm', title: t.note || '' }, meta)));
+      h('div', { class: 'st' }, toolState(t)),
+      t.detail ? h('div', { class: 'dt', title: t.detail }, t.detail) : null,
+      t.note ? h('div', { class: 'nt' }, t.note) : null));
   }
   out.push(grid);
 
@@ -373,7 +415,7 @@ function drawAgents() {
         await api('POST', `/v1/live/${encodeURIComponent(s.sessionId)}/add`, {});
         await load('live'); draw();
       }, 'Added to the deck')),
-    ]));
+    ], { name: true }));
   }
 
   out.push(lab('accounts'));
@@ -386,7 +428,7 @@ function drawAgents() {
         await api('POST', `/admin/v1/accounts/${encodeURIComponent(ac.name)}/color`, { color: next });
         await load('agents'); draw();
       }), '', { 'aria-label': `Colour of ${ac.name}: ${ac.color}. Change to ${next}` }),
-    ], { pic: h('span', { class: `chip c-${ac.color}`, 'aria-hidden': 'true' }) }));
+    ], { pic: h('span', { class: `chip c-${ac.color}`, 'aria-hidden': 'true' }), name: true }));
   }
   return out;
 }
@@ -498,7 +540,7 @@ function deviceRow(d) {
   const extra = [];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
-  return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra });
+  return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra, name: true });
 }
 
 function portWords(p) {
@@ -553,7 +595,7 @@ function drawBoards() {
       if (p.state === 'flashing' && p.job) right.push(h('a', { class: 'b', href: `#flash/${p.job}` }, 'Show progress'));
       if (p.state !== 'flashing' && p.state !== 'unplugged') right.push(btn('Set it up', () => { location.hash = `#new-board/${encodeURIComponent(p.id)}`; }));
       if (p.state !== 'flashing') right.push(btn('Forget', (e) => portAction(p, 'forget', {}, e.currentTarget, 'The deck no longer opens it')));
-      out.push(row(p.id, meta, right, { pic: pic('new', p.state === 'unplugged') }));
+      out.push(row(p.id, meta, right, { pic: pic('new', p.state === 'unplugged'), name: true }));
     }
   }
   if (!devs.length && !ports.some((p) => p.state === 'new' || p.registered)) {
@@ -746,7 +788,9 @@ function drawFlash() {
     return out;
   }
   const words = { download: 'downloading', connect: 'waiting for the board', erase: 'erasing', write: 'writing', verify: 'checking', reset: 'restarting' }[j.stage] || j.stage || '';
-  const size = j.total && (j.stage === 'write' || j.stage === 'verify') ? ` · ${mb(j.done)} of ${mb(j.total)} MB` : '';
+  // "writing 0.4 of 1.8 MB": the stage, then how far into it (the big
+  // number is the whole job, download and checks included).
+  const size = j.total && j.done && (j.stage === 'write' || j.stage === 'verify') ? ` ${mb(j.done)} of ${mb(j.total)} MB` : '';
   const pct = h('div', { class: 'pct' }, `${j.percent}%`);
   const bar = h('div', {});
   bar.style.width = `${j.percent}%`;
@@ -850,7 +894,7 @@ function drawNetwork() {
     } else if (d.connection !== 'usb') {
       meta += ' · plug it in to change its Wi-Fi';
     }
-    out.push(row(d.name, meta, right, { extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null }));
+    out.push(row(d.name, meta, right, { extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null, name: true }));
   }
 
   out.push(lab('phone'));
@@ -944,7 +988,7 @@ function drawUpdates() {
     const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'not connected · plug it in to update' }[d.update.how];
     const meta = `${d.firmware} → ${d.update.version} · ${d.update.ready ? how : d.update.note || how}`;
     out.push(row(d.name, meta, d.update.ready ? [btn('Update', (e) => updateDevice(d, e.currentTarget), 'a')] : [],
-      { pic: pic(shapeOf(d.board || d.type), !d.online, boardOf(`${d.board} ${d.type}`)), off: !d.online }));
+      { pic: pic(shapeOf(d.board || d.type), !d.online, boardOf(`${d.board} ${d.type}`)), off: !d.online, name: true }));
   }
   const latest = S.devices?.latest;
   const current = latest ? devs.filter((d) => d.kind === 'serial' && d.firmware === latest).length : 0;

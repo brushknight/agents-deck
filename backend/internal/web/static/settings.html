@@ -13,13 +13,13 @@
 <body>
 <a class="skip" href="#main">skip to the settings</a>
 
+<!-- In a browser: a slim bar back to the deck. In the app the window's own
+     title bar takes its place (the shell marks <html> with .in-app). -->
 <header class="tb">
-  <a class="back" href="/" id="to-deck">‹ deck</a>
-  <span class="tb-title">agents deck · settings</span>
+  <a class="back" href="/" id="to-deck" title="Back to the deck in this browser">‹ back to the deck</a>
+  <span class="tb-title">Settings</span>
   <span class="tb-conn" id="conn" role="status" aria-live="polite"></span>
 </header>
-
-<div id="banner" class="banner" role="alert" hidden></div>
 
 <div class="bd">
   <nav class="nav" aria-label="Settings pages">
@@ -34,22 +34,23 @@
   </nav>
 
   <main class="mn" id="main" tabindex="-1">
+    <div id="banner" class="banner" role="alert" hidden></div>
     <section id="page-general" data-page="general" aria-labelledby="h-general" hidden>
       <h1 id="h-general">General</h1>
       <p class="sub">How agents deck starts and when it speaks up.</p>
-      <div class="body" id="general-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="general-body" aria-busy="true"></div>
     </section>
 
     <section id="page-agents" data-page="agents" aria-labelledby="h-agents" hidden>
       <h1 id="h-agents">Agents</h1>
       <p class="sub">Where the deck looks for agents on this computer.</p>
-      <div class="body" id="agents-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="agents-body" aria-busy="true"></div>
     </section>
 
     <section id="page-boards" data-page="boards" aria-labelledby="h-boards" hidden>
       <h1 id="h-boards">Boards</h1>
       <p class="sub">Every board and device that can show your deck.</p>
-      <div class="body" id="boards-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="boards-body" aria-busy="true"></div>
     </section>
 
     <section id="page-newboard" data-page="newboard" aria-labelledby="h-newboard" hidden>
@@ -67,25 +68,25 @@
     <section id="page-network" data-page="network" aria-labelledby="h-network" hidden>
       <h1 id="h-network">Network</h1>
       <p class="sub">How boards and phones reach this computer without a cable.</p>
-      <div class="body" id="network-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="network-body" aria-busy="true"></div>
     </section>
 
     <section id="page-updates" data-page="updates" aria-labelledby="h-updates" hidden>
       <h1 id="h-updates">Updates</h1>
       <p class="sub" id="updates-sub">&nbsp;</p>
-      <div class="body" id="updates-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="updates-body" aria-busy="true"></div>
     </section>
 
     <section id="page-troubleshoot" data-page="troubleshoot" aria-labelledby="h-troubleshoot" hidden>
       <h1 id="h-troubleshoot">Troubleshoot</h1>
       <p class="sub">What the service is doing, and what to send when something's wrong.</p>
-      <div class="body" id="troubleshoot-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="troubleshoot-body" aria-busy="true"></div>
     </section>
 
     <section id="page-about" data-page="about" aria-labelledby="h-about" hidden>
       <h1 id="h-about">About</h1>
       <p class="sub">agents deck shows your coding agents on a deck: in the browser, in the tray and on small boards.</p>
-      <div class="body" id="about-body"><p class="loading">Loading…</p></div>
+      <div class="body" id="about-body" aria-busy="true"></div>
     </section>
   </main>
 </div>

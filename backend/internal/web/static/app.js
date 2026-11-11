@@ -776,7 +776,7 @@ async function refreshPicker() {
     if (r.ok) sessions = (await r.json()).sessions || [];
   } catch { /* offline: empty list */ }
   if (!sessions.length) {
-    list.replaceChildren(h('li', { class: 'picker-empty', text: 'no other Claude sessions running in your terminals' }));
+    list.replaceChildren(h('li', { class: 'picker-empty', text: 'No Claude Code session is running outside the deck right now. Start one in a terminal with claude, or on the deck with agentctl new.' }));
     return;
   }
   list.replaceChildren(...sessions.map((s) => {
@@ -809,6 +809,7 @@ function renderTop() {
   $('c-waiting').classList.toggle('hot', c.waiting > 0);
   $('c-error').classList.toggle('hot', c.error > 0);
   if (state?.server?.name) setText($('server-name'), state.server.name);
+  if (state?.server?.name) $('conn').title = `the deck on ${state.server.name}`;
   // Agents lost with the tmux server (crash, reboot): offer to bring them all back.
   const lost = (state?.agents || []).filter((a) => a.lost).length;
   $('lost-bar').hidden = lost === 0;
@@ -1294,10 +1295,20 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// The header's two switches say what they are set to, not only what they do.
+function showPanelState() {
+  $('panel-toggle').setAttribute('aria-pressed', String(panelMode));
+  setText($('panel-state'), panelMode ? 'desk panel' : 'fit window');
+}
+function showSortState() {
+  $('sort-toggle').setAttribute('aria-pressed', String(needsFirst));
+  setText($('sort-state'), needsFirst ? 'needs you first' : 'your order');
+}
+
 function setPanelMode(on) {
   panelMode = on;
   document.body.classList.toggle('panel-mode', panelOn());
-  $('panel-toggle').setAttribute('aria-pressed', String(on));
+  showPanelState();
   try { localStorage.setItem('agents.panelMode', on ? '1' : '0'); } catch { /* storage unavailable */ }
   renderGrid();
 }
@@ -1308,17 +1319,17 @@ try {
 } catch { panelMode = onPhone(); }
 if (new URLSearchParams(location.search).has('panel')) panelMode = true; // bookmarkable
 document.body.classList.toggle('panel-mode', panelOn());
-$('panel-toggle').setAttribute('aria-pressed', String(panelMode));
+showPanelState();
 phoneMQ.addEventListener('change', () => { document.body.classList.toggle('panel-mode', panelOn()); renderGrid(); });
 
 $('sort-toggle').addEventListener('click', (e) => {
   needsFirst = !needsFirst;
-  e.currentTarget.setAttribute('aria-pressed', String(needsFirst));
+  showSortState();
   try { localStorage.setItem('agents.needsFirst', needsFirst ? '1' : '0'); } catch { /* storage unavailable */ }
   renderGrid();
 });
 try { needsFirst = localStorage.getItem('agents.needsFirst') === '1'; } catch { needsFirst = false; }
-$('sort-toggle').setAttribute('aria-pressed', String(needsFirst));
+showSortState();
 
 // ---------------------------------------------------------------- network
 async function api(path, body) {

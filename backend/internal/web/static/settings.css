@@ -52,23 +52,41 @@ a:hover { color: var(--accent); }
 code, pre, .code { font-family: var(--f-head); }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Headings and the page take focus after navigation, for screen readers;
+   that never draws a ring. Only keyboard focus on controls does. */
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible, h1:focus-visible { outline: none; }
 .hot :focus-visible { outline-color: var(--bg); }
 .skip { position: absolute; left: -999px; top: 8px; background: var(--ink); color: var(--bg); padding: 6px 10px; z-index: 50; }
 .skip:focus { left: 8px; }
 .noscript { padding: 16px; color: var(--meta); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* ---------- title strip ---------- */
+/* ---------- the browser's top bar (the app has its own title bar) ---------- */
 .tb {
   height: 40px; flex: none; border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; gap: 14px; padding: 0 14px;
+  display: flex; align-items: center; gap: 14px; padding: 0 16px;
   color: var(--meta); font-size: 13px;
 }
-.tb .back { color: var(--meta); }
-.tb .back:hover { color: var(--ink); }
+.tb .back { color: var(--ink); height: 28px; display: inline-flex; align-items: center; padding: 0 10px; margin-left: -6px; border: 1px solid var(--edge); border-radius: 8px; }
+.tb .back:hover { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+.tb-title { color: var(--meta); }
 .tb-conn { margin-left: auto; }
 .tb-conn.bad { color: var(--accent); }
-.banner { background: var(--panel); border-bottom: 1px solid var(--accent); color: var(--accent); padding: 8px 16px; font-size: 13px; }
+.banner {
+  position: sticky; top: 0; z-index: 5; max-width: 820px; margin: 0 0 14px;
+  background: var(--panel); box-shadow: inset 3px 0 0 var(--accent); border-radius: 4px;
+  color: var(--accent); padding: 10px 16px; font-size: 13px; line-height: 1.45;
+}
+
+/* ---------- in the app ---------- */
+.in-app .tb { display: none; }
+/* macOS: the page runs up under a transparent title bar. The traffic lights
+   sit over the sidebar's top; the strip above the page is where you drag
+   the window. The shell sets --app-top to its title bar's height. */
+.app-macos { --app-top: 38px; }
+.app-macos .nav { padding-top: calc(var(--app-top) + 12px); }
+.app-macos .mn { margin-top: var(--app-top); padding-top: 10px; }
+.in-app .nav, .in-app .mn { scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
 
 /* ---------- sidebar + page ---------- */
 .bd { flex: 1; display: flex; min-height: 0; }
@@ -77,14 +95,14 @@ code, pre, .code { font-family: var(--f-head); }
   padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
 }
 .nav a {
-  min-height: 36px; display: flex; align-items: center; gap: 10px;
-  padding: 0 12px; border-radius: 4px; color: var(--meta);
+  min-height: 36px; display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 0 12px; border-radius: 4px; color: var(--meta); white-space: nowrap;
 }
 .nav a:hover { color: var(--ink); background: var(--panel); }
 .nav a[aria-current="page"] { background: var(--ink); color: var(--bg); }
 .nav .n { margin-left: auto; background: var(--accent); color: var(--bg); font-size: 11px; padding: 1px 6px; border-radius: 3px; }
 .nav .about-link { margin-top: auto; }
-.foot { padding: 10px 12px; color: var(--meta); font-size: 12px; line-height: 1.5; }
+.foot { padding: 10px 12px 0; color: var(--meta); font-size: 12px; line-height: 1.5; min-height: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mn {
   flex: 1; min-width: 0; padding: 26px 30px 40px; overflow-y: auto;
@@ -98,20 +116,27 @@ h2 { margin: 0; font-family: var(--f-head); font-weight: 700; font-size: 18px; }
 .sub { color: var(--meta); font-size: 13px; margin: -8px 0 0; }
 .lab { color: var(--meta); font-size: 12px; margin: 6px 0 -6px; }
 .loading { color: var(--meta); margin: 0; }
+/* Before a page's data arrives: the shape of three rows, so nothing jumps. */
+.body[aria-busy="true"]:empty {
+  height: 232px;
+  background: linear-gradient(var(--panel) 0 68px, transparent 68px 82px) top left / 100% 82px repeat-y;
+  border-radius: 4px; opacity: 0.6;
+}
 .crumb { color: var(--meta); font-size: 13px; align-self: flex-start; }
 p { margin: 0; }
 
 /* ---------- rows ---------- */
 .row {
   background: var(--panel); border-radius: 4px; padding: 12px 16px;
-  display: flex; align-items: center; gap: 14px; min-height: 44px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px 14px; min-height: 68px; flex-wrap: wrap;
 }
 .row > .tx { min-width: 0; flex: 1 1 220px; }
 .t { font-family: var(--f-head); font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.t.name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 .t.off { color: var(--meta); }
 .m { color: var(--meta); font-size: 12.5px; margin-top: 4px; line-height: 1.45; overflow-wrap: anywhere; }
 .m.err, .err { color: var(--accent); }
-.r { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; color: var(--meta); font-size: 13px; }
+.r { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; color: var(--meta); font-size: 13px; max-width: 100%; }
 .row.hot { background: var(--accent); color: var(--bg); }
 .row.hot .m, .row.hot .r { color: var(--bg); }
 .row.tall { align-items: flex-start; padding: 16px; }
@@ -122,9 +147,9 @@ p { margin: 0; }
 
 /* ---------- controls ---------- */
 button, a.b {
-  font: inherit; font-size: 13px; height: 36px; padding: 0 14px; border-radius: 12px;
+  font: inherit; font-size: 13px; height: 36px; min-width: 64px; padding: 0 14px; border-radius: 12px;
   border: 2px solid var(--edge); background: transparent; color: var(--ink); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; flex: none;
 }
 button:hover:not(:disabled), a.b:hover { border-color: var(--ink); color: var(--ink); }
 button:disabled { opacity: 0.45; cursor: default; }
@@ -136,17 +161,17 @@ button.a:hover:not(:disabled) { border-color: var(--ink); color: var(--bg); }
 .hot button:hover:not(:disabled) { background: var(--bg); color: var(--ink); border-color: var(--bg); }
 .hot button.k { background: var(--bg); border-color: var(--bg); color: var(--ink); }
 .hot button.k:hover:not(:disabled) { background: #222; color: var(--ink); }
-button.more { padding: 0 12px; letter-spacing: 1px; }
+button.more { min-width: 44px; padding: 0 12px; letter-spacing: 1px; }
 button[aria-busy="true"] { cursor: progress; }
 
-button.tg { width: 44px; height: 24px; border-radius: 12px; background: #262622; border: 0; padding: 0; position: relative; flex: none; }
+button.tg { min-width: 0; width: 44px; height: 24px; border-radius: 12px; background: #262622; border: 0; padding: 0; position: relative; flex: none; }
 button.tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--dim); transition: left 100ms steps(2); }
 button.tg[aria-checked="true"] { background: var(--ink); }
 button.tg[aria-checked="true"]::after { left: 23px; background: var(--bg); }
 button.tg:hover:not(:disabled) { box-shadow: 0 0 0 2px var(--edge); }
 
 .seg { display: inline-flex; border: 2px solid var(--edge); border-radius: 12px; overflow: hidden; flex-wrap: wrap; }
-.seg button { border: 0; border-radius: 0; height: 32px; padding: 0 12px; color: var(--meta); }
+.seg button { min-width: 0; border: 0; border-radius: 0; height: 32px; padding: 0 12px; color: var(--meta); }
 .seg button:hover:not(:disabled) { color: var(--ink); }
 .seg button[aria-checked="true"] { background: var(--ink); color: var(--bg); }
 .seg button:focus-visible { outline-offset: -3px; }
@@ -205,8 +230,10 @@ input[type="text"]:focus-visible, input[type="password"]:focus-visible { border-
 
 /* ---------- agents ---------- */
 .tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.tool { background: var(--panel); border-radius: 4px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.tool .m { margin: 0; }
+.tool { background: var(--panel); border-radius: 4px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 68px; }
+.tool .st { color: var(--meta); font-size: 12.5px; }
+.tool .dt { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool .nt { color: var(--meta); font-size: 11.5px; line-height: 1.45; margin-top: 2px; }
 .tool.off .t { color: var(--meta); }
 .hd { display: flex; align-items: center; gap: 9px; }
 .chip { width: 10px; height: 10px; display: block; flex: none; background: var(--edge); }
@@ -229,7 +256,7 @@ details.quiet[open] summary { margin-bottom: 10px; }
 .steps [aria-current="step"] { color: var(--accent); }
 .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .card {
-  background: var(--panel); border: 2px solid var(--panel); border-radius: 4px; padding: 12px;
+  min-width: 0; background: var(--panel); border: 2px solid var(--panel); border-radius: 4px; padding: 12px;
   display: flex; flex-direction: column; align-items: center; gap: 8px; height: 128px; color: var(--ink);
   font: inherit; cursor: pointer; justify-content: flex-start;
 }
