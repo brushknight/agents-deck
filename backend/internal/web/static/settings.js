@@ -45,6 +45,9 @@ const S = {
   laterUpdate: '',
   rates: {}, // job id -> {t, done} for time left
   errors: {},
+  bt: null, btBoards: null, // Bluetooth on this computer, and the boards nearby
+  btAdd: {}, // Bluetooth identifier -> the job adding that board
+  btScope: {}, // Bluetooth identifier -> the scope picked before Add
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -171,7 +174,7 @@ function seg(label, options, current, onChange, opts = {}) {
     const on = o.value === current;
     group.append(h('button', {
       type: 'button', role: 'radio', 'aria-checked': on ? 'true' : 'false', tabindex: on ? '0' : '-1',
-      disabled: opts.disabled, 'data-k': `${opts.key || label}:${o.value}`,
+      disabled: opts.disabled || o.disabled, title: o.title, 'data-k': `${opts.key || label}:${o.value}`,
       onclick: () => { if (!on) onChange(o.value); },
       onkeydown: (e) => radioKeys(e, group, onChange, options),
     }, o.text));
@@ -270,7 +273,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live',
+    live: '/v1/live', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards',
   };
   try {
     S[what] = await api('GET', paths[what]);
@@ -289,6 +292,12 @@ function needs(page) {
     updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
   }[page] || [];
+}
+
+// extras: what a page shows when it can, and does without (an older service
+// has no Bluetooth calls).
+function extras(page) {
+  return { boards: ['bt', 'btBoards'], network: ['bt'] }[page] || [];
 }
 
 function firstError(page) {
@@ -435,10 +444,12 @@ function drawAgents() {
 
 // ---- Boards ------------------------------------------------------------------------------
 
+const VIA = { usb: 'USB', wifi: 'Wi-Fi', bluetooth: 'Bluetooth' };
+
 function deviceMeta(d) {
   const parts = [];
   parts.push(d.model || (d.kind === 'network' ? 'phone or panel' : d.type || 'board'));
-  if (d.online) parts.push({ usb: 'USB', wifi: 'Wi-Fi', network: 'over the network' }[d.connection] || 'connected');
+  if (d.online) parts.push(VIA[d.connection] ? `connected over ${VIA[d.connection]}` : d.connection === 'network' ? 'over the network' : 'connected');
   else parts.push(d.lastSeen ? `last seen ${ago(d.lastSeen)}` : 'never connected');
   if (d.firmware) parts.push(`firmware ${d.firmware}`);
   if (d.state === 'revoked') parts.push('cut off');
@@ -471,7 +482,7 @@ function wifiForm(d, onDone) {
       h('div', {}, h('label', { for: pwId }, 'Password'), h('input', { id: pwId, type: 'password', autocomplete: 'new-password', 'data-k': pwId }))),
     err,
     h('div', { class: 'actions' },
-      h('p', { class: 'note' }, 'Sent over the USB cable. The password is never kept on this computer.'),
+      h('p', { class: 'note' }, `Sent over ${d.connection === 'bluetooth' ? 'the Bluetooth link' : 'the USB cable'}. The password is never kept on this computer.`),
       h('div', { class: 'r' },
         btn('Cancel', () => { S.open.wifi = ''; draw(); }),
         btn('Send', async (e) => {
@@ -524,12 +535,53 @@ function moreButton(d) {
   });
 }
 
+// The uplink preference: what the board uses when it isn't on USB.
+const UPLINKS = [{ value: 'auto', text: 'Auto' }, { value: 'wifi', text: 'Wi-Fi' }, { value: 'ble', text: 'Bluetooth' }];
+
+// uplinkLine: under a board, every way it reaches this computer (a chip
+// each, with its state) and, for a board with Bluetooth, the preference.
+function uplinkLine(d) {
+  if (d.kind !== 'serial' || d.state === 'revoked') return null;
+  const ups = d.uplinks || [];
+  if (!d.hasBluetooth && ups.length < 2) return null; // one way in, no choice: the row says it
+  const line = h('div', { class: 'uplinks' });
+  const chips = h('div', { class: 'chips', role: 'list', 'aria-label': `How ${d.name} reaches this computer` });
+  for (const u of ups) {
+    chips.append(h('span', { class: `up up-${u.state.replace(/\s+/g, '-')}`, role: 'listitem', title: u.detail || null },
+      `${VIA[u.via] || u.via} · ${u.state}`));
+  }
+  line.append(chips);
+  if (d.hasBluetooth) {
+    const opts = UPLINKS.map((o) => (o.value === 'ble' && !d.bluetooth
+      ? { ...o, disabled: true, title: 'Add the board over Bluetooth on this computer first' } : o));
+    line.append(h('div', { class: 'pref' }, h('span', { class: 'note', 'aria-hidden': 'true' }, 'uplink'),
+      seg(`Uplink for ${d.name}`, opts, d.uplinkPref || 'auto',
+        (v) => deviceAction(d, 'uplink', { uplink: v }, null, `${d.name} uses ${UPLINKS.find((o) => o.value === v).text.toLowerCase()} off USB`),
+        { key: `uplink-${d.id}` })));
+    line.append(h('p', { class: 'note' }, 'Auto: USB, else Wi-Fi, else Bluetooth.',
+      d.bluetooth ? '' : ' Bluetooth: add the board over Bluetooth on this computer first.'));
+  }
+  // A Bluetooth link that keeps failing says why (the board forgot this
+  // computer, and so on): the person has something to do.
+  for (const u of ups) {
+    if (u.via === 'bluetooth' && u.state === 'connecting' && u.detail && u.detail !== 'waiting for it to come in range') {
+      line.append(h('p', { class: 'note err' }, `Bluetooth: ${u.detail}`));
+    }
+  }
+  if (d.uplinkNote) line.append(h('p', { class: 'note err' }, d.uplinkNote));
+  if (d.update && d.update.how === 'bluetooth') line.append(h('p', { class: 'note', id: `upn-${d.id}` }, `${d.update.version} is out: ${d.update.note}`));
+  return line;
+}
+
 function deviceRow(d) {
   const shape = d.kind === 'network' ? 'phone' : shapeOf(d.board || d.type || d.model);
   const right = [];
   if (d.online) {
     if (d.update && d.update.ready) right.push(btn(`Update to ${d.update.version}`, (e) => updateDevice(d, e.currentTarget), 'a'));
-    if (d.connection === 'usb' && d.canWifi && !(d.wifi && d.wifi.ssid) && S.open.wifi !== d.id) {
+    else if (d.update && d.update.how === 'bluetooth') {
+      right.push(btn(`Update to ${d.update.version}`, null, '', { disabled: true, title: d.update.note, 'aria-describedby': `upn-${d.id}` }));
+    }
+    if ((d.connection === 'usb' || d.connection === 'bluetooth') && d.canWifi && !(d.wifi && d.wifi.ssid) && S.open.wifi !== d.id) {
       right.push(btn('Give it Wi-Fi', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
     }
   } else {
@@ -537,7 +589,7 @@ function deviceRow(d) {
   }
   if (d.job) right.push(h('a', { class: 'b', href: `#flash/${d.job}` }, 'Installing…'));
   right.push(moreButton(d));
-  const extra = [];
+  const extra = [uplinkLine(d)];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
   return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra, name: true });
@@ -568,7 +620,7 @@ function drawBoards() {
     ], { hot: true, pic: pic('new') }));
   }
   for (const d of devs.filter((x) => x.state === 'waiting')) {
-    out.push(row(`${d.name} is waiting for you`, `${d.model || d.type || 'board'} · plugged in over USB · approve it to show your deck`, [
+    out.push(row(`${d.name} is waiting for you`, `${d.model || d.type || 'board'} · ${d.connection === 'bluetooth' ? 'over Bluetooth' : 'plugged in over USB'} · approve it to show your deck`, [
       btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)),
       btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'k'),
     ], { hot: true, pic: pic(shapeOf(d.board || d.type), false, boardOf(`${d.board} ${d.type}`)) }));
@@ -580,6 +632,7 @@ function drawBoards() {
   const off = devs.filter((d) => !d.online && d.state !== 'waiting');
   if (on.length) { out.push(lab('connected')); on.forEach((d) => out.push(deviceRow(d))); }
   if (off.length) { out.push(lab('not connected')); off.forEach((d) => out.push(deviceRow(d))); }
+  out.push(...bluetoothPanel());
 
   const reg = ports.filter((p) => p.registered && !p.device);
   if (reg.length) {
@@ -599,9 +652,10 @@ function drawBoards() {
     }
   }
   if (!devs.length && !ports.some((p) => p.state === 'new' || p.registered)) {
-    out.push(h('div', { class: 'box' },
+    out.unshift(h('div', { class: 'box' },
       h('p', {}, 'No boards yet.'),
-      h('p', { class: 'note' }, 'Plug one in with a USB cable that carries data (many charging cables don\'t). It shows up here within a few seconds; nothing opens it until you say it\'s yours.')));
+      h('p', { class: 'note' }, 'Plug one in with a USB cable that carries data (many charging cables don\'t). It shows up here within a few seconds; nothing opens it until you say it\'s yours.'
+        + (S.bt?.available ? ' A board with Bluetooth can be added without a cable: Look for boards, below.' : ''))));
   }
   const others = ports.filter((p) => p.state === 'ignored' || p.state === 'other');
   if (others.length) {
@@ -613,6 +667,122 @@ function drawBoards() {
     }
     out.push(det);
   }
+  return out;
+}
+
+// ---- Bluetooth: boards nearby, and adding one -------------------------------------------------
+
+// signal: how well the computer hears a board, in words; the number in the tooltip.
+function signal(rssi) {
+  if (!rssi) return null;
+  const w = rssi >= -60 ? 'strong' : rssi >= -75 ? 'ok' : 'weak';
+  return h('span', { class: `sig sig-${w}`, title: `${rssi} dBm` }, `signal ${w}`);
+}
+
+const labelOf = (id) => (S.devices?.devices || []).find((d) => d.id === id)?.name || id;
+
+async function btScan(on, el) {
+  await busy(el, () => api('POST', '/admin/v1/bluetooth/scan', { on })); // a refusal says why in a toast
+  await loadAll('bt', 'btBoards');
+  draw(true);
+}
+
+async function btAddBoard(b, el) {
+  const scope = S.btScope[b.id] || 'act';
+  let job;
+  try {
+    if (el) el.disabled = true;
+    job = await api('POST', `/admin/v1/bluetooth/boards/${encodeURIComponent(b.id)}/add`, { scope });
+  } catch (e) {
+    if (e.status === 409 && e.data.job) job = await api('GET', `/admin/v1/jobs/${encodeURIComponent(e.data.job)}`).catch(() => null);
+    else if (e.status !== 401) toast(e.message, true);
+  } finally {
+    if (el && el.isConnected) el.disabled = false;
+  }
+  if (job && job.id) { putJob(job); S.btAdd[b.id] = job.id; draw(true); }
+}
+
+const ADD_STEPS = [
+  ['connect', 'Connect to the board'],
+  ['passkey', 'Type the code from the board'],
+  ['connected', 'Paired: wait for its hello'],
+  ['done', 'Added'],
+];
+
+// addFlow: adding a board, step by step, from the job's events.
+function addFlow(b, j) {
+  const close = () => { delete S.btAdd[b.id]; draw(true); };
+  const title = { running: `Adding ${b.name}`, done: `Added ${b.name}`, cancelled: `Stopped adding ${b.name}` }[j.state] || `Couldn't add ${b.name}`;
+  const box = h('div', { class: `box add${j.state === 'failed' ? ' err' : ''}`, 'data-row': `bt-${b.id}` },
+    h('div', { class: 't' }, title));
+  if (j.state === 'running') {
+    if (j.stage === 'passkey') {
+      box.append(h('p', { class: 'passkey', role: 'status' }, 'Type the code shown on the board into the window this computer opens.'),
+        h('p', { class: 'note' }, 'The board shows a 6-digit code and its name. The window is the computer\'s own: this page never sees the code.'));
+    } else {
+      box.append(h('p', { role: 'status' }, j.message || 'Connecting…'));
+    }
+    const at = ADD_STEPS.findIndex(([k]) => k === j.stage);
+    const list = h('ol', { class: 'list', 'aria-label': 'Steps' });
+    ADD_STEPS.forEach(([, text], i) => {
+      const st = i < at ? '' : i === at ? 'cur' : 'todo';
+      list.append(h('li', { class: st }, h('i', { 'aria-hidden': 'true' }), text, st === 'cur' ? h('span', { class: 'sr' }, '(now)') : null));
+    });
+    box.append(list, h('div', { class: 'actions' }, h('div', { class: 'r' },
+      btn('Cancel', (e) => busy(e.currentTarget, () => api('POST', `/admin/v1/jobs/${encodeURIComponent(j.id)}/cancel`, {})), '', { 'data-k': `btc-${b.id}` }))));
+  } else if (j.state === 'done') {
+    box.append(h('p', { role: 'status' }, j.message || `${b.name} is one of your boards now.`),
+      h('div', { class: 'actions' }, h('div', { class: 'r' }, btn('Done', close, 'p', { 'data-k': `btd-${b.id}` }))));
+  } else {
+    box.append(h('p', { role: 'alert' }, j.state === 'cancelled' ? 'Stopped. Nothing was added.' : (j.error || j.message || 'It didn\'t work.')),
+      h('p', { class: 'note' }, 'Bring the board close, check that it still shows its name in setup, and try again. If it was paired with this computer before, remove it in System Settings, Bluetooth first.'),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Close', close, '', { 'data-k': `btx-${b.id}` }),
+        btn('Try again', (e) => btAddBoard(b, e.currentTarget), 'p', { 'data-k': `btr-${b.id}` }))));
+  }
+  return box;
+}
+
+function nearbyRow(b) {
+  const j = S.jobs[S.btAdd[b.id]];
+  if (j) return addFlow(b, j);
+  const right = [];
+  let state;
+  if (b.added) state = `Yours: ${labelOf(b.device)}`;
+  else if (b.setup) {
+    state = b.device ? `In setup · was ${labelOf(b.device)}` : 'In setup';
+    right.push(h('span', { class: 'note', 'aria-hidden': 'true' }, 'it may'),
+      seg(`What ${b.name} may do`, SCOPES.slice(0, 2), S.btScope[b.id] || 'act', (v) => { S.btScope[b.id] = v; draw(); }, { key: `bts-${b.id}` }),
+      btn('Add', (e) => btAddBoard(b, e.currentTarget), 'p', { 'data-k': `bta-${b.id}` }));
+  } else if (!b.boardId) state = 'Couldn\'t read it: bring it closer';
+  else state = 'Paired with another computer';
+  const what = [b.model || b.board || 'a board', b.firmware ? `firmware ${b.firmware}` : ''].filter(Boolean).join(' · ');
+  const sig = signal(b.rssi);
+  const meta = h('span', {}, what, sig ? ' · ' : '', sig, ` · ${state}`);
+  return row(b.name || b.id, meta, right, { pic: pic(shapeOf(b.board), !b.setup, boardOf(b.board)), off: !b.setup && !b.added, id: `bt-${b.id}`, name: true });
+}
+
+// bluetoothPanel: look for boards nearby and add one. When this computer
+// can't use Bluetooth, one line says why.
+function bluetoothPanel() {
+  const bt = S.bt;
+  if (!bt) return [];
+  const out = [lab('bluetooth')];
+  if (!bt.available) {
+    out.push(h('p', { class: 'note' }, bt.why || 'Bluetooth isn\'t available.'));
+    return out;
+  }
+  out.push(row('Look for boards', bt.scanning ? 'Looking…' : 'Add a board without a cable: one in setup shows its name, deck- and six letters or digits, on its screen.', [
+    toggle('Look for boards over Bluetooth', bt.scanning, (on, el) => btScan(on, el), { key: 'bt-scan' }),
+  ]));
+  const list = (S.btBoards?.boards || []);
+  const adding = Object.keys(S.btAdd).filter((id) => !list.some((b) => b.id === id));
+  for (const b of list) out.push(nearbyRow(b));
+  for (const id of adding) { // a board being added that the list no longer shows
+    const j = S.jobs[S.btAdd[id]];
+    if (j) out.push(addFlow({ id, name: 'the board' }, j));
+  }
+  if (bt.scanning && !list.length) out.push(h('p', { class: 'note', role: 'status' }, 'Nothing yet. Put the board in setup from its screen and bring it closer.'));
   return out;
 }
 
@@ -856,7 +1026,7 @@ function drawNetwork() {
       h('div', {}, h('label', { for: 'pw' }, 'Password'), h('input', { id: 'pw', type: 'password', autocomplete: 'new-password', placeholder: s.wifi?.ssid ? 'type it again to change it' : '', 'data-k': 'pw' }))),
     err,
     h('div', { class: 'actions' },
-      h('p', { class: 'note' }, 'Boards get this while they\'re on USB. They use 2.4 GHz Wi-Fi only.'),
+      h('p', { class: 'note' }, 'Boards get this while they\'re on USB or Bluetooth. They use 2.4 GHz Wi-Fi only.'),
       h('div', { class: 'r' },
         s.wifi?.ssid ? btn('Forget', (e) => patchSettings({ wifi: { forget: true } }, e.currentTarget)) : null,
         btn('Save and send to boards', async (e) => {
@@ -867,7 +1037,7 @@ function drawNetwork() {
             const r = await api('PATCH', '/admin/v1/settings', { wifi: { ssid: $('#ssid').value.trim(), password: $('#pw').value, send: true } });
             S.settings = r.settings;
             const n = (r.sent || []).length;
-            toast(n ? `Saved and sent to ${n} board${n === 1 ? '' : 's'} on USB` : 'Saved. Boards get it when they\'re plugged in.');
+            toast(n ? `Saved and sent to ${n} board${n === 1 ? '' : 's'} on USB or Bluetooth` : 'Saved. Boards get it when they\'re plugged in or on Bluetooth.');
             $('#pw').value = '';
             draw(true);
           } catch (ex) {
@@ -882,20 +1052,24 @@ function drawNetwork() {
     let meta;
     if (d.wifi?.ssid) meta = `on ${d.wifi.ssid} · ${d.wifi.state || 'unknown'}`;
     else if (d.connection === 'usb') meta = d.canWifi === false && d.board ? 'on USB · this board has no Wi-Fi' : 'on USB · has no Wi-Fi yet';
+    else if (d.connection === 'bluetooth') meta = d.canWifi === false && d.board ? 'on Bluetooth · this board has no Wi-Fi' : 'on Bluetooth · has no Wi-Fi yet';
     else if (d.connection === 'wifi') meta = 'on Wi-Fi';
     else meta = 'not connected';
     if (d.wifi?.note) meta += ` · ${d.wifi.note}`;
     const right = [];
-    if (d.connection === 'usb' && d.canWifi !== false && S.open.wifi !== d.id) {
+    const inHand = d.connection === 'usb' || d.connection === 'bluetooth';
+    if (inHand && d.canWifi !== false && S.open.wifi !== d.id) {
       right.push(btn('Use another network', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
       if (s.wifi?.ssid && (d.wifi?.own || !d.wifi?.ssid)) {
         right.push(btn('Send Wi-Fi', (e) => deviceAction(d, 'wifi', { useDefault: true }, e.currentTarget, (r) => r?.message || 'Sent')));
       }
-    } else if (d.connection !== 'usb') {
-      meta += ' · plug it in to change its Wi-Fi';
+    } else if (!inHand) {
+      meta += ' · plug it in, or connect it over Bluetooth, to change its Wi-Fi';
     }
     out.push(row(d.name, meta, right, { extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null, name: true }));
   }
+
+  out.push(...bluetoothNetwork());
 
   out.push(lab('phone'));
   if (!S.pairing) {
@@ -922,6 +1096,25 @@ function drawNetwork() {
       h('div', { class: 'code-box', 'aria-label': 'Pairing details' }, `address ${c.url}`, h('br'), `code ${c.code}`, h('br'), `deck ${c.ca}`),
       h('div', { class: 'actions' }, h('div', { class: 'r' }, btn('Done', () => { S.pairing = null; draw(); }, 'p')))));
   }
+  return out;
+}
+
+// bluetoothNetwork: whether Bluetooth is on, and what to do when it isn't.
+function bluetoothNetwork() {
+  const bt = S.bt;
+  if (!bt) return [];
+  const out = [lab('bluetooth')];
+  let title = 'Bluetooth is on';
+  let meta = 'Boards you add over Bluetooth use it when they have no cable and no Wi-Fi, and a new board can be set up through it.';
+  if (!bt.available) {
+    title = { none: 'Bluetooth isn\'t available here', unauthorized: 'Bluetooth needs your permission', off: 'Bluetooth is off' }[bt.helper === 'none' ? 'none' : bt.radio] || 'Bluetooth is starting';
+    meta = bt.why || '';
+  }
+  out.push(row(title, meta, bt.available ? [h('a', { class: 'b', href: '#boards' }, 'Add a board')] : [], { off: !bt.available }));
+  if (bt.radio === 'unauthorized' || (bt.available === false && bt.helper !== 'none' && bt.radio !== 'off')) {
+    out.push(h('p', { class: 'note' }, 'macOS asks once whether "agents deck Bluetooth" may use Bluetooth. If the answer was no, turn it on in System Settings, Privacy & Security, Bluetooth.'));
+  }
+  if (bt.lastError) out.push(h('p', { class: 'note' }, `Last problem: ${bt.lastError}`));
   return out;
 }
 
@@ -1114,7 +1307,7 @@ async function route(initial) {
   if (page === 'flash' && arg && !S.jobs[arg]) {
     try { S.jobs[arg] = await api('GET', `/admin/v1/jobs/${encodeURIComponent(arg)}`); } catch (e) { S.errors.job = e; }
   }
-  await loadAll(...needs(page));
+  await loadAll(...needs(page), ...extras(page));
   draw();
   if (changed && !initial) {
     const hd = document.querySelector(`main > section[data-page="${section}"] h1`);
@@ -1136,9 +1329,16 @@ async function refresh(force) {
   showSystem(sys);
   const busyUI = S.open.more || S.open.wifi || S.pairing || S.confirmLoginOff;
   if (!force && (busyUI || ['general', 'about'].includes(page))) return;
-  await loadAll(...needs(page));
+  await loadAll(...needs(page), ...extras(page));
   if (page === S.page) draw(false);
 }
+
+// While it looks for boards over Bluetooth, the list follows every 2 seconds.
+setInterval(async () => {
+  if (document.hidden || S.page !== 'boards' || !S.bt?.scanning) return;
+  await loadAll('bt', 'btBoards');
+  if (S.page === 'boards') draw(false);
+}, 2000);
 
 // ---- live job progress -----------------------------------------------------------------------
 
@@ -1152,6 +1352,7 @@ function listen() {
     try { j = JSON.parse(e.data); } catch (x) { return; }
     putJob(j);
     if (S.page === 'flash' && S.arg === j.id) draw();
+    if (j.kind === 'bluetooth-add' && S.page === 'boards' && Object.values(S.btAdd).includes(j.id)) draw(true);
     if (j.kind === 'app-update' && j.state === 'failed') toast(`The update didn't install: ${j.error}`, true);
     if (S.page === 'updates' && j.kind === 'app-update') draw(true);
     if (j.state !== 'running' && ['boards', 'updates'].includes(S.page)) refresh(true);

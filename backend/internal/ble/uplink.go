@@ -32,7 +32,7 @@ type Uplinks struct {
 	runs  map[string]*run // by Bluetooth identifier
 	retry map[string]time.Time
 	fails map[string]int
-	known map[string]bool // identifiers bound to a device last time
+	known map[string]bool   // identifiers bound to a device last time
 	why   map[string]string // the last attempt's problem, by identifier, until a Hello
 }
 

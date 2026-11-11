@@ -36,13 +36,15 @@ func UseDemo(a *Admin) error {
 	now := time.Now().UTC()
 	devs := []devices.Device{
 		{Name: "round-28-a1b2c3", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-30 * 24 * time.Hour), LastSeen: now,
-			BoardID: "a1b2c3", Type: "round-28", Firmware: "0.1.1", Approved: true, CertSerial: "01"},
+			BoardID: "a1b2c3", Type: "round-28", Firmware: "0.1.1", Approved: true, CertSerial: "01", BLE: demoBleRound},
 		{Name: "t4s3-panel-d4e5f6", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-9 * 24 * time.Hour), LastSeen: now,
 			BoardID: "d4e5f6", Type: "t4s3-panel", Firmware: "0.2.0", Approved: true},
 		{Name: "strip-147-0a0b0c", Kind: devices.Serial, Scope: devices.View, Created: now.Add(-4 * 24 * time.Hour), LastSeen: now,
 			BoardID: "0a0b0c", Type: "strip-147", Firmware: "0.2.0", Approved: true},
 		{Name: "square-40-123456", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-60 * 24 * time.Hour), LastSeen: now.Add(-26 * time.Hour),
-			BoardID: "123456", Type: "square-40", Firmware: "0.1.1", Approved: true},
+			BoardID: "123456", Type: "square-40", Firmware: "0.1.1", Approved: true, BLE: demoBleSquare},
+		{Name: "amoled-18-5e6f70", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-2 * 24 * time.Hour), LastSeen: now,
+			BoardID: "5e6f70", Type: "amoled-18", Firmware: "0.1.1", Approved: true, BLE: demoBleAmoled, Uplink: "ble"},
 		{Name: "phone", Kind: devices.Network, Scope: devices.View, Created: now.Add(-7 * 24 * time.Hour), LastSeen: now.Add(-50 * time.Hour), CertSerial: "02"},
 	}
 	b, _ := json.MarshalIndent(devs, "", "  ")
@@ -51,7 +53,7 @@ func UseDemo(a *Admin) error {
 	}
 	a.Devices = &devices.Registry{Path: filepath.Join(dir, "devices.json")}
 	for id, name := range map[string]string{"round-28-a1b2c3": "Desk round", "t4s3-panel-d4e5f6": "Tall one",
-		"strip-147-0a0b0c": "Strip", "square-40-123456": "Wall panel", "phone": "Phone"} {
+		"strip-147-0a0b0c": "Strip", "square-40-123456": "Wall panel", "amoled-18-5e6f70": "Pocket", "phone": "Phone"} {
 		_ = a.setLabel(id, name)
 	}
 	cfg := map[string]any{"link": map[string]any{"ports": []link.PortConfig{
@@ -77,14 +79,18 @@ func UseDemo(a *Admin) error {
 	a.PairInfo = func() (string, string) { return "https://deck.example:7341", "SHA256:demo" }
 	ports := &demoPorts{}
 	a.ListPorts = ports.list
+	bt := &demoBluetooth{a: a, added: map[string]time.Time{}, unavail: os.Getenv("AGENTS_DECK_DEMO_BLUETOOTH")}
+	a.Bluetooth = bt
 	a.Links = func() []link.LinkInfo {
-		return []link.LinkInfo{
+		return append([]link.LinkInfo{
 			{Board: "round-28-a1b2c3", Transport: link.OverWifi, Where: "192.0.2.40", Since: now.Add(-3 * time.Hour), Approved: true,
-				Net: &link.NetInfo{Wifi: "connected", SSID: "Home 2.4", IP: "192.0.2.40", RSSI: -52, HasCert: true}},
+				Net: &link.NetInfo{Wifi: "connected", SSID: "Home 2.4", IP: "192.0.2.40", RSSI: -52, HasCert: true, BLE: "paired", Uplink: "auto"}},
 			{Board: "t4s3-panel-d4e5f6", Transport: link.OverSerial, Where: "/dev/cu.demo-tall", Since: now.Add(-time.Hour), Approved: true,
-				Net: &link.NetInfo{Wifi: "off"}},
+				Net: &link.NetInfo{Wifi: "off", BLE: "in setup", Uplink: "auto"}},
 			{Board: "strip-147-0a0b0c", Transport: link.OverSerial, Where: "/dev/cu.demo-strip", Since: now.Add(-2 * time.Hour), Approved: true},
-		}
+			{Board: "amoled-18-5e6f70", Transport: link.OverBLE, Where: "bluetooth deck-5e6f70", Since: now.Add(-40 * time.Minute), Approved: true,
+				Net: &link.NetInfo{Wifi: "not set", BLE: "connected", Uplink: "ble"}},
+		}, bt.links(now)...)
 	}
 	a.PortStatus = func() []link.PortStatus { return nil }
 	a.Flasher = &demoFlasher{}
