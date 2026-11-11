@@ -794,18 +794,21 @@ static inline void notice(Canvas& c, const SquareSpec& S, const Theme& T, Pose p
 }
 
 // The list home's header: "agents", and who waits and runs (or the link's trouble).
-// The Wi-Fi mark (round_geom.h's), centred on cx, its base at `base`.
-static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base) { drawNetMark(c, (float)cx, (float)base, T.dim); }
+// The Wi-Fi mark, or the Bluetooth one (round_geom.h's), centred on cx, its base at `base`.
+static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base, bool ble = false) {
+  if (ble) drawBleMark(c, (float)cx, (float)base, T.dim);
+  else drawNetMark(c, (float)cx, (float)base, T.dim);
+}
 
 static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link,
-                              bool wifi) {
+                              bool wifi, bool ble = false) {
   c.rect(0, 0, S.w, S.headerH, T.bg);
   const Font& hf = *S.question;
   const int x0 = S.m + S.cornerR / 4;
   const int ty = (S.headerH - hf.cellH) / 2 + 2;
   c.text(hf, x0, ty, "agents", T.ink);
   // On Wi-Fi the mark follows the title, its base about on the title's baseline.
-  if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4);
+  if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4, ble);
   char buf[48];
   if (link == LinkState::Lost) snprintf(buf, sizeof buf, "offline");
   else {
@@ -827,7 +830,7 @@ static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i,
          S.headerH);
   }
-  listHeader(c, S, T, f, in.link, ui.wifi);
+  listHeader(c, S, T, f, in.link, ui.wifi, ui.ble);
   // The position bar while the list moves, fading a second after it settles.
   const int alpha = posBarAlpha(ui, in.ms);
   const float mx = maxScroll(S, f);
@@ -875,7 +878,7 @@ static inline void gridHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     else emptyCell(c, T, r);
   }
   pageBars(c, S, T, f, page, pages, g.bars);
-  if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6);
+  if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6, ui.ble);
   if (in.link == LinkState::Lost) {
     const Font& lf = *S.label;
     const char* s = "deck offline" DECK_DOT "retrying";
@@ -1283,9 +1286,9 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
     case LinkState::Connecting:
-      if (in.net && in.net->via == NetVia::Wifi) {   // where Wi-Fi is (net_model.h's words)
+      if (in.net && netNoticeShown(*in.net)) {   // where Wi-Fi or Bluetooth is, a passkey (net_model.h's words)
         const NetNotice n = netNotice(*in.net);
-        notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, T.dim, n.title, n.line1, n.problem ? T.accent : T.dim,
+        notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, T.dim, n.title, n.line1, n.problem || n.code ? T.accent : T.dim,
                n.line2, T.dim, nullptr, T.dim, in.ms);
       } else {
         notice(c, S, T, Pose::Think, T.dim, "connecting to the deck", "plugged into the Mac?", T.dim,

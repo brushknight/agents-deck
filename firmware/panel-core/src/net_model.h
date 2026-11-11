@@ -1,5 +1,6 @@
 #pragma once
-// How a board reaches the deck: USB serial or Wi-Fi, and which one to use.
+// How a board reaches the deck: USB serial, Wi-Fi or Bluetooth, and which one
+// to use (Bluetooth's own rules are in ble_model.h).
 // Pure C++ (no Arduino): net_link.h drives it on the board, tests/test_net.cpp
 // on the host.
 //
@@ -14,11 +15,15 @@
 //   - On USB, a deck silent for a while (the Mac asleep, the daemon stopped)
 //     lets the board try Wi-Fi; it comes back to USB when the deck does.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
+#include "ble_model.h"
 #include "ota_model.h"
 
-enum class NetVia : uint8_t { Usb, Wifi };
+// The link the screen follows. Ble: Bluetooth carries the session, or is
+// where the board waits for its deck (the notice says which).
+enum class NetVia : uint8_t { Usb, Wifi, Ble };
 
 // What the Wi-Fi side is doing, for the screen and NetStatus.
 enum class NetPhase : uint8_t {
@@ -40,7 +45,19 @@ struct NetView {
   bool wifiCapable = false;   // this firmware has Wi-Fi (TLS 1.3)
   char ssid[33] = "";
   OtaView ota;                // a firmware update over Wi-Fi (ota.h): the notice says how it goes
+  BleView ble;                // Bluetooth (ble_model.h): its passkey and "forget?" take the screen
+  NetUplink uplink = NetUplink::Auto;   // the deck's preference
 };
+
+// A passkey or "forget Bluetooth?" covers whatever the screen showed.
+static inline bool netOverlay(const NetView& v) {
+  return (v.ble.phase == BlePhase::Pairing && v.ble.passkey <= 999999) || v.ble.forgetAsk;
+}
+
+// The connecting notice comes from netNotice() (else it is the USB one).
+static inline bool netNoticeShown(const NetView& v) {
+  return v.via != NetVia::Usb || v.ota.phase != OtaPhase::None || netOverlay(v);
+}
 
 // What net_link.h should do next.
 enum class NetAction : uint8_t { None, StartWifi, ConnectDeck, BackToUsb };
@@ -84,6 +101,12 @@ static inline void netSetSsid(NetPlan& p, const char* ssid) {
 static inline bool netFailed(NetPhase ph) {
   return ph == NetPhase::WrongPassword || ph == NetPhase::NoNetwork || ph == NetPhase::WifiFailed ||
          ph == NetPhase::DeckUnreachable || ph == NetPhase::CertRejected;
+}
+
+// The board stays with USB: a deck answered there and hasn't been quiet for
+// usbQuietMs, or nobody did and it still listens after boot.
+static inline bool netUsbHolds(const NetPlan& p, uint32_t now) {
+  return p.usbEver ? now - p.usbLastLive < p.usbQuietMs : now - p.bootAt < p.bootListenMs;
 }
 
 // Called every loop. usbLive: the USB deck has said Welcome and isn't
@@ -167,12 +190,22 @@ struct NetNotice {
   const char* line1;
   const char* line2;
   bool problem;   // drawn as a failure
+  bool code = false;   // line1 is a code to read off (a passkey): drawn in the accent, not as a failure
 };
 
 // The words outlive v: callers pass a temporary (round_ui.h), so text taken
 // from it is copied here first.
 static inline NetNotice netNotice(const NetView& v) {
-  static char line[48], error[sizeof v.ota.error], ssidBuf[sizeof v.ssid];
+  static char line[48], error[sizeof v.ota.error], ssidBuf[sizeof v.ssid], title[32], name[sizeof v.ble.name];
+  memcpy(name, v.ble.name, sizeof name);
+  name[sizeof name - 1] = '\0';
+  if (v.ble.phase == BlePhase::Pairing && v.ble.passkey <= 999999) {
+    // The passkey to type on the computer, under the name it lists.
+    snprintf(title, sizeof title, "pair %s", name);
+    snprintf(line, sizeof line, "%06u", (unsigned)v.ble.passkey);
+    return {title, line, "type it on the computer", false, true};
+  }
+  if (v.ble.forgetAsk) return {"forget Bluetooth?", "press again to forget", name, true};
   if (v.ota.phase != OtaPhase::None) {
     OtaView o = v.ota;
     const OtaWords w = otaWords(o, line, sizeof line);
@@ -182,6 +215,13 @@ static inline NetNotice netNotice(const NetView& v) {
   memcpy(ssidBuf, v.ssid, sizeof ssidBuf);
   const char* ssid = ssidBuf;
   if (v.via == NetVia::Usb) return {"connecting", "waiting for the deck", "on USB", false};
+  if (v.via == NetVia::Ble) {
+    switch (v.ble.phase) {
+      case BlePhase::Setup:     return {"Bluetooth setup", name, "add it on the computer", false};
+      case BlePhase::Connected: return {"connecting", "to the deck", "over Bluetooth", false};
+      default:                  return {"waiting for the deck", "over Bluetooth", name, false};
+    }
+  }
   switch (v.phase) {
     case NetPhase::Joining:         return {"joining Wi-Fi", ssid[0] ? ssid : nullptr, nullptr, false};
     case NetPhase::WrongPassword:   return {"Wi-Fi failed", "wrong password", "set it again over USB", true};

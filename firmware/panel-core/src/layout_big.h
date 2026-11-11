@@ -570,8 +570,8 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
       c.frame(r.x, r.y, r.w, r.h, T.emptyOutline);
     }
   }
-  if (ui.wifi && g.bars.w)                           // the Wi-Fi mark (round_geom.h), right-aligned with the grid
-    drawNetMark(c, (float)(g.x0 + 4 * g.cell + 3 * g.gap - 18), (float)(g.bars.y + g.bars.h / 2 + 6), T.dim);
+  if (ui.wifi && g.bars.w)                           // the Wi-Fi (or Bluetooth) mark (round_geom.h), right-aligned with the grid
+    (ui.ble ? drawBleMark : drawNetMark)(c, (float)(g.x0 + 4 * g.cell + 3 * g.gap - 18), (float)(g.bars.y + g.bars.h / 2 + 6), T.dim);
   if (pages > 1) {                                   // _PageBars
     bool hot[64] = {};
     for (int i = 0; i < f.count; i++)
@@ -927,9 +927,9 @@ static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const Pa
   const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
     case LinkState::Connecting:
-      if (in.net && in.net->via == NetVia::Wifi) {   // where Wi-Fi is (net_model.h's words); a problem in orange
+      if (in.net && netNoticeShown(*in.net)) {   // where Wi-Fi or Bluetooth is (net_model.h's words); a problem in orange
         const NetNotice n = netNotice(*in.net);
-        if (n.problem) notice(c, S, T, Pose::Exit, n.title, nullptr, n.line1, n.line2, in.ms);
+        if (n.problem || n.code) notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, n.title, nullptr, n.line1, n.line2, in.ms);
         else notice(c, S, T, Pose::Think, n.title, n.line1, nullptr, n.line2, in.ms);
       } else {
         notice(c, S, T, Pose::Think, "connecting to the deck", "plugged into the Mac?", "agentctl link add <port>",

@@ -1,25 +1,35 @@
 #pragma once
-// A touch board's way to the deck: USB serial, or Wi-Fi once it is paired
-// (docs/link/protocol.md, "Pairing and Wi-Fi"). Shared by every board that
-// runs panel-core; round_app.h uses it. Arduino on ESP32 only.
+// A touch board's way to the deck: USB serial, Wi-Fi once it is paired, or
+// Bluetooth LE (docs/link/protocol.md, "Pairing and Wi-Fi" and "Bluetooth").
+// Shared by every board that runs panel-core; grid_app.h and round_app.h use
+// it. Arduino on ESP32 only.
 //
-//   - Pairing: on USB, approved, and the deck doesn't hold this board's
-//     certificate (Welcome.cert_serial): a key on the chip, a CSR, the
-//     certificate back; all of it kept in NVS ("decklink").
-//   - Wi-Fi credentials come over USB (WifiConfig) and go to NVS; the board
-//     tries them once at once, staying on USB, and reports how it went.
+//   - Pairing: on USB (or an encrypted, bonded Bluetooth link), approved,
+//     and the deck doesn't hold this board's certificate
+//     (Welcome.cert_serial): a key on the chip, a CSR, the certificate back;
+//     all of it kept in NVS ("decklink").
+//   - Wi-Fi credentials come over USB or Bluetooth (WifiConfig) and go to
+//     NVS; the board tries them once at once, staying where it is, and
+//     reports how it went.
 //   - Which link: net_model.h (USB at boot if a deck answers there, else
-//     Wi-Fi; USB again as soon as its deck shows up).
+//     Wi-Fi; USB again as soon as its deck shows up) and ble_model.h (when
+//     Bluetooth carries the session instead, by the deck's preference).
+//     Never two sessions at once: a link that takes over closes the other.
 //   - Over Wi-Fi: join, find the deck (mDNS for its .local name, then its
 //     addresses), TLS 1.3 with the certificate (deck_tls.h, in a task of its
 //     own so the screen keeps drawing), and a second Deck Link core on it.
+//   - Over Bluetooth: ble_link.h (the GATT service, pairing with a passkey on
+//     the screen, the bond) and a third Deck Link core on its byte stream
+//     (deck_ble.h). LinkConfig sets the preference (auto, wifi, ble), kept in
+//     NVS. Holding BOOT forgets the bond (ble_model.h).
 //
 //   - Firmware updates over Wi-Fi: ota.h (the offer, the download, the
-//     confirm after the restart); the screen follows view().ota.
+//     confirm after the restart); the screen follows view().ota. Bluetooth
+//     stops while one downloads (the heap goes to TLS) and starts again after.
 //
 // Builds without TLS 1.3 (arduino-esp32 2.0.x) get the USB-only part:
-// active() is always the USB link, the deck hears "no Wi-Fi" (501), and the
-// kit refuses firmware offers.
+// active() is always the USB link, the deck hears "no Wi-Fi" and "no
+// Bluetooth" (501), and the kit refuses firmware offers.
 #if defined(ARDUINO)
 #include <Arduino.h>
 
@@ -39,6 +49,7 @@
 #define NET_LOG(...) do {} while (0)
 #endif
 
+#include "ble_link.h"
 #include "ota.h"
 
 namespace net_link {
@@ -59,9 +70,11 @@ static deck_pairing_t pairing;
 static uint32_t lastPairAt = 0;
 static char boardName[40] = "";
 static bool statusDue = false;        // send NetStatus from loop(): after the Result the deck waits for
+static NetUplink uplink = NetUplink::Auto;   // the deck's preference (LinkConfig)
 
 static bool hasCert() { return deck_cert_valid(&cert); }
-static bool canWifi() { return DECK_LINK_HAS_TLS13 && kvOk && wifi.ssid[0] && hasCert(); }
+// Wi-Fi could work (a network, a certificate, TLS 1.3) and the preference lets the board use it.
+static bool canWifi() { return DECK_LINK_HAS_TLS13 && kvOk && wifi.ssid[0] && hasCert() && uplinkAllowsWifi(uplink); }
 
 #if DECK_LINK_HAS_TLS13
 static deck_link_t wcore;             // the Wi-Fi core
@@ -83,7 +96,7 @@ static volatile uint8_t evReason = 0;
 static bool wifiOn = false;
 static bool mdnsOn = false;
 
-// A test of new credentials while on USB.
+// A test of new credentials while on USB (or Bluetooth).
 static bool testing = false;
 static uint32_t testUntil = 0;
 static char testedIp[16] = "";
@@ -91,23 +104,60 @@ static int8_t testedRssi = 0;
 static agentsdeck_link_v1_WifiState testResult = agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED;
 #endif
 
+#if PANEL_HAS_BLE
+static deck_link_t bcore;             // the Bluetooth core
+static bool bleCarrying = false;      // bcore has the session
+static bool bleWanted = false;        // ble_model.h's choice, this loop
+static bool bleOn = false;            // the stack runs (not during a firmware update)
+static BleForget forget;
+static bool pressBoot = false, pressTouch = false;
+static BlePhase lastBlePhase = BlePhase::Off;
+static const char* infoId = "";
+static const char* infoFw = "";
+#endif
+
 // ---------------------------------------------------------------- NetStatus
 
 static deck_link_t* active() {
+#if PANEL_HAS_BLE
+  if (bleCarrying) return &bcore;
+#endif
 #if DECK_LINK_HAS_TLS13
   if (plan.view.via == NetVia::Wifi && tlsUp) return &wcore;
 #endif
   return usb;
 }
 
+#if PANEL_HAS_BLE
+// Bluetooth is what the screen shows: it carries the session, or it is
+// where the board waits for its deck (no USB deck, Wi-Fi not trying).
+static bool bleShown() {
+  if (bleCarrying) return true;
+  if (!bleOn || deck_link_state(usb) == DECK_LINK_ONLINE) return false;
+  return bleWanted && plan.view.via != NetVia::Wifi;
+}
+#endif
+
 static NetView view() {
   NetView v = plan.view;
   v.ota = ota::view;
+  v.uplink = uplink;
+#if PANEL_HAS_BLE
+  if (bleOn) v.ble = ble_link::view();
+  v.ble.capable = true;
+  snprintf(v.ble.name, sizeof v.ble.name, "%s", ble_link::bleName());
+  v.ble.carrying = bleCarrying;
+  v.ble.forgetAsk = forget.asking;
+  if (bleShown()) v.via = NetVia::Ble;
+#endif
   return v;
 }
 
-// Over Wi-Fi but not (yet) talking to the deck: the screen shows where it is.
+// Over Wi-Fi or Bluetooth but not (yet) talking to the deck: the screen shows where it is.
 static bool wifiPending() {
+#if PANEL_HAS_BLE
+  if (bleShown()) return !bleCarrying;
+#endif
 #if DECK_LINK_HAS_TLS13
   return plan.view.via == NetVia::Wifi && !tlsUp;
 #else
@@ -121,6 +171,14 @@ static void sendStatus() {
   agentsdeck_link_v1_NetStatus s = agentsdeck_link_v1_NetStatus_init_zero;
   s.transport = c == usb ? agentsdeck_link_v1_Transport_TRANSPORT_SERIAL : agentsdeck_link_v1_Transport_TRANSPORT_WIFI;
   s.has_cert = hasCert();
+  s.uplink = (agentsdeck_link_v1_Uplink)uplink;
+#if PANEL_HAS_BLE
+  if (c == &bcore) s.transport = agentsdeck_link_v1_Transport_TRANSPORT_BLE;
+  if (bleOn && ble_link::centralSecure()) s.ble = agentsdeck_link_v1_BleState_BLE_CONNECTED;
+  else s.ble = ble_link::isBonded() ? agentsdeck_link_v1_BleState_BLE_BONDED : agentsdeck_link_v1_BleState_BLE_SETUP;
+#else
+  s.ble = agentsdeck_link_v1_BleState_BLE_UNSUPPORTED;
+#endif
   snprintf(s.ssid, sizeof s.ssid, "%s", wifi.ssid);
 #if DECK_LINK_HAS_TLS13
   if (!wifi.ssid[0]) {
@@ -200,7 +258,7 @@ static void wifiStart() {
     WiFi.persistent(false);         // the credentials live in our NVS namespace, not the driver's
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(false);   // net_model.h decides when to try again
-    WiFi.setSleep(true);
+    WiFi.setSleep(true);            // modem sleep: also what Wi-Fi and Bluetooth sharing the radio need
     wifiOn = true;
   } else {
     WiFi.disconnect(false, false);
@@ -283,6 +341,83 @@ static void tlsDown() {
 }
 #endif
 
+// ---------------------------------------------------------------- Bluetooth
+
+#if PANEL_HAS_BLE
+// The session leaves Bluetooth (another link has it, or the link went).
+// dropCentral: let the central go too (a bonded board doesn't advertise
+// then, so it stays away until Bluetooth is wanted again).
+static void bleStop(bool dropCentral) {
+  if (!bleCarrying) return;
+  bleCarrying = false;
+  deck_ble_close(ble_link::bytes());
+  if (dropCentral) ble_link::disconnect();
+  NET_LOG("net: Bluetooth gives the session up");
+}
+
+// The stack, the forget gesture, which link carries the session, and the
+// Bluetooth core's bytes. Every loop.
+static void bleLoop(uint32_t now) {
+  // A firmware update downloading: the stack goes (its TLS wants the heap); back after.
+  const bool updating = ota::view.phase == OtaPhase::Downloading || ota::view.phase == OtaPhase::Verifying ||
+                        ota::view.phase == OtaPhase::Restarting;
+  if (updating && bleOn) {
+    bleStop(true);
+    ble_link::stop();
+    bleOn = false;
+  } else if (!updating && !bleOn) {
+    static uint32_t lastTry = 0;
+    if (!lastTry || now - lastTry > 30000) {   // not every loop if it can't start
+      lastTry = now;
+      bleOn = ble_link::begin(AGENTS_DECK_BOARD, infoId, infoFw);
+    }
+  }
+  // Holding BOOT (or the screen on a notice) asks; pressing again forgets.
+  const ForgetEvent fe = bleForgetInput(forget, pressBoot || pressTouch, bleOn && ble_link::isBonded(), now);
+  if (fe == ForgetEvent::Forget) {
+    bleStop(false);
+    const bool ok = ble_link::forget();
+    NET_LOG("net: Bluetooth bond forgotten (%s)", ok ? "ok" : "FAILED");
+    if (hooks.toast) hooks.toast(ok ? "Bluetooth forgotten" : "couldn't forget");
+    statusDue = true;
+  }
+  if (!bleOn) {
+    bleWanted = false;
+    return;
+  }
+  ble_link::poll();
+  const bool usbHolds = deck_link_state(usb) == DECK_LINK_ONLINE || netUsbHolds(plan, now);
+  const bool wifiUp = tlsUp && plan.view.via == NetVia::Wifi;
+  const BleDecision d =
+      bleDecide(uplink, usbHolds, wifiUp, canWifi(), ble_link::isBonded(), ble_link::centralSecure());
+  bleWanted = d.wanted;
+  ble_link::advertise(d.advertise);
+  if (d.dropCentral) ble_link::disconnect();
+  const bool ready = ble_link::ready();
+  if (bleCarrying && (!ready || !d.wanted)) {
+    bleStop(ready);
+    if (hooks.switched) hooks.switched(plan.view.via);
+  }
+  if (!bleCarrying && ready && d.wanted) {
+    NET_LOG("net: Bluetooth takes the session (MTU %u)", (unsigned)ble_link::attMtu());
+    deck_ble_open(ble_link::bytes(), ble_link::attMtu());
+    bleCarrying = true;
+    if (hooks.switched) hooks.switched(NetVia::Ble);
+    deck_link_begin(&bcore);   // Hello over Bluetooth
+  }
+  if (bleCarrying) {
+    deck_ble_rx_feed(ble_link::bytes(), &bcore, 8192);
+    deck_link_poll(&bcore);
+    deck_ble_pump(ble_link::bytes(), 16);
+  }
+  const BlePhase ph = ble_link::view().phase;
+  if (ph != lastBlePhase) {
+    lastBlePhase = ph;
+    statusDue = true;          // the deck hears the bond and the connection change
+  }
+}
+#endif
+
 // ---------------------------------------------------------------- the plan
 
 static void apply(NetAction a) {
@@ -310,27 +445,39 @@ static void apply(NetAction a) {
 #endif
 }
 
-// ---------------------------------------------------------------- the USB link's callbacks
+// ---------------------------------------------------------------- the links' callbacks
 
-// A Welcome on either link: the deck is there, so a new firmware keeps itself.
+// A Welcome on any link: the deck is there, so a new firmware keeps itself.
 static void confirmFirmware() {
   if (ota::welcome() && hooks.toast) hooks.toast("update installed");
+}
+
+// Pairing for Wi-Fi, on a link that may carry it (USB, or an encrypted and
+// bonded Bluetooth link): approved, and the deck doesn't hold our certificate.
+static void maybePair(deck_link_t* c, bool approved) {
+  // A request nobody answered (an older deck ignores it, or the deck went away): forget it.
+  if (pairing.seq && millis() - lastPairAt > 10000) deck_pair_cancel(&pairing);
+  if (approved && DECK_LINK_HAS_TLS13 && kvOk && !pairing.seq && deck_cert_needed(&cert, deck_link_cert_serial(c)) &&
+      (!lastPairAt || millis() - lastPairAt > 10000)) {
+    lastPairAt = millis();
+    const uint32_t seq = deck_pair_request(c, &pairing, boardName);
+    NET_LOG("net: pairing, seq %u", (unsigned)seq);
+    (void)seq;
+  }
 }
 
 // Every Welcome on the USB link: USB wins, and pairing when needed.
 static void usbWelcome(bool approved, const char* name) {
   confirmFirmware();
   if (name && name[0]) snprintf(boardName, sizeof boardName, "%s", name);
-  apply(netStep(plan, millis(), true, canWifi()));
-  // A request nobody answered (an older deck ignores it, or the deck went away): forget it.
-  if (pairing.seq && millis() - lastPairAt > 10000) deck_pair_cancel(&pairing);
-  if (approved && DECK_LINK_HAS_TLS13 && kvOk && !pairing.seq && deck_cert_needed(&cert, deck_link_cert_serial(usb)) &&
-      (!lastPairAt || millis() - lastPairAt > 10000)) {
-    lastPairAt = millis();
-    const uint32_t seq = deck_pair_request(usb, &pairing, boardName);
-    NET_LOG("net: pairing, seq %u", (unsigned)seq);
-    (void)seq;
+#if PANEL_HAS_BLE
+  if (bleCarrying) {               // the cable's deck takes over from Bluetooth
+    bleStop(true);
+    if (hooks.switched) hooks.switched(NetVia::Usb);
   }
+#endif
+  apply(netStep(plan, millis(), true, canWifi()));
+  maybePair(usb, approved);
   sendStatus();
 }
 
@@ -358,8 +505,20 @@ static void result(uint32_t seq, uint32_t code) {
 
 #if DECK_LINK_HAS_TLS13
 static uint32_t wifiConfig(deck_link_t* c, const char* ssid, const char* password, bool forget) {
-  if (c != usb) return 403;   // credentials come over the cable only
+  // Credentials come over the cable, or an encrypted, bonded Bluetooth link; never over Wi-Fi.
+#if PANEL_HAS_BLE
+  if (c != usb && !(c == &bcore && bleCarrying)) return 403;
+#else
+  if (c != usb) return 403;
+#endif
   if (!kvOk) return 500;
+  if (plan.view.via == NetVia::Wifi) {   // (over Bluetooth) Wi-Fi was trying the old network: stop it first
+    if (conn == Conn::Running) connAbandon = true;
+    tlsDown();
+    wifiStop();
+    plan.view.via = NetVia::Usb;
+    plan.view.phase = NetPhase::Off;
+  }
   if (forget) {
     if (!deck_store_clear_wifi(&kv)) return 500;
     memset(&wifi, 0, sizeof wifi);
@@ -381,7 +540,7 @@ static uint32_t wifiConfig(deck_link_t* c, const char* ssid, const char* passwor
   memset(&w, 0, sizeof w);
   if (!ok) return 500;
   netSetSsid(plan, wifi.ssid);
-  // Try it now, staying on USB, and tell the deck how it went.
+  // Try it now, staying on USB (or Bluetooth), and tell the deck how it went.
   testResult = agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED;
   testedIp[0] = '\0';
   testing = true;
@@ -410,10 +569,51 @@ static void testDone(agentsdeck_link_v1_WifiState r) {
 }
 #endif
 
+#if PANEL_HAS_BLE
+// The deck's uplink preference (any link): kept in NVS, used at once.
+static uint32_t linkConfig(deck_link_t*, agentsdeck_link_v1_Uplink u) {
+  if ((unsigned)u > agentsdeck_link_v1_Uplink_UPLINK_BLE) return 400;
+  if (!kvOk || !deck_store_save_uplink(&kv, u)) return 500;
+  uplink = uplinkOf((uint32_t)u);
+  NET_LOG("net: uplink preference %u", (unsigned)u);
+  statusDue = true;
+  return 204;
+}
+#endif
+
+// The callback for the cores' on_link_config (nullptr: no Bluetooth here, the core answers 501).
+static uint32_t (*linkConfigHook())(deck_link_t*, agentsdeck_link_v1_Uplink) {
+#if PANEL_HAS_BLE
+  return linkConfig;
+#else
+  return nullptr;
+#endif
+}
+
+// ---------------------------------------------------------------- the forget gesture
+
+// BOOT is held (or not). Call it with the debounced level every loop.
+static void bootPressed(bool down) {
+#if PANEL_HAS_BLE
+  pressBoot = down;
+#else
+  (void)down;
+#endif
+}
+
+// A finger is on a notice screen (not on the agents). Call it every loop.
+static void touchPressed(bool down) {
+#if PANEL_HAS_BLE
+  pressTouch = down;
+#else
+  (void)down;
+#endif
+}
+
 // ---------------------------------------------------------------- setup and loop
 
 // The USB link is up (deck.begin done). cfg is its configuration: the Wi-Fi
-// link gets the same board, subscription and callbacks.
+// and Bluetooth links get the same board, subscription and callbacks.
 static void begin(deck_link_t* usbCore, const deck_link_config_t& cfg, const Hooks& h) {
   usb = usbCore;
   hooks = h;
@@ -421,10 +621,14 @@ static void begin(deck_link_t* usbCore, const deck_link_config_t& cfg, const Hoo
   if (kvOk) {
     (void)deck_store_load_cert(&kv, &cert);
     (void)deck_store_load_wifi(&kv, &wifi);
+#if PANEL_HAS_BLE
+    uplink = uplinkOf((uint32_t)deck_store_load_uplink(&kv));
+#endif
   }
   netBegin(plan, millis(), DECK_LINK_HAS_TLS13, wifi.ssid);
-  NET_LOG("net: nvs %s, certificate %s, Wi-Fi %s, TLS 1.3 %s", kvOk ? "ok" : "FAILED", hasCert() ? cert.cert_serial : "none",
-          wifi.ssid[0] ? "set" : "not set", DECK_LINK_HAS_TLS13 ? "yes" : "no");
+  NET_LOG("net: nvs %s, certificate %s, Wi-Fi %s, TLS 1.3 %s, Bluetooth %s, uplink %u", kvOk ? "ok" : "FAILED",
+          hasCert() ? cert.cert_serial : "none", wifi.ssid[0] ? "set" : "not set", DECK_LINK_HAS_TLS13 ? "yes" : "no",
+          PANEL_HAS_BLE ? "yes" : "no", (unsigned)uplink);
 #if DECK_LINK_HAS_TLS13
   deck_link_config_t w = cfg;
   w.write = deck_tls_write;
@@ -435,6 +639,16 @@ static void begin(deck_link_t* usbCore, const deck_link_config_t& cfg, const Hoo
   WiFi.onEvent(onWifiEvent);
 #else
   (void)cfg;
+#endif
+#if PANEL_HAS_BLE
+  infoId = cfg.board_id ? cfg.board_id : "";
+  infoFw = cfg.firmware ? cfg.firmware : "";
+  deck_ble_name(infoId, ble_link::name);
+  deck_link_config_t b = cfg;
+  b.write = deck_ble_write;
+  b.millis = [](void*) -> uint32_t { return (uint32_t)millis(); };
+  b.user = ble_link::bytes();
+  deck_link_init(&bcore, &b);   // credentials and pairing allowed: the link is encrypted and bonded
 #endif
 }
 
@@ -447,7 +661,7 @@ static uint32_t (*wifiConfigHook())(deck_link_t*, const char*, const char*, bool
 #endif
 }
 
-// Runs the plan, the Wi-Fi events and the TLS link. Call it every loop.
+// Runs the plan, the Wi-Fi events, the TLS link and Bluetooth. Call it every loop.
 static void loop() {
   const uint32_t now = millis();
   if (statusDue) {
@@ -455,8 +669,11 @@ static void loop() {
     sendStatus();
   }
   ota::loop(active());
+#if PANEL_HAS_BLE
+  bleLoop(now);
+#endif
 #if DECK_LINK_HAS_TLS13
-  // A credentials test on USB.
+  // A credentials test on USB (or Bluetooth).
   if (testing) {
     if (evJoined) testDone(agentsdeck_link_v1_WifiState_WIFI_CONNECTED);
     else if (evLost) testDone(stateOf(phaseOf(evReason)));
@@ -481,6 +698,9 @@ static void loop() {
     if (connAbandon || plan.view.via != NetVia::Wifi) {
       deck_tls_close(&tls);
     } else if (connErr == DECK_TLS_OK) {
+#if PANEL_HAS_BLE
+      bleStop(true);               // Wi-Fi takes the session: one at a time
+#endif
       tlsUp = true;
       tlsSince = now;
       netDeckUp(plan);
@@ -521,15 +741,31 @@ static void loop() {
 #endif
 }
 
-// A Welcome on the Wi-Fi link: the deck hears how the board is connected.
-static void wifiWelcome() {
+// A Welcome on the Wi-Fi or Bluetooth link: the deck hears how the board is
+// connected; over Bluetooth the board pairs for Wi-Fi when it needs to.
+static void netWelcome(deck_link_t* ctx, bool approved, const char* name) {
   confirmFirmware();
+#if PANEL_HAS_BLE
+  if (ctx == &bcore) {
+    if (name && name[0]) snprintf(boardName, sizeof boardName, "%s", name);
+    maybePair(ctx, approved);
+  }
+#else
+  (void)ctx, (void)approved, (void)name;
+#endif
   sendStatus();
 }
 
 #if DECK_LINK_HAS_TLS13
-// The deck offers a new firmware (either link; ota.h refuses it on USB).
+// The deck offers a new firmware (any link; ota.h refuses it on USB).
 static void firmwareOffer(deck_link_t* ctx, const agentsdeck_link_v1_FirmwareOffer* o) {
+#if PANEL_HAS_BLE
+  if (ctx == &bcore) {   // the image comes over Wi-Fi only (TLS, its certificate)
+    deck_firmware_status(ctx, agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED, 0,
+                         "on Bluetooth: update it over Wi-Fi or USB");
+    return;
+  }
+#endif
   const bool onWifi = ctx == &wcore && tlsUp;
   ota::offered(ctx, o, onWifi, &cert, connHost, connAddr);
 }

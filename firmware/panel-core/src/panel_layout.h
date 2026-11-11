@@ -77,9 +77,11 @@ struct PanelUi {
   int selected = -1;           // big panels: the prompt's chosen option (sent with "send")
   uint32_t stopArmedUntil = 0; // big panels: "tap again to stop" until then
 
-  // On Wi-Fi (the firmware sets it from net_link.h): home shows a small
-  // Wi-Fi mark, and a grid home keeps a row at the bottom for it.
+  // On Wi-Fi or Bluetooth (the firmware sets it from net_link.h): home shows
+  // a small mark, and a grid home keeps a row at the bottom for it. ble: the
+  // mark is Bluetooth's.
   bool wifi = false;
+  bool ble = false;
 
   // Feedback.
   char toast[48] = "";
