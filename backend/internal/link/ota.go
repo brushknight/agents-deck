@@ -287,6 +287,9 @@ func (h *Hub) OfferFirmware(deviceID, board, version string) error {
 	s, other := h.wifiSession(deviceID)
 	if s == nil {
 		if other {
+			if h.onlyBLE(deviceID) {
+				return ErrOnBluetooth
+			}
 			return ErrNotOnWifi
 		}
 		return ErrNotConnected

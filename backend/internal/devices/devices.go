@@ -76,6 +76,10 @@ type Device struct {
 	// <board> --ssid`, or told to forget it): the deck's default network
 	// doesn't replace it. `--use-default` clears it. No password is kept.
 	WifiOwn bool `json:"wifiOwn,omitempty"`
+	// Bluetooth (bluetooth.go): this computer's identifier for the board over
+	// Bluetooth, set when you add it there; and which uplink it prefers.
+	BLE    string `json:"ble,omitempty"`
+	Uplink string `json:"uplink,omitempty"` // auto ("") | wifi | ble
 }
 
 // Active: may connect right now.
@@ -397,6 +401,7 @@ func (r *Registry) Revoke(name string) error {
 		d.Revoked = true
 		if d.Kind == Serial {
 			d.CertSerial, d.CertFingerprint = "", ""
+			d.BLE = "" // and its Bluetooth link: added again, it pairs again
 		}
 		return nil
 	})
