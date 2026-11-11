@@ -1,6 +1,7 @@
-/* board_wifi: a Deck Link board on the host that pairs over "USB serial" and
- * then connects over the network, with the kit's own pairing (deck_pair.c)
- * and TLS 1.3 transport (deck_tls.c) on mbedTLS 3. The daemon's Go test
+/* board_wifi: a Deck Link board on the host that pairs over "USB serial" (or
+ * "Bluetooth") and then connects over the network, with the kit's own
+ * pairing (deck_pair.c), TLS 1.3 transport (deck_tls.c) on mbedTLS 3 and
+ * Bluetooth byte stream (deck_ble.c). The daemon's Go test
  * (backend/internal/link/wifi_kit_test.go) runs it against the real deck.
  *
  *   board_wifi --serial --store DIR [--board-id ID] [--seconds N]
@@ -12,6 +13,16 @@
  *       loads the certificate from DIR and connects to the deck it names,
  *       host by host, over TLS 1.3 (GET /v1/link), then runs the usual
  *       session: Hello, Welcome, Subscribe, the snapshot.
+ *   board_wifi --ble PATH --store DIR [--mtu N] [--board-id ID] [--seconds N]
+ *       a board whose Bluetooth link is a Unix socket at PATH: whatever
+ *       connects plays the deck's Bluetooth helper on an encrypted, bonded
+ *       link (the passkey it would have typed is printed, never asked for).
+ *       The socket carries what RX and TX would: Deck Link bytes, read and
+ *       sent in pieces of at most MTU - 3 (default MTU 185) through
+ *       deck_ble.c. One central at a time; it disconnects by closing. Over
+ *       it the board pairs (CertRequest), takes Wi-Fi credentials
+ *       (WifiConfig) and the uplink preference (LinkConfig), and reports
+ *       NetStatus with transport BLE, as a board does.
  *   --firmware-board B --firmware-out FILE  (with --wifi)
  *       takes the deck's FirmwareOffer when its board is B: checks a Range
  *       request, downloads the image with deck_fw.c into FILE, checks it and
@@ -28,6 +39,8 @@
  *   firmware offer board=<b> version=<v> size=<n>   firmware refused <why>
  *   firmware range from=<n> status=<n> length=<n>   firmware failed error=<n> <why>
  *   firmware written bytes=<n>
+ *   ble name=<deck-xxxxxx> passkey=<6 digits> info=<the Info value>
+ *   ble connected          ble disconnected          uplink value=<0|1|2>
  * Exit status: 0 at --seconds or EOF, 3 when no host could be reached, 4
  * when the certificate was rejected.
  */
@@ -40,6 +53,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
+#include "deck_ble.h"
 #include "deck_fw.h"
 #include "deck_link.h"
 #include "deck_pair.h"
@@ -128,7 +145,56 @@ static uint32_t now_ms(void *user)
 	return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
 }
 
-static bool over_serial;
+static bool over_serial; /* or Bluetooth: pairing and credentials allowed */
+static bool over_ble;
+static deck_ble_t ble;
+static uint8_t ble_ring[32768];
+static int ble_fd = -1;
+
+/* TX: one notification, a write on the socket. */
+static bool sock_notify(const uint8_t *d, size_t n, void *user)
+{
+	(void)user;
+	size_t done = 0;
+	while (done < n) {
+		ssize_t w = write(ble_fd, d + done, n - done);
+		if (w < 0 && errno == EINTR)
+			continue;
+		if (w <= 0)
+			return false;
+		done += (size_t)w;
+	}
+	return true;
+}
+
+static void send_net_status(deck_link_t *c)
+{
+	agentsdeck_link_v1_NetStatus s = agentsdeck_link_v1_NetStatus_init_zero;
+	deck_wifi_t w;
+	s.transport = agentsdeck_link_v1_Transport_TRANSPORT_BLE;
+	s.ble = agentsdeck_link_v1_BleState_BLE_CONNECTED;
+	s.uplink = deck_store_load_uplink(&kv);
+	s.has_cert = deck_cert_valid(&cert);
+	if (deck_store_load_wifi(&kv, &w)) {
+		snprintf(s.ssid, sizeof s.ssid, "%s", w.ssid);
+		s.wifi = agentsdeck_link_v1_WifiState_WIFI_IDLE;
+	} else {
+		s.wifi = agentsdeck_link_v1_WifiState_WIFI_NOT_SET;
+	}
+	memset(&w, 0, sizeof w);
+	deck_net_status(c, &s);
+}
+
+static uint32_t on_link_config(deck_link_t *c, agentsdeck_link_v1_Uplink u)
+{
+	fprintf(stderr, "uplink value=%d\n", (int)u);
+	if ((unsigned)u > agentsdeck_link_v1_Uplink_UPLINK_BLE)
+		return 400;
+	bool ok = deck_store_save_uplink(&kv, u);
+	if (ok)
+		send_net_status(c);
+	return ok ? 204 : 500;
+}
 static const char *fw_board, *fw_out, *tls_host;
 static FILE *fw_file;
 static uint32_t fw_last_pct;
@@ -190,8 +256,10 @@ static void on_welcome(deck_link_t *c, const char *name, agentsdeck_link_v1_Scop
 	const char *serial = deck_link_cert_serial(c);
 	fprintf(stderr, "welcome name=%s scope=%d approved=%d cert=%s\n", name, (int)scope, approved ? 1 : 0,
 		serial[0] ? serial : "-");
-	/* Pairing: over USB only, once approved, when the deck doesn't hold our certificate. */
-	if (over_serial && approved && !pairing.seq && deck_cert_needed(&cert, serial)) {
+	/* Pairing: over USB (or Bluetooth) only, once approved, when the deck doesn't hold our certificate. */
+	if (over_ble)
+		send_net_status(c);
+	if ((over_serial || over_ble) && approved && !pairing.seq && deck_cert_needed(&cert, serial)) {
 		uint32_t seq = deck_pair_request(c, &pairing, "board-wifi");
 		fprintf(stderr, "pair request seq=%u\n", (unsigned)seq);
 	}
@@ -199,7 +267,6 @@ static void on_welcome(deck_link_t *c, const char *name, agentsdeck_link_v1_Scop
 
 static void on_cert_issued(deck_link_t *c, uint32_t seq, const agentsdeck_link_v1_CertIssued *in)
 {
-	(void)c;
 	deck_cert_t next;
 	if (!deck_pair_accept(&pairing, seq, in, &next)) {
 		fprintf(stderr, "pair refused code=0 error=unusable certificate\n");
@@ -212,6 +279,8 @@ static void on_cert_issued(deck_link_t *c, uint32_t seq, const agentsdeck_link_v
 	cert = next;
 	fprintf(stderr, "paired serial=%s name=%s hosts=%u\n", cert.cert_serial, cert.device_name,
 		(unsigned)cert.host_count);
+	if (over_ble)
+		send_net_status(c);
 }
 
 static void on_result(deck_link_t *c, uint32_t seq, uint32_t code, const char *err)
@@ -258,7 +327,7 @@ static void on_snapshot_end(deck_link_t *c)
 
 static void usage(void)
 {
-	fprintf(stderr, "usage: board_wifi (--serial | --wifi) --store DIR [--board-id ID] [--seconds N]\n\t[--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
+	fprintf(stderr, "usage: board_wifi (--serial | --wifi | --ble PATH) --store DIR [--board-id ID] [--seconds N]\n\t[--mtu N] [--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
 	exit(2);
 }
 
@@ -273,6 +342,8 @@ int main(int argc, char **argv)
 	cfg.fields = agentsdeck_link_v1_FieldGroup_FIELDS_TILE;
 	long seconds = 10;
 	int mode = 0;
+	const char *ble_path = NULL;
+	long mtu = 185;
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
 		if (strcmp(a, "--serial") == 0)
@@ -283,6 +354,10 @@ int main(int argc, char **argv)
 			usage();
 		else if (strcmp(a, "--store") == 0)
 			store_dir = v, i++;
+		else if (strcmp(a, "--ble") == 0)
+			mode = 3, ble_path = v, i++;
+		else if (strcmp(a, "--mtu") == 0)
+			mtu = strtol(v, NULL, 10), i++;
 		else if (strcmp(a, "--board-id") == 0)
 			cfg.board_id = v, i++;
 		else if (strcmp(a, "--firmware-board") == 0)
@@ -311,7 +386,37 @@ int main(int argc, char **argv)
 	cfg.on_agent = on_agent;
 	cfg.on_snapshot_end = on_snapshot_end;
 	int in_fd = STDIN_FILENO;
-	if (mode == 1) {
+	int listen_fd = -1;
+	if (mode == 3) {
+		if (mtu < DECK_BLE_MTU_MIN || mtu > 517)
+			usage();
+		over_ble = true;
+		deck_ble_config_t bc = {sock_notify, NULL, ble_ring, sizeof ble_ring};
+		deck_ble_init(&ble, &bc);
+		cfg.write = deck_ble_write;
+		cfg.user = &ble;
+		cfg.on_wifi_config = on_wifi_config;
+		cfg.on_link_config = on_link_config;
+		struct sockaddr_un sa;
+		memset(&sa, 0, sizeof sa);
+		sa.sun_family = AF_UNIX;
+		if (strlen(ble_path) >= sizeof sa.sun_path)
+			usage();
+		snprintf(sa.sun_path, sizeof sa.sun_path, "%s", ble_path);
+		unlink(ble_path);
+		listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (listen_fd < 0 || bind(listen_fd, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(listen_fd, 1) != 0) {
+			perror("board_wifi: ble socket");
+			return 1;
+		}
+		char name[DECK_BLE_NAME_SIZE], info[DECK_BLE_INFO_SIZE];
+		struct timespec ts;
+		clock_gettime(CLOCK_REALTIME, &ts);
+		deck_ble_name(cfg.board_id, name);
+		deck_ble_info(info, sizeof info, "board-wifi", cfg.board_id, cfg.firmware, true);
+		fprintf(stderr, "ble name=%s passkey=%06u info=%s\n", name,
+			(unsigned)deck_ble_passkey((uint32_t)ts.tv_nsec ^ (uint32_t)getpid()), info);
+	} else if (mode == 1) {
 		over_serial = true;
 		cfg.write = serial_write;
 		cfg.on_wifi_config = on_wifi_config;
@@ -345,7 +450,8 @@ int main(int argc, char **argv)
 		in_fd = tls.fd;
 	}
 	deck_link_init(&link, &cfg);
-	deck_link_begin(&link);
+	if (mode != 3)
+		deck_link_begin(&link);
 
 	uint32_t start = now_ms(NULL);
 	int status = 0;
@@ -365,6 +471,38 @@ int main(int argc, char **argv)
 				break;
 			}
 		}
+		if (mode == 3) {
+			/* One central at a time: accept, run the session, and on EOF wait for the next. */
+			struct pollfd pfd = {ble_fd >= 0 ? ble_fd : listen_fd, POLLIN, 0};
+			if (poll(&pfd, 1, 50) > 0) {
+				if (ble_fd < 0) {
+					ble_fd = accept(listen_fd, NULL, NULL);
+					if (ble_fd >= 0) {
+						fprintf(stderr, "ble connected\n");
+						deck_ble_open(&ble, (uint16_t)mtu);
+						deck_link_begin(&link);
+					}
+				} else {
+					/* A write from the deck: at most MTU - 3 bytes, as over the air. */
+					size_t want = (size_t)mtu - 3 < sizeof buf ? (size_t)mtu - 3 : sizeof buf;
+					ssize_t n = read(ble_fd, buf, want);
+					if (n <= 0) {
+						fprintf(stderr, "ble disconnected\n");
+						deck_ble_close(&ble);
+						close(ble_fd);
+						ble_fd = -1;
+					} else if (!deck_ble_rx_push(&ble, buf, (size_t)n)) {
+						fprintf(stderr, "board_wifi: ble write refused (%zd bytes)\n", n);
+					}
+				}
+			}
+			if (ble_fd >= 0) {
+				deck_ble_rx_feed(&ble, &link, 0);
+				deck_link_poll(&link);
+				deck_ble_pump(&ble, 0);
+			}
+			continue;
+		}
 		struct pollfd pfd = {in_fd, POLLIN, 0};
 		if (poll(&pfd, 1, 50) > 0 && mode == 1) {
 			ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
@@ -376,5 +514,9 @@ int main(int argc, char **argv)
 		deck_link_poll(&link);
 	}
 	deck_tls_close(&tls);
+	if (listen_fd >= 0) {
+		close(listen_fd);
+		unlink(ble_path);
+	}
 	return status;
 }
