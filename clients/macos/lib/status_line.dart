@@ -82,8 +82,8 @@ List<StatusPart> statusParts(ServiceStatus s) {
 
 /// The row under the deck: is the service running, how many boards are
 /// online, and what wants attention. Each part opens Settings on its page;
-/// the gear opens Settings. While the service isn't running there is no
-/// gear (Settings comes from the service).
+/// the Settings button at the end opens Settings. While the service isn't
+/// running there is no Settings button (Settings comes from the service).
 class StatusLine extends StatelessWidget {
   const StatusLine({super.key, required this.status, required this.onOpen});
 
@@ -127,11 +127,13 @@ class StatusLine extends StatelessWidget {
                 ),
               ),
             ),
-            if (running)
-              _GearButton(
+            if (running) ...[
+              const SizedBox(width: 4),
+              _SettingsButton(
                 key: const Key('status-gear'),
                 onTap: () => onOpen('general'),
               ),
+            ],
           ],
         ),
       ),
@@ -229,8 +231,9 @@ class _Part extends StatelessWidget {
   }
 }
 
-class _GearButton extends StatelessWidget {
-  const _GearButton({super.key, required this.onTap});
+/// "Settings" with a gear: a button that says what it does.
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton({super.key, required this.onTap});
 
   final VoidCallback onTap;
 
@@ -239,22 +242,32 @@ class _GearButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: 'Settings',
+      excludeSemantics: true,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Pressable(
           onTap: onTap,
           builder: (context, pressed) => Container(
-            width: 30,
             height: 22,
-            alignment: Alignment.center,
+            padding: const EdgeInsets.only(left: 7, right: 8),
             decoration: BoxDecoration(
               color: pressed ? DeckHud.ink : null,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: agentsRowOutline),
+              border: Border.all(color: pressed ? DeckHud.ink : DeckHud.dim),
             ),
-            child: CustomPaint(
-              size: const Size.square(13),
-              painter: _GearPainter(pressed ? DeckHud.bg : DeckHud.ink),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CustomPaint(
+                  size: const Size.square(11),
+                  painter: _GearPainter(pressed ? DeckHud.bg : DeckHud.ink),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'Settings',
+                  style: _partStyle(pressed ? DeckHud.bg : DeckHud.ink),
+                ),
+              ],
             ),
           ),
         ),
