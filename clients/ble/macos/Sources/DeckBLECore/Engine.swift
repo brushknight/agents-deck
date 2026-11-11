@@ -44,7 +44,17 @@ public final class Engine {
         var info: BoardInfo?
         var subscribed = false
         var outbox = Data()
+        /// Bytes at the front of outbox already reported in "sent": a write
+        /// the board refused for now goes back there, and isn't counted twice.
+        var reported = 0
+        /// Notifications that came before the subscription was confirmed (the
+        /// board says Hello as soon as TX is on): passed on after "connected".
+        var early = Data()
     }
+
+    /// How long to wait before sending again a write the board refused
+    /// because its buffer was full (ATT "insufficient resources").
+    public var resendAfter: TimeInterval = 0.05
     var links: [UUID: Link] = [:]
     var probeQueue: [UUID] = []
     var probing: UUID?
@@ -154,7 +164,9 @@ public final class Engine {
             let chunk = l.outbox.prefix(size)
             radio.send(id, Data(chunk))
             l.outbox.removeFirst(chunk.count)
-            n += chunk.count
+            let again = min(l.reported, chunk.count)
+            l.reported -= again
+            n += chunk.count - again
         }
         links[id] = l
         if n > 0 { send(.sent(id: id, n)) }
@@ -235,12 +247,30 @@ public final class Engine {
         guard links[id] != nil else { return }
         links[id]!.subscribed = true
         send(.connected(id: id, mtu: radio.maxWrite(id), info: links[id]!.info))
+        let early = links[id]!.early
+        links[id]!.early = Data()
+        if !early.isEmpty { send(.data(id: id, early)) }
         pump(id)
     }
 
     public func radioReceived(_ id: UUID, _ data: Data) {
-        guard let l = links[id], l.subscribed, !data.isEmpty else { return }
+        guard let l = links[id], !data.isEmpty else { return }
+        if !l.subscribed {
+            // The board's Hello can beat the confirmation of the subscription.
+            if links[id]!.early.count + data.count <= maxLine / 2 { links[id]!.early.append(data) }
+            return
+        }
         send(.data(id: id, data))
+    }
+
+    /// A write with response came back "insufficient resources" (ATT 0x11):
+    /// the board's buffer was full and it took none of it. It goes back to the
+    /// front of the queue and is sent again shortly, in order.
+    public func radioWriteRefused(_ id: UUID, _ data: Data) {
+        guard links[id] != nil else { return }
+        links[id]!.outbox.insert(contentsOf: data, at: links[id]!.outbox.startIndex)
+        links[id]!.reported += data.count
+        schedule(resendAfter) { [weak self] in self?.pump(id) }
     }
 
     public func radioReadyToSend(_ id: UUID) {

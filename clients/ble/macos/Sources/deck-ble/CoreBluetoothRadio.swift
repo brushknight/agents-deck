@@ -99,15 +99,16 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         return p.maximumWriteValueLength(for: type)
     }
 
-    /// Boards whose RX only takes writes with response: one write in flight.
-    private var pendingWrite: [UUID: Bool] = [:]
+    /// Boards whose RX only takes writes with response: one write in flight,
+    /// kept until it is answered (the board may refuse it for now).
+    private var pendingWrite: [UUID: Data] = [:]
 
     func send(_ id: UUID, _ data: Data) {
         guard let p = peripherals[id], let c = rx[id] else { return }
         if c.properties.contains(.writeWithoutResponse) {
             p.writeValue(data, for: c, type: .withoutResponse)
         } else {
-            pendingWrite[id] = true
+            pendingWrite[id] = data
             p.writeValue(data, for: c, type: .withResponse)
         }
     }
@@ -212,7 +213,12 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
     }
 
     func peripheral(_ p: CBPeripheral, didWriteValueFor c: CBCharacteristic, error: Error?) {
-        pendingWrite[p.identifier] = nil
+        let data = pendingWrite.removeValue(forKey: p.identifier)
+        if let e = error as NSError?, e.domain == CBATTErrorDomain, e.code == CBATTError.Code.insufficientResources.rawValue, let data = data {
+            // The board's buffer is full: it took none of it. Send it again.
+            engine?.radioWriteRefused(p.identifier, data)
+            return
+        }
         if let error = error {
             failed(p, problem(error, fallback: .error), error)
             return

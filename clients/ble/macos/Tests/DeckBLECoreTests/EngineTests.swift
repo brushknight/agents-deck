@@ -219,6 +219,34 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(events("state").last?["state"] as? String, "off")
     }
 
+    func testHelloBeforeTheSubscriptionIsConfirmed() {
+        connect(paired: true)
+        engine.radioReceived(board, Data([0x05, 0x01, 0x00])) // the board's Hello, early
+        XCTAssertEqual(events("data").count, 0, "nothing before connected")
+        engine.radioSubscribed(board)
+        XCTAssertEqual(lines.suffix(2).map { $0["ev"] as? String }, ["connected", "data"], "kept and passed on after connected")
+        XCTAssertEqual(events("data").first?["data"] as? String, "BQEA")
+    }
+
+    func testRefusedWriteIsSentAgainInOrderAndCountedOnce() {
+        connect(paired: true)
+        radio.mtu = 20
+        engine.radioSubscribed(board)
+        let frame = Data((0..<30).map { UInt8($0) })
+        radio.room = 1
+        engine.handle(.write(id: board, data: frame))
+        XCTAssertEqual(radio.sent.map(\.count), [20])
+        XCTAssertEqual(events("sent").last?["n"] as? Int, 20)
+        // The board says "insufficient resources" (ATT 0x11) for that write.
+        engine.radioWriteRefused(board, radio.sent.removeLast())
+        radio.room = 5
+        XCTAssertEqual(later.count, 1, "sent again after a moment")
+        later.removeFirst()()
+        XCTAssertEqual(radio.sent.reduce(Data(), +), frame, "the same bytes, in order")
+        let total = events("sent").compactMap { $0["n"] as? Int }.reduce(0, +)
+        XCTAssertEqual(total, 30, "each byte reported once")
+    }
+
     func testConnectDuringProbeKeepsTheConnection() {
         engine.handle(.scan(on: true))
         engine.radioFound(board, name: "deck-1", rssi: -40)
