@@ -1,0 +1,434 @@
+package ble
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/link"
+)
+
+// Uplinks runs a Deck Link session over Bluetooth for every board you added
+// there (devices.Device.BLE), when its uplink preference lets Bluetooth be
+// the one in use. A board seen over Bluetooth is never connected to, let
+// alone approved, on sight: Add is the only way in, and it needs the passkey
+// on the board's own screen.
+type Uplinks struct {
+	Central *Central
+	Deck    link.Deck
+	Hub     *link.Hub
+	Devices *devices.Registry
+	Audit   func(devices.AuditEntry) // optional
+	Every   time.Duration            // how often it looks at the registry (2 s)
+	// Tune adjusts each session before it runs (tests shorten its timings).
+	Tune func(*link.Session)
+
+	mu    sync.Mutex
+	runs  map[string]*run // by Bluetooth identifier
+	retry map[string]time.Time
+	fails map[string]int
+	known map[string]bool // identifiers bound to a device last time
+}
+
+type run struct {
+	id     string
+	device string // "" while it is being added
+	adding bool
+	cancel context.CancelFunc
+	done   chan struct{}
+	state  string // connecting | connected
+	since  time.Time
+	hello  bool  // the board said Hello in this run
+	err    error // why the session ended
+}
+
+func (u *Uplinks) init() {
+	if u.runs == nil {
+		u.runs, u.retry, u.fails, u.known = map[string]*run{}, map[string]time.Time{}, map[string]int{}, map[string]bool{}
+	}
+}
+
+func (u *Uplinks) audit(e devices.AuditEntry) {
+	if u.Audit != nil {
+		u.Audit(e)
+	}
+}
+
+// Run follows the registry until ctx ends.
+func (u *Uplinks) Run(ctx context.Context) {
+	every := u.Every
+	if every <= 0 {
+		every = 2 * time.Second
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		u.reconcile(ctx)
+		select {
+		case <-ctx.Done():
+			u.mu.Lock()
+			for _, r := range u.runs {
+				r.cancel()
+			}
+			u.mu.Unlock()
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// reconcile starts and stops links to match the registry and the boards'
+// other uplinks.
+func (u *Uplinks) reconcile(ctx context.Context) {
+	if u.Central == nil || u.Devices == nil {
+		return
+	}
+	bound := map[string]devices.Device{}
+	for _, d := range u.Devices.List() {
+		if d.Kind == devices.Serial && d.BLE != "" {
+			bound[d.BLE] = d
+		}
+	}
+	var forget []string
+	u.mu.Lock()
+	u.init()
+	for id, r := range u.runs {
+		select {
+		case <-r.done:
+			delete(u.runs, id)
+			if r.hello {
+				u.fails[id] = 0
+			} else {
+				u.fails[id]++
+			}
+			u.retry[id] = time.Now().Add(backoff(u.fails[id]))
+			continue
+		default:
+		}
+		if r.adding {
+			continue
+		}
+		d, ok := bound[id]
+		switch {
+		case !ok || d.Name != r.device: // revoked, removed, or bound to another board
+			log.Printf("bluetooth: %s is no longer one of your boards here: disconnecting", r.device)
+			r.cancel()
+			if !ok {
+				forget = append(forget, id)
+				delete(u.known, id)
+			}
+		case !d.Active():
+			r.cancel()
+		case !link.UplinkAllowed(d, link.OverBLE) || u.Hub.Preferred(d.Name, link.OverBLE, d.Uplink) != "":
+			r.cancel() // its preference leaves Bluetooth out, or a better uplink is in use
+		}
+	}
+	for id := range u.known {
+		if _, ok := bound[id]; !ok {
+			forget = append(forget, id)
+			delete(u.known, id)
+		}
+	}
+	for id := range bound {
+		u.known[id] = true
+	}
+	var start []devices.Device
+	for id, d := range bound {
+		if u.runs[id] != nil || !d.Active() || time.Now().Before(u.retry[id]) {
+			continue
+		}
+		if !link.UplinkAllowed(d, link.OverBLE) || u.Hub.Preferred(d.Name, link.OverBLE, d.Uplink) != "" {
+			continue
+		}
+		start = append(start, d)
+	}
+	u.mu.Unlock()
+	for _, id := range forget {
+		u.Central.Forget(id)
+	}
+	if !u.Central.Status().Available {
+		return
+	}
+	for _, d := range start {
+		u.connect(ctx, d)
+	}
+}
+
+func backoff(fails int) time.Duration {
+	d := 2 * time.Second
+	for i := 0; i < fails && d < time.Minute; i++ {
+		d *= 2
+	}
+	return min(d, time.Minute)
+}
+
+// claim registers a run for id, or says why there can't be one.
+func (u *Uplinks) claim(ctx context.Context, id, device string, adding bool) (*run, context.Context, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.init()
+	if r := u.runs[id]; r != nil {
+		select {
+		case <-r.done:
+		default:
+			if r.adding {
+				return nil, nil, errors.New("that board is being added already")
+			}
+			return nil, nil, errors.New("that board is connected already")
+		}
+	}
+	rctx, cancel := context.WithCancel(ctx)
+	r := &run{id: id, device: device, adding: adding, cancel: cancel, done: make(chan struct{}), state: "connecting", since: time.Now()}
+	u.runs[id] = r
+	return r, rctx, nil
+}
+
+// connect runs a known board's link in the background: connect (waiting for
+// it to come in range), then its Deck Link session.
+func (u *Uplinks) connect(ctx context.Context, d devices.Device) {
+	r, rctx, err := u.claim(ctx, d.BLE, d.Name, false)
+	if err != nil {
+		return
+	}
+	go func() {
+		defer close(r.done)
+		defer r.cancel()
+		st, err := u.Central.Connect(rctx, d.BLE, nil)
+		if err != nil {
+			if rctx.Err() == nil {
+				log.Printf("bluetooth: %s: %v", d.Name, err)
+			}
+			return
+		}
+		u.session(rctx, r, st, bleDeck{Deck: u.Deck, u: u, r: r, boardID: d.BoardID})
+	}()
+}
+
+// session runs Deck Link on a connected board until it ends.
+func (u *Uplinks) session(ctx context.Context, r *run, st *Stream, deck bleDeck) {
+	var err error
+	defer func() {
+		u.mu.Lock()
+		r.err = err
+		u.mu.Unlock()
+	}()
+	u.mu.Lock()
+	r.state, r.since = "connected", time.Now()
+	u.mu.Unlock()
+	name := r.device
+	if name == "" {
+		name = st.ID
+	}
+	s := link.NewSession(deck, st, name+"@ble")
+	s.Hub, s.Transport, s.Where, s.IdleTimeout = u.Hub, link.OverBLE, "bluetooth", link.NetworkIdle
+	if n, ok := u.Central.Seen(st.ID); ok && n.Name != "" {
+		s.Where = "bluetooth " + n.Name
+	}
+	if u.Tune != nil {
+		u.Tune(s)
+	}
+	log.Printf("bluetooth: %s connected", name)
+	err = s.Run(ctx)
+	_ = st.Close()
+	if ctx.Err() == nil {
+		log.Printf("bluetooth: %s left (%v)", name, err)
+	}
+}
+
+// bleDeck is the Deck for a session over Bluetooth: the board must say Hello
+// with the board id it was added with; while it is being added, its Hello
+// binds it to this Bluetooth identifier and approves it.
+type bleDeck struct {
+	link.Deck
+	u       *Uplinks
+	r       *run
+	boardID string // what it must say in Hello
+	add     *adding
+}
+
+type adding struct {
+	scope devices.Scope
+	hello chan devices.Device
+}
+
+func (b bleDeck) Board(boardID, typ, firmware string) (devices.Device, error) {
+	if b.boardID != "" && boardID != b.boardID {
+		return devices.Device{}, fmt.Errorf("this Bluetooth link belongs to board %q, but the board said Hello as %q", b.boardID, boardID)
+	}
+	d, err := b.Deck.Board(boardID, typ, firmware)
+	if err != nil {
+		return d, err
+	}
+	b.u.mu.Lock()
+	b.r.hello = true
+	if b.add != nil {
+		b.r.device = d.Name
+	}
+	b.u.mu.Unlock()
+	if b.add == nil {
+		return d, nil
+	}
+	if err := b.u.Devices.SetBLE(d.Name, b.r.id); err != nil {
+		return d, err
+	}
+	nd, approved, err := b.u.Devices.ApproveAs(d.Name, b.add.scope)
+	if err != nil {
+		return d, err
+	}
+	if approved {
+		b.u.audit(devices.AuditEntry{Device: nd.Name, Action: "approve", Status: http.StatusOK,
+			Detail: "added over Bluetooth with the passkey on its screen, scope " + string(nd.Scope)})
+	}
+	b.u.audit(devices.AuditEntry{Device: "local", Action: "bluetooth add " + nd.Name, Status: http.StatusOK, Detail: "board id " + boardID})
+	b.u.mu.Lock()
+	b.r.adding = false
+	b.u.mu.Unlock()
+	select {
+	case b.add.hello <- nd:
+	default:
+	}
+	return nd, nil
+}
+
+// Progress is told each step of adding a board.
+type Progress func(stage, message string)
+
+// AddTimeout bounds adding a board: connecting, the person typing the code,
+// and its Hello.
+var AddTimeout = 3 * time.Minute
+
+// Add connects to a board seen in the scan, lets the computer pair with it
+// (the person types the code shown on the board), and waits for its Hello:
+// the board then becomes one of your devices, approved with scope, bound to
+// this Bluetooth identifier. A revoked board is refused: approve it first.
+func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog Progress) (devices.Device, error) {
+	if prog == nil {
+		prog = func(string, string) {}
+	}
+	if u.Central == nil {
+		return devices.Device{}, ErrUnavailable
+	}
+	if err := u.Central.usable(); err != nil {
+		return devices.Device{}, err
+	}
+	if scope != devices.View && scope != devices.Act {
+		return devices.Device{}, errors.New("a board added over Bluetooth gets view or act; admin is given by hand (agentctl devices scope)")
+	}
+	n, ok := u.Central.Seen(id)
+	switch {
+	case !ok:
+		return devices.Device{}, errors.New("no such board nearby: scan first (agentctl bluetooth scan)")
+	case !n.HasInfo || n.BoardID == "":
+		return devices.Device{}, errors.New("couldn't read what " + orText(n.Name, "that board") + " is: bring it closer and scan again")
+	}
+	if d, ok := u.Devices.ByBoardID(n.BoardID); ok && d.Revoked {
+		return devices.Device{}, fmt.Errorf("%s was revoked: agentctl devices approve %s first, then add it again", d.Name, d.Name)
+	}
+	if d, ok := u.Devices.ByBLE(id); ok && d.BoardID == n.BoardID && !d.Revoked {
+		return d, fmt.Errorf("%s is already one of your boards over Bluetooth", d.Name)
+	}
+	ctx, cancel := context.WithTimeout(ctx, AddTimeout)
+	defer cancel()
+	r, rctx, err := u.claim(context.Background(), id, "", true)
+	if err != nil {
+		return devices.Device{}, err
+	}
+	stop := context.AfterFunc(ctx, r.cancel) // a cancelled job ends the attempt; a finished one leaves the link up
+	defer stop()
+	prog("connect", "Connecting to "+orText(n.Name, "the board"))
+	st, err := u.Central.Connect(rctx, id, func(string) {
+		prog("passkey", "Type the code shown on the board into the window this computer opens.")
+	})
+	if err != nil {
+		r.cancel()
+		close(r.done)
+		u.Central.Forget(id)
+		if ctx.Err() != nil {
+			return devices.Device{}, errors.New("timed out: the code wasn't typed, or the board went out of range")
+		}
+		return devices.Device{}, err
+	}
+	prog("connected", "Paired. Waiting for the board to say hello.")
+	add := &adding{scope: scope, hello: make(chan devices.Device, 1)}
+	go func() {
+		defer close(r.done)
+		defer r.cancel()
+		u.session(rctx, r, st, bleDeck{Deck: u.Deck, u: u, r: r, boardID: n.BoardID, add: add})
+	}()
+	select {
+	case d := <-add.hello:
+		stop()
+		prog("done", d.Name+" is one of your boards now, connected over Bluetooth.")
+		return d, nil
+	case <-r.done:
+		u.Central.Forget(id)
+		u.mu.Lock()
+		err := r.err
+		u.mu.Unlock()
+		if err != nil && ctx.Err() == nil {
+			return devices.Device{}, fmt.Errorf("not added: %v", err)
+		}
+		return devices.Device{}, errors.New("the board hung up before it said hello")
+	case <-ctx.Done():
+		r.cancel()
+		u.Central.Forget(id)
+		return devices.Device{}, errors.New("the board didn't say hello in time")
+	}
+}
+
+// LinkState is a board's Bluetooth link, for the device list.
+type LinkState struct {
+	ID    string    `json:"id"`
+	State string    `json:"state"` // connected | connecting (waiting for it to come in range) | standing by (another uplink is in use) | not used (its preference) | off (Bluetooth isn't available)
+	Uses  string    `json:"uses,omitempty"`
+	Since time.Time `json:"since,omitzero"`
+}
+
+// State is the board's Bluetooth link ("" state when it has none).
+func (u *Uplinks) State(d devices.Device) LinkState {
+	if d.BLE == "" {
+		return LinkState{}
+	}
+	ls := LinkState{ID: d.BLE}
+	u.mu.Lock()
+	r := u.runs[d.BLE]
+	if r != nil {
+		select {
+		case <-r.done:
+			r = nil
+		default:
+			ls.State, ls.Since = r.state, r.since
+		}
+	}
+	u.mu.Unlock()
+	if r != nil {
+		return ls
+	}
+	if !link.UplinkAllowed(d, link.OverBLE) {
+		ls.State = "not used"
+		return ls
+	}
+	if uses := u.Hub.Preferred(d.Name, link.OverBLE, d.Uplink); uses != "" {
+		ls.State, ls.Uses = "standing by", uses
+		return ls
+	}
+	if u.Central == nil || !u.Central.Status().Available {
+		ls.State = "off"
+		return ls
+	}
+	ls.State = "connecting"
+	return ls
+}
+
+// Status is Bluetooth on this computer.
+func (u *Uplinks) Status() Status {
+	if u == nil || u.Central == nil {
+		return Status{Helper: "none", Why: NotHere}
+	}
+	return u.Central.Status()
+}
