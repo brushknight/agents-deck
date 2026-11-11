@@ -139,7 +139,9 @@ If the tmux server dies under live agents (a crash, a reboot), they are marked *
 ## Serial boards (Deck Link)
 
 Small boards (ESP32 and the like) connect over USB serial with Deck Link, a protobuf protocol with the
-same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The
+same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The same
+frames also travel over Wi-Fi (TLS 1.3) and Bluetooth LE: three transports, one device, scope and
+audit log. The
 [firmware kit](../firmware/deck-link) does the protocol; its examples are a status LED, an OLED tile
 with a button, and a rotary-encoder knob. Ready-made devices are in
 [firmware/devices](../firmware/devices), and [devices.md](devices.md) tours them with screenshots: two
@@ -183,6 +185,20 @@ to USB. `agentctl link` shows how each board is connected; `agentctl link wifi <
 the network, `agentctl devices revoke` cuts a board off on both. See
 [link/protocol.md](link/protocol.md#pairing-and-wi-fi).
 
+**Bluetooth.** The touch boards' `idf5` firmware also speaks Deck Link over Bluetooth LE, through a
+small helper in the macOS app (`deck-ble`). Nothing is approved on sight: you add a board yourself,
+and the computer pairs with it while you type the 6-digit code the board shows. Over that link it
+pairs for Wi-Fi and takes the default network, as on USB. Each board has an uplink preference (`auto`:
+USB, else Wi-Fi, else Bluetooth; `wifi`; `ble`), which the deck also sends to the board:
+
+```sh
+agentctl bluetooth scan                  # boards nearby, in setup or not
+agentctl bluetooth add deck-1a2b3c       # type the code on the board into the window macOS opens
+agentctl devices uplink <name> ble       # Bluetooth only; Wi-Fi stays off
+```
+
+See [protocol.md](protocol.md#devices-and-security) for the security rule and its known limits.
+
 With auto-approval off, a new board waits for approval and starts with view-only access. The daemon lets go of a port while
 another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
@@ -197,7 +213,7 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 |---|---|---|
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
 | Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
-| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board` |
+| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB, each board's network, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
 | Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |

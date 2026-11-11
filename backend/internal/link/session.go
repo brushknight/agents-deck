@@ -65,7 +65,7 @@ type Session struct {
 	// Set before Run.
 	PingEvery, RecheckEvery, Debounce time.Duration
 	Hub                               *Hub   // where `agentctl link` and `link wifi` find the session (optional)
-	Transport                         string // OverSerial (default) or OverWifi
+	Transport                         string // OverSerial (default), OverWifi or OverBLE
 	Where                             string // the port, or the board's network address
 	// Peer is the device whose certificate opened a Wi-Fi session: the board
 	// must say Hello with its board id, and the session ends when the device
@@ -79,7 +79,10 @@ type Session struct {
 	// the owner's hands: a new one may be approved at once (AutoApprover),
 	// and an approved, paired one gets the default Wi-Fi network (Wifi).
 	USBPort string
-	Wifi    *WifiDefault
+	// Wifi is the default network, sent to an approved, paired board on a
+	// registered USB port or on Bluetooth (paired with the passkey on its
+	// screen, which counts as in hand), never over Wi-Fi.
+	Wifi *WifiDefault
 
 	rw       io.ReadWriter
 	wmu      sync.Mutex
@@ -111,6 +114,12 @@ type Session struct {
 	lastRx  time.Time
 
 	wifiTried bool // the default network was offered in this session (once at most)
+
+	uplink         uplinkSync      // sending the board its uplink preference (linkconfig.go)
+	boardBle       linkpb.BleState // what its last NetStatus said (kept when Net is cleared)
+	boardUplink    linkpb.Uplink
+	rxAt           atomic.Int64 // when the board last sent a frame (unix ns), for Hub (any goroutine)
+	wrongTransport atomic.Bool  // its NetStatus named another transport than this link's
 
 	// stop ends Run when the board moves to an uplink the deck prefers
 	// (Hub.arbitrate, uplink.go).
@@ -210,6 +219,7 @@ func (s *Session) active() bool { return s.hello != nil && s.dev.Active() }
 // Run reads frames and pushes state until ctx is done or the stream ends.
 func (s *Session) Run(ctx context.Context) error {
 	s.since, s.lastRx = time.Now(), time.Now()
+	s.heard(s.lastRx)
 	if s.Where == "" {
 		s.Where = s.Name
 	}
@@ -252,6 +262,7 @@ func (s *Session) Run(ctx context.Context) error {
 			return err
 		case f := <-frames:
 			s.lastRx = time.Now()
+			s.heard(s.lastRx)
 			if err := s.handle(f); err != nil {
 				return err
 			}
@@ -308,8 +319,11 @@ func (s *Session) recheck() error {
 			return nil
 		}
 	}
-	was := s.active()
+	was, oldUplink := s.active(), s.dev.Uplink
 	s.setDevice(d)
+	if d.Uplink != oldUplink || (!was && s.active()) {
+		s.syncUplink() // the preference changed, or it may be sent now
+	}
 	if d.Active() == s.sentAs.Active() && d.Scope == s.sentAs.Scope && d.Name == s.sentAs.Name && d.CertSerial == s.sentAs.CertSerial {
 		return nil
 	}
@@ -469,14 +483,28 @@ func (s *Session) onNetStatus(n *linkpb.NetStatus) {
 		}
 		log.Printf("link %s: %s Wi-Fi %s", s.Name, s.dev.Name, line)
 	}
+	s.boardBle, s.boardUplink = n.Ble, n.Uplink
+	s.checkTransport(n)
+	s.syncUplink()
 	s.defaultWifi(n)
 }
 
-// defaultWifi gives an approved board on a registered USB port the deck's
-// default Wi-Fi network once it is paired (NetStatus.has_cert) and lacks it,
-// at most once per session; and notes how the board's test of it went.
+// getsDefault: the board is where the default network may be sent: a
+// registered USB port, or Bluetooth (paired with the passkey on its screen).
+// Never Wi-Fi, never `agentctl link sim`.
+func (s *Session) getsDefault() bool {
+	if s.Wifi == nil || !s.Hands() {
+		return false
+	}
+	return s.Transport == OverBLE || (s.Transport == OverSerial && s.USBPort != "")
+}
+
+// defaultWifi gives an approved board on a registered USB port or on
+// Bluetooth the deck's default Wi-Fi network once it is paired
+// (NetStatus.has_cert) and lacks it, at most once per session; and notes how
+// the board's test of it went.
 func (s *Session) defaultWifi(n *linkpb.NetStatus) {
-	if s.Wifi == nil || s.USBPort == "" || s.Transport != OverSerial || !s.active() {
+	if !s.getsDefault() || !s.active() {
 		return
 	}
 	name := s.dev.Name
@@ -515,10 +543,10 @@ func (s *Session) defaultWifi(n *linkpb.NetStatus) {
 	}()
 }
 
-// wifiGone: a board unplugged while it tested the default tries it again
-// next time.
+// wifiGone: a board unplugged (or out of Bluetooth range) while it tested the
+// default tries it again next time.
 func (s *Session) wifiGone() {
-	if s.Wifi == nil || s.USBPort == "" || s.dev.Name == "" {
+	if !s.getsDefault() || s.dev.Name == "" {
 		return
 	}
 	s.Wifi.gone(s.dev.Name, s)

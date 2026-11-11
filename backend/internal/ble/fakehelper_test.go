@@ -27,6 +27,25 @@ type fakeBoard struct {
 	Paired  bool   `json:"paired"`  // what paired= says
 	Passkey string `json:"passkey"` // ok (default) | fail: what happens when it pairs
 	Sock    string `json:"sock"`    // the test's socket for this board
+	MTU     int    `json:"mtu"`     // the link's ATT MTU: writes and notifications carry MTU - 3 bytes (default 67)
+}
+
+// chunk is the most bytes one write or notification carries on b's link.
+func (b fakeBoard) chunk() int {
+	if b.MTU <= 3 {
+		return 64
+	}
+	return b.MTU - 3
+}
+
+// infoField is one key of an Info value ("board", "id", "fw"), or def.
+func infoField(info, key, def string) string {
+	for _, part := range splitSemi(info) {
+		if len(part) > len(key) && part[:len(key)+1] == key+"=" {
+			return part[len(key)+1:]
+		}
+	}
+	return def
 }
 
 func fakeHelper(dir string) {
@@ -52,6 +71,7 @@ func fakeHelper(dir string) {
 	emit(map[string]any{"ev": "state", "state": "on", "message": "Bluetooth is on"})
 	var mu sync.Mutex
 	conns := map[string]net.Conn{}
+	chunks := map[string]int{} // by board: its largest write
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 64*1024), 1<<20)
 	for in.Scan() {
@@ -77,7 +97,7 @@ func fakeHelper(dir string) {
 				for _, b := range boards() {
 					emit(map[string]any{"ev": "found", "id": b.ID, "name": b.Name, "rssi": b.RSSI})
 					emit(map[string]any{"ev": "found", "id": b.ID, "name": b.Name, "rssi": b.RSSI,
-						"board": "round", "boardId": infoID(b.Info), "firmware": "0.4.0", "paired": b.Paired})
+						"board": infoField(b.Info, "board", "round"), "boardId": infoID(b.Info), "firmware": infoField(b.Info, "fw", "0.4.0"), "paired": b.Paired})
 				}
 			}
 		case "connect":
@@ -103,9 +123,11 @@ func fakeHelper(dir string) {
 			mu.Lock()
 			conns[c.ID] = conn
 			mu.Unlock()
-			emit(map[string]any{"ev": "connected", "id": c.ID, "mtu": 64, "board": "round", "boardId": infoID(b.Info), "firmware": "0.4.0"})
-			go func(id string, conn net.Conn) {
-				buf := make([]byte, 64) // notifications of at most the MTU
+			emit(map[string]any{"ev": "connected", "id": c.ID, "mtu": b.chunk(), "board": infoField(b.Info, "board", "round"),
+				"boardId": infoID(b.Info), "firmware": infoField(b.Info, "fw", "0.4.0")})
+			chunks[c.ID] = b.chunk()
+			go func(id string, conn net.Conn, size int) {
+				buf := make([]byte, size) // notifications of at most MTU - 3 bytes
 				for {
 					n, err := conn.Read(buf)
 					if n > 0 {
@@ -124,7 +146,7 @@ func fakeHelper(dir string) {
 						return
 					}
 				}
-			}(c.ID, conn)
+			}(c.ID, conn, b.chunk())
 		case "write":
 			mu.Lock()
 			conn := conns[c.ID]
@@ -133,8 +155,9 @@ func fakeHelper(dir string) {
 				emit(map[string]any{"ev": "error", "id": c.ID, "message": "not connected to that board"})
 				continue
 			}
-			for i := 0; i < len(c.Data); i += 64 { // cut to the MTU, as the real helper does
-				_, _ = conn.Write(c.Data[i:min(i+64, len(c.Data))])
+			size := chunks[c.ID]
+			for i := 0; i < len(c.Data); i += size { // cut to the largest write, as the real helper does
+				_, _ = conn.Write(c.Data[i:min(i+size, len(c.Data))])
 			}
 			emit(map[string]any{"ev": "sent", "id": c.ID, "n": len(c.Data)})
 		case "disconnect", "forget":

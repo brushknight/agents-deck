@@ -15,7 +15,7 @@ same tag.
 
 | file | what |
 |---|---|
-| `agents-deck_<v>_macos_universal.dmg` | the menu bar app for people: `agents deck.app` (Apple Silicon and Intel in one) and a link to Applications |
+| `agents-deck_<v>_macos_universal.dmg` | the menu bar app for people: `agents deck.app` (Apple Silicon and Intel in one, with agentctl and the Bluetooth helper `deck-ble` inside) and a link to Applications |
 | `agents-deck_<v>_macos_arm64.zip`, `…_macos_amd64.zip` | the same app, zipped: what `install.sh --app` and the updater fetch. One universal app under both names |
 | `agents-deck_<v>_linux_<arch>.deb` | for Debian and Ubuntu (24.04 and later), x64 and arm64: the tray app and agentctl, a systemd user service, an app menu entry and a udev rule for the boards' USB ports |
 | `agents-deck_<v>_linux_<arch>.tar.gz` | the tray app's folder (`agents-deck/`, with agentctl in it and the service, udev rule and desktop entry in `share/`): what `install.sh --app` and the updater put in `~/.local/share/agents-deck/app` |
@@ -72,7 +72,7 @@ notes) and attaches the files above. Its jobs:
 
 | job | runner | makes |
 |---|---|---|
-| `macos` | `macos-14` | agentctl for arm64 and amd64 (and both in one, inside the app); the universal app, signed from the inside out by `packaging/macos/package.sh`, notarized when the Apple secrets are set; the `.dmg` and the `.zip` |
+| `macos` | `macos-14` | agentctl for arm64 and amd64 (and both in one, inside the app); the Bluetooth helper `deck-ble` (`clients/ble/macos`, `swift build -c release`, universal; CI runs its `swift test`); the universal app, signed from the inside out by `packaging/macos/package.sh --deck-ble`, notarized when the Apple secrets are set; the `.dmg` and the `.zip` |
 | `linux` | `ubuntu-24.04`, `ubuntu-24.04-arm` | agentctl, the tray app, the `.deb` and `.tar.gz` (`packaging/linux/package.sh`); then installs the `.deb` on the runner and checks it (`packaging/linux/check-deb.sh`) |
 | `windows` | `windows-latest` | `agentctl.exe` and the installer (`packaging/windows/agents-deck.iss`, Inno Setup). Skipped with a warning while the backend doesn't build for Windows |
 | `firmware` | `ubuntu-24.04`, pinned container | one job per board, see below |

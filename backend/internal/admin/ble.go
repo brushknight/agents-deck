@@ -36,9 +36,16 @@ type BluetoothBoard struct {
 	Added    bool   `json:"added"`            // and added over Bluetooth on this computer
 }
 
+func (a *Admin) btStatus() ble.Status {
+	if a.Bluetooth == nil {
+		return ble.Status{Helper: "none", Why: ble.NotHere}
+	}
+	return a.Bluetooth.Status()
+}
+
 // bluetoothStatus: GET /admin/v1/bluetooth.
 func (a *Admin) bluetoothStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.Bluetooth.Status())
+	writeJSON(w, http.StatusOK, a.btStatus())
 }
 
 // bluetoothScan: POST /admin/v1/bluetooth/scan {"on": true|false} (on by
@@ -52,7 +59,7 @@ func (a *Admin) bluetoothScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	on := b.On == nil || *b.On
-	if a.Bluetooth == nil || a.Bluetooth.Central == nil {
+	if a.Bluetooth == nil {
 		if !on {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -60,7 +67,7 @@ func (a *Admin) bluetoothScan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, ble.NotHere)
 		return
 	}
-	if err := a.Bluetooth.Central.Scan(on); err != nil {
+	if err := a.Bluetooth.Scan(on); err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
@@ -70,11 +77,11 @@ func (a *Admin) bluetoothScan(w http.ResponseWriter, r *http.Request) {
 // bluetoothBoards: GET /admin/v1/bluetooth/boards, the boards seen since the
 // scan started.
 func (a *Admin) bluetoothBoards(w http.ResponseWriter, r *http.Request) {
-	st := a.Bluetooth.Status()
+	st := a.btStatus()
 	rows := []BluetoothBoard{}
-	if a.Bluetooth != nil && a.Bluetooth.Central != nil {
+	if a.Bluetooth != nil {
 		cat, _ := a.cachedCatalog()
-		for _, n := range a.Bluetooth.Central.Nearby() {
+		for _, n := range a.Bluetooth.Nearby() {
 			row := BluetoothBoard{ID: n.ID, Name: n.Name, RSSI: n.RSSI, Board: n.Board, BoardID: n.BoardID, Firmware: n.Firmware, Setup: n.Setup}
 			if cat != nil {
 				for _, b := range cat.Boards {
@@ -121,11 +128,11 @@ func (a *Admin) bluetoothAdd(w http.ResponseWriter, r *http.Request) {
 		scope = sc
 	}
 	id := r.PathValue("id")
-	if st := a.Bluetooth.Status(); !st.Available {
+	if st := a.btStatus(); !st.Available {
 		writeErr(w, http.StatusServiceUnavailable, st.Why)
 		return
 	}
-	n, ok := a.Bluetooth.Central.Seen(id)
+	n, ok := a.Bluetooth.Seen(id)
 	if !ok {
 		writeErr(w, http.StatusNotFound, "no such board nearby: scan first")
 		return
@@ -184,6 +191,7 @@ func (a *Admin) uplinkRows(row *DeviceRow, d devices.Device, links []link.LinkIn
 		row.UplinkPref = link.UplinkAuto
 	}
 	row.Bluetooth = d.BLE != ""
+	row.HasBluetooth = row.Bluetooth || (row.BLEState != "" && row.BLEState != "not supported")
 	have := map[string]bool{}
 	for _, l := range links {
 		via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi", link.OverBLE: "bluetooth"}[l.Transport]
@@ -204,10 +212,24 @@ func (a *Admin) uplinkRows(row *DeviceRow, d devices.Device, links []link.LinkIn
 		case "not used":
 			r.Detail = "its uplink preference is " + row.UplinkPref
 		case "off":
-			r.Detail = a.Bluetooth.Status().Why
+			r.Detail = a.btStatus().Why
+		}
+		if ls.Problem != "" && r.State != "standing by" && r.State != "not used" {
+			r.Detail = ls.Problem
 		}
 		if r.State != "" && r.State != "connected" {
 			row.Uplinks = append(row.Uplinks, r)
 		}
+	}
+	// Wi-Fi, for a board paired for it but not on it now.
+	if d.CertSerial != "" && !have["wifi"] {
+		r := UplinkRow{Via: "wifi", State: "not connected", Detail: "it isn't on the network now"}
+		switch {
+		case !link.UplinkAllowed(d, link.OverWifi):
+			r.State, r.Detail = "not used", "its uplink preference is "+row.UplinkPref
+		case have["usb"]:
+			r.State, r.Detail = "standing by", "it uses USB"
+		}
+		row.Uplinks = append(row.Uplinks, r)
 	}
 }

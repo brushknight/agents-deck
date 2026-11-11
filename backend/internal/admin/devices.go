@@ -41,6 +41,16 @@ type DeviceRow struct {
 	UplinkPref string      `json:"uplinkPref,omitempty"` // auto | wifi | ble
 	Uplinks    []UplinkRow `json:"uplinks,omitempty"`
 	Bluetooth  bool        `json:"bluetooth,omitempty"` // added over Bluetooth on this computer
+	// What the board itself says while connected (NetStatus): its Bluetooth
+	// (not supported, in setup, paired, connected) and the uplink preference
+	// it holds (auto, wifi, ble); and what went wrong sending it the
+	// preference.
+	BLEState    string `json:"bleState,omitempty"`
+	BoardUplink string `json:"boardUplink,omitempty"`
+	UplinkNote  string `json:"uplinkNote,omitempty"`
+	// HasBluetooth: its firmware has Bluetooth (it said so, or it was added
+	// over Bluetooth), so its uplink preference means something.
+	HasBluetooth bool `json:"hasBluetooth,omitempty"`
 }
 
 // WifiRow is a board's Wi-Fi as it reports it.
@@ -114,6 +124,12 @@ func (a *Admin) deviceRows() []DeviceRow {
 				if row.Connection == "" {
 					row.Connection = "bluetooth"
 				}
+			}
+			if l.Net != nil && l.Net.BLE != "" && (row.BLEState == "" || l.Transport == link.OverBLE) {
+				row.BLEState, row.BoardUplink = l.Net.BLE, l.Net.Uplink
+			}
+			if l.UplinkNote != "" {
+				row.UplinkNote = l.UplinkNote
 			}
 			if l.Net != nil || d.Kind == devices.Serial {
 				w := row.Wifi

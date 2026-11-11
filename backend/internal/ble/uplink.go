@@ -32,7 +32,8 @@ type Uplinks struct {
 	runs  map[string]*run // by Bluetooth identifier
 	retry map[string]time.Time
 	fails map[string]int
-	known map[string]bool // identifiers bound to a device last time
+	known map[string]bool   // identifiers bound to a device last time
+	why   map[string]string // the last attempt's problem, by identifier, until a Hello
 }
 
 type run struct {
@@ -49,7 +50,7 @@ type run struct {
 
 func (u *Uplinks) init() {
 	if u.runs == nil {
-		u.runs, u.retry, u.fails, u.known = map[string]*run{}, map[string]time.Time{}, map[string]int{}, map[string]bool{}
+		u.runs, u.retry, u.fails, u.known, u.why = map[string]*run{}, map[string]time.Time{}, map[string]int{}, map[string]bool{}, map[string]string{}
 	}
 }
 
@@ -202,6 +203,9 @@ func (u *Uplinks) connect(ctx context.Context, d devices.Device) {
 		if err != nil {
 			if rctx.Err() == nil {
 				log.Printf("bluetooth: %s: %v", d.Name, err)
+				u.mu.Lock()
+				u.why[d.BLE] = err.Error() // "the board no longer knows this computer: …" and the like
+				u.mu.Unlock()
 			}
 			return
 		}
@@ -226,6 +230,9 @@ func (u *Uplinks) session(ctx context.Context, r *run, st *Stream, deck bleDeck)
 	}
 	s := link.NewSession(deck, st, name+"@ble")
 	s.Hub, s.Transport, s.Where, s.IdleTimeout = u.Hub, link.OverBLE, "bluetooth", link.NetworkIdle
+	if u.Hub != nil {
+		s.Wifi = u.Hub.Wifi // a board paired with its passkey is in hand: it may get the default network
+	}
 	if n, ok := u.Central.Seen(st.ID); ok && n.Name != "" {
 		s.Where = "bluetooth " + n.Name
 	}
@@ -266,6 +273,7 @@ func (b bleDeck) Board(boardID, typ, firmware string) (devices.Device, error) {
 	}
 	b.u.mu.Lock()
 	b.r.hello = true
+	delete(b.u.why, b.r.id)
 	if b.add != nil {
 		b.r.device = d.Name
 	}
@@ -310,7 +318,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 	if prog == nil {
 		prog = func(string, string) {}
 	}
-	if u.Central == nil {
+	if u == nil || u.Central == nil {
 		return devices.Device{}, ErrUnavailable
 	}
 	if err := u.Central.usable(); err != nil {
@@ -387,15 +395,20 @@ type LinkState struct {
 	State string    `json:"state"` // connected | connecting (waiting for it to come in range) | standing by (another uplink is in use) | not used (its preference) | off (Bluetooth isn't available)
 	Uses  string    `json:"uses,omitempty"`
 	Since time.Time `json:"since,omitzero"`
+	// Problem: why the last attempt failed, until the board says Hello again
+	// (the helper's words, such as "the board no longer knows this computer:
+	// … remove it in System Settings, Bluetooth …").
+	Problem string `json:"problem,omitempty"`
 }
 
 // State is the board's Bluetooth link ("" state when it has none).
 func (u *Uplinks) State(d devices.Device) LinkState {
-	if d.BLE == "" {
+	if u == nil || d.BLE == "" {
 		return LinkState{}
 	}
 	ls := LinkState{ID: d.BLE}
 	u.mu.Lock()
+	ls.Problem = u.why[d.BLE]
 	r := u.runs[d.BLE]
 	if r != nil {
 		select {
@@ -431,4 +444,31 @@ func (u *Uplinks) Status() Status {
 		return Status{Helper: "none", Why: NotHere}
 	}
 	return u.Central.Status()
+}
+
+// Scan starts or stops looking for boards (Central.Scan).
+func (u *Uplinks) Scan(on bool) error {
+	if u == nil || u.Central == nil {
+		if !on {
+			return nil
+		}
+		return ErrUnavailable
+	}
+	return u.Central.Scan(on)
+}
+
+// Nearby lists the boards seen since the scan started (Central.Nearby).
+func (u *Uplinks) Nearby() []Nearby {
+	if u == nil || u.Central == nil {
+		return nil
+	}
+	return u.Central.Nearby()
+}
+
+// Seen is a board from the scan, by identifier (Central.Seen).
+func (u *Uplinks) Seen(id string) (Nearby, bool) {
+	if u == nil || u.Central == nil {
+		return Nearby{}, false
+	}
+	return u.Central.Seen(id)
 }

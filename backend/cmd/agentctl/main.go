@@ -984,6 +984,13 @@ func devicesCmd(args []string) error {
 				v += fmt.Sprintf(" %d dBm", b.Net.RSSI)
 			}
 		}
+		if b.Net != nil && b.Net.BLE != "" && b.Net.BLE != "not supported" {
+			v += " (bluetooth " + b.Net.BLE
+			if b.Net.Uplink != "" {
+				v += ", uplink " + b.Net.Uplink
+			}
+			v += ")"
+		}
 		via[b.Board] = append(via[b.Board], v)
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)

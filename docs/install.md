@@ -273,6 +273,18 @@ dialout $USER`, then log out and in) works too.
 That's SmartScreen, because the installer isn't signed yet: More info, then Run anyway. See
 [above](#windows-preview).
 
+### macOS: Bluetooth says it may not be used
+
+The first time agents deck looks for boards over Bluetooth, macOS asks whether **agents deck
+Bluetooth** may use Bluetooth (that is the helper inside the app, `deck-ble`). If you said no, or the
+prompt never came, Settings, Network says "Bluetooth needs your permission": turn **agents deck
+Bluetooth** on in System Settings, Privacy & Security, Bluetooth, then restart the service (Settings,
+Troubleshoot, Restart). If Bluetooth is off in Control Centre, it says that instead.
+
+A board that keeps saying "the board no longer knows this computer" was put back in setup on its own
+screen: remove it in System Settings, Bluetooth (if it is listed there), then add it again in
+Settings, Boards.
+
 ### The service isn't running
 
 `agentctl status` says whether it runs, whether it starts at login, and where its log is. The app's

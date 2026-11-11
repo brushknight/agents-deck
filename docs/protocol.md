@@ -11,6 +11,10 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 | ESP32 boards over Bluetooth | Bluetooth LE: the same Deck Link frames as a byte stream through the Deck Link GATT service, run by a small helper next to `agentctl` (`deck-ble` on macOS, [clients/ble](../clients/ble/README.md)) | added by you (`agentctl bluetooth add`), paired with the 6-digit passkey shown on the board's own screen and bonded; then the same device, scope and audit log as on USB |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
 
+Bluetooth is a third way for a board to reach the deck, beside USB and Wi-Fi, with the same device,
+scope, audit and revocation model: a board on it is a device you approved, never one approved on
+sight ([Boards over Bluetooth](#devices-and-security)).
+
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
 The management API (`/admin/v1`, [below](#management-api-admin-v1)) is served only on the unix socket and the
 loopback dashboard, never on the network.
@@ -197,14 +201,19 @@ Wi-Fi passwords never go through `/v1`: `agentctl link wifi` hands them to the d
 socket (`POST /local/link/wifi`), which passes them to a board connected over USB or Bluetooth right
 now and keeps nothing. The one exception is the default network (`agentctl link wifi --default --ssid NAME`, `POST
 /local/link/wifi-default`): its password is kept in the macOS Keychain (`dev.agents-deck`, item
-`wifi-default`; a 0600 file under `keys/` elsewhere), and the deck sends it, over USB only, to every
-approved board that is paired and lacks it, once per connection, unless the board was given its own
-network. It is never logged or audited (`"action": "wifi default set"` without the network or password).
+`wifi-default`; a 0600 file under `keys/` elsewhere), and the deck sends it, over USB or a paired
+Bluetooth link (never over Wi-Fi), to every approved board that is paired and lacks it, once per
+connection, unless the board was given its own network. It is never logged or audited (`"action": "wifi default set"` without the network or password).
 
-**Boards over Bluetooth.** The rule, never weaker than this: nothing goes over Bluetooth without an
-encrypted link from LE Secure Connections pairing, with a passkey the board shows on its own screen,
-and a bond. Seeing the passkey proves you are looking at that board, as a USB cable proves it is
-plugged in. In practice:
+**Boards over Bluetooth.** The rule, never weaker than this:
+
+> Nothing over Bluetooth without an encrypted link from LE Secure Connections pairing with a passkey
+> the board shows on its own screen, and a bond. Seeing the passkey proves the person is looking at
+> that board, as a USB cable proves it is plugged in. A BLE board is still a device with a name, a
+> scope and an audit trail, approved by the person (never automatically on first sight), and
+> revocable. Wi-Fi keeps TLS 1.3 and the device certificate, unchanged.
+
+In practice:
 
 - A board seen over Bluetooth is never connected to or approved on sight. `agentctl bluetooth scan`
   lists boards nearby from what they advertise and their Info characteristic (board, board id,
@@ -221,27 +230,49 @@ plugged in. In practice:
 - After that it is a device like any other: same scope check, audit log, `agentctl devices`. Its
   later links must say `Hello` with the same board id. Revoking it ends its Bluetooth link and forgets
   it; approved again, it is added again with a new passkey.
-- A board over Bluetooth is in your hands as on USB: it may be given Wi-Fi credentials and paired for
-  Wi-Fi over that link. Firmware is never sent over Bluetooth: an update needs Wi-Fi or the cable.
+- A board over Bluetooth is in your hands as on USB: it may be given Wi-Fi credentials (yours, or the
+  default network) and paired for Wi-Fi over that link. Pairing (`CertRequest`) and credentials
+  (`WifiConfig`) go only over USB or an encrypted, bonded Bluetooth link, never over Wi-Fi. A board
+  whose `NetStatus` names another transport than the link it came over gets neither on that link.
+  Firmware is never sent over Bluetooth: an update needs Wi-Fi or the cable.
+- The helper (`deck-ble`) only carries bytes between the service and the radio. It stores no
+  credentials, keys or passkeys and never sees the code: the operating system pairs and keeps the
+  bond.
 - A board with no bond advertises as connectable for anyone (it is in setup). A bonded board accepts
   only its bonded computer, and goes back to setup only from its own screen.
 
-What Bluetooth does not protect: the board's advertised name and Info are public, so anyone nearby can
-see that a board is there, which board it is and which firmware it runs. Security rests on the board:
-it must refuse RX and TX on any link that isn't encrypted and authenticated, because the computer can't
-see how a link was paired (on macOS a successful TX subscription is the only sign; see
-[clients/ble](../clients/ble/README.md)). The bond lives in the operating system's Bluetooth settings,
-not in the deck's data folder. Wi-Fi keeps TLS 1.3 and the device certificate, unchanged.
+Known limits, plainly:
+
+- **The service can't check the encryption.** macOS doesn't tell a program whether a Bluetooth link is
+  encrypted, how it was paired or whether a bond exists (a successful TX subscription is the only
+  sign; see [clients/ble](../clients/ble/README.md)). So the rule is enforced by the board's firmware:
+  it refuses RX and TX on any link that isn't encrypted and authenticated with a passkey, and undoes a
+  pairing that ended without one.
+- **A stranger can hold the connection for a while.** A board takes one Bluetooth connection at a
+  time. Anyone in range can connect to a bonded board; it drops a connection that hasn't encrypted with
+  its bond's keys within 10 s, so a stranger can keep it busy for up to 10 s at a time (and again).
+- **Bond keys sit in plain flash.** The board keeps its bond (and its Wi-Fi certificate and password)
+  in NVS, which is not encrypted unless flash encryption is turned on: someone holding the board can
+  read them. Revoke a lost board, and put it back in setup from its screen.
+- The board's advertised name and Info are public: anyone nearby can see that a board is there, which
+  board it is and which firmware it runs.
+
+The bond lives in the operating system's Bluetooth settings, not in the deck's data folder. When a
+board forgot this computer (put back in setup), the Boards page and `agentctl bluetooth` say so: remove
+the board in System Settings, Bluetooth, then add it again.
 
 **One session per board.** A board may reach the deck over USB, Wi-Fi and Bluetooth at once; the deck
 runs one Deck Link session for it. USB always comes first (a cable is in your hands, and the board
 quiets its radios while a deck answers there). Between the radios, the board's uplink preference
 decides, with the same meaning the board gives it: `auto` (USB, else Wi-Fi, else Bluetooth), `wifi`
 (USB, else Wi-Fi; Bluetooth only while the board isn't paired for Wi-Fi yet, to set it up) or `ble` (USB,
-else Bluetooth; Wi-Fi isn't used). Set it with `agentctl devices uplink <name> auto|wifi|ble`; it is
-kept in `devices.json`. When a better uplink says `Hello`, the session on the worse one ends.
-Bluetooth isn't connected while a better uplink is in use, and comes back by itself when it is the
-best one left.
+else Bluetooth; Wi-Fi isn't used). Set it with `agentctl devices uplink <name> auto|wifi|ble` or on
+the Settings page; it is kept in `devices.json`, and the deck sends it to the board in `LinkConfig`
+(over whatever link the board is on) when the board's `NetStatus` shows another one, so the board
+picks its radio the same way ([Uplinks](link/protocol.md#uplinks)). When a better uplink says `Hello`,
+the session on the worse one ends; a session that has heard nothing from its board for two pings
+(10 s) doesn't count, since the board has left it. Bluetooth isn't connected while a better uplink is
+in use, and comes back by itself when it is the best one left.
 
 **Firmware updates over Wi-Fi.** A board on Wi-Fi is updated through the same listener and the same
 certificate: the deck sends it `FirmwareOffer` over its Deck Link session (never automatically: you
@@ -297,13 +328,13 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 |---|---|---|---|
 | GET | `/admin/v1/system` | – | `{"version", "platform", "install", "started", "boards": {"online", "total", "pending"}, "ports": {"new"}, "update": {"state", "version"}, "firmware_updates"}`: the tray app's status line |
 | GET | `/admin/v1/settings` | – | every setting as one document: `startAtLogin` (`null` where there is none), `trayAtLogin` (Linux, when the tray app is installed), `notifications` (`off`, `attention`, `finished`), `sound`, `restore` (`ask`, `auto`), `updates` (`notify`, `auto`, `off`), `network`, `networkRunning`, `wifi.ssid`, `cli` |
-| PATCH | `/admin/v1/settings` | any of those keys; `"wifi": {"ssid", "password", "send"}` or `{"forget": true}` | `{"settings", "message", "restartNeeded", "sent"}`. The Wi-Fi password goes to the OS secret store and to boards on USB; it is never returned, logged or audited. Start at login registers or removes the service (and the Linux tray app's autostart entry) after answering, since that restarts or stops the service |
+| PATCH | `/admin/v1/settings` | any of those keys; `"wifi": {"ssid", "password", "send"}` or `{"forget": true}` | `{"settings", "message", "restartNeeded", "sent"}`. The Wi-Fi password goes to the OS secret store and to boards on USB or Bluetooth; it is never returned, logged or audited. Start at login registers or removes the service (and the Linux tray app's autostart entry) after answering, since that restarts or stops the service |
 | POST | `/admin/v1/restart` | – | `202`: restarts the service through what starts it at login |
 | POST | `/admin/v1/cli` | `{"installed": true\|false}` | adds or removes `~/.local/bin/agentctl` (a link to this agentctl; never a file it didn't make) |
 | POST | `/admin/v1/open-data-folder` | – | `204`: shows the data folder in the file manager on this computer |
 | GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents", "state", "detail", "note"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
 | POST | `/admin/v1/accounts/{name}/color` | `{"color"}` | `204` |
-| GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job", "uplinkPref", "uplinks": [{"via", "state", "detail"}], "bluetooth"}], "latest", "releaseKey", "ota"}`. `connection` is the uplink in use (`usb`, `wifi`, `bluetooth`, `network`); `uplinks` lists every way a board reaches the computer now (`via` `usb`, `wifi`, `bluetooth`; `state` `in use`, `standing by` (another uplink is in use), `connecting` (waiting for it to come in range), `not used` (its preference), `off`); `bluetooth` is true for a board added over Bluetooth here |
+| GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job", "uplinkPref", "uplinks": [{"via", "state", "detail"}], "bluetooth", "hasBluetooth", "bleState", "boardUplink", "uplinkNote"}], "latest", "releaseKey", "ota"}`. `connection` is the uplink in use (`usb`, `wifi`, `bluetooth`, `network`); `uplinks` lists every way a board reaches the computer now (`via` `usb`, `wifi`, `bluetooth`; `state` `in use`, `standing by` (another uplink is in use), `connecting` (waiting for it to come in range; `detail` says why the last try failed), `not used` (its preference), `not connected` (Wi-Fi, for a board paired for it), `off`); `bluetooth` is true for a board added over Bluetooth here; `hasBluetooth` for a board whose firmware has it. `bleState` (`not supported`, `in setup`, `paired`, `connected`) and `boardUplink` (`auto`, `wifi`, `ble`) are what the board says in `NetStatus`; `uplinkNote` says what went wrong sending it its preference |
 | POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version"}`; `uplink` `{"uplink": "auto"\|"wifi"\|"ble"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air; a board only on Bluetooth gets `409`. `uplink` `ble` needs the board added over Bluetooth first |
 | POST | `/admin/v1/pair` | `{"name", "scope"}` | a one-time pairing code, as `agentctl pair` gives |
 | GET | `/admin/v1/ports` | – | `{"ports": [{"id", "path", "vid", "pid", "likely", "state", "registered", "device", "job"}]}`, states `new`, `registered`, `connected`, `busy`, `flashing`, `unplugged`, `ignored`, `other`. Listed from the system's USB ids: **no port is opened to list it** |
@@ -343,3 +374,6 @@ with statuses cycling) on both listeners, so the panel and web UI can be develop
 running real agents. `answer` / `focus` / `interrupt` are accepted and change the demo state.
 The management API pretends too: made-up boards, USB ports, a release and a flasher in a folder of
 its own, so Settings can be tried without touching a serial port, `config.json` or the network.
+Bluetooth pretends as well: boards appear one by one while it looks, adding one walks through the
+passkey step, and one weak board fails; `AGENTS_DECK_DEMO_BLUETOOTH=off`, `unauthorized` or `none`
+shows Bluetooth unavailable instead.

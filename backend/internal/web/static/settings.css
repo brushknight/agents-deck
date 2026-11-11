@@ -142,6 +142,7 @@ p { margin: 0; }
 .row.tall { align-items: flex-start; padding: 16px; }
 .row.hot.tall .m { line-height: 1.6; }
 .note { color: var(--meta); font-size: 12.5px; line-height: 1.45; }
+.note.err { color: var(--accent); }
 .box { background: var(--panel); border-radius: 4px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .box.err { color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
 
@@ -247,6 +248,22 @@ input[type="text"]:focus-visible, input[type="password"]:focus-visible { border-
 .more-panel .line > span { color: var(--meta); font-size: 12.5px; min-width: 90px; }
 .more-panel input[type="text"] { width: 220px; height: 36px; }
 .inline-form { flex-basis: 100%; display: flex; flex-direction: column; gap: 12px; padding-top: 10px; }
+/* ---------- a board's uplinks, and Bluetooth ---------- */
+.uplinks { flex-basis: 100%; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 0 0 54px; border-top: 1px solid var(--line); margin-top: 2px; }
+.uplinks .chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.uplinks .pref { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.uplinks .seg button { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.uplinks > .note { flex-basis: 100%; }
+.up { font-size: 12px; line-height: 1; border: 1px solid var(--edge); border-radius: 10px; padding: 5px 9px; color: var(--meta); white-space: nowrap; }
+.up-in-use { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.up-connecting { border-style: dashed; color: var(--ink); }
+.up-off, .up-not-used, .up-not-connected { color: var(--dim); }
+.sig-strong { color: var(--ink); }
+.sig-weak { color: var(--accent); }
+.row .r > .note { font-size: 12px; }
+.box.add { gap: 12px; }
+.box.add .passkey { font-family: var(--f-head); font-weight: 700; font-size: 20px; line-height: 1.35; color: var(--accent); }
+.box.add .list { padding: 2px 0; }
 details.quiet summary { color: var(--meta); font-size: 12px; cursor: pointer; }
 details.quiet[open] summary { margin-bottom: 10px; }
 
@@ -316,6 +333,7 @@ pre.report { background: var(--panel); border-radius: 12px; padding: 14px 16px; 
   .foot { display: none; }
   .mn { overflow: visible; padding: 18px 16px 32px; }
   .grid2 { grid-template-columns: 1fr; }
-  .more-panel { padding-left: 0; }
+  .more-panel, .uplinks { padding-left: 0; }
+  .uplinks .pref { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { button.tg::after { transition: none; } }

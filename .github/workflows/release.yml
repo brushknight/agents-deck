@@ -103,6 +103,14 @@ jobs:
                echo "APP_ARCH=arm64" >> "$GITHUB_ENV" ;;
           esac
 
+      - name: Bluetooth helper (deck-ble, universal)
+        working-directory: clients/ble/macos
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+          bin="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          lipo -archs "$bin/deck-ble"
+          cp "$bin/deck-ble" ../../../build/deck-ble
+
       - name: signing keychain
         if: env.HAVE_CERT == 'true'
         env:
@@ -150,7 +158,7 @@ jobs:
           agentctl=build/agentctl-universal
           if [ "$APP_ARCH" != universal ]; then agentctl=build/agentctl-arm64; fi
           packaging/macos/package.sh --app "clients/macos/build/macos/Build/Products/Release/agents deck.app" \
-            --agentctl "$agentctl" --version "$VERSION" --arch "$APP_ARCH" --out build/pkg "${id[@]}"
+            --agentctl "$agentctl" --deck-ble build/deck-ble --version "$VERSION" --arch "$APP_ARCH" --out build/pkg "${id[@]}"
           # The updater fetches agents-deck_<v>_macos_<goarch>.zip: one universal app under both names.
           cp "build/pkg/agents-deck_${VERSION}_macos_${APP_ARCH}.zip" "dist/agents-deck_${VERSION}_macos_arm64.zip"
           if [ "$APP_ARCH" = universal ]; then

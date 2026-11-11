@@ -69,7 +69,13 @@ data or keys.
 Flow control: the service keeps at most `window` bytes unacknowledged and waits for `sent`; the helper
 writes without response while the link says it can (`canSendWriteWithoutResponse` and
 `peripheralIsReady(toSendWriteWithoutResponse:)` on macOS), so a slow link slows the service down
-instead of growing a queue. A board whose RX only takes writes with response gets one write at a time.
+instead of growing a queue. A board whose RX only takes writes with response gets one write at a time;
+one it refuses with "insufficient resources" (ATT 0x11: its buffer is full and it took none of it) is
+sent again shortly, in order, and its bytes are reported in `sent` once.
+
+The board says `Hello` as soon as TX is subscribed. Notifications that arrive before the subscription
+is confirmed are kept and passed on right after `connected`, so the `Hello` isn't lost. The service
+writes nothing before the board's `Hello` (its session answers it with `Welcome`).
 
 ## macOS: what CoreBluetooth does and doesn't let the helper do
 
