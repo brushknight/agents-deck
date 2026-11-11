@@ -174,17 +174,28 @@ jobs:
           done)
           lipo -create -output build/agentctl build/agentctl-arm64 build/agentctl-amd64
           (cd clients/macos && flutter pub get && flutter build macos --release)
+      - name: Bluetooth helper (deck-ble), its tests, then the universal release build
+        working-directory: clients/ble/macos
+        run: |
+          swift test
+          swift build -c release --arch arm64 --arch x86_64
+          bin="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          lipo -archs "$bin/deck-ble"
+          cp "$bin/deck-ble" ../../../build/deck-ble
       - name: package and check
         run: |
           app="clients/macos/build/macos/Build/Products/Release/agents deck.app"
           lipo -archs "$app/Contents/MacOS/agents deck"
-          packaging/macos/package.sh --app "$app" --agentctl build/agentctl --version 0.0.0-ci --arch universal --out dist
+          packaging/macos/package.sh --app "$app" --agentctl build/agentctl --deck-ble build/deck-ble \
+            --version 0.0.0-ci --arch universal --out dist
           mnt="$RUNNER_TEMP/dmg"
           mkdir -p "$mnt"
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" dist/agents-deck_0.0.0-ci_macos_universal.dmg
           test -L "$mnt/Applications"
           codesign --verify --deep --strict "$mnt/agents deck.app"
           test "$("$mnt/agents deck.app/Contents/MacOS/agentctl" version)" = 0.0.0-ci
+          test -x "$mnt/agents deck.app/Contents/MacOS/deck-ble"
+          codesign -d -r- "$mnt/agents deck.app/Contents/MacOS/deck-ble" 2>&1 | grep -q dev.agents-deck.deck-ble
           hdiutil detach "$mnt"
 
   firmware:
