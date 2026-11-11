@@ -1,7 +1,8 @@
 # Deck Link protocol v1
 
-Deck Link connects small boards (ESP32 and similar) to the agents deck over USB serial, and, once
-paired, over Wi-Fi (see [Pairing and Wi-Fi](#pairing-and-wi-fi)). A board sees
+Deck Link connects small boards (ESP32 and similar) to the agents deck over USB serial, once
+paired over Wi-Fi (see [Pairing and Wi-Fi](#pairing-and-wi-fi)), and over Bluetooth LE (see
+[Bluetooth](#bluetooth)). The frames are the same on all three. A board sees
 the same agents, statuses and prompts as the web dashboard and can take the same actions, within the
 scope you give it. The messages are defined in
 [`proto/agentsdeck/link/v1/link.proto`](../../proto/agentsdeck/link/v1/link.proto); size limits are in
@@ -144,7 +145,7 @@ A board that pairs over USB can later connect over Wi-Fi, as the same device: th
 approval, revocation and audit log. Over Wi-Fi it speaks the same frames, so everything above works
 unchanged.
 
-### Pairing (over USB serial only)
+### Pairing (over USB serial, or Bluetooth)
 
 ```
 board                                   deck
@@ -155,8 +156,9 @@ board                                   deck
 
 - The board makes an EC P-256 key **on the chip** (it never leaves it) and sends a certificate signing
   request for it, `CertRequest.csr` (DER, or PEM; at most 600 bytes).
-- Only an approved board gets a certificate, and only over USB serial: anything else gets a `Result`
-  (403 not approved or not on USB, 400 a bad request, 503 the network listener is off). The deck signs
+- Only an approved board gets a certificate, and only over USB serial or an encrypted, bonded
+  Bluetooth link ([Bluetooth](#bluetooth)): anything else gets a `Result` (403 not approved or not on
+  USB or Bluetooth, 400 a bad request, 503 the network listener is off). The deck signs
   it with its CA (the one in the Keychain, [protocol.md](../protocol.md#devices-and-security)) and
   records it on the board's own entry in `devices.json`.
 - `CertIssued` says where to use it: `hosts` are the Mac's `.local` name, then its LAN addresses (at
@@ -172,7 +174,7 @@ board                                   deck
   enable flash encryption (and NVS encryption): someone holding the board can read them, and the Wi-Fi
   password. Revoke a lost board.
 
-### Wi-Fi credentials (over USB serial only)
+### Wi-Fi credentials (over USB serial, or Bluetooth)
 
 `agentctl link wifi <board> --ssid <name>` asks for the password (without echo; `--password` also
 works) and the daemon sends it to the board over USB:
@@ -184,7 +186,9 @@ board                                   deck
   │ NetStatus {wifi: JOINING} … {wifi: IDLE, ip, rssi} ──▶│   the board tries the network once
 ```
 
-- Only a board on USB serial right now gets them: otherwise the command says so and nothing is kept.
+- Only a board on USB serial or on an encrypted, bonded Bluetooth link right now gets them: otherwise
+  the command says so and nothing is kept. Over Bluetooth the board tries the network while staying
+  on Bluetooth, as it stays on USB.
   The Mac never stores the password; the daemon doesn't log or audit it (the audit log records
   `wifi <board>` with `set` or `forget`).
 - The board answers with a `Result` (204 kept, 400 bad, 501 no Wi-Fi in this firmware), then tries the
@@ -255,7 +259,8 @@ From then on the connection carries the same binary frames as USB (Hello, Welcom
   certificate belongs to (otherwise `Result 403` and the connection closes), and the session ends as
   soon as the device is revoked or pairs again. A revoked board fails the TLS handshake; the board
   shows "certificate rejected · pair again over USB".
-- `CertRequest` and `WifiConfig` are refused over Wi-Fi: pairing and credentials go over USB only.
+- `CertRequest` and `WifiConfig` are refused over Wi-Fi: pairing and credentials go over USB or
+  Bluetooth only.
 - The deck pings every 5 s as usual and closes a Wi-Fi session that has been silent for 30 s.
 - `hosts` are tried in order: the `.local` name (mDNS on the board), then the addresses.
 
@@ -265,21 +270,24 @@ At boot a board listens on USB for a few seconds. A deck that answers there (a `
 `Hello`) wins. If nobody does, and the board has a network and a certificate, it joins the network and
 connects over TLS. A deck that appears on USB later takes over at once (the board drops Wi-Fi): USB
 is preferred, so pairing, new credentials and recovery always work over the cable. A board on USB
-whose deck goes quiet for 30 s tries Wi-Fi meanwhile.
+whose deck goes quiet for 30 s tries Wi-Fi meanwhile. Off USB, the deck's uplink preference picks
+between Wi-Fi and Bluetooth ([Uplinks](#uplinks)).
 
 ### NetStatus
 
 After each `Welcome`, and whenever it changes, a board may say how it is connected: `transport`
-(`SERIAL` or `WIFI`), `wifi` (`UNSUPPORTED`, `NOT_SET`, `IDLE`, `JOINING`, `CONNECTED`,
-`WRONG_PASSWORD`, `NO_NETWORK`, `FAILED`, `DECK_UNREACHABLE`, `CERT_REJECTED`), `ssid`, `ip`, `rssi` and
-`has_cert`. `agentctl link` and `agentctl devices` show it. It is never the password.
+(`SERIAL`, `WIFI` or `BLE`), `wifi` (`UNSUPPORTED`, `NOT_SET`, `IDLE`, `JOINING`, `CONNECTED`,
+`WRONG_PASSWORD`, `NO_NETWORK`, `FAILED`, `DECK_UNREACHABLE`, `CERT_REJECTED`), `ssid`, `ip`, `rssi`,
+`has_cert`, `ble` (`UNSUPPORTED`, `SETUP`: no bond, `BONDED`, `CONNECTED`; unset from firmware older
+than Bluetooth) and `uplink` (the preference it holds). `agentctl link` and `agentctl devices` show it.
+It is never the password.
 
 | message | direction | field | over |
 |---|---|---|---|
-| `CertRequest` | board → deck | 60 | USB serial |
-| `CertIssued` | deck → board, reply | 61 | USB serial |
-| `WifiConfig` | deck → board, answered with `Result` | 62 | USB serial |
-| `NetStatus` | board → deck | 63 | either |
+| `CertRequest` | board → deck | 60 | USB serial, Bluetooth |
+| `CertIssued` | deck → board, reply | 61 | USB serial, Bluetooth |
+| `WifiConfig` | deck → board, answered with `Result` | 62 | USB serial, Bluetooth |
+| `NetStatus` | board → deck | 63 | any |
 
 These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49
 and checks these are documented here.
@@ -333,6 +341,123 @@ board (on Wi-Fi)                                     deck
 | `FirmwareStatus` | board → deck | 65 | either (the board may have moved to USB meanwhile) |
 
 Like pairing, these set up the board itself: they are not web API commands and have no route.
+
+## Bluetooth
+
+A board can reach the deck over Bluetooth LE: next to a laptop with no Wi-Fi and no cable, and to be
+set up from nothing without a cable. Deck Link itself doesn't change: the same frames travel over a
+GATT byte stream. The touch boards' `idf5` firmware has it (ESP32-S3, NimBLE); the kit's part is
+[`deck_ble.h`](../../firmware/deck-link/src/deck_ble.h), the board's
+[`ble_link.h`](../../firmware/panel-core/src/ble_link.h).
+
+### GATT
+
+| | UUID | properties |
+|---|---|---|
+| service | `7e3a0001-5d2c-4f1b-9a6e-a9e17d5c0de0` | primary |
+| RX, deck → board | `7e3a0002-5d2c-4f1b-9a6e-a9e17d5c0de0` | write, write without response; encrypted, authenticated |
+| TX, board → deck | `7e3a0003-5d2c-4f1b-9a6e-a9e17d5c0de0` | notify; encrypted, authenticated |
+| Info | `7e3a0004-5d2c-4f1b-9a6e-a9e17d5c0de0` | read, no encryption |
+
+- Deck Link frames (COBS, each ending in `0x00`) are written to RX and notified on TX as a plain byte
+  stream, cut to the link's ATT MTU minus 3. There is no framing of its own: a frame may span many
+  writes, and a write may hold the end of one frame and the start of the next. The board asks for an
+  ATT MTU of 247 (244 bytes per write or notification).
+- Info is UTF-8 `board=<board>;id=<board id>;fw=<version>;paired=<0|1>`, for example
+  `board=lilygo-t4-s3;id=AA:BB:CC:1A:2B:3C;fw=0.3.0;paired=0`. `board` is its folder under
+  `firmware/devices`, `id` its `Hello.board_id`, `paired` whether it holds a Bluetooth bond. Anyone in
+  range can read it; it says nothing a scan doesn't.
+- The deck sends best with write without response, paced by the system's flow control. A write the
+  board can't take now (its buffer of 32 KB is full) is refused whole: a write request then gets
+  "insufficient resources", and the deck sends it again. A whole snapshot of 32 agents with every
+  field set is about 24 KB.
+
+### Security
+
+Nothing goes over Bluetooth without an encrypted link from **LE Secure Connections** pairing with a
+**passkey the board shows on its own screen**, and a **bond**. Seeing the passkey proves the person is
+looking at that board, as a USB cable proves it is plugged in.
+
+- The board is display only. When the computer pairs, the board shows a 6-digit passkey and its name
+  (`pair deck-1a2b3c`, `042917`, "type it on the computer"); the person types it there.
+- Secure Connections only (P-256, 16-byte keys, no legacy pairing), MITM required. RX and TX refuse
+  anything else with "insufficient authentication", which is what makes the computer pair. A pairing
+  that ends without the passkey (Just Works) is undone and the connection dropped.
+- One bond. A board without one is **in setup**: connectable for anyone, and it pairs with whoever
+  types its passkey. A bonded board takes **only its bonded deck**: it refuses any new pairing (it
+  never shows a passkey then), refuses a repeat pairing from the bonded deck too, and drops a
+  connection that hasn't encrypted with the bond's keys within 10 s.
+- **Forget** on the board: hold BOOT (or, while it shows a notice, its screen) for 5 s; it asks
+  "forget Bluetooth?"; press again within 10 s. The bond is gone and the board is in setup again.
+  Remove the board from the computer's Bluetooth settings too, or that computer can't pair with it
+  again.
+- A Bluetooth board is still a device with a name, a scope and an audit trail: the deck registers it
+  on its `Hello` as pending and the person approves it (`agentctl devices approve`, or the Settings
+  page); it is never approved automatically on first sight. Revoking it ends its sessions.
+- Once approved, it pairs for Wi-Fi (`CertRequest`) and takes Wi-Fi credentials (`WifiConfig`) over
+  Bluetooth exactly as over USB. The bond and the certificate are kept in the board's NVS, which is
+  plain flash unless flash encryption is on (see [Pairing](#pairing-over-usb-serial-or-bluetooth)).
+
+### Advertising
+
+- The advertisement carries the service UUID; the scan response carries the name `deck-` and the last
+  six hex digits of the board id, lower case (`AA:BB:CC:1A:2B:3C` is `deck-1a2b3c`).
+- A board without a bond always advertises (setup), every 100 to 150 ms, on USB too.
+- A bonded board advertises only while Bluetooth may carry its session ([Uplinks](#uplinks)), every
+  150 to 300 ms; otherwise it is silent and lets its deck go.
+- On a connection it asks for the 2M PHY, 251-byte packets and an interval of 15 to 30 ms (latency 0,
+  timeout 4 s), then for encryption.
+
+### Uplinks
+
+A board may have USB, Wi-Fi and Bluetooth at once, but carries **one session at a time**: a link that
+takes over closes the other (on Bluetooth, the board drops the connection).
+
+- USB wins while a deck answers there, and for the first 4 s after boot while the board listens for
+  one; a deck silent on USB for 30 s lets the board go elsewhere.
+- Off USB, the deck's preference decides, sent in `LinkConfig` and kept by the board across restarts:
+
+  | `uplink` | the board uses |
+  |---|---|
+  | `AUTO` (default) | Wi-Fi when its session is up, else Bluetooth; it keeps trying Wi-Fi meanwhile and moves to it once it works |
+  | `WIFI` | Wi-Fi only; Bluetooth only while it has no Wi-Fi network or certificate yet, so it can still be set up |
+  | `BLE` | Bluetooth only; Wi-Fi stays off |
+
+- The board answers `LinkConfig` with a `Result` (204 kept, 400 not a preference, 500 not saved, 501
+  no Bluetooth in this firmware) and a `NetStatus` saying what it uses. `LinkConfig` may come over any
+  link.
+- Firmware updates come over Wi-Fi only: a board on Bluetooth refuses an offer ("on Bluetooth: update
+  it over Wi-Fi or USB"). While an update downloads the board stops Bluetooth (the TLS download wants
+  its memory) and starts it again after.
+
+```
+board (no bond, no cable)                         deck (its Bluetooth helper)
+  advertises deck-1a2b3c ─────────────────────────▶ scan, connect, read Info (paired=0)
+  ◀── subscribe TX / write RX: "insufficient authentication" → the computer pairs
+  shows "pair deck-1a2b3c / 042917" ◀── the person types 042917 on the computer
+  encrypted, bonded
+  │ Hello ──▶│                                      registers it, pending
+  │◀── Welcome {approved: false}                    the person approves it
+  │◀── Welcome {approved: true, cert_serial: ""}
+  │ CertRequest ──▶│◀── CertIssued                  paired for Wi-Fi
+  │ NetStatus {transport: BLE, ble: CONNECTED, wifi: NOT_SET} ──▶│
+  │◀── WifiConfig {ssid, password} │ Result 204 ──▶│ NetStatus {JOINING} … {IDLE, ip} ──▶│
+  (auto) joins Wi-Fi, TLS 1.3 up: drops Bluetooth, Hello over Wi-Fi
+```
+
+| message | direction | field | over |
+|---|---|---|---|
+| `LinkConfig` | deck → board, answered with `Result` | 66 | any |
+
+`LinkConfig` sets up the board itself: it is not a web API command and has no route.
+
+### Without hardware
+
+`board_wifi --ble PATH` (in `firmware/deck-link/test/host`, `make board_wifi`) is a board whose
+Bluetooth link is a Unix socket: it listens at PATH, and whatever connects plays an encrypted, bonded
+central (it is never asked for the passkey, which it prints). It speaks the same byte stream as RX and
+TX, cut to `--mtu` (default 185), and pairs, takes credentials and the uplink preference as a board
+does. See the top of `board_wifi.c`.
 
 ## Limits
 
