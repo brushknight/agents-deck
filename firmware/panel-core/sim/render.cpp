@@ -77,6 +77,42 @@ static void wifiShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f, ui
   ui.wifi = false;
 }
 
+// Bluetooth: the mark on home, the passkey, the setup and waiting notices, "forget?".
+template <class Shot>
+static void bleShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f) {
+  static NetView net;
+  net = NetView();
+  net.via = NetVia::Ble;
+  net.ble.capable = true;
+  net.ble.phase = BlePhase::Connected;
+  net.ble.carrying = true;
+  snprintf(net.ble.name, sizeof net.ble.name, "deck-1a2b3c");
+  in.net = &net;
+  in.fleet = &f;
+  in.link = LinkState::Live;
+  ui.wifi = ui.ble = true;
+  shot("home-ble");
+  ui.wifi = ui.ble = false;
+  in.link = LinkState::Connecting;
+  in.fleet = nullptr;
+  net.ble.carrying = false;
+  const struct { const char* name; BlePhase phase; } kBle[] = {
+      {"ble-setup", BlePhase::Setup}, {"ble-waiting", BlePhase::Bonded}, {"ble-connecting", BlePhase::Connected},
+      {"ble-passkey", BlePhase::Pairing},
+  };
+  net.ble.passkey = 42917;
+  for (const auto& b : kBle) {
+    net.ble.phase = b.phase;
+    shot(b.name);
+  }
+  net.ble.phase = BlePhase::Bonded;
+  net.ble.forgetAsk = true;
+  shot("ble-forget");
+  in.link = LinkState::Live;
+  in.fleet = &f;
+  in.net = nullptr;
+}
+
 // The square boards: every screen of one spec.
 static int renderSquare(const std::string& dir, const SquareSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
                         int64_t now) {
@@ -159,6 +195,7 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
   shot("toast");
   ui.toast[0] = '\0';
   wifiShots(shot, in, ui, f, ms);
+  bleShots(shot, in, ui, f);
 
   in.link = LinkState::Lost;
   shot("home-offline");
@@ -239,6 +276,7 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   shot("toast");
   ui.toast[0] = '\0';
   wifiShots(shot, in, ui, f, ms);
+  bleShots(shot, in, ui, f);
   {                                                // on Wi-Fi with two pages: the mark beside the bars
     static DeckFleet more;
     more = deck;

@@ -81,6 +81,10 @@ bool deck_store_load_wifi(const deck_kv_t *kv, deck_wifi_t *w);
 bool deck_store_save_wifi(const deck_kv_t *kv, const deck_wifi_t *w);
 bool deck_store_clear_wifi(const deck_kv_t *kv);
 
+/* The deck's uplink preference (LinkConfig): UPLINK_AUTO when none is kept. */
+agentsdeck_link_v1_Uplink deck_store_load_uplink(const deck_kv_t *kv);
+bool deck_store_save_uplink(const deck_kv_t *kv, agentsdeck_link_v1_Uplink uplink);
+
 #if defined(ESP_PLATFORM)
 /* NVS on ESP-IDF: opens (initialising NVS if needed) namespace ns ("decklink"). */
 bool deck_kv_nvs_open(deck_kv_t *kv, const char *ns);

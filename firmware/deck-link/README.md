@@ -9,6 +9,8 @@ draws and reacts. To build a new device, see [new-device.md](../../docs/link/new
 - `src/deck_tiles.h`: optional helper that keeps a small table of agents for simple devices.
 - `src/deck_store.h`, `src/deck_pair.h`, `src/deck_tls.h`: Wi-Fi (see below): what a board keeps in
   NVS, its own key and certificate request, and a TLS 1.3 client transport.
+- `src/deck_ble.h`: Bluetooth LE (see below): the byte stream between the core and a GATT link, with
+  no Bluetooth stack in it.
 - `src/DeckLink.h`: a thin Arduino wrapper (`Stream` in, `loop()` to drive it).
 - `src/proto/`: `link.pb.c/h` generated from `proto/agentsdeck/link/v1`, and the nanopb 0.4.9.1
   runtime (zlib licence, `src/proto/LICENSE.txt`).
@@ -159,6 +161,31 @@ The deck can update a board on Wi-Fi (docs/link/protocol.md, "Firmware updates o
 - `test/host/board_wifi --firmware-board B --firmware-out FILE` takes offers on the host; the Go
   test `TestFirmwareKitUpdateOverWifi` runs it against the deck.
 
+## Bluetooth
+
+The same core runs over Bluetooth LE ([protocol](../../docs/link/protocol.md#bluetooth)): the core
+only needs a `write` callback and bytes fed to `deck_link_feed`, so serial, TLS and Bluetooth are
+three ways to fill them. `deck_ble.h` is the Bluetooth one, without a stack (C99, no malloc, no OS):
+
+- `deck_ble_write` is the core's `write`: it queues a whole frame or nothing (a full queue counts in
+  the core's `tx_errors`, like a short serial write). `deck_ble_pump()` sends the queue in
+  notifications of ATT MTU - 3 bytes through your `notify` callback, and stops when the stack says it
+  has no room (back-pressure); call it every loop.
+- What the deck writes goes into a ring you give it (`rx_buf`, 16 to 32 KB is a whole snapshot):
+  `deck_ble_rx_push()` from the stack's task, `deck_ble_rx_feed()` from your loop into the core. One
+  producer and one consumer, no lock. A write that doesn't fit is refused whole, so the GATT handler
+  can answer "insufficient resources".
+- `deck_ble_open()` when the link is encrypted, authenticated and bonded and the deck listens on TX;
+  `deck_ble_close()` when it goes. `deck_ble_name()` is the advertised name (`deck-1a2b3c`),
+  `deck_ble_info()` the Info characteristic, `deck_ble_passkey()` a 6-digit passkey, and
+  `DECK_BLE_UUID128()` the service's UUIDs for NimBLE.
+- `on_link_config` gets the deck's uplink preference (`LinkConfig`); unset, the core answers 501.
+  `deck_store_load_uplink()` and `deck_store_save_uplink()` keep it.
+
+The GATT service, pairing and the bond are the board's: panel-core's `ble_link.h` does them with
+ESP-IDF's NimBLE (arduino-esp32 3.x on the ESP32-S3). `test/host/test_ble.c` runs the stream against a
+fake link, and `board_wifi --ble PATH` is a board whose Bluetooth link is a Unix socket.
+
 ## Memory
 
 Measured on ESP32 (xtensa gcc) with the defaults:
@@ -196,7 +223,7 @@ tools/generate.sh --check  # fails if src/proto differs from the proto files
 ## Tests
 
 ```sh
-make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage
+make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage, Bluetooth stream
 make -C test/host board_sim   # builds test/host/build/board_sim
 make -C test/host test_tls    # pairing with mbedTLS 3 (Homebrew's mbedtls, or MBEDTLS=<prefix>)
 make -C test/host board_wifi  # a board that pairs over serial and connects over TLS 1.3

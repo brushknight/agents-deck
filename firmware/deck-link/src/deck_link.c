@@ -256,6 +256,15 @@ static void dispatch(deck_link_t *ctx)
 			deck_firmware_status(ctx, agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED, 0,
 					     "this firmware can't update over Wi-Fi");
 		break;
+	case agentsdeck_link_v1_Frame_link_config_tag: {
+		agentsdeck_link_v1_Result r;
+		memset(&r, 0, sizeof r);
+		r.code = c->on_link_config ? c->on_link_config(ctx, f->body.link_config.uplink) : 501;
+		if (!c->on_link_config)
+			copy_str(r.error, sizeof r.error, "no Bluetooth on this board");
+		send_frame(ctx, f->seq, agentsdeck_link_v1_Frame_result_tag, agentsdeck_link_v1_Result_fields, &r);
+		break;
+	}
 	default:
 		break; /* a Pong, or something this board doesn't handle */
 	}

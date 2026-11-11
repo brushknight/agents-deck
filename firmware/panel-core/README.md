@@ -97,6 +97,51 @@ at the right of the page bars' row in a grid (the 4″), which then stays with o
 hit-testing follows it. The 4″, the 1.8″ AMOLED and the T4-S3 have `idf5` projects; the 1.47″ is on 2.0.17 and
 USB only.
 
+## Bluetooth
+
+`net_link.h` also reaches the deck over Bluetooth LE (docs/link/protocol.md, "Bluetooth") on the
+`idf5` builds: `ble_link.h` runs the GATT service on ESP-IDF's NimBLE (part of arduino-esp32 3.x's
+ESP32-S3 libraries, nothing to add), pairs with LE Secure Connections and a passkey the screen shows,
+and keeps one bond in NVS; a third Deck Link core runs on the kit's `deck_ble.h` stream. Over it the
+board pairs for Wi-Fi and takes Wi-Fi credentials as over USB, so it can be set up without a cable.
+`ble_model.h` holds the rules, host-tested in `tests/test_ble.cpp`: when it advertises, when
+Bluetooth carries the session (USB first, then the deck's preference: `auto`, `wifi` or `ble`), and
+the gesture that forgets the bond (BOOT, or the screen on a notice, held 5 s, then pressed again).
+
+`NetView.via` is `NetVia::Ble` while Bluetooth carries the session or is where the board waits; the
+notices (`netNotice()`) say "Bluetooth setup", "waiting for the deck / over Bluetooth", the passkey
+(`pair deck-1a2b3c`, the six digits in the accent, "type it on the computer") and "forget
+Bluetooth?". A passkey and "forget?" cover any screen (`netOverlay()`), so the apps draw them as a
+notice and keep touches from the agents meanwhile. On home, `PanelUi::ble` swaps the Wi-Fi mark for
+the Bluetooth one (`drawBleMark()`, `round_geom.h`); the spring draws it as its `El::Net` element.
+
+Builds without NimBLE or TLS 1.3 (arduino-esp32 2.0.17) have `PANEL_HAS_BLE 0` and none of it;
+`-DPANEL_NO_BLE` turns it off on an `idf5` build. Bluetooth stops while a firmware update downloads
+(the TLS download wants the heap) and starts again after.
+
+Checking it on a board (`idf5-debug` prints `ble:` and `net:` lines; nothing here runs in CI):
+
+1. **Pair from a Mac.** A board never paired: it shows "Bluetooth setup / deck-xxxxxx" once USB is
+   quiet. Connect from the deck's Bluetooth helper (or a GATT tool such as LightBlue): the board shows
+   `pair deck-xxxxxx` and six digits; type them in the Mac's dialog. Info reads `paired=1` after.
+   Typing a wrong passkey fails and leaves no bond. A second Mac can't pair while the first holds the
+   bond, and the board never shows it a passkey.
+2. **First setup with no cable** (board on a charger): approve it on the deck; it pairs for Wi-Fi
+   over Bluetooth (toast "paired for Wi-Fi"), takes the default network ("trying Wi-Fi…", "Wi-Fi
+   works"), then with `auto` moves to Wi-Fi and lets Bluetooth go.
+3. **Snapshot speed.** `uplink ble`, 32 agents with prompts: time from the board's Hello to the full
+   home (the debug log and the deck's log); expect well under a second at 2M PHY and MTU 247.
+4. **Hand-over.** `auto`: switch the Wi-Fi access point off: the board goes to Bluetooth within the
+   Wi-Fi retry time; on again: back to Wi-Fi, never two sessions in the deck's log. Plug USB in: USB
+   takes over at once; unplug: back after 30 s.
+5. **Range and reconnect.** Walk away until the link drops, come back: it reconnects by itself
+   (bonded advertising), with no passkey. Restart the board and the Mac: the same.
+6. **Forget.** Hold BOOT 5 s, press again: "Bluetooth forgotten", Info `paired=0`, setup again. The
+   Mac must forget the board too before pairing again.
+7. **An update while Bluetooth is on.** On Wi-Fi with a bond, offer a firmware: Bluetooth stops for
+   the download (`ble: stopped`), the update installs, and after the restart the bond still works.
+   Watch the `heap … largest` line in the debug log during the download.
+
 ## Firmware updates over Wi-Fi
 
 `ota.h` lets the deck update a board on Wi-Fi (docs/link/protocol.md, "Firmware updates over Wi-Fi");
@@ -149,7 +194,7 @@ AGENTS_DECK_VERSION=0.2.1 pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5
 ```bash
 tests/run.sh
 c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 sim/render.cpp -o out/render
-mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, 147, orbit, dial
+mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, 147, orbit, dial (ble-*.ppm: Bluetooth)
 python3 tools/ppm2png.py out/grid.png out/lcd4/grid.ppm                            # needs pillow
 tools/render_docs.sh                                                               # every device's docs/
 ```

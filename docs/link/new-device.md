@@ -64,6 +64,29 @@ without more code (`firmware/panel-core/README.md`, "Firmware updates over Wi-Fi
 slots in its partition table. A device on the kit alone refuses update offers until it handles
 `on_firmware_offer` (`firmware/deck-link/README.md`).
 
+### Bluetooth (optional)
+
+A board can also reach the deck over Bluetooth LE ([protocol.md](protocol.md#bluetooth)). A touch
+board on panel-core's `idf5` build gets it without code of its own. Firmware of your own must:
+
+- serve the GATT service exactly as in the protocol (service, RX, TX, Info UUIDs; RX and TX only on an
+  encrypted, authenticated link with a 16-byte key; Info readable by anyone);
+- pair with LE Secure Connections only, MITM, bonding, IO capability *display only*, and show the
+  6-digit passkey with the name `deck-<last 6 hex of the board id>` (`deck_ble_name()`) on its screen.
+  A board without a screen can't do Bluetooth: there is no passkey to show;
+- keep one bond: refuse new pairings and repeat pairings while bonded, drop a central that doesn't
+  encrypt with the bond's keys within seconds, and undo a pairing that ended without the passkey;
+- offer a way on the board to forget the bond and go back to setup;
+- advertise the service UUID (and the name in the scan response) always while unbonded, and while
+  bonded only when Bluetooth may carry its session;
+- run its Deck Link core on the byte stream with `deck_ble.h` (cut to the MTU, back-pressure on TX,
+  a ring for RX), carry one session at a time (USB first, then the deck's `LinkConfig` preference),
+  and say `TRANSPORT_BLE` and its `ble` state in `NetStatus`;
+- allow `CertRequest` and `WifiConfig` on that link, never on Wi-Fi.
+
+Test the stream with `make -C firmware/deck-link/test/host test` (`test_ble`); the radio itself needs
+a board and a computer (the hardware checks in `firmware/panel-core/README.md`).
+
 ## 5. Test it
 
 Without hardware, the host tests run the kit against the real deck code:
