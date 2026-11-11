@@ -1,7 +1,8 @@
 /* Deck Link: the agents deck over a serial port, for small boards.
  *
  * A transport-agnostic C99 core: no malloc, no Arduino, no OS. You give it a
- * write callback and a millisecond clock, feed it the bytes you receive and
+ * write callback and a millisecond clock (the link: USB serial, TLS with
+ * deck_tls.h, or Bluetooth LE with deck_ble.h), feed it the bytes you receive and
  * call deck_link_poll() often; it handles framing (COBS + magic + CRC), the
  * Hello/Welcome handshake, the subscription, Ping/Pong and offline
  * detection, and calls your event callbacks with decoded messages.
@@ -74,7 +75,8 @@ typedef enum {
 
 typedef struct deck_link deck_link_t;
 
-/* Writes bytes to the serial port; returns how many were written. */
+/* Writes bytes to the link (serial, TLS, Bluetooth); returns how many were
+ * written. Anything short of len counts as a failed frame (tx_errors). */
 typedef size_t (*deck_write_fn)(const uint8_t *data, size_t len, void *user);
 /* A free-running millisecond clock (wraps at 2^32). */
 typedef uint32_t (*deck_millis_fn)(void *user);
@@ -129,6 +131,11 @@ typedef struct {
 	 * deck_firmware_status(). Unset: the core answers REFUSED ("this firmware
 	 * can't update over Wi-Fi"). */
 	void (*on_firmware_offer)(deck_link_t *ctx, const agentsdeck_link_v1_FirmwareOffer *offer);
+
+	/* The deck's uplink preference (docs/link/protocol.md, "Bluetooth"):
+	 * auto, Wi-Fi or Bluetooth. Return the code the core answers with: 204
+	 * kept, 500 failed. Unset: 501 (no Bluetooth in this firmware). */
+	uint32_t (*on_link_config)(deck_link_t *ctx, agentsdeck_link_v1_Uplink uplink);
 } deck_link_config_t;
 
 typedef struct {

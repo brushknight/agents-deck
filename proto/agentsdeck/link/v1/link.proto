@@ -65,6 +65,10 @@ message Frame {
     // downloads the image with GET /v1/firmware/{board}/{version}.
     FirmwareOffer firmware_offer = 64;    // deck → board, over Wi-Fi only: a new firmware to download
     FirmwareStatus firmware_status = 65;  // board → deck: how the update is going
+
+    // Which way the board should reach the deck (docs/link/protocol.md,
+    // "Bluetooth"). Board management, not a web API command.
+    LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
   }
 }
 
@@ -423,6 +427,7 @@ enum Transport {
   TRANSPORT_UNSPECIFIED = 0;
   TRANSPORT_SERIAL = 1;  // USB serial
   TRANSPORT_WIFI = 2;    // Wi-Fi, TLS 1.3 to the deck's network listener
+  TRANSPORT_BLE = 3;     // Bluetooth LE, an encrypted and bonded link (LE Secure Connections, passkey)
 }
 
 enum WifiState {
@@ -447,6 +452,31 @@ message NetStatus {
   string ip = 4;            // on Wi-Fi
   int32 rssi = 5;           // dBm, 0 = unknown
   bool has_cert = 6;        // it holds a client certificate
+  BleState ble = 7;         // Bluetooth: unset from firmware without it
+  Uplink uplink = 8;        // the preference the board holds (LinkConfig)
+}
+
+enum BleState {
+  BLE_UNSPECIFIED = 0;
+  BLE_UNSUPPORTED = 1;  // this firmware has no Bluetooth
+  BLE_SETUP = 2;        // no bond: it advertises to anyone and pairs with the passkey on its screen
+  BLE_BONDED = 3;       // bonded to a deck, not connected to it now
+  BLE_CONNECTED = 4;    // bonded and connected over an encrypted link (whether or not it carries the session)
+}
+
+// Which way a board reaches the deck when it isn't on USB. USB always wins
+// while a deck answers there.
+enum Uplink {
+  UPLINK_AUTO = 0;  // Wi-Fi when it works, else Bluetooth
+  UPLINK_WIFI = 1;  // Wi-Fi only; Bluetooth only for setup (no Wi-Fi network or certificate yet)
+  UPLINK_BLE = 2;   // Bluetooth only; Wi-Fi stays off
+}
+
+// The deck's uplink preference for this board, kept across restarts. Sent by
+// the deck over any transport; the board answers with a Result (204 kept,
+// 501 the firmware has no Bluetooth) and a NetStatus saying what it uses now.
+message LinkConfig {
+  Uplink uplink = 1;
 }
 
 // ---- firmware updates over Wi-Fi -------------------------------------------

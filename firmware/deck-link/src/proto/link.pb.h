@@ -64,7 +64,8 @@ typedef enum _agentsdeck_link_v1_PromptKind {
 typedef enum _agentsdeck_link_v1_Transport {
     agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED = 0,
     agentsdeck_link_v1_Transport_TRANSPORT_SERIAL = 1, /* USB serial */
-    agentsdeck_link_v1_Transport_TRANSPORT_WIFI = 2 /* Wi-Fi, TLS 1.3 to the deck's network listener */
+    agentsdeck_link_v1_Transport_TRANSPORT_WIFI = 2, /* Wi-Fi, TLS 1.3 to the deck's network listener */
+    agentsdeck_link_v1_Transport_TRANSPORT_BLE = 3 /* Bluetooth LE, an encrypted and bonded link (LE Secure Connections, passkey) */
 } agentsdeck_link_v1_Transport;
 
 typedef enum _agentsdeck_link_v1_WifiState {
@@ -80,6 +81,22 @@ typedef enum _agentsdeck_link_v1_WifiState {
     agentsdeck_link_v1_WifiState_WIFI_DECK_UNREACHABLE = 9, /* joined, but the deck didn't answer */
     agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED = 10 /* the deck refused the certificate (revoked): pair again over USB */
 } agentsdeck_link_v1_WifiState;
+
+typedef enum _agentsdeck_link_v1_BleState {
+    agentsdeck_link_v1_BleState_BLE_UNSPECIFIED = 0,
+    agentsdeck_link_v1_BleState_BLE_UNSUPPORTED = 1, /* this firmware has no Bluetooth */
+    agentsdeck_link_v1_BleState_BLE_SETUP = 2, /* no bond: it advertises to anyone and pairs with the passkey on its screen */
+    agentsdeck_link_v1_BleState_BLE_BONDED = 3, /* bonded to a deck, not connected to it now */
+    agentsdeck_link_v1_BleState_BLE_CONNECTED = 4 /* bonded and connected over an encrypted link (whether or not it carries the session) */
+} agentsdeck_link_v1_BleState;
+
+/* Which way a board reaches the deck when it isn't on USB. USB always wins
+ while a deck answers there. */
+typedef enum _agentsdeck_link_v1_Uplink {
+    agentsdeck_link_v1_Uplink_UPLINK_AUTO = 0, /* Wi-Fi when it works, else Bluetooth */
+    agentsdeck_link_v1_Uplink_UPLINK_WIFI = 1, /* Wi-Fi only; Bluetooth only for setup (no Wi-Fi network or certificate yet) */
+    agentsdeck_link_v1_Uplink_UPLINK_BLE = 2 /* Bluetooth only; Wi-Fi stays off */
+} agentsdeck_link_v1_Uplink;
 
 typedef enum _agentsdeck_link_v1_FirmwareState {
     agentsdeck_link_v1_FirmwareState_FIRMWARE_UNSPECIFIED = 0,
@@ -436,7 +453,16 @@ typedef struct _agentsdeck_link_v1_NetStatus {
     char ip[40]; /* on Wi-Fi */
     int32_t rssi; /* dBm, 0 = unknown */
     bool has_cert; /* it holds a client certificate */
+    agentsdeck_link_v1_BleState ble; /* Bluetooth: unset from firmware without it */
+    agentsdeck_link_v1_Uplink uplink; /* the preference the board holds (LinkConfig) */
 } agentsdeck_link_v1_NetStatus;
+
+/* The deck's uplink preference for this board, kept across restarts. Sent by
+ the deck over any transport; the board answers with a Result (204 kept,
+ 501 the firmware has no Bluetooth) and a NetStatus saying what it uses now. */
+typedef struct _agentsdeck_link_v1_LinkConfig {
+    agentsdeck_link_v1_Uplink uplink;
+} agentsdeck_link_v1_LinkConfig;
 
 typedef PB_BYTES_ARRAY_T(32) agentsdeck_link_v1_FirmwareOffer_sha256_t;
 /* A new firmware for the board, sent by the deck when you update a board on
@@ -510,6 +536,9 @@ typedef struct _agentsdeck_link_v1_Frame {
      downloads the image with GET /v1/firmware/{board}/{version}. */
         agentsdeck_link_v1_FirmwareOffer firmware_offer; /* deck → board, over Wi-Fi only: a new firmware to download */
         agentsdeck_link_v1_FirmwareStatus firmware_status; /* board → deck: how the update is going */
+        /* Which way the board should reach the deck (docs/link/protocol.md,
+     "Bluetooth"). Board management, not a web API command. */
+        agentsdeck_link_v1_LinkConfig link_config; /* deck → board, any transport: the uplink preference; the board answers with a Result */
     } body;
 } agentsdeck_link_v1_Frame;
 
@@ -544,12 +573,20 @@ extern "C" {
 #define _agentsdeck_link_v1_PromptKind_ARRAYSIZE ((agentsdeck_link_v1_PromptKind)(agentsdeck_link_v1_PromptKind_PROMPT_INPUT+1))
 
 #define _agentsdeck_link_v1_Transport_MIN agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED
-#define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_WIFI
-#define _agentsdeck_link_v1_Transport_ARRAYSIZE ((agentsdeck_link_v1_Transport)(agentsdeck_link_v1_Transport_TRANSPORT_WIFI+1))
+#define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_BLE
+#define _agentsdeck_link_v1_Transport_ARRAYSIZE ((agentsdeck_link_v1_Transport)(agentsdeck_link_v1_Transport_TRANSPORT_BLE+1))
 
 #define _agentsdeck_link_v1_WifiState_MIN agentsdeck_link_v1_WifiState_WIFI_UNSPECIFIED
 #define _agentsdeck_link_v1_WifiState_MAX agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED
 #define _agentsdeck_link_v1_WifiState_ARRAYSIZE ((agentsdeck_link_v1_WifiState)(agentsdeck_link_v1_WifiState_WIFI_CERT_REJECTED+1))
+
+#define _agentsdeck_link_v1_BleState_MIN agentsdeck_link_v1_BleState_BLE_UNSPECIFIED
+#define _agentsdeck_link_v1_BleState_MAX agentsdeck_link_v1_BleState_BLE_CONNECTED
+#define _agentsdeck_link_v1_BleState_ARRAYSIZE ((agentsdeck_link_v1_BleState)(agentsdeck_link_v1_BleState_BLE_CONNECTED+1))
+
+#define _agentsdeck_link_v1_Uplink_MIN agentsdeck_link_v1_Uplink_UPLINK_AUTO
+#define _agentsdeck_link_v1_Uplink_MAX agentsdeck_link_v1_Uplink_UPLINK_BLE
+#define _agentsdeck_link_v1_Uplink_ARRAYSIZE ((agentsdeck_link_v1_Uplink)(agentsdeck_link_v1_Uplink_UPLINK_BLE+1))
 
 #define _agentsdeck_link_v1_FirmwareState_MIN agentsdeck_link_v1_FirmwareState_FIRMWARE_UNSPECIFIED
 #define _agentsdeck_link_v1_FirmwareState_MAX agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED
@@ -610,6 +647,10 @@ extern "C" {
 
 #define agentsdeck_link_v1_NetStatus_transport_ENUMTYPE agentsdeck_link_v1_Transport
 #define agentsdeck_link_v1_NetStatus_wifi_ENUMTYPE agentsdeck_link_v1_WifiState
+#define agentsdeck_link_v1_NetStatus_ble_ENUMTYPE agentsdeck_link_v1_BleState
+#define agentsdeck_link_v1_NetStatus_uplink_ENUMTYPE agentsdeck_link_v1_Uplink
+
+#define agentsdeck_link_v1_LinkConfig_uplink_ENUMTYPE agentsdeck_link_v1_Uplink
 
 
 #define agentsdeck_link_v1_FirmwareStatus_state_ENUMTYPE agentsdeck_link_v1_FirmwareState
@@ -664,7 +705,8 @@ extern "C" {
 #define agentsdeck_link_v1_CertRequest_init_default {{0, {0}}}
 #define agentsdeck_link_v1_CertIssued_init_default {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
 #define agentsdeck_link_v1_WifiConfig_init_default {"", "", 0}
-#define agentsdeck_link_v1_NetStatus_init_default {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
+#define agentsdeck_link_v1_NetStatus_init_default {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0, _agentsdeck_link_v1_BleState_MIN, _agentsdeck_link_v1_Uplink_MIN}
+#define agentsdeck_link_v1_LinkConfig_init_default {_agentsdeck_link_v1_Uplink_MIN}
 #define agentsdeck_link_v1_FirmwareOffer_init_default {"", "", 0, {0, {0}}, ""}
 #define agentsdeck_link_v1_FirmwareStatus_init_default {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
 #define agentsdeck_link_v1_Frame_init_zero       {0, 0, {agentsdeck_link_v1_Hello_init_zero}}
@@ -715,7 +757,8 @@ extern "C" {
 #define agentsdeck_link_v1_CertRequest_init_zero {{0, {0}}}
 #define agentsdeck_link_v1_CertIssued_init_zero  {{0, {0}}, {0, {0}}, 0, {"", "", "", ""}, 0, {0, {0}}, "", ""}
 #define agentsdeck_link_v1_WifiConfig_init_zero  {"", "", 0}
-#define agentsdeck_link_v1_NetStatus_init_zero   {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0}
+#define agentsdeck_link_v1_NetStatus_init_zero   {_agentsdeck_link_v1_Transport_MIN, _agentsdeck_link_v1_WifiState_MIN, "", "", 0, 0, _agentsdeck_link_v1_BleState_MIN, _agentsdeck_link_v1_Uplink_MIN}
+#define agentsdeck_link_v1_LinkConfig_init_zero  {_agentsdeck_link_v1_Uplink_MIN}
 #define agentsdeck_link_v1_FirmwareOffer_init_zero {"", "", 0, {0, {0}}, ""}
 #define agentsdeck_link_v1_FirmwareStatus_init_zero {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
 
@@ -871,6 +914,9 @@ extern "C" {
 #define agentsdeck_link_v1_NetStatus_ip_tag      4
 #define agentsdeck_link_v1_NetStatus_rssi_tag    5
 #define agentsdeck_link_v1_NetStatus_has_cert_tag 6
+#define agentsdeck_link_v1_NetStatus_ble_tag     7
+#define agentsdeck_link_v1_NetStatus_uplink_tag  8
+#define agentsdeck_link_v1_LinkConfig_uplink_tag 1
 #define agentsdeck_link_v1_FirmwareOffer_board_tag 1
 #define agentsdeck_link_v1_FirmwareOffer_version_tag 2
 #define agentsdeck_link_v1_FirmwareOffer_size_tag 3
@@ -915,6 +961,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_net_status_tag  63
 #define agentsdeck_link_v1_Frame_firmware_offer_tag 64
 #define agentsdeck_link_v1_Frame_firmware_status_tag 65
+#define agentsdeck_link_v1_Frame_link_config_tag 66
 
 /* Struct field encoding specification for nanopb */
 #define agentsdeck_link_v1_Frame_FIELDLIST(X, a) \
@@ -953,7 +1000,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_issued,body.cert_issued),  61) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,wifi_config,body.wifi_config),  62) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_offer,body.firmware_offer),  64) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_status,body.firmware_status),  65)
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_status,body.firmware_status),  65) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_CALLBACK NULL
 #define agentsdeck_link_v1_Frame_DEFAULT NULL
 #define agentsdeck_link_v1_Frame_body_hello_MSGTYPE agentsdeck_link_v1_Hello
@@ -991,6 +1039,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_status,body.firmware_status), 
 #define agentsdeck_link_v1_Frame_body_net_status_MSGTYPE agentsdeck_link_v1_NetStatus
 #define agentsdeck_link_v1_Frame_body_firmware_offer_MSGTYPE agentsdeck_link_v1_FirmwareOffer
 #define agentsdeck_link_v1_Frame_body_firmware_status_MSGTYPE agentsdeck_link_v1_FirmwareStatus
+#define agentsdeck_link_v1_Frame_body_link_config_MSGTYPE agentsdeck_link_v1_LinkConfig
 
 #define agentsdeck_link_v1_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol,          1) \
@@ -1352,9 +1401,16 @@ X(a, STATIC,   SINGULAR, UENUM,    wifi,              2) \
 X(a, STATIC,   SINGULAR, STRING,   ssid,              3) \
 X(a, STATIC,   SINGULAR, STRING,   ip,                4) \
 X(a, STATIC,   SINGULAR, INT32,    rssi,              5) \
-X(a, STATIC,   SINGULAR, BOOL,     has_cert,          6)
+X(a, STATIC,   SINGULAR, BOOL,     has_cert,          6) \
+X(a, STATIC,   SINGULAR, UENUM,    ble,               7) \
+X(a, STATIC,   SINGULAR, UENUM,    uplink,            8)
 #define agentsdeck_link_v1_NetStatus_CALLBACK NULL
 #define agentsdeck_link_v1_NetStatus_DEFAULT NULL
+
+#define agentsdeck_link_v1_LinkConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    uplink,            1)
+#define agentsdeck_link_v1_LinkConfig_CALLBACK NULL
+#define agentsdeck_link_v1_LinkConfig_DEFAULT NULL
 
 #define agentsdeck_link_v1_FirmwareOffer_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   board,             1) \
@@ -1421,6 +1477,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_CertRequest_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_CertIssued_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_WifiConfig_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_LinkConfig_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareOffer_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 
@@ -1474,6 +1531,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_CertIssued_fields &agentsdeck_link_v1_CertIssued_msg
 #define agentsdeck_link_v1_WifiConfig_fields &agentsdeck_link_v1_WifiConfig_msg
 #define agentsdeck_link_v1_NetStatus_fields &agentsdeck_link_v1_NetStatus_msg
+#define agentsdeck_link_v1_LinkConfig_fields &agentsdeck_link_v1_LinkConfig_msg
 #define agentsdeck_link_v1_FirmwareOffer_fields &agentsdeck_link_v1_FirmwareOffer_msg
 #define agentsdeck_link_v1_FirmwareStatus_fields &agentsdeck_link_v1_FirmwareStatus_msg
 
@@ -1504,13 +1562,14 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Hat_size              32
 #define agentsdeck_link_v1_Hello_size            135
 #define agentsdeck_link_v1_Interrupt_size        13
+#define agentsdeck_link_v1_LinkConfig_size       2
 #define agentsdeck_link_v1_ListAccounts_size     0
 #define agentsdeck_link_v1_ListHats_size         0
 #define agentsdeck_link_v1_ListLive_size         0
 #define agentsdeck_link_v1_LiveSession_size      300
 #define agentsdeck_link_v1_LiveSessions_size     2424
 #define agentsdeck_link_v1_Move_size             19
-#define agentsdeck_link_v1_NetStatus_size        92
+#define agentsdeck_link_v1_NetStatus_size        96
 #define agentsdeck_link_v1_Option_size           110
 #define agentsdeck_link_v1_Order_size            416
 #define agentsdeck_link_v1_Ping_size             11

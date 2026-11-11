@@ -374,6 +374,7 @@ const (
 	Transport_TRANSPORT_UNSPECIFIED Transport = 0
 	Transport_TRANSPORT_SERIAL      Transport = 1 // USB serial
 	Transport_TRANSPORT_WIFI        Transport = 2 // Wi-Fi, TLS 1.3 to the deck's network listener
+	Transport_TRANSPORT_BLE         Transport = 3 // Bluetooth LE, an encrypted and bonded link (LE Secure Connections, passkey)
 )
 
 // Enum value maps for Transport.
@@ -382,11 +383,13 @@ var (
 		0: "TRANSPORT_UNSPECIFIED",
 		1: "TRANSPORT_SERIAL",
 		2: "TRANSPORT_WIFI",
+		3: "TRANSPORT_BLE",
 	}
 	Transport_value = map[string]int32{
 		"TRANSPORT_UNSPECIFIED": 0,
 		"TRANSPORT_SERIAL":      1,
 		"TRANSPORT_WIFI":        2,
+		"TRANSPORT_BLE":         3,
 	}
 )
 
@@ -490,6 +493,112 @@ func (WifiState) EnumDescriptor() ([]byte, []int) {
 	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{7}
 }
 
+type BleState int32
+
+const (
+	BleState_BLE_UNSPECIFIED BleState = 0
+	BleState_BLE_UNSUPPORTED BleState = 1 // this firmware has no Bluetooth
+	BleState_BLE_SETUP       BleState = 2 // no bond: it advertises to anyone and pairs with the passkey on its screen
+	BleState_BLE_BONDED      BleState = 3 // bonded to a deck, not connected to it now
+	BleState_BLE_CONNECTED   BleState = 4 // bonded and connected over an encrypted link (whether or not it carries the session)
+)
+
+// Enum value maps for BleState.
+var (
+	BleState_name = map[int32]string{
+		0: "BLE_UNSPECIFIED",
+		1: "BLE_UNSUPPORTED",
+		2: "BLE_SETUP",
+		3: "BLE_BONDED",
+		4: "BLE_CONNECTED",
+	}
+	BleState_value = map[string]int32{
+		"BLE_UNSPECIFIED": 0,
+		"BLE_UNSUPPORTED": 1,
+		"BLE_SETUP":       2,
+		"BLE_BONDED":      3,
+		"BLE_CONNECTED":   4,
+	}
+)
+
+func (x BleState) Enum() *BleState {
+	p := new(BleState)
+	*p = x
+	return p
+}
+
+func (x BleState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BleState) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentsdeck_link_v1_link_proto_enumTypes[8].Descriptor()
+}
+
+func (BleState) Type() protoreflect.EnumType {
+	return &file_agentsdeck_link_v1_link_proto_enumTypes[8]
+}
+
+func (x BleState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BleState.Descriptor instead.
+func (BleState) EnumDescriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{8}
+}
+
+// Which way a board reaches the deck when it isn't on USB. USB always wins
+// while a deck answers there.
+type Uplink int32
+
+const (
+	Uplink_UPLINK_AUTO Uplink = 0 // Wi-Fi when it works, else Bluetooth
+	Uplink_UPLINK_WIFI Uplink = 1 // Wi-Fi only; Bluetooth only for setup (no Wi-Fi network or certificate yet)
+	Uplink_UPLINK_BLE  Uplink = 2 // Bluetooth only; Wi-Fi stays off
+)
+
+// Enum value maps for Uplink.
+var (
+	Uplink_name = map[int32]string{
+		0: "UPLINK_AUTO",
+		1: "UPLINK_WIFI",
+		2: "UPLINK_BLE",
+	}
+	Uplink_value = map[string]int32{
+		"UPLINK_AUTO": 0,
+		"UPLINK_WIFI": 1,
+		"UPLINK_BLE":  2,
+	}
+)
+
+func (x Uplink) Enum() *Uplink {
+	p := new(Uplink)
+	*p = x
+	return p
+}
+
+func (x Uplink) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Uplink) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentsdeck_link_v1_link_proto_enumTypes[9].Descriptor()
+}
+
+func (Uplink) Type() protoreflect.EnumType {
+	return &file_agentsdeck_link_v1_link_proto_enumTypes[9]
+}
+
+func (x Uplink) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Uplink.Descriptor instead.
+func (Uplink) EnumDescriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{9}
+}
+
 type FirmwareState int32
 
 const (
@@ -532,11 +641,11 @@ func (x FirmwareState) String() string {
 }
 
 func (FirmwareState) Descriptor() protoreflect.EnumDescriptor {
-	return file_agentsdeck_link_v1_link_proto_enumTypes[8].Descriptor()
+	return file_agentsdeck_link_v1_link_proto_enumTypes[10].Descriptor()
 }
 
 func (FirmwareState) Type() protoreflect.EnumType {
-	return &file_agentsdeck_link_v1_link_proto_enumTypes[8]
+	return &file_agentsdeck_link_v1_link_proto_enumTypes[10]
 }
 
 func (x FirmwareState) Number() protoreflect.EnumNumber {
@@ -545,7 +654,7 @@ func (x FirmwareState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FirmwareState.Descriptor instead.
 func (FirmwareState) EnumDescriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{8}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{10}
 }
 
 type Frame struct {
@@ -588,6 +697,7 @@ type Frame struct {
 	//	*Frame_NetStatus
 	//	*Frame_FirmwareOffer
 	//	*Frame_FirmwareStatus
+	//	*Frame_LinkConfig
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -952,6 +1062,15 @@ func (x *Frame) GetFirmwareStatus() *FirmwareStatus {
 	return nil
 }
 
+func (x *Frame) GetLinkConfig() *LinkConfig {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_LinkConfig); ok {
+			return x.LinkConfig
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -1105,6 +1224,12 @@ type Frame_FirmwareStatus struct {
 	FirmwareStatus *FirmwareStatus `protobuf:"bytes,65,opt,name=firmware_status,json=firmwareStatus,proto3,oneof"` // board → deck: how the update is going
 }
 
+type Frame_LinkConfig struct {
+	// Which way the board should reach the deck (docs/link/protocol.md,
+	// "Bluetooth"). Board management, not a web API command.
+	LinkConfig *LinkConfig `protobuf:"bytes,66,opt,name=link_config,json=linkConfig,proto3,oneof"` // deck → board, any transport: the uplink preference; the board answers with a Result
+}
+
 func (*Frame_Hello) isFrame_Body() {}
 
 func (*Frame_Welcome) isFrame_Body() {}
@@ -1174,6 +1299,8 @@ func (*Frame_NetStatus) isFrame_Body() {}
 func (*Frame_FirmwareOffer) isFrame_Body() {}
 
 func (*Frame_FirmwareStatus) isFrame_Body() {}
+
+func (*Frame_LinkConfig) isFrame_Body() {}
 
 type Hello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4054,9 +4181,11 @@ type NetStatus struct {
 	Transport     Transport              `protobuf:"varint,1,opt,name=transport,proto3,enum=agentsdeck.link.v1.Transport" json:"transport,omitempty"` // the one this frame came over
 	Wifi          WifiState              `protobuf:"varint,2,opt,name=wifi,proto3,enum=agentsdeck.link.v1.WifiState" json:"wifi,omitempty"`
 	Ssid          string                 `protobuf:"bytes,3,opt,name=ssid,proto3" json:"ssid,omitempty"`
-	Ip            string                 `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`                           // on Wi-Fi
-	Rssi          int32                  `protobuf:"varint,5,opt,name=rssi,proto3" json:"rssi,omitempty"`                      // dBm, 0 = unknown
-	HasCert       bool                   `protobuf:"varint,6,opt,name=has_cert,json=hasCert,proto3" json:"has_cert,omitempty"` // it holds a client certificate
+	Ip            string                 `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`                                         // on Wi-Fi
+	Rssi          int32                  `protobuf:"varint,5,opt,name=rssi,proto3" json:"rssi,omitempty"`                                    // dBm, 0 = unknown
+	HasCert       bool                   `protobuf:"varint,6,opt,name=has_cert,json=hasCert,proto3" json:"has_cert,omitempty"`               // it holds a client certificate
+	Ble           BleState               `protobuf:"varint,7,opt,name=ble,proto3,enum=agentsdeck.link.v1.BleState" json:"ble,omitempty"`     // Bluetooth: unset from firmware without it
+	Uplink        Uplink                 `protobuf:"varint,8,opt,name=uplink,proto3,enum=agentsdeck.link.v1.Uplink" json:"uplink,omitempty"` // the preference the board holds (LinkConfig)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4133,6 +4262,67 @@ func (x *NetStatus) GetHasCert() bool {
 	return false
 }
 
+func (x *NetStatus) GetBle() BleState {
+	if x != nil {
+		return x.Ble
+	}
+	return BleState_BLE_UNSPECIFIED
+}
+
+func (x *NetStatus) GetUplink() Uplink {
+	if x != nil {
+		return x.Uplink
+	}
+	return Uplink_UPLINK_AUTO
+}
+
+// The deck's uplink preference for this board, kept across restarts. Sent by
+// the deck over any transport; the board answers with a Result (204 kept,
+// 501 the firmware has no Bluetooth) and a NetStatus saying what it uses now.
+type LinkConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uplink        Uplink                 `protobuf:"varint,1,opt,name=uplink,proto3,enum=agentsdeck.link.v1.Uplink" json:"uplink,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkConfig) Reset() {
+	*x = LinkConfig{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkConfig) ProtoMessage() {}
+
+func (x *LinkConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkConfig.ProtoReflect.Descriptor instead.
+func (*LinkConfig) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *LinkConfig) GetUplink() Uplink {
+	if x != nil {
+		return x.Uplink
+	}
+	return Uplink_UPLINK_AUTO
+}
+
 // A new firmware for the board, sent by the deck when you update a board on
 // Wi-Fi. The board checks that board is its own, downloads the app image
 // from path on the deck's network listener (TLS 1.3, its certificate; HTTP
@@ -4152,7 +4342,7 @@ type FirmwareOffer struct {
 
 func (x *FirmwareOffer) Reset() {
 	*x = FirmwareOffer{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4164,7 +4354,7 @@ func (x *FirmwareOffer) String() string {
 func (*FirmwareOffer) ProtoMessage() {}
 
 func (x *FirmwareOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4177,7 +4367,7 @@ func (x *FirmwareOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareOffer.ProtoReflect.Descriptor instead.
 func (*FirmwareOffer) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{49}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *FirmwareOffer) GetBoard() string {
@@ -4229,7 +4419,7 @@ type FirmwareStatus struct {
 
 func (x *FirmwareStatus) Reset() {
 	*x = FirmwareStatus{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4241,7 +4431,7 @@ func (x *FirmwareStatus) String() string {
 func (*FirmwareStatus) ProtoMessage() {}
 
 func (x *FirmwareStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4254,7 +4444,7 @@ func (x *FirmwareStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareStatus.ProtoReflect.Descriptor instead.
 func (*FirmwareStatus) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{50}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *FirmwareStatus) GetState() FirmwareState {
@@ -4282,7 +4472,7 @@ var File_agentsdeck_link_v1_link_proto protoreflect.FileDescriptor
 
 const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\n" +
-	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\x9f\x11\n" +
+	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\xe2\x11\n" +
 	"\x05Frame\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\rR\x03seq\x121\n" +
 	"\x05hello\x18\n" +
@@ -4323,7 +4513,9 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\n" +
 	"net_status\x18? \x01(\v2\x1d.agentsdeck.link.v1.NetStatusH\x00R\tnetStatus\x12J\n" +
 	"\x0efirmware_offer\x18@ \x01(\v2!.agentsdeck.link.v1.FirmwareOfferH\x00R\rfirmwareOffer\x12M\n" +
-	"\x0ffirmware_status\x18A \x01(\v2\".agentsdeck.link.v1.FirmwareStatusH\x00R\x0efirmwareStatusB\x06\n" +
+	"\x0ffirmware_status\x18A \x01(\v2\".agentsdeck.link.v1.FirmwareStatusH\x00R\x0efirmwareStatus\x12A\n" +
+	"\vlink_config\x18B \x01(\v2\x1e.agentsdeck.link.v1.LinkConfigH\x00R\n" +
+	"linkConfigB\x06\n" +
 	"\x04body\"\xf5\x01\n" +
 	"\x05Hello\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\rR\bprotocol\x12\x19\n" +
@@ -4540,14 +4732,19 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"WifiConfig\x12\x12\n" +
 	"\x04ssid\x18\x01 \x01(\tR\x04ssid\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06forget\x18\x03 \x01(\bR\x06forget\"\xce\x01\n" +
+	"\x06forget\x18\x03 \x01(\bR\x06forget\"\xb2\x02\n" +
 	"\tNetStatus\x12;\n" +
 	"\ttransport\x18\x01 \x01(\x0e2\x1d.agentsdeck.link.v1.TransportR\ttransport\x121\n" +
 	"\x04wifi\x18\x02 \x01(\x0e2\x1d.agentsdeck.link.v1.WifiStateR\x04wifi\x12\x12\n" +
 	"\x04ssid\x18\x03 \x01(\tR\x04ssid\x12\x0e\n" +
 	"\x02ip\x18\x04 \x01(\tR\x02ip\x12\x12\n" +
 	"\x04rssi\x18\x05 \x01(\x05R\x04rssi\x12\x19\n" +
-	"\bhas_cert\x18\x06 \x01(\bR\ahasCert\"\x7f\n" +
+	"\bhas_cert\x18\x06 \x01(\bR\ahasCert\x12.\n" +
+	"\x03ble\x18\a \x01(\x0e2\x1c.agentsdeck.link.v1.BleStateR\x03ble\x122\n" +
+	"\x06uplink\x18\b \x01(\x0e2\x1a.agentsdeck.link.v1.UplinkR\x06uplink\"@\n" +
+	"\n" +
+	"LinkConfig\x122\n" +
+	"\x06uplink\x18\x01 \x01(\x0e2\x1a.agentsdeck.link.v1.UplinkR\x06uplink\"\x7f\n" +
 	"\rFirmwareOffer\x12\x14\n" +
 	"\x05board\x18\x01 \x01(\tR\x05board\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x12\n" +
@@ -4601,11 +4798,12 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x12PROMPT_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11PROMPT_PERMISSION\x10\x01\x12\x13\n" +
 	"\x0fPROMPT_QUESTION\x10\x02\x12\x10\n" +
-	"\fPROMPT_INPUT\x10\x03*P\n" +
+	"\fPROMPT_INPUT\x10\x03*c\n" +
 	"\tTransport\x12\x19\n" +
 	"\x15TRANSPORT_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TRANSPORT_SERIAL\x10\x01\x12\x12\n" +
-	"\x0eTRANSPORT_WIFI\x10\x02*\xf0\x01\n" +
+	"\x0eTRANSPORT_WIFI\x10\x02\x12\x11\n" +
+	"\rTRANSPORT_BLE\x10\x03*\xf0\x01\n" +
 	"\tWifiState\x12\x14\n" +
 	"\x10WIFI_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10WIFI_UNSUPPORTED\x10\x01\x12\x10\n" +
@@ -4618,7 +4816,19 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\vWIFI_FAILED\x10\b\x12\x19\n" +
 	"\x15WIFI_DECK_UNREACHABLE\x10\t\x12\x16\n" +
 	"\x12WIFI_CERT_REJECTED\x10\n" +
-	"*\x9f\x01\n" +
+	"*f\n" +
+	"\bBleState\x12\x13\n" +
+	"\x0fBLE_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fBLE_UNSUPPORTED\x10\x01\x12\r\n" +
+	"\tBLE_SETUP\x10\x02\x12\x0e\n" +
+	"\n" +
+	"BLE_BONDED\x10\x03\x12\x11\n" +
+	"\rBLE_CONNECTED\x10\x04*:\n" +
+	"\x06Uplink\x12\x0f\n" +
+	"\vUPLINK_AUTO\x10\x00\x12\x0f\n" +
+	"\vUPLINK_WIFI\x10\x01\x12\x0e\n" +
+	"\n" +
+	"UPLINK_BLE\x10\x02*\x9f\x01\n" +
 	"\rFirmwareState\x12\x18\n" +
 	"\x14FIRMWARE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14FIRMWARE_DOWNLOADING\x10\x01\x12\x16\n" +
@@ -4639,8 +4849,8 @@ func file_agentsdeck_link_v1_link_proto_rawDescGZIP() []byte {
 	return file_agentsdeck_link_v1_link_proto_rawDescData
 }
 
-var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
+var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(Input)(0),             // 0: agentsdeck.link.v1.Input
 	(Scope)(0),             // 1: agentsdeck.link.v1.Scope
@@ -4650,123 +4860,130 @@ var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(PromptKind)(0),        // 5: agentsdeck.link.v1.PromptKind
 	(Transport)(0),         // 6: agentsdeck.link.v1.Transport
 	(WifiState)(0),         // 7: agentsdeck.link.v1.WifiState
-	(FirmwareState)(0),     // 8: agentsdeck.link.v1.FirmwareState
-	(*Frame)(nil),          // 9: agentsdeck.link.v1.Frame
-	(*Hello)(nil),          // 10: agentsdeck.link.v1.Hello
-	(*Display)(nil),        // 11: agentsdeck.link.v1.Display
-	(*Welcome)(nil),        // 12: agentsdeck.link.v1.Welcome
-	(*Ping)(nil),           // 13: agentsdeck.link.v1.Ping
-	(*Pong)(nil),           // 14: agentsdeck.link.v1.Pong
-	(*Subscribe)(nil),      // 15: agentsdeck.link.v1.Subscribe
-	(*SnapshotBegin)(nil),  // 16: agentsdeck.link.v1.SnapshotBegin
-	(*SnapshotEnd)(nil),    // 17: agentsdeck.link.v1.SnapshotEnd
-	(*Server)(nil),         // 18: agentsdeck.link.v1.Server
-	(*AgentChanged)(nil),   // 19: agentsdeck.link.v1.AgentChanged
-	(*AgentRemoved)(nil),   // 20: agentsdeck.link.v1.AgentRemoved
-	(*Agent)(nil),          // 21: agentsdeck.link.v1.Agent
-	(*Activity)(nil),       // 22: agentsdeck.link.v1.Activity
-	(*Prompt)(nil),         // 23: agentsdeck.link.v1.Prompt
-	(*Option)(nil),         // 24: agentsdeck.link.v1.Option
-	(*Tokens)(nil),         // 25: agentsdeck.link.v1.Tokens
-	(*Context)(nil),        // 26: agentsdeck.link.v1.Context
-	(*Hat)(nil),            // 27: agentsdeck.link.v1.Hat
-	(*Account)(nil),        // 28: agentsdeck.link.v1.Account
-	(*Subagent)(nil),       // 29: agentsdeck.link.v1.Subagent
-	(*Answer)(nil),         // 30: agentsdeck.link.v1.Answer
-	(*Focus)(nil),          // 31: agentsdeck.link.v1.Focus
-	(*Interrupt)(nil),      // 32: agentsdeck.link.v1.Interrupt
-	(*Dismiss)(nil),        // 33: agentsdeck.link.v1.Dismiss
-	(*Resume)(nil),         // 34: agentsdeck.link.v1.Resume
-	(*Move)(nil),           // 35: agentsdeck.link.v1.Move
-	(*Order)(nil),          // 36: agentsdeck.link.v1.Order
-	(*Restore)(nil),        // 37: agentsdeck.link.v1.Restore
-	(*SetHat)(nil),         // 38: agentsdeck.link.v1.SetHat
-	(*ListHats)(nil),       // 39: agentsdeck.link.v1.ListHats
-	(*ListLive)(nil),       // 40: agentsdeck.link.v1.ListLive
-	(*AddLive)(nil),        // 41: agentsdeck.link.v1.AddLive
-	(*GetState)(nil),       // 42: agentsdeck.link.v1.GetState
-	(*Handoff)(nil),        // 43: agentsdeck.link.v1.Handoff
-	(*ListAccounts)(nil),   // 44: agentsdeck.link.v1.ListAccounts
-	(*Result)(nil),         // 45: agentsdeck.link.v1.Result
-	(*HatList)(nil),        // 46: agentsdeck.link.v1.HatList
-	(*HatOverride)(nil),    // 47: agentsdeck.link.v1.HatOverride
-	(*LiveSessions)(nil),   // 48: agentsdeck.link.v1.LiveSessions
-	(*LiveSession)(nil),    // 49: agentsdeck.link.v1.LiveSession
-	(*AccountList)(nil),    // 50: agentsdeck.link.v1.AccountList
-	(*AccountInfo)(nil),    // 51: agentsdeck.link.v1.AccountInfo
-	(*RestoreResult)(nil),  // 52: agentsdeck.link.v1.RestoreResult
-	(*Restored)(nil),       // 53: agentsdeck.link.v1.Restored
-	(*CertRequest)(nil),    // 54: agentsdeck.link.v1.CertRequest
-	(*CertIssued)(nil),     // 55: agentsdeck.link.v1.CertIssued
-	(*WifiConfig)(nil),     // 56: agentsdeck.link.v1.WifiConfig
-	(*NetStatus)(nil),      // 57: agentsdeck.link.v1.NetStatus
-	(*FirmwareOffer)(nil),  // 58: agentsdeck.link.v1.FirmwareOffer
-	(*FirmwareStatus)(nil), // 59: agentsdeck.link.v1.FirmwareStatus
+	(BleState)(0),          // 8: agentsdeck.link.v1.BleState
+	(Uplink)(0),            // 9: agentsdeck.link.v1.Uplink
+	(FirmwareState)(0),     // 10: agentsdeck.link.v1.FirmwareState
+	(*Frame)(nil),          // 11: agentsdeck.link.v1.Frame
+	(*Hello)(nil),          // 12: agentsdeck.link.v1.Hello
+	(*Display)(nil),        // 13: agentsdeck.link.v1.Display
+	(*Welcome)(nil),        // 14: agentsdeck.link.v1.Welcome
+	(*Ping)(nil),           // 15: agentsdeck.link.v1.Ping
+	(*Pong)(nil),           // 16: agentsdeck.link.v1.Pong
+	(*Subscribe)(nil),      // 17: agentsdeck.link.v1.Subscribe
+	(*SnapshotBegin)(nil),  // 18: agentsdeck.link.v1.SnapshotBegin
+	(*SnapshotEnd)(nil),    // 19: agentsdeck.link.v1.SnapshotEnd
+	(*Server)(nil),         // 20: agentsdeck.link.v1.Server
+	(*AgentChanged)(nil),   // 21: agentsdeck.link.v1.AgentChanged
+	(*AgentRemoved)(nil),   // 22: agentsdeck.link.v1.AgentRemoved
+	(*Agent)(nil),          // 23: agentsdeck.link.v1.Agent
+	(*Activity)(nil),       // 24: agentsdeck.link.v1.Activity
+	(*Prompt)(nil),         // 25: agentsdeck.link.v1.Prompt
+	(*Option)(nil),         // 26: agentsdeck.link.v1.Option
+	(*Tokens)(nil),         // 27: agentsdeck.link.v1.Tokens
+	(*Context)(nil),        // 28: agentsdeck.link.v1.Context
+	(*Hat)(nil),            // 29: agentsdeck.link.v1.Hat
+	(*Account)(nil),        // 30: agentsdeck.link.v1.Account
+	(*Subagent)(nil),       // 31: agentsdeck.link.v1.Subagent
+	(*Answer)(nil),         // 32: agentsdeck.link.v1.Answer
+	(*Focus)(nil),          // 33: agentsdeck.link.v1.Focus
+	(*Interrupt)(nil),      // 34: agentsdeck.link.v1.Interrupt
+	(*Dismiss)(nil),        // 35: agentsdeck.link.v1.Dismiss
+	(*Resume)(nil),         // 36: agentsdeck.link.v1.Resume
+	(*Move)(nil),           // 37: agentsdeck.link.v1.Move
+	(*Order)(nil),          // 38: agentsdeck.link.v1.Order
+	(*Restore)(nil),        // 39: agentsdeck.link.v1.Restore
+	(*SetHat)(nil),         // 40: agentsdeck.link.v1.SetHat
+	(*ListHats)(nil),       // 41: agentsdeck.link.v1.ListHats
+	(*ListLive)(nil),       // 42: agentsdeck.link.v1.ListLive
+	(*AddLive)(nil),        // 43: agentsdeck.link.v1.AddLive
+	(*GetState)(nil),       // 44: agentsdeck.link.v1.GetState
+	(*Handoff)(nil),        // 45: agentsdeck.link.v1.Handoff
+	(*ListAccounts)(nil),   // 46: agentsdeck.link.v1.ListAccounts
+	(*Result)(nil),         // 47: agentsdeck.link.v1.Result
+	(*HatList)(nil),        // 48: agentsdeck.link.v1.HatList
+	(*HatOverride)(nil),    // 49: agentsdeck.link.v1.HatOverride
+	(*LiveSessions)(nil),   // 50: agentsdeck.link.v1.LiveSessions
+	(*LiveSession)(nil),    // 51: agentsdeck.link.v1.LiveSession
+	(*AccountList)(nil),    // 52: agentsdeck.link.v1.AccountList
+	(*AccountInfo)(nil),    // 53: agentsdeck.link.v1.AccountInfo
+	(*RestoreResult)(nil),  // 54: agentsdeck.link.v1.RestoreResult
+	(*Restored)(nil),       // 55: agentsdeck.link.v1.Restored
+	(*CertRequest)(nil),    // 56: agentsdeck.link.v1.CertRequest
+	(*CertIssued)(nil),     // 57: agentsdeck.link.v1.CertIssued
+	(*WifiConfig)(nil),     // 58: agentsdeck.link.v1.WifiConfig
+	(*NetStatus)(nil),      // 59: agentsdeck.link.v1.NetStatus
+	(*LinkConfig)(nil),     // 60: agentsdeck.link.v1.LinkConfig
+	(*FirmwareOffer)(nil),  // 61: agentsdeck.link.v1.FirmwareOffer
+	(*FirmwareStatus)(nil), // 62: agentsdeck.link.v1.FirmwareStatus
 }
 var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
-	10, // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
-	12, // 1: agentsdeck.link.v1.Frame.welcome:type_name -> agentsdeck.link.v1.Welcome
-	13, // 2: agentsdeck.link.v1.Frame.ping:type_name -> agentsdeck.link.v1.Ping
-	14, // 3: agentsdeck.link.v1.Frame.pong:type_name -> agentsdeck.link.v1.Pong
-	15, // 4: agentsdeck.link.v1.Frame.subscribe:type_name -> agentsdeck.link.v1.Subscribe
-	16, // 5: agentsdeck.link.v1.Frame.snapshot_begin:type_name -> agentsdeck.link.v1.SnapshotBegin
-	19, // 6: agentsdeck.link.v1.Frame.agent_changed:type_name -> agentsdeck.link.v1.AgentChanged
-	20, // 7: agentsdeck.link.v1.Frame.agent_removed:type_name -> agentsdeck.link.v1.AgentRemoved
-	17, // 8: agentsdeck.link.v1.Frame.snapshot_end:type_name -> agentsdeck.link.v1.SnapshotEnd
-	30, // 9: agentsdeck.link.v1.Frame.answer:type_name -> agentsdeck.link.v1.Answer
-	31, // 10: agentsdeck.link.v1.Frame.focus:type_name -> agentsdeck.link.v1.Focus
-	32, // 11: agentsdeck.link.v1.Frame.interrupt:type_name -> agentsdeck.link.v1.Interrupt
-	33, // 12: agentsdeck.link.v1.Frame.dismiss:type_name -> agentsdeck.link.v1.Dismiss
-	35, // 13: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
-	36, // 14: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
-	34, // 15: agentsdeck.link.v1.Frame.resume:type_name -> agentsdeck.link.v1.Resume
-	37, // 16: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
-	38, // 17: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
-	39, // 18: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
-	40, // 19: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
-	41, // 20: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
-	42, // 21: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
-	43, // 22: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
-	44, // 23: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
-	45, // 24: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
-	46, // 25: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
-	48, // 26: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
-	52, // 27: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
-	50, // 28: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
-	54, // 29: agentsdeck.link.v1.Frame.cert_request:type_name -> agentsdeck.link.v1.CertRequest
-	55, // 30: agentsdeck.link.v1.Frame.cert_issued:type_name -> agentsdeck.link.v1.CertIssued
-	56, // 31: agentsdeck.link.v1.Frame.wifi_config:type_name -> agentsdeck.link.v1.WifiConfig
-	57, // 32: agentsdeck.link.v1.Frame.net_status:type_name -> agentsdeck.link.v1.NetStatus
-	58, // 33: agentsdeck.link.v1.Frame.firmware_offer:type_name -> agentsdeck.link.v1.FirmwareOffer
-	59, // 34: agentsdeck.link.v1.Frame.firmware_status:type_name -> agentsdeck.link.v1.FirmwareStatus
-	11, // 35: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
-	0,  // 36: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
-	1,  // 37: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
-	18, // 38: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
-	21, // 39: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
-	3,  // 40: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
-	4,  // 41: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
-	22, // 42: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
-	23, // 43: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
-	25, // 44: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
-	26, // 45: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
-	27, // 46: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
-	29, // 47: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
-	28, // 48: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
-	5,  // 49: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
-	24, // 50: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
-	47, // 51: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
-	49, // 52: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
-	51, // 53: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
-	53, // 54: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
-	6,  // 55: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
-	7,  // 56: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
-	8,  // 57: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
-	58, // [58:58] is the sub-list for method output_type
-	58, // [58:58] is the sub-list for method input_type
-	58, // [58:58] is the sub-list for extension type_name
-	58, // [58:58] is the sub-list for extension extendee
-	0,  // [0:58] is the sub-list for field type_name
+	12, // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
+	14, // 1: agentsdeck.link.v1.Frame.welcome:type_name -> agentsdeck.link.v1.Welcome
+	15, // 2: agentsdeck.link.v1.Frame.ping:type_name -> agentsdeck.link.v1.Ping
+	16, // 3: agentsdeck.link.v1.Frame.pong:type_name -> agentsdeck.link.v1.Pong
+	17, // 4: agentsdeck.link.v1.Frame.subscribe:type_name -> agentsdeck.link.v1.Subscribe
+	18, // 5: agentsdeck.link.v1.Frame.snapshot_begin:type_name -> agentsdeck.link.v1.SnapshotBegin
+	21, // 6: agentsdeck.link.v1.Frame.agent_changed:type_name -> agentsdeck.link.v1.AgentChanged
+	22, // 7: agentsdeck.link.v1.Frame.agent_removed:type_name -> agentsdeck.link.v1.AgentRemoved
+	19, // 8: agentsdeck.link.v1.Frame.snapshot_end:type_name -> agentsdeck.link.v1.SnapshotEnd
+	32, // 9: agentsdeck.link.v1.Frame.answer:type_name -> agentsdeck.link.v1.Answer
+	33, // 10: agentsdeck.link.v1.Frame.focus:type_name -> agentsdeck.link.v1.Focus
+	34, // 11: agentsdeck.link.v1.Frame.interrupt:type_name -> agentsdeck.link.v1.Interrupt
+	35, // 12: agentsdeck.link.v1.Frame.dismiss:type_name -> agentsdeck.link.v1.Dismiss
+	37, // 13: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
+	38, // 14: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
+	36, // 15: agentsdeck.link.v1.Frame.resume:type_name -> agentsdeck.link.v1.Resume
+	39, // 16: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
+	40, // 17: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
+	41, // 18: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
+	42, // 19: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
+	43, // 20: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
+	44, // 21: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
+	45, // 22: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
+	46, // 23: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
+	47, // 24: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
+	48, // 25: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
+	50, // 26: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
+	54, // 27: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
+	52, // 28: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
+	56, // 29: agentsdeck.link.v1.Frame.cert_request:type_name -> agentsdeck.link.v1.CertRequest
+	57, // 30: agentsdeck.link.v1.Frame.cert_issued:type_name -> agentsdeck.link.v1.CertIssued
+	58, // 31: agentsdeck.link.v1.Frame.wifi_config:type_name -> agentsdeck.link.v1.WifiConfig
+	59, // 32: agentsdeck.link.v1.Frame.net_status:type_name -> agentsdeck.link.v1.NetStatus
+	61, // 33: agentsdeck.link.v1.Frame.firmware_offer:type_name -> agentsdeck.link.v1.FirmwareOffer
+	62, // 34: agentsdeck.link.v1.Frame.firmware_status:type_name -> agentsdeck.link.v1.FirmwareStatus
+	60, // 35: agentsdeck.link.v1.Frame.link_config:type_name -> agentsdeck.link.v1.LinkConfig
+	13, // 36: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
+	0,  // 37: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
+	1,  // 38: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
+	20, // 39: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
+	23, // 40: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
+	3,  // 41: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
+	4,  // 42: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
+	24, // 43: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
+	25, // 44: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
+	27, // 45: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
+	28, // 46: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
+	29, // 47: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
+	31, // 48: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
+	30, // 49: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
+	5,  // 50: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
+	26, // 51: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
+	49, // 52: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
+	51, // 53: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
+	53, // 54: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
+	55, // 55: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
+	6,  // 56: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
+	7,  // 57: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
+	8,  // 58: agentsdeck.link.v1.NetStatus.ble:type_name -> agentsdeck.link.v1.BleState
+	9,  // 59: agentsdeck.link.v1.NetStatus.uplink:type_name -> agentsdeck.link.v1.Uplink
+	9,  // 60: agentsdeck.link.v1.LinkConfig.uplink:type_name -> agentsdeck.link.v1.Uplink
+	10, // 61: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
+	62, // [62:62] is the sub-list for method output_type
+	62, // [62:62] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_agentsdeck_link_v1_link_proto_init() }
@@ -4810,14 +5027,15 @@ func file_agentsdeck_link_v1_link_proto_init() {
 		(*Frame_NetStatus)(nil),
 		(*Frame_FirmwareOffer)(nil),
 		(*Frame_FirmwareStatus)(nil),
+		(*Frame_LinkConfig)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentsdeck_link_v1_link_proto_rawDesc), len(file_agentsdeck_link_v1_link_proto_rawDesc)),
-			NumEnums:      9,
-			NumMessages:   51,
+			NumEnums:      11,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

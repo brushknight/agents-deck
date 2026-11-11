@@ -901,6 +901,15 @@ static void test_store(void)
 	CHECK(!deck_store_load_wifi(&kv, &wb) && wb.ssid[0] == 0);
 	CHECK(deck_store_clear_wifi(&kv) && !deck_store_load_wifi(&kv, &wb));
 
+	/* The uplink preference: auto until the deck says otherwise; junk reads as auto. */
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_AUTO);
+	CHECK(deck_store_save_uplink(&kv, agentsdeck_link_v1_Uplink_UPLINK_BLE));
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_BLE);
+	CHECK(!deck_store_save_uplink(&kv, (agentsdeck_link_v1_Uplink)7));
+	i = kv_find("dl_uplink");
+	kv_items[i].val[0] = 9;
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_AUTO);
+
 	/* Without TLS 1.3 (this host build has no mbedTLS) pairing says so. */
 #if !DECK_LINK_HAS_TLS13
 	size_t n;
