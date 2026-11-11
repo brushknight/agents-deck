@@ -298,7 +298,7 @@ func (a *Admin) later(fn func() error) {
 	}()
 }
 
-// sendDefaultToUSB gives the default network to every board on USB that
+// sendDefaultToUSB gives the default network to every board on USB or Bluetooth that
 // follows it (not one given its own network). It returns the board names.
 func (a *Admin) sendDefaultToUSB() []string {
 	sent := []string{}
@@ -306,7 +306,7 @@ func (a *Admin) sendDefaultToUSB() []string {
 		return sent
 	}
 	for _, l := range a.Links() {
-		if l.Transport != link.OverSerial || !l.Approved {
+		if (l.Transport != link.OverSerial && l.Transport != link.OverBLE) || !l.Approved { // in hand: never over Wi-Fi
 			continue
 		}
 		if d, ok := a.Devices.Get(l.Board); ok && d.WifiOwn {
