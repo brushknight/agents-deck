@@ -144,9 +144,17 @@ your Wi-Fi network once in Settings, **Network**; every board that's plugged in 
 every board you plug in later. Then unplug it, power it anywhere on the same network, and it finds
 the deck. Plug it back in and it's on USB again at once. Boards use 2.4 GHz Wi-Fi only.
 
+**Bluetooth.** The touch boards on their `idf5` firmware can also reach a Mac over Bluetooth: next to
+a laptop with no Wi-Fi and no cable, or to set up a new board without plugging it in. In Settings,
+**Boards**, turn on **Look for boards**, click **Add** next to the board's name (`deck-` and six
+characters, shown on its screen) and type the 6-digit code the board shows into the window macOS
+opens. The board then pairs for Wi-Fi and gets your network over Bluetooth, and each board's
+**uplink** (Auto: USB, else Wi-Fi, else Bluetooth) says which way it prefers. Firmware updates still
+need Wi-Fi or the cable. macOS (the app) only, for now.
+
 Security in one sentence: a board on Wi-Fi talks to your computer only over TLS 1.3 with a
-certificate of its own, made over the USB cable when you first plugged it in, and removing it in
-Settings, Boards cuts it off. The details are in [docs/protocol.md](docs/protocol.md) and
+certificate of its own, made over the USB cable (or a Bluetooth link paired with the code on its
+screen) when you first set it up, and removing it in Settings, Boards cuts it off. The details are in [docs/protocol.md](docs/protocol.md) and
 [docs/link/protocol.md](docs/link/protocol.md#pairing-and-wi-fi).
 
 ## What works where
@@ -157,6 +165,7 @@ Settings, Boards cuts it off. The details are in [docs/protocol.md](docs/protoco
 | the deck next to an icon (menu bar or tray) | yes | yes ([desktops](clients/macos/README.md#where-it-works)) | not yet: the deck and Settings open in your browser |
 | Settings, web dashboard | yes | yes | yes, in the browser |
 | boards on USB and Wi-Fi, flashing, updates | yes | yes | yes |
+| boards over Bluetooth | yes (the app) | not yet | not yet |
 | start agents with `agentctl new`, restore after a restart | yes (needs tmux) | yes (needs tmux) | not yet: needs tmux |
 | jump to the agent's terminal | iTerm2, Orca, cmux, Codex app | where the harness supports it | not yet |
 | updates itself | yes | yes (the `.deb` tells you; your package manager installs) | yes |

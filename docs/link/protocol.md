@@ -177,7 +177,7 @@ board                                   deck
 ### Wi-Fi credentials (over USB serial, or Bluetooth)
 
 `agentctl link wifi <board> --ssid <name>` asks for the password (without echo; `--password` also
-works) and the daemon sends it to the board over USB:
+works) and the daemon sends it to the board over USB (or Bluetooth):
 
 ```
 board                                   deck
@@ -213,9 +213,9 @@ agentctl link wifi --forget-default                   # boards keep what they ha
 The daemon keeps the default's password in the OS secret store (the macOS login Keychain, service
 `dev.agents-deck`, item `wifi-default`; a 0600 file under the data folder's `keys/` elsewhere), never in
 `config.json`, a log or the audit log (`wifi default set` / `wifi default cleared`, nothing more).
-When an approved board on a registered USB port has paired (`NetStatus.has_cert`) and reports no
-network (`WIFI_NOT_SET`) or another one than the default (`NetStatus.ssid`), the deck sends it
-`WifiConfig` with the default, as above:
+When an approved board on a registered USB port, or on Bluetooth, has paired (`NetStatus.has_cert`)
+and reports no network (`WIFI_NOT_SET`) or another one than the default (`NetStatus.ssid`), the deck
+sends it `WifiConfig` with the default, as above:
 
 ```
 board                                   deck
@@ -425,7 +425,9 @@ takes over closes the other (on Bluetooth, the board drops the connection).
 
 - The board answers `LinkConfig` with a `Result` (204 kept, 400 not a preference, 500 not saved, 501
   no Bluetooth in this firmware) and a `NetStatus` saying what it uses. `LinkConfig` may come over any
-  link.
+  link. The deck sends it to an approved board whose `NetStatus.ble` is set (and not `UNSUPPORTED`)
+  when `NetStatus.uplink` differs from the device's preference: at the start of a session and after
+  every change, once per value per session; after a 501 it stops for the session.
 - Firmware updates come over Wi-Fi only: a board on Bluetooth refuses an offer ("on Bluetooth: update
   it over Wi-Fi or USB"). While an update downloads the board stops Bluetooth (the TLS download wants
   its memory) and starts it again after.
