@@ -187,7 +187,20 @@ function shapeOf(s) {
   if (/phone/.test(s)) return 'phone';
   return 'square';
 }
-const pic = (shape, off) => h('div', { class: `g${off ? ' off' : ''}`, 'aria-hidden': 'true' }, h('i', { class: `sh-${shape}` }));
+// The boards the page has a real screen picture for (static/boards/<board>.png).
+function boardOf(s) {
+  s = (s || '').toLowerCase();
+  if (/t4s3|t4-s3/.test(s)) return 'lilygo-t4-s3';
+  if (/1\.47|lcd-147|strip/.test(s)) return 'waveshare-lcd-147';
+  if (/amoled|1\.8/.test(s)) return 'waveshare-touch-amoled-18';
+  if (/2\.1|lcd-21/.test(s)) return 'waveshare-touch-lcd-21';
+  if (/2\.8|lcd-28c|round/.test(s)) return 'waveshare-touch-lcd-28c';
+  if (/lcd-4\b|4[″"]|square/.test(s)) return 'waveshare-touch-lcd-4';
+  return '';
+}
+// frame is a board's outline; with a picture it is the board's own screen in a bezel.
+const frame = (shape, board) => h('i', { class: `sh-${shape}${board ? ` bd bd-${board}` : ''}` });
+const pic = (shape, off, board) => h('div', { class: `g${off ? ' off' : ''}`, 'aria-hidden': 'true' }, frame(shape, board));
 
 // render swaps a page body, keeping focus on the same control when it is
 // still there, and leaves it alone while you type in it.
@@ -485,7 +498,7 @@ function deviceRow(d) {
   const extra = [];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
-  return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online), off: !d.online, id: d.id, extra });
+  return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra });
 }
 
 function portWords(p) {
@@ -516,7 +529,7 @@ function drawBoards() {
     out.push(row(`${d.name} is waiting for you`, `${d.model || d.type || 'board'} · plugged in over USB · approve it to show your deck`, [
       btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)),
       btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'k'),
-    ], { hot: true, pic: pic(shapeOf(d.board || d.type)) }));
+    ], { hot: true, pic: pic(shapeOf(d.board || d.type), false, boardOf(`${d.board} ${d.type}`)) }));
   }
   if (S.devices.catalogError && !S.devices.latest) {
     out.push(h('p', { class: 'note' }, `Couldn't read the latest firmware list, so updates aren't shown: ${S.devices.catalogError}`));
@@ -587,7 +600,7 @@ function boardCards(list, chosen, onPick) {
       tabindex: on || (!chosen && i === 0) ? '0' : '-1', 'data-k': `card-${b.board}`,
       onclick: () => onPick(b.board),
       onkeydown: (e) => radioKeys(e, group, (v) => onPick(v), list.map((x) => ({ value: x.board }))),
-    }, h('span', { class: 'pic', 'aria-hidden': 'true' }, h('i', { class: `sh-${shapeOf(b.board + ' ' + b.name)}` })),
+    }, h('span', { class: 'pic', 'aria-hidden': 'true' }, frame(shapeOf(b.board + ' ' + b.name), boardOf(b.board + ' ' + b.name))),
     h('span', { class: 'nm' }, b.name), h('span', { class: 'sp' }, spec)));
   });
   return group;
@@ -931,7 +944,7 @@ function drawUpdates() {
     const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'not connected · plug it in to update' }[d.update.how];
     const meta = `${d.firmware} → ${d.update.version} · ${d.update.ready ? how : d.update.note || how}`;
     out.push(row(d.name, meta, d.update.ready ? [btn('Update', (e) => updateDevice(d, e.currentTarget), 'a')] : [],
-      { pic: pic(shapeOf(d.board || d.type), !d.online), off: !d.online }));
+      { pic: pic(shapeOf(d.board || d.type), !d.online, boardOf(`${d.board} ${d.type}`)), off: !d.online }));
   }
   const latest = S.devices?.latest;
   const current = latest ? devs.filter((d) => d.kind === 'serial' && d.firmware === latest).length : 0;

@@ -180,6 +180,29 @@ input[type="text"]:focus-visible, input[type="password"]:focus-visible { border-
 .pic .sh-square { width: 50px; height: 50px; border-radius: 6px; }
 .pic .sh-small { width: 40px; height: 48px; border-radius: 9px; }
 
+/* A board we have a picture of: its own screen, in a bezel. */
+.g:has(.bd) { width: 64px; height: 56px; }
+.g i.bd, .pic i.bd { border-color: var(--edge); background-color: #000; background-size: cover; background-position: center; }
+.g.off i.bd { opacity: .45; }
+.g .bd.sh-round { width: 56px; height: 56px; }
+.g .bd.sh-tall { width: 42px; height: 56px; }
+.g .bd.sh-strip { width: 64px; height: 35px; }
+.g .bd.sh-square { width: 56px; height: 56px; }
+.g .bd.sh-small { width: 46px; height: 56px; }
+.pic .bd.sh-round { width: 74px; height: 74px; }
+.pic .bd.sh-tall { width: 56px; height: 74px; }
+.pic .bd.sh-strip { width: 104px; height: 57px; }
+.pic .bd.sh-square { width: 74px; height: 74px; }
+.pic .bd.sh-small { width: 61px; height: 74px; }
+.card:has(.bd) { height: 152px; }
+.card .pic:has(.bd) { height: 78px; }
+.bd-lilygo-t4-s3 { background-image: url(boards/lilygo-t4-s3.png); }
+.bd-waveshare-lcd-147 { background-image: url(boards/waveshare-lcd-147.png); }
+.bd-waveshare-touch-amoled-18 { background-image: url(boards/waveshare-touch-amoled-18.png); }
+.bd-waveshare-touch-lcd-21 { background-image: url(boards/waveshare-touch-lcd-21.png); }
+.bd-waveshare-touch-lcd-28c { background-image: url(boards/waveshare-touch-lcd-28c.png); }
+.bd-waveshare-touch-lcd-4 { background-image: url(boards/waveshare-touch-lcd-4.png); }
+
 /* ---------- agents ---------- */
 .tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .tool { background: var(--panel); border-radius: 4px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -213,7 +236,7 @@ details.quiet[open] summary { margin-bottom: 10px; }
 .card:hover { border-color: var(--edge); }
 .card[aria-checked="true"] { border-color: var(--ink); background: var(--panel-on); }
 .card .pic { height: 54px; display: grid; place-items: center; }
-.card .pic i { background: var(--bg); }
+.card .pic i { background-color: var(--bg); }
 .card .nm { font-family: var(--f-head); font-weight: 700; font-size: 12.5px; text-align: center; }
 .card .sp { font-size: 11.5px; color: var(--meta); }
 
