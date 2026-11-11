@@ -2,46 +2,105 @@ import Cocoa
 import WebKit
 
 /// The Settings window: the service's own Settings page (the dashboard on
-/// 127.0.0.1) in a web view. It loads nothing but that one address; links to
+/// 127.0.0.1) in a web view, with the window's title bar made part of the
+/// page: no title, transparent, the traffic lights over the page's sidebar.
+/// It only ever shows Settings: any other page of the dashboard is turned
+/// back to /settings, a link to the deck shows the deck, and links to
 /// anywhere else open in the default browser. AppDelegate gives the app a
 /// Dock icon and a menu bar while it is open.
 final class SettingsWindowController: NSWindowController, NSWindowDelegate,
   WKNavigationDelegate, WKUIDelegate
 {
   static let title = "agents deck Settings"
+  /// The page's background (settings.css --bg), so nothing flashes white.
+  static let background = NSColor(red: 0x0A / 255.0, green: 0x0A / 255.0, blue: 0x0A / 255.0, alpha: 1)
 
   private let webView: WKWebView
   /// The dashboard's origin: http, the loopback host and its port.
   private var origin: (host: String, port: Int)?
-  /// Where to go once the login link has set the session cookie, for a
-  /// service that sends every login to its front page.
-  private var landing: URL?
+  /// Where this window belongs: /settings#<page> on the dashboard.
+  private var home: URL?
+  /// The login link is loaded once; after that /login is never shown.
+  private var loginPending = false
   var onClose: (() -> Void)?
+  /// The page asked for the deck (the tray popover).
+  var onShowDeck: (() -> Void)?
+  /// The page asked for the dashboard in the default browser.
+  var onOpenDashboard: (() -> Void)?
 
   init() {
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable],
+      contentRect: NSRect(x: 0, y: 0, width: 960, height: 660),
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered, defer: false)
-    window.title = Self.title
-    window.minSize = NSSize(width: 560, height: 400)
+    window.title = Self.title  // the Window menu and Mission Control still name it
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    // An empty toolbar makes the title bar as tall as the page's top strip,
+    // with the traffic lights centred in it.
+    let toolbar = NSToolbar(identifier: "settings")
+    toolbar.showsBaselineSeparator = false
+    window.toolbar = toolbar
+    window.toolbarStyle = .unifiedCompact
+    window.titlebarSeparatorStyle = .none
+    window.appearance = NSAppearance(named: .darkAqua)
+    window.backgroundColor = Self.background
+    window.minSize = NSSize(width: 760, height: 560)
     window.isReleasedWhenClosed = false
     window.tabbingMode = .disallowed
+
+    let top = max(28, window.frame.height - window.contentLayoutRect.height)
+    let config = WKWebViewConfiguration()
+    config.applicationNameForUserAgent = "AgentsDeckApp/macos"
+    config.userContentController.addUserScript(
+      WKUserScript(source: Self.bridge(top: top), injectionTime: .atDocumentStart, forMainFrameOnly: true))
     // The default (persistent) website data store keeps the dashboard's
     // session cookie between openings.
-    webView = WKWebView(frame: window.contentLayoutRect, configuration: WKWebViewConfiguration())
+    let content = NSView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
+    webView = WKWebView(frame: content.bounds, configuration: config)
     webView.autoresizingMask = [.width, .height]
+    webView.setValue(false, forKey: "drawsBackground")
+    webView.underPageBackgroundColor = Self.background
+    content.addSubview(webView)
+    // The strip under the title bar moves the window, as a title bar does.
+    let strip = DragStrip(
+      frame: NSRect(x: 0, y: content.bounds.height - top, width: content.bounds.width, height: top))
+    strip.autoresizingMask = [.width, .minYMargin]
+    strip.scrollTarget = webView
+    content.addSubview(strip)
     super.init(window: window)
-    window.contentView = webView
+    window.contentView = content
     window.delegate = self
     webView.navigationDelegate = self
     webView.uiDelegate = self
+    config.userContentController.add(MessageProxy(self), name: "agentsDeck")
     window.center()
     // Remembers where the window was and how big (in the app's defaults).
     window.setFrameAutosaveName(Self.title)
   }
 
   required init?(coder: NSCoder) { nil }
+
+  /// What the page learns at document start: it runs in the app (so it
+  /// drops its own top bar), how tall the title bar is, and how to ask the
+  /// app for the deck or the browser.
+  static func bridge(top: CGFloat) -> String {
+    """
+    window.agentsDeckApp = Object.freeze({ platform: 'macos', titlebar: \(Int(top)),
+      post: function (m) { window.webkit.messageHandlers.agentsDeck.postMessage(m); } });
+    (function () {
+      var mark = function () {
+        var e = document.documentElement;
+        if (!e) return false;
+        e.classList.add('in-app', 'app-macos');
+        e.style.setProperty('--app-top', '\(Int(top))px');
+        return true;
+      };
+      if (!mark()) new MutationObserver(function (m, o) { if (mark()) o.disconnect(); })
+        .observe(document, { childList: true });
+    })();
+    """
+  }
 
   /// The URL as Dart sent it, if it is the dashboard on this computer:
   /// http://127.0.0.1:<port>/... (or localhost). Nothing else is ever loaded.
@@ -55,23 +114,29 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
 
   func open(_ url: URL) {
     origin = (url.host ?? "", url.port ?? 80)
-    landing = Self.landing(for: url)
+    home = Self.settingsHome(for: url)
+    loginPending = url.path == "/login"
     webView.load(URLRequest(url: url))
     showWindow(nil)
     window?.makeKeyAndOrderFront(nil)
   }
 
+  /// Where the window belongs for the URL Dart sent:
   /// `/login?code=…&next=/settings#boards` → `/settings#boards` on the same
-  /// origin; nil for any other URL.
-  static func landing(for url: URL) -> URL? {
-    guard url.path == "/login",
-      var c = URLComponents(url: url, resolvingAgainstBaseURL: false),
-      let next = c.queryItems?.first(where: { $0.name == "next" })?.value,
-      next.hasPrefix("/"), !next.hasPrefix("//")
-    else { return nil }
-    c.path = next
+  /// origin. Always a Settings page: anything else becomes `/settings`.
+  static func settingsHome(for url: URL) -> URL? {
+    guard var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+    var path = url.path
+    if path == "/login" {
+      path = c.queryItems?.first(where: { $0.name == "next" })?.value ?? ""
+    }
+    c.path = isSettingsPath(path) ? path : "/settings"
     c.query = nil
     return c.url
+  }
+
+  static func isSettingsPath(_ path: String) -> Bool {
+    path == "/settings" || path == "/settings/"
   }
 
   private func isDashboard(_ url: URL) -> Bool {
@@ -85,6 +150,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     }
   }
 
+  private func goHome() {
+    guard let home else { return }
+    NSLog("agents deck: Settings window back to %@", home.path)
+    webView.load(URLRequest(url: home))
+  }
+
+  /// What the page asked for through window.agentsDeckApp.post.
+  fileprivate func received(_ body: Any) {
+    guard let m = body as? [String: Any], let action = m["action"] as? String else { return }
+    switch action {
+    case "deck": onShowDeck?()
+    case "dashboard": onOpenDashboard?()
+    default: break
+    }
+  }
+
   // MARK: WKNavigationDelegate
 
   func webView(
@@ -92,19 +173,48 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
   ) {
     guard let url = action.request.url else { return decisionHandler(.cancel) }
-    if isDashboard(url) || url.absoluteString == "about:blank" {
+    if url.absoluteString == "about:blank" { return decisionHandler(.allow) }
+    guard isDashboard(url) else {
+      decisionHandler(.cancel)
+      if action.navigationType == .linkActivated { openOutside(url) }
+      return
+    }
+    if action.targetFrame?.isMainFrame == false || Self.isSettingsPath(url.path) {
       return decisionHandler(.allow)
     }
+    if url.path == "/login" && loginPending {
+      loginPending = false
+      return decisionHandler(.allow)
+    }
+    // Any other page of the dashboard never shows here: a link to the deck
+    // shows the deck, anything else (a login that lands on the front page,
+    // an old link) goes back to Settings.
     decisionHandler(.cancel)
-    if action.navigationType == .linkActivated { openOutside(url) }
+    if action.navigationType == .linkActivated && url.path == "/" {
+      onShowDeck?()
+    } else {
+      goHome()
+    }
+  }
+
+  /// A login link that didn't work (used already, or expired): Settings
+  /// itself, which works while the session cookie does and says so when not.
+  func webView(
+    _ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+    decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+  ) {
+    if response.isForMainFrame, let r = response.response as? HTTPURLResponse,
+      r.url?.path == "/login", r.statusCode >= 400
+    {
+      decisionHandler(.cancel)
+      goHome()
+      return
+    }
+    decisionHandler(.allow)
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-    // A service that ignores `next` lands the login on its front page; go on
-    // to Settings from there (the session cookie is set by now).
-    guard let target = landing, let now = webView.url else { return }
-    landing = nil
-    if now.path != target.path { webView.load(URLRequest(url: target)) }
+    NSLog("agents deck: Settings window shows %@#%@", webView.url?.path ?? "", webView.url?.fragment ?? "")
   }
 
   // MARK: WKUIDelegate
@@ -162,7 +272,47 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
   // MARK: NSWindowDelegate
 
   func windowWillClose(_ notification: Notification) {
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: "agentsDeck")
     onClose?()
+  }
+}
+
+/// Holds the window weakly: WKUserContentController keeps its message
+/// handlers alive.
+private final class MessageProxy: NSObject, WKScriptMessageHandler {
+  weak var target: SettingsWindowController?
+  init(_ target: SettingsWindowController) { self.target = target }
+
+  func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+    // Only the dashboard's own page may ask (the window loads nothing else).
+    guard message.frameInfo.isMainFrame, message.frameInfo.request.url?.scheme == "http" else { return }
+    target?.received(message.body)
+  }
+}
+
+/// The strip along the top of the window, under the transparent title bar:
+/// drag it to move the window, double-click it to zoom (or minimize, as set
+/// in System Settings), as with any title bar. Scrolling passes through.
+final class DragStrip: NSView {
+  weak var scrollTarget: NSView?
+
+  override var mouseDownCanMoveWindow: Bool { true }
+
+  override func mouseDown(with event: NSEvent) {
+    guard let window else { return }
+    if event.clickCount == 2 {
+      switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+      case "Minimize": window.performMiniaturize(nil)
+      case "None": break
+      default: window.performZoom(nil)
+      }
+      return
+    }
+    window.performDrag(with: event)
+  }
+
+  override func scrollWheel(with event: NSEvent) {
+    scrollTarget?.scrollWheel(with: event)
   }
 }
 
@@ -205,6 +355,8 @@ enum AppMenu {
     submenu("Window", [
       item("Close", #selector(NSWindow.performClose(_:)), "w"),
       item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+      .separator(),
+      item("Show the Deck", #selector(AppDelegate.showDeckFromMenu(_:)), "d", [.command, .shift]),
     ])
     return main
   }

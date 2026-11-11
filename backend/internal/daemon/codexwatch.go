@@ -38,13 +38,18 @@ func (d *Daemon) codexWindow() time.Duration {
 	return 6 * time.Hour
 }
 
-// WatchCodex polls Codex's state every few seconds (no-op when Codex isn't installed).
+// WatchCodex polls Codex's state every few seconds. Until Codex has made its
+// data folder (it isn't installed, or hasn't run yet) it only looks for the
+// folder, once a minute.
 func (d *Daemon) WatchCodex() {
 	if d.Cfg.Codex != nil && !*d.Cfg.Codex {
 		return
 	}
-	if _, err := os.Stat(codex.Home()); err != nil {
-		return
+	for {
+		if _, err := os.Stat(codex.Home()); err == nil {
+			break
+		}
+		time.Sleep(time.Minute)
 	}
 	logged := false
 	for {

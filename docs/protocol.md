@@ -258,7 +258,7 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | POST | `/admin/v1/restart` | – | `202`: restarts the service through what starts it at login |
 | POST | `/admin/v1/cli` | `{"installed": true\|false}` | adds or removes `~/.local/bin/agentctl` (a link to this agentctl; never a file it didn't make) |
 | POST | `/admin/v1/open-data-folder` | – | `204`: shows the data folder in the file manager on this computer |
-| GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
+| GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents", "state", "detail", "note"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
 | POST | `/admin/v1/accounts/{name}/color` | `{"color"}` | `204` |
 | GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job"}], "latest", "releaseKey", "ota"}` |
 | POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air |

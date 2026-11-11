@@ -77,10 +77,13 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   private func showMenu() {
     let menu = NSMenu()
+    let deck = NSMenuItem(title: "Show the Deck", action: #selector(showDeckFromMenu(_:)), keyEquivalent: "")
+    deck.target = self
+    menu.addItem(deck)
     let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
     settings.target = self
     menu.addItem(settings)
-    let open = NSMenuItem(title: "Open dashboard in browser", action: #selector(openDashboard), keyEquivalent: "")
+    let open = NSMenuItem(title: "Open the Dashboard in Your Browser", action: #selector(openDashboard), keyEquivalent: "")
     open.target = self
     menu.addItem(open)
     menu.addItem(.separator())
@@ -90,10 +93,17 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     statusItem.menu = nil  // a left click goes back to toggling the deck
   }
 
-  /// `agentctl web`: opens the dashboard with a one-time login link.
+  /// "Show the Deck" in the icon's menu and the Window menu.
+  @objc func showDeckFromMenu(_ sender: Any?) {
+    showDeck()
+  }
+
+  /// `agentctl web`: opens the dashboard with a one-time login link. The
+  /// agentctl that came with the app first, then the usual places.
   @objc private func openDashboard() {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    let candidates = ["\(home)/.local/bin/agentctl", "/opt/homebrew/bin/agentctl", "/usr/local/bin/agentctl"]
+    let bundled = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("agentctl").path
+    let candidates = [bundled, "\(home)/.local/bin/agentctl", "/opt/homebrew/bin/agentctl", "/usr/local/bin/agentctl"].compactMap { $0 }
     guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: path)
@@ -117,6 +127,8 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     let controller = settings ?? SettingsWindowController()
     if settings == nil {
       controller.onClose = { [weak self] in self?.settingsClosed() }
+      controller.onShowDeck = { [weak self] in self?.showDeck() }
+      controller.onOpenDashboard = { [weak self] in self?.openDashboard() }
       settings = controller
     }
     // A normal app while the window is open: a Dock icon, the app switcher,

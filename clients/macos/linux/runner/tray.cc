@@ -114,7 +114,7 @@ typedef struct {
 static const MenuItem kMenu[] = {
     {1, "Show the deck", TRAY_SHOW},
     {5, "Settings…", TRAY_SETTINGS},
-    {2, "Open dashboard in browser", TRAY_DASHBOARD},
+    {2, "Open the dashboard in your browser", TRAY_DASHBOARD},
     {3, nullptr, TRAY_TOGGLE},
     {4, "Quit agents deck", TRAY_QUIT},
 };

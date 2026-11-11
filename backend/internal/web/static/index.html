@@ -24,21 +24,23 @@
     </ul>
   </div>
   <div class="top-right">
-    <button type="button" id="panel-toggle" class="toggle" aria-pressed="false" title="show the board as the 720×720 panel shows it">panel view</button>
-    <button type="button" id="sort-toggle" class="toggle" aria-pressed="false" title="show agents that need you first">needs you first</button>
-    <button type="button" id="add-session" class="toggle" title="add a Claude session that runs in another terminal">+ session</button>
-    <a href="/settings" class="toggle" id="settings-link" title="settings: boards, updates, network">settings</a>
+    <div class="deck-ctl" role="group" aria-label="the deck">
+      <button type="button" id="add-session" class="toggle" title="Add a Claude Code session that is already running on this computer (in a terminal or in the background) to the deck">+ add session</button>
+      <button type="button" id="sort-toggle" class="toggle" aria-pressed="false" aria-label="sort: agents that need you first" title="On: agents that need you (a question or a permission) come first. Off: tiles stay where you put them."><span class="k">sort:</span> <span id="sort-state">your order</span></button>
+      <button type="button" id="panel-toggle" class="toggle" aria-pressed="false" aria-label="layout: as the desk panel" title="On: the deck as the 720×720 desk panel draws it, 4×4 tiles in pages of 16. Off: tiles fill the window."><span class="k">layout:</span> <span id="panel-state">fit window</span></button>
+    </div>
     <span id="server-name" class="server">—</span>
     <span class="conn" id="conn" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><span id="conn-label">connecting…</span></span>
     <time id="clock" class="clock">--:--</time>
+    <a href="/settings" class="settings-link" id="settings-link" title="Settings: boards, agents, network, updates"><svg class="gear" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6.6 0h2.8l.4 2.1 1.2.5 1.8-1.2 2 2-1.2 1.8.5 1.2 2.1.4v2.8l-2.1.4-.5 1.2 1.2 1.8-2 2-1.8-1.2-1.2.5-.4 2.1H6.6l-.4-2.1-1.2-.5-1.8 1.2-2-2 1.2-1.8-.5-1.2L0 9.4V6.6l2.1-.4.5-1.2-1.2-1.8 2-2 1.8 1.2 1.2-.5zM8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z" fill="currentColor" fill-rule="evenodd"/></svg><span>Settings</span></a>
   </div>
 </header>
 
 <div id="banner" class="banner" role="alert" hidden>connection lost · showing last known state · reconnecting…</div>
 <div id="picker" class="picker" hidden>
   <div class="picker-card" role="dialog" aria-modal="true" aria-labelledby="picker-title">
-    <div class="picker-head"><h2 id="picker-title">add a session</h2><button type="button" id="picker-close" class="d-close" aria-label="close (esc)">×</button></div>
-    <p class="picker-sub">Claude sessions running in your own terminals. Added ones are watched: status, context and cost; you answer them in their terminal.</p>
+    <div class="picker-head"><h2 id="picker-title">add a running session</h2><button type="button" id="picker-close" class="d-close" aria-label="close (esc)">×</button></div>
+    <p class="picker-sub">Add a Claude Code session that is already running on this computer to the deck. The deck then shows its status, context and cost; you still answer it in its own terminal. Codex sessions show up on the deck by themselves.</p>
     <ul id="picker-list" class="picker-list"></ul>
   </div>
 </div>

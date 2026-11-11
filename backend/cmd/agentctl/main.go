@@ -98,6 +98,8 @@ const usage = `agentctl — agents-terminal
                                  USB ports and what is on them (listed without opening them)
   agentctl devices rename <name> <new name> | update <name>
                                  a board's name in Settings; update its firmware
+  agentctl devices reset [--yes]  start the deck's certificates over (a lost CA key): network
+                                 devices pair again, boards get new ones on USB
   agentctl system                what the service is doing (boards, new ports, updates)
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
@@ -923,6 +925,9 @@ func devicesCmd(args []string) error {
 	if len(args) > 0 && (args[0] == "rename" || args[0] == "update") {
 		return devicesAdminCmd(args) // admin_cli.go
 	}
+	if len(args) > 0 && args[0] == "reset" {
+		return devicesReset(args[1:]) // devices_reset.go
+	}
 	if len(args) > 0 {
 		action := args[0]
 		switch {
@@ -937,7 +942,7 @@ func devicesCmd(args []string) error {
 			fmt.Printf("%s: %s\n", args[1], map[string]string{"revoke": "revoked", "approve": "approved", "remove": "removed"}[action])
 			return nil
 		}
-		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin | auto-approve usb on|off [--scope view|act]]")
+		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin | auto-approve usb on|off [--scope view|act] | reset [--yes]]")
 	}
 	var res struct {
 		Devices     []devices.Device
