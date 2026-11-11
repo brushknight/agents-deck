@@ -23,6 +23,9 @@
  *       it the board pairs (CertRequest), takes Wi-Fi credentials
  *       (WifiConfig) and the uplink preference (LinkConfig), and reports
  *       NetStatus with transport BLE, as a board does.
+ *   --focus ID
+ *       after its first snapshot, asks the deck to focus agent ID (Focus), a
+ *       command as a person pressing a tile sends one.
  *   --firmware-board B --firmware-out FILE  (with --wifi)
  *       takes the deck's FirmwareOffer when its board is B: checks a Range
  *       request, downloads the image with deck_fw.c into FILE, checks it and
@@ -41,6 +44,7 @@
  *   firmware written bytes=<n>
  *   ble name=<deck-xxxxxx> passkey=<6 digits> info=<the Info value>
  *   ble connected          ble disconnected          uplink value=<0|1|2>
+ *   focus seq=<n> id=<id>  result seq=<n> code=<n>   (the deck's answers)
  * Exit status: 0 at --seconds or EOF, 3 when no host could be reached, 4
  * when the certificate was rejected.
  */
@@ -286,6 +290,7 @@ static void on_cert_issued(deck_link_t *c, uint32_t seq, const agentsdeck_link_v
 static void on_result(deck_link_t *c, uint32_t seq, uint32_t code, const char *err)
 {
 	(void)c;
+	fprintf(stderr, "result seq=%u code=%u\n", (unsigned)seq, (unsigned)code);
 	if (pairing.seq && seq == pairing.seq) {
 		fprintf(stderr, "pair refused code=%u error=%s\n", (unsigned)code, err);
 		deck_pair_cancel(&pairing);
@@ -319,15 +324,22 @@ static void on_agent(deck_link_t *c, const agentsdeck_link_v1_Agent *a)
 	fprintf(stderr, "agent id=%s status=%s\n", a->id, deck_status_name(a->status));
 }
 
+static const char *focus_id;
+static bool focus_sent;
+
 static void on_snapshot_end(deck_link_t *c)
 {
-	(void)c;
 	fprintf(stderr, "snapshot_end\n");
+	if (focus_id && !focus_sent) {
+		focus_sent = true;
+		uint32_t seq = deck_focus(c, focus_id);
+		fprintf(stderr, "focus seq=%u id=%s\n", (unsigned)seq, focus_id);
+	}
 }
 
 static void usage(void)
 {
-	fprintf(stderr, "usage: board_wifi (--serial | --wifi | --ble PATH) --store DIR [--board-id ID] [--seconds N]\n\t[--mtu N] [--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
+	fprintf(stderr, "usage: board_wifi (--serial | --wifi | --ble PATH) --store DIR [--board-id ID] [--seconds N]\n\t[--mtu N] [--focus ID] [--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
 	exit(2);
 }
 
@@ -364,6 +376,8 @@ int main(int argc, char **argv)
 			fw_board = v, i++;
 		else if (strcmp(a, "--firmware-out") == 0)
 			fw_out = v, i++;
+		else if (strcmp(a, "--focus") == 0)
+			focus_id = v, i++;
 		else if (strcmp(a, "--firmware") == 0)
 			cfg.firmware = v, i++;
 		else if (strcmp(a, "--seconds") == 0)
