@@ -24,7 +24,9 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 	s.Admin = probe
 	h := s.DeviceHandler()
 	paths := []string{"/admin/v1/system", "/admin/v1/settings", "/admin/v1/ports/cu.x/flash", "/admin/v1/devices/panel/scope",
-		"/admin/v1/update/apply", "/admin/v1/events", "/admin/v1/diagnostics", "/v1/../admin/v1/system", "/v1/admin/v1/system"}
+		"/admin/v1/update/apply", "/admin/v1/events", "/admin/v1/diagnostics", "/v1/../admin/v1/system", "/v1/admin/v1/system",
+		"/admin/v1/bluetooth", "/admin/v1/bluetooth/scan", "/admin/v1/bluetooth/boards", "/admin/v1/bluetooth/boards/6B1F2C3D-0000-4000-8000-0000000000A1/add",
+		"/admin/v1/devices/panel/uplink"}
 	for _, dev := range []string{"", "viewer", "panel", "boss", "gone"} {
 		hdr := map[string]string{}
 		ps := paths

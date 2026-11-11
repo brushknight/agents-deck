@@ -148,6 +148,8 @@ func plainOTAError(err error) error {
 	switch {
 	case errors.Is(err, link.ErrNoFirmwareSource):
 		return ErrNoOTA
+	case errors.Is(err, link.ErrOnBluetooth):
+		return link.ErrOnBluetooth
 	case errors.Is(err, link.ErrNotOnWifi):
 		return errors.New("the board isn't on Wi-Fi right now: update it over the USB cable")
 	case errors.Is(err, link.ErrNotConnected):

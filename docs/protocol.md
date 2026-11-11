@@ -8,6 +8,7 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
 | menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600); on Windows `%LOCALAPPDATA%\agents-deck\agentd.sock` (Windows 10 1803 and later have unix sockets) | filesystem permissions: your user (on Windows, the folder under your profile is private to you) |
 | ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board (at once when plugged into a registered USB port, unless turned off); scope view, act or admin |
+| ESP32 boards over Bluetooth | Bluetooth LE: the same Deck Link frames as a byte stream through the Deck Link GATT service, run by a small helper next to `agentctl` (`deck-ble` on macOS, [clients/ble](../clients/ble/README.md)) | added by you (`agentctl bluetooth add`), paired with the 6-digit passkey shown on the board's own screen and bonded; then the same device, scope and audit log as on USB |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
 
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
@@ -178,13 +179,13 @@ A request beyond the device's scope gets `403` with the command that would raise
 board that says `Hello` on one of them is approved at once with scope `act`: plugging a board into
 this Mac, on a port you registered, is treated as your consent. It is audited (`"action": "approve",
 "detail": "approved automatically over USB on /dev/cu.usbmodem…, scope act"`). `admin` is only ever
-given by hand (`agentctl devices scope`). It never happens over Wi-Fi, on the network listener or for
-`agentctl link sim`, and a revoked board stays revoked until `agentctl devices approve`. Turn it off
+given by hand (`agentctl devices scope`). It never happens over Wi-Fi, on the network listener, over Bluetooth
+(a board there is approved when you add it, below) or for `agentctl link sim`, and a revoked board stays revoked until `agentctl devices approve`. Turn it off
 with `agentctl devices auto-approve usb off` (new boards then wait for `agentctl devices approve`), or
 give new boards `view` with `--scope view`; the setting lives next to `devices.json`
 (`devices-settings.json`) and `agentctl devices` shows it.
 
-**Boards on Wi-Fi.** A Deck Link board is paired over USB serial: once it is approved, it sends a
+**Boards on Wi-Fi.** A Deck Link board is paired over USB serial (or over Bluetooth, below): once it is approved, it sends a
 certificate request for a key it made on the chip, and the deck signs it and records it on the board's
 own entry (`CertRequest`/`CertIssued`, [link/protocol.md](link/protocol.md#pairing-and-wi-fi)). Over
 Wi-Fi it connects to this listener with that certificate and opens `GET /v1/link` (`Upgrade:
@@ -193,12 +194,54 @@ commands go through the same scope check and audit log under the board's name, i
 the board id the certificate was issued to, and revoking the board ends the session and fails its
 next handshake (the certificate is dropped for good; approved again, the board pairs again over USB).
 Wi-Fi passwords never go through `/v1`: `agentctl link wifi` hands them to the daemon on the unix
-socket (`POST /local/link/wifi`), which passes them to a board connected over USB right now and keeps
-nothing. The one exception is the default network (`agentctl link wifi --default --ssid NAME`, `POST
+socket (`POST /local/link/wifi`), which passes them to a board connected over USB or Bluetooth right
+now and keeps nothing. The one exception is the default network (`agentctl link wifi --default --ssid NAME`, `POST
 /local/link/wifi-default`): its password is kept in the macOS Keychain (`dev.agents-deck`, item
 `wifi-default`; a 0600 file under `keys/` elsewhere), and the deck sends it, over USB only, to every
 approved board that is paired and lacks it, once per connection, unless the board was given its own
 network. It is never logged or audited (`"action": "wifi default set"` without the network or password).
+
+**Boards over Bluetooth.** The rule, never weaker than this: nothing goes over Bluetooth without an
+encrypted link from LE Secure Connections pairing, with a passkey the board shows on its own screen,
+and a bond. Seeing the passkey proves you are looking at that board, as a USB cable proves it is
+plugged in. In practice:
+
+- A board seen over Bluetooth is never connected to or approved on sight. `agentctl bluetooth scan`
+  lists boards nearby from what they advertise and their Info characteristic (board, board id,
+  firmware, whether it is in setup; readable without pairing, so it is a claim, not a proof).
+  `agentctl bluetooth add <name>` (`POST /admin/v1/bluetooth/boards/{id}/add`) connects; the board's
+  RX and TX characteristics need an authenticated, encrypted link, so the computer pairs: the board
+  shows a 6-digit code and you type it into the window the computer opens. The deck never sees the
+  code.
+- The board's `Hello` must carry the board id its Info showed when you added it, or it is refused.
+  Then the board is approved with scope `act` (or `view`; never `admin`, which is given by hand),
+  bound to this computer's identifier for it, and audited (`"action": "approve", "detail": "added over
+  Bluetooth with the passkey on its screen, scope act"` and `"bluetooth add <name>"`). A revoked board
+  is refused until `agentctl devices approve`.
+- After that it is a device like any other: same scope check, audit log, `agentctl devices`. Its
+  later links must say `Hello` with the same board id. Revoking it ends its Bluetooth link and forgets
+  it; approved again, it is added again with a new passkey.
+- A board over Bluetooth is in your hands as on USB: it may be given Wi-Fi credentials and paired for
+  Wi-Fi over that link. Firmware is never sent over Bluetooth: an update needs Wi-Fi or the cable.
+- A board with no bond advertises as connectable for anyone (it is in setup). A bonded board accepts
+  only its bonded computer, and goes back to setup only from its own screen.
+
+What Bluetooth does not protect: the board's advertised name and Info are public, so anyone nearby can
+see that a board is there, which board it is and which firmware it runs. Security rests on the board:
+it must refuse RX and TX on any link that isn't encrypted and authenticated, because the computer can't
+see how a link was paired (on macOS a successful TX subscription is the only sign; see
+[clients/ble](../clients/ble/README.md)). The bond lives in the operating system's Bluetooth settings,
+not in the deck's data folder. Wi-Fi keeps TLS 1.3 and the device certificate, unchanged.
+
+**One session per board.** A board may reach the deck over USB, Wi-Fi and Bluetooth at once; the deck
+runs one Deck Link session for it. USB always comes first (a cable is in your hands, and the board
+quiets its radios while a deck answers there). Between the radios, the board's uplink preference
+decides, with the same meaning the board gives it: `auto` (USB, else Wi-Fi, else Bluetooth), `wifi`
+(USB, else Wi-Fi; Bluetooth only while the board isn't paired for Wi-Fi yet, to set it up) or `ble` (USB,
+else Bluetooth; Wi-Fi isn't used). Set it with `agentctl devices uplink <name> auto|wifi|ble`; it is
+kept in `devices.json`. When a better uplink says `Hello`, the session on the worse one ends.
+Bluetooth isn't connected while a better uplink is in use, and comes back by itself when it is the
+best one left.
 
 **Firmware updates over Wi-Fi.** A board on Wi-Fi is updated through the same listener and the same
 certificate: the deck sends it `FirmwareOffer` over its Deck Link session (never automatically: you
@@ -227,7 +270,7 @@ image file from the Mac (`POST /local/link/firmware` on the unix socket, audited
   certificate; the answer is `{"name", "cert", "ca"}`. Its private key never leaves it.
 
 Pairing a name again replaces its certificate. `agentctl devices` lists everything paired, and how
-each board is connected right now (USB or Wi-Fi);
+each board is connected right now (USB, Wi-Fi or Bluetooth);
 `agentctl devices revoke|approve|remove <name>` and `agentctl devices scope <name> <scope>` manage them.
 
 **Audit.** Every request that changes something is appended to `audit.log` as one JSON line:
@@ -260,14 +303,18 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | POST | `/admin/v1/open-data-folder` | – | `204`: shows the data folder in the file manager on this computer |
 | GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
 | POST | `/admin/v1/accounts/{name}/color` | `{"color"}` | `204` |
-| GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job"}], "latest", "releaseKey", "ota"}` |
-| POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air |
+| GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note"}, "job", "uplinkPref", "uplinks": [{"via", "state", "detail"}], "bluetooth"}], "latest", "releaseKey", "ota"}`. `connection` is the uplink in use (`usb`, `wifi`, `bluetooth`, `network`); `uplinks` lists every way a board reaches the computer now (`via` `usb`, `wifi`, `bluetooth`; `state` `in use`, `standing by` (another uplink is in use), `connecting` (waiting for it to come in range), `not used` (its preference), `off`); `bluetooth` is true for a board added over Bluetooth here |
+| POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version"}`; `uplink` `{"uplink": "auto"\|"wifi"\|"ble"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air; a board only on Bluetooth gets `409`. `uplink` `ble` needs the board added over Bluetooth first |
 | POST | `/admin/v1/pair` | `{"name", "scope"}` | a one-time pairing code, as `agentctl pair` gives |
 | GET | `/admin/v1/ports` | – | `{"ports": [{"id", "path", "vid", "pid", "likely", "state", "registered", "device", "job"}]}`, states `new`, `registered`, `connected`, `busy`, `flashing`, `unplugged`, `ignored`, `other`. Listed from the system's USB ids: **no port is opened to list it** |
 | POST | `/admin/v1/ports/{id}/{action}` | `register`; `identify`; `flash` `{"board", "version"}`; `forget` | `register` is "yes, it's mine" (`config.json` `link.ports`). `identify` and `flash` answer `403` until the port is registered. `identify` answers from the board's Deck Link session when one is live, else borrows the port from the Deck Link manager and asks the ROM bootloader: `{"source", "chip", "flashSize", "candidates"}`. `flash` downloads and checks the image, borrows the port, writes it at the manifest's offset and hands the port back so the board pairs: `202` and a job; one at a time per port. `forget` stops using a registered port, or marks a new one "not mine" |
+| GET | `/admin/v1/bluetooth` | – | `{"available", "why", "helper", "radio", "scanning", "restarts", "lastError"}`: `helper` is `none` (this computer has no Bluetooth helper: "Bluetooth isn't available on this computer yet"), `starting`, `running` or `restarting`; `radio` is `on`, `off`, `unauthorized` (not allowed in the system's privacy settings), `unsupported`, `resetting` |
+| POST | `/admin/v1/bluetooth/scan` | `{"on": true\|false}` (on when left out) | `204`; `503` with `why` when Bluetooth isn't available. Starting a scan forgets the boards seen before |
+| GET | `/admin/v1/bluetooth/boards` | – | `{"boards": [{"id", "name", "rssi", "board", "model", "boardId", "firmware", "setup", "device", "added"}], "scanning", "available", "why"}`: the boards seen since the scan started, strongest first. `setup`: not bonded, ready to be added; `device`: already one of your devices; `added`: added over Bluetooth here |
+| POST | `/admin/v1/bluetooth/boards/{id}/add` | `{"scope": "view"\|"act"}` (the setting for new boards when left out) | `202` and a job (`kind` `bluetooth-add`): stages `connect`, `passkey` ("Type the code shown on the board into the window this computer opens."), `connected`, `done` with `device`; or `failed` with the reason (wrong code or cancelled, timed out, out of range, another board's `Hello`, revoked) |
 | GET | `/admin/v1/firmware` | – | the latest release's boards: `{"version", "boards": [{"board", "name", "chip", "types", "usb", "flash_size", "wifi", "ota", "picture", "version"}], "releaseKey"}` |
 | GET | `/admin/v1/jobs` | – | `{"jobs": […]}`, newest first (kept in memory, the last 50) |
-| GET | `/admin/v1/jobs/{id}` | – | `{"id", "kind": "flash"\|"board-update"\|"app-update", "state": "running"\|"done"\|"failed"\|"cancelled", "percent", "stage", "message", "error", "bootHelp", "steps", "done", "total"}` |
+| GET | `/admin/v1/jobs/{id}` | – | `{"id", "kind": "flash"\|"board-update"\|"app-update"\|"bluetooth-add", "state": "running"\|"done"\|"failed"\|"cancelled", "percent", "stage", "message", "error", "bootHelp", "steps", "done", "total"}` |
 | POST | `/admin/v1/jobs/{id}/cancel` | – | `202` |
 | GET | `/admin/v1/events` | – | Server-Sent Events: `job` (a Job, on every change) and `system` (as `GET /admin/v1/system`, every 10 seconds and after a job ends) |
 | GET | `/admin/v1/update` | – | the updater's state (`state`, `current`, `version`, `notes`, `message`, `install`) plus `mode`, `checked`, `releaseKey`, `job` |

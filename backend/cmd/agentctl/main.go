@@ -98,6 +98,10 @@ const usage = `agentctl — agents-terminal
                                  USB ports and what is on them (listed without opening them)
   agentctl devices rename <name> <new name> | update <name>
                                  a board's name in Settings; update its firmware
+  agentctl devices uplink <name> auto|wifi|ble
+                                 how a board reaches this computer when it can do several
+  agentctl bluetooth [scan | ls | add <name>]
+                                 boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
@@ -184,6 +188,8 @@ func main() {
 		err = pair(args)
 	case "devices":
 		err = devicesCmd(args)
+	case "bluetooth", "ble":
+		err = bluetoothCmd(args) // bluetooth.go
 	case "link":
 		err = linkCmd(args)
 	case "flash":
@@ -923,6 +929,9 @@ func devicesCmd(args []string) error {
 	if len(args) > 0 && (args[0] == "rename" || args[0] == "update") {
 		return devicesAdminCmd(args) // admin_cli.go
 	}
+	if len(args) > 0 && args[0] == "uplink" {
+		return devicesUplink(args) // bluetooth.go
+	}
 	if len(args) > 0 {
 		action := args[0]
 		switch {
@@ -963,7 +972,7 @@ func devicesCmd(args []string) error {
 		if b.DefaultWifi != "" {
 			defWifi[b.Board] = b.DefaultWifi
 		}
-		v := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
+		v := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi", link.OverBLE: "bluetooth"}[b.Transport]
 		if b.Transport == link.OverWifi && b.Net != nil && b.Net.IP != "" {
 			v += " " + b.Net.IP
 			if b.Net.RSSI != 0 {
@@ -1199,6 +1208,7 @@ func serve(args []string) error {
 		}
 	}
 
+	adm.Bluetooth = startBluetooth(srv, hub, *demoMode) // bluetooth.go
 	wireAdmin(adm, srv, hub, links, wifiDefault, deviceTLS != nil, *demoMode)
 
 	if lc != nil {
