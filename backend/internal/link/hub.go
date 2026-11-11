@@ -47,7 +47,7 @@ func (h *Hub) remove(s *Session) {
 // LinkInfo is one connected board, for `agentctl link` and `agentctl devices`.
 type LinkInfo struct {
 	Board     string    `json:"board"`
-	Transport string    `json:"transport"` // serial | wifi
+	Transport string    `json:"transport"` // serial | wifi | ble
 	Where     string    `json:"where"`     // the port, or the board's address
 	Since     time.Time `json:"since"`
 	Approved  bool      `json:"approved"`
@@ -94,12 +94,13 @@ func (h *Hub) Links() []LinkInfo {
 	return out
 }
 
-// serial is the board's approved USB serial session, if it has one.
+// serial is the board's approved session over USB serial or Bluetooth (the
+// links where the board is in the owner's hands), if it has one.
 func (h *Hub) serial(board string) *Session {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for s := range h.live {
-		if s.Transport == OverSerial && s.Board() == board && s.live.Load() {
+		if s.Hands() && s.Board() == board && s.live.Load() {
 			return s
 		}
 	}
@@ -120,7 +121,7 @@ func (h *Hub) SendWifi(board, ssid, password string, forget bool) (int, string) 
 				return http.StatusForbidden, board + " is waiting for approval: agentctl devices approve " + board
 			}
 		}
-		return http.StatusConflict, board + " isn't connected over USB serial right now: plug it into this Mac " +
+		return http.StatusConflict, board + " isn't connected over USB serial or Bluetooth right now: plug it into this computer " +
 			"(agentctl link shows it as serial) and try again. Nothing was stored."
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), WifiTimeout)

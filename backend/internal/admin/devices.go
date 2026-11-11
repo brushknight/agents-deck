@@ -24,7 +24,7 @@ type DeviceRow struct {
 	Scope      string    `json:"scope"`
 	State      string    `json:"state"` // active | waiting (for your approval) | revoked
 	Online     bool      `json:"online"`
-	Connection string    `json:"connection,omitempty"` // usb | wifi | network
+	Connection string    `json:"connection,omitempty"` // usb | wifi | bluetooth | network
 	Port       string    `json:"port,omitempty"`       // the port's id, on USB
 	LastSeen   time.Time `json:"lastSeen,omitzero"`
 	Created    time.Time `json:"created"`
@@ -36,6 +36,11 @@ type DeviceRow struct {
 	Wifi       *WifiRow  `json:"wifi,omitempty"`
 	Update     *Pending  `json:"update,omitempty"` // a newer firmware in the latest release
 	Job        string    `json:"job,omitempty"`    // a flash or update that runs
+	// Boards: the uplink the deck uses now (usb | wifi | bluetooth, as
+	// connection), the preference that picks it, and every uplink it has.
+	UplinkPref string      `json:"uplinkPref,omitempty"` // auto | wifi | ble
+	Uplinks    []UplinkRow `json:"uplinks,omitempty"`
+	Bluetooth  bool        `json:"bluetooth,omitempty"` // added over Bluetooth on this computer
 }
 
 // WifiRow is a board's Wi-Fi as it reports it.
@@ -105,6 +110,10 @@ func (a *Admin) deviceRows() []DeviceRow {
 				if row.Connection == "" {
 					row.Connection = "wifi"
 				}
+			case link.OverBLE:
+				if row.Connection == "" {
+					row.Connection = "bluetooth"
+				}
 			}
 			if l.Net != nil || d.Kind == devices.Serial {
 				w := row.Wifi
@@ -128,6 +137,9 @@ func (a *Admin) deviceRows() []DeviceRow {
 		}
 		if d.Kind == devices.Serial && row.Wifi == nil {
 			row.Wifi = &WifiRow{Own: d.WifiOwn, HasCert: d.CertSerial != ""}
+		}
+		if d.Kind == devices.Serial {
+			a.uplinkRows(&row, d, links[d.Name])
 		}
 		if cat != nil && d.Type != "" {
 			if b, ok := cat.BoardForType(d.Type); ok {
@@ -169,6 +181,8 @@ func (a *Admin) pendingFor(row DeviceRow, b firmware.Board, usbPath string, regi
 		default:
 			p.Ready = true
 		}
+	case "bluetooth":
+		p.How, p.Note = "bluetooth", link.ErrOnBluetooth.Error()
 	default:
 		p.How, p.Note = "unplugged", "not connected: plug it in to update"
 	}
@@ -198,7 +212,7 @@ func (a *Admin) listDevices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// deviceAction: POST /admin/v1/devices/{id}/{approve|scope|rename|revoke|remove|wifi|update}.
+// deviceAction: POST /admin/v1/devices/{id}/{approve|scope|rename|revoke|remove|wifi|update|uplink}.
 func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request) {
 	if a.Devices == nil {
 		writeErr(w, http.StatusServiceUnavailable, "this service keeps no devices")
@@ -246,8 +260,10 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request) {
 	case "update":
 		a.deviceUpdate(w, r, d)
 		return
+	case "uplink":
+		err = a.deviceUplink(r, d)
 	default:
-		writeErr(w, http.StatusNotFound, "unknown action: approve, scope, rename, revoke, remove, wifi or update")
+		writeErr(w, http.StatusNotFound, "unknown action: approve, scope, rename, revoke, remove, wifi, update or uplink")
 		return
 	}
 	switch {
@@ -363,7 +379,7 @@ func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.D
 		writeErr(w, http.StatusNotFound, "the latest release has no firmware for "+d.Type)
 		return
 	}
-	var usb, wifi bool
+	var usb, wifi, onBLE bool
 	var usbPath string
 	for _, l := range a.linksNow() {
 		if l.Board != d.Name {
@@ -374,6 +390,8 @@ func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.D
 			usb, usbPath = true, l.Where
 		case link.OverWifi:
 			wifi = true
+		case link.OverBLE:
+			onBLE = true
 		}
 	}
 	switch {
@@ -412,6 +430,8 @@ func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.D
 				return a.runOTA(ctx, up, d.Name, board.Board, version)
 			})
 		writeJSON(w, http.StatusAccepted, job)
+	case onBLE:
+		writeErr(w, http.StatusConflict, link.ErrOnBluetooth.Error())
 	default:
 		writeErr(w, http.StatusConflict, "the board isn't connected: plug it in to update it")
 	}

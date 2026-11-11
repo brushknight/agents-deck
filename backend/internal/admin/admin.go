@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/ble"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/firmware"
 	"github.com/brushknight/agents-deck/backend/internal/flash"
@@ -95,6 +96,8 @@ type Admin struct {
 	// log in (nil elsewhere).
 	Tray *TrayAutostart
 	OTA  OTA
+	// Bluetooth: boards over Bluetooth (ble.go). nil: this computer has none.
+	Bluetooth *ble.Uplinks
 
 	// NetworkOn: the network listener runs in this process (it starts or
 	// stops only with the service).
@@ -143,6 +146,11 @@ func (a *Admin) Handler() http.Handler {
 
 	mux.HandleFunc("GET /admin/v1/ports", a.listPorts)
 	mux.HandleFunc("POST /admin/v1/ports/{id}/{action}", a.portAction)
+
+	mux.HandleFunc("GET /admin/v1/bluetooth", a.bluetoothStatus)
+	mux.HandleFunc("POST /admin/v1/bluetooth/scan", a.bluetoothScan)
+	mux.HandleFunc("GET /admin/v1/bluetooth/boards", a.bluetoothBoards)
+	mux.HandleFunc("POST /admin/v1/bluetooth/boards/{id}/add", a.bluetoothAdd)
 
 	mux.HandleFunc("GET /admin/v1/firmware", a.firmwareCatalog)
 	mux.HandleFunc("GET /admin/v1/jobs", a.listJobs)

@@ -54,6 +54,7 @@ const (
 const (
 	OverSerial = "serial" // USB serial (and `agentctl link sim`)
 	OverWifi   = "wifi"   // TLS 1.3 on the network listener (GET /v1/link)
+	OverBLE    = "ble"    // Bluetooth LE, paired with the passkey on the board's screen (internal/ble)
 )
 
 // Session talks Deck Link with one board over rw until ctx ends or rw fails.
@@ -110,6 +111,11 @@ type Session struct {
 	lastRx  time.Time
 
 	wifiTried bool // the default network was offered in this session (once at most)
+
+	// stop ends Run when the board moves to an uplink the deck prefers
+	// (Hub.arbitrate, uplink.go).
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // Board is the connected board's device name ("" before its Hello).
@@ -131,7 +137,7 @@ func (s *Session) setDevice(d devices.Device) {
 func NewSession(deck Deck, rw io.ReadWriter, name string) *Session {
 	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame, Transport: OverSerial,
 		PingEvery: PingEvery, RecheckEvery: RecheckEvery, Debounce: Debounce,
-		outbox: make(chan *linkpb.Frame, 4), pending: map[uint32]chan *linkpb.Frame{}, done: make(chan struct{})}
+		outbox: make(chan *linkpb.Frame, 4), pending: map[uint32]chan *linkpb.Frame{}, done: make(chan struct{}), stop: make(chan struct{})}
 }
 
 // Net is what the board last said about its network (nil before it did).
@@ -240,6 +246,8 @@ func (s *Session) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-s.stop:
+			return ErrHandedOver
 		case err := <-readErr:
 			return err
 		case f := <-frames:
@@ -413,14 +421,20 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 	if m := int(h.MaxFrame); m >= MinFrame && m < MaxFrame {
 		s.maxFrame = m
 	}
+	if s.Hub != nil {
+		if err := s.Hub.arbitrate(s); err != nil { // one session per board (uplink.go)
+			return err
+		}
+	}
 	return s.welcome()
 }
 
-// onCertRequest pairs the board for Wi-Fi: over USB serial only, approved
-// boards only. The certificate goes on the board's own registry entry.
+// onCertRequest pairs the board for Wi-Fi: over USB serial or Bluetooth
+// (paired with the board's passkey), approved boards only. The certificate
+// goes on the board's own registry entry.
 func (s *Session) onCertRequest(seq uint32, req *linkpb.CertRequest) error {
-	if s.Transport != OverSerial {
-		return s.result(seq, http.StatusForbidden, "pair over USB: plug the board into the Mac")
+	if !s.Hands() {
+		return s.result(seq, http.StatusForbidden, "pair over USB or Bluetooth: plug the board into this computer")
 	}
 	if !s.active() {
 		return s.result(seq, http.StatusForbidden, s.dev.Name+" is waiting for approval: agentctl devices approve "+s.dev.Name)

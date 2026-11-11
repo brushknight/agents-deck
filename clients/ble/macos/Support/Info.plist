@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.agents-deck.deck-ble</string>
+	<key>CFBundleName</key>
+	<string>agents deck Bluetooth</string>
+	<key>CFBundleDisplayName</key>
+	<string>agents deck Bluetooth</string>
+	<key>CFBundleExecutable</key>
+	<string>deck-ble</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>agents deck connects to your Deck Link boards over Bluetooth, so a board next to this computer works without Wi-Fi or a cable.</string>
+</dict>
+</plist>
