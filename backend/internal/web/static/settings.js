@@ -381,8 +381,8 @@ function drawGeneral() {
 function toolState(t) {
   const n = (k) => `${t.agents} ${k}${t.agents === 1 ? '' : 's'}`;
   switch (t.state || (t.on ? (t.agents ? 'connected' : t.found ? 'found' : 'missing') : 'off')) {
-    case 'connected': return t.id === 'tmux' ? `connected · ${n('agent')} started here` : `connected · ${n(t.id === 'codex' ? 'session' : 'agent')}`;
-    case 'found': return t.id === 'tmux' ? 'found · for agents you start here' : 'found · nothing on the deck now';
+    case 'connected': return t.id === 'tmux' ? `connected · ${n('agent')}` : `connected · ${n(t.id === 'codex' ? 'session' : 'agent')}`;
+    case 'found': return t.id === 'tmux' ? 'found · for agents you start here' : 'found · none on the deck';
     case 'off': return 'turned off';
     default: return 'not found';
   }
