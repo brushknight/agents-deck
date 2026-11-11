@@ -80,7 +80,7 @@ check "the icon asks for attention" "wait_for 5 \"prop Status | grep -q NeedsAtt
 check "the tooltip counts them" "prop ToolTip | grep -q 'need'"
 check "pixmaps at panel sizes" "prop IconPixmap | grep -q '(22, 22,'"
 check "the menu has Quit" "layout | grep -q 'Quit agents deck'"
-check "the menu has the dashboard" "layout | grep -q 'Open dashboard in browser'"
+check "the menu has the dashboard" "layout | grep -q 'Open the dashboard in your browser'"
 check "the menu has Settings" "layout | grep -q \"'Settings\""
 
 gdbus call --session -d "$svc" -o /StatusNotifierItem -m org.kde.StatusNotifierItem.Activate 100 0 >/dev/null

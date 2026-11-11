@@ -188,6 +188,16 @@ static void quit_app(MyApplication* self) {
   g_application_quit(G_APPLICATION(self));
 }
 
+// What the Settings page asked for: the deck, or the dashboard in the browser.
+static void on_settings_action(const char* action, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  if (g_strcmp0(action, "deck") == 0) {
+    show_deck(self);
+  } else if (g_strcmp0(action, "dashboard") == 0) {
+    open_dashboard();
+  }
+}
+
 static void on_tray_action(TrayAction action, gpointer data) {
   MyApplication* self = MY_APPLICATION(data);
   switch (action) {
@@ -256,6 +266,7 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* call,
       return;
     }
     hide_deck(self);
+    settings_window_on_action(on_settings_action, self);
     settings_window_open(GTK_APPLICATION(self), url);
     fl_method_call_respond_success(call, nullptr, nullptr);
   } else {
