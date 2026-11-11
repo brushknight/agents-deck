@@ -84,20 +84,20 @@ func linkStatus() error {
 	}
 	if len(res.Boards) > 0 {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI")
+		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI\tBLUETOOTH")
 		for _, b := range res.Boards {
-			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
+			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi", link.OverBLE: "bluetooth"}[b.Transport]
 			wifi := netLine(b.Net)
 			if b.DefaultWifi != "" {
 				wifi += " · " + b.DefaultWifi
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), wifi)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), wifi, bleLine(b))
 		}
 		_ = tw.Flush()
 		fmt.Println()
 	}
 	if res.WifiDefault != "" {
-		fmt.Printf("default Wi-Fi network: %s (sent to approved boards plugged in over USB)\n\n", res.WifiDefault)
+		fmt.Printf("default Wi-Fi network: %s (sent to approved boards on USB or Bluetooth)\n\n", res.WifiDefault)
 	} else {
 		fmt.Println("no default Wi-Fi network (agentctl link wifi --default --ssid NAME)")
 		fmt.Println()
@@ -394,7 +394,23 @@ func netLine(n *link.NetInfo) string {
 	return strings.Join(parts, " · ")
 }
 
-// linkWifi sends Wi-Fi credentials to a board on USB serial. The password is
+// bleLine is a board's Bluetooth as it reports it, and the uplink
+// preference it holds: "connected · uplink auto", "-" without Bluetooth.
+func bleLine(b link.LinkInfo) string {
+	if b.Net == nil || b.Net.BLE == "" {
+		return "-"
+	}
+	parts := []string{b.Net.BLE}
+	if b.Net.Uplink != "" {
+		parts = append(parts, "uplink "+b.Net.Uplink)
+	}
+	if b.UplinkNote != "" {
+		parts = append(parts, b.UplinkNote)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// linkWifi sends Wi-Fi credentials to a board on USB serial or Bluetooth. The password is
 // asked for without echo (so it stays out of the shell's history), goes to
 // the daemon over the unix socket and on to the board; nothing keeps it.
 func linkWifi(args []string) error {
@@ -403,7 +419,7 @@ func linkWifi(args []string) error {
 	password := fs.String("password", "", "the password (leave out to be asked; \"\" with --open)")
 	open := fs.Bool("open", false, "an open network, no password")
 	forget := fs.Bool("forget", false, "make the board forget its Wi-Fi network")
-	def := fs.Bool("default", false, "set the default network: boards plugged in over USB get it by themselves")
+	def := fs.Bool("default", false, "set the default network: boards on USB or Bluetooth get it by themselves")
 	forgetDef := fs.Bool("forget-default", false, "clear the default network (boards keep what they have)")
 	useDef := fs.Bool("use-default", false, "the board follows the default network again (undoes its own --ssid)")
 	var board string
@@ -466,7 +482,7 @@ func linkWifi(args []string) error {
 		if err := call("POST", "/local/link/wifi-default", map[string]any{"ssid": *ssid, "password": pw}, nil); err != nil {
 			return err
 		}
-		fmt.Printf("default network %s set (password in the secret store). Approved boards plugged in over USB and paired\n"+
+		fmt.Printf("default network %s set (password in the secret store). Approved boards on USB or Bluetooth and paired\n"+
 			"for Wi-Fi get it by themselves, unless one has its own (agentctl link wifi <board> --ssid); `agentctl link` shows how it went.\n", *ssid)
 		return nil
 	}
@@ -475,7 +491,7 @@ func linkWifi(args []string) error {
 		return err
 	}
 	if *forget {
-		fmt.Printf("%s forgot its Wi-Fi network: it connects over USB only.\n", board)
+		fmt.Printf("%s forgot its Wi-Fi network: it connects over USB or Bluetooth only.\n", board)
 		return nil
 	}
 	fmt.Printf("%s stored the network. Testing it", board)
@@ -490,7 +506,7 @@ func linkWifi(args []string) error {
 			continue
 		}
 		for _, b := range res.Boards {
-			if b.Board != board || b.Transport != link.OverSerial || b.Net == nil {
+			if b.Board != board || b.Transport == link.OverWifi || b.Net == nil {
 				continue
 			}
 			last = b.Net.Wifi

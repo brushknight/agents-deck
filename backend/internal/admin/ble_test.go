@@ -83,7 +83,21 @@ func TestDeviceUplink(t *testing.T) {
 	_ = r.a.Devices.SetBoardCert(d.Name, "0a", "ff")
 	_, out = r.do(t, "GET", "/admin/v1/devices", "")
 	ups = out["devices"].([]any)[0].(map[string]any)["uplinks"].([]any)
-	if len(ups) != 1 || ups[0].(map[string]any)["state"] != "not used" {
+	if len(ups) != 2 || ups[0].(map[string]any)["state"] != "not used" || ups[1].(map[string]any)["via"] != "wifi" || ups[1].(map[string]any)["state"] != "not connected" {
 		t.Fatalf("uplinks with wifi: %v", ups)
+	}
+	// What the board says: its Bluetooth, the preference it holds, and a
+	// preference it couldn't keep.
+	r.links = []link.LinkInfo{{Board: d.Name, Transport: link.OverSerial, Where: "/dev/cu.usbmodem1101", Approved: true,
+		UplinkNote: "it refused its uplink preference: 500 not saved",
+		Net:        &link.NetInfo{Wifi: "set, off while on USB", HasCert: true, BLE: "paired", Uplink: "auto"}}}
+	_, out = r.do(t, "GET", "/admin/v1/devices", "")
+	row = out["devices"].([]any)[0].(map[string]any)
+	if row["bleState"] != "paired" || row["boardUplink"] != "auto" || row["hasBluetooth"] != true || row["uplinkNote"] == nil {
+		t.Fatalf("what the board says: %v", row)
+	}
+	ups = row["uplinks"].([]any)
+	if len(ups) != 3 || ups[0].(map[string]any)["via"] != "usb" || ups[2].(map[string]any)["state"] != "standing by" {
+		t.Fatalf("uplinks on USB: %v", ups)
 	}
 }

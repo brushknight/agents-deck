@@ -57,6 +57,17 @@ type OTA interface {
 	OfferFirmware(deviceID, board, version string) error
 }
 
+// Bluetooth finds boards nearby, adds them (the person types the code shown
+// on the board) and says how each board's Bluetooth link is (ble.Uplinks).
+type Bluetooth interface {
+	Status() ble.Status
+	Scan(on bool) error
+	Nearby() []ble.Nearby
+	Seen(id string) (ble.Nearby, bool)
+	Add(ctx context.Context, id string, scope devices.Scope, prog ble.Progress) (devices.Device, error)
+	State(d devices.Device) ble.LinkState
+}
+
 // ErrNoOTA: this build can't update a board over Wi-Fi.
 var ErrNoOTA = errors.New("over-the-air update is not available in this build: plug the board in with a USB cable to update it")
 
@@ -96,8 +107,9 @@ type Admin struct {
 	// log in (nil elsewhere).
 	Tray *TrayAutostart
 	OTA  OTA
-	// Bluetooth: boards over Bluetooth (ble.go). nil: this computer has none.
-	Bluetooth *ble.Uplinks
+	// Bluetooth: boards over Bluetooth (ble.go; *ble.Uplinks, or the demo's).
+	// nil: this computer has none.
+	Bluetooth Bluetooth
 
 	// NetworkOn: the network listener runs in this process (it starts or
 	// stops only with the service).

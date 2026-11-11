@@ -19,7 +19,9 @@ import (
 //	      Wi-Fi yet (to set it up)
 //	ble   USB, else Bluetooth; Wi-Fi isn't used
 //
-// When a better uplink says Hello, the session on the worse one ends.
+// When a better uplink says Hello, the session on the worse one ends. A
+// session that has heard nothing from its board for two pings doesn't count:
+// the board has left it (it carries one session at a time).
 
 // Uplink preferences (devices.Device.Uplink; "" is auto).
 const (
@@ -82,8 +84,11 @@ func (onBluetooth) Is(target error) bool { return target == ErrNotOnWifi }
 
 // Hands: the board is in the owner's hands, on a USB cable or a Bluetooth
 // link paired with the passkey on its own screen. It may then be given Wi-Fi
-// and paired for it.
-func (s *Session) Hands() bool { return s.Transport == OverSerial || s.Transport == OverBLE }
+// and paired for it. A board whose NetStatus names another transport than
+// its link's isn't (checkTransport).
+func (s *Session) Hands() bool {
+	return (s.Transport == OverSerial || s.Transport == OverBLE) && !s.wrongTransport.Load()
+}
 
 // handOver ends the session (once) for a better uplink.
 func (s *Session) handOver() { s.stopOnce.Do(func() { close(s.stop) }) }
@@ -117,6 +122,9 @@ func (h *Hub) arbitrate(s *Session) error {
 		}
 		theirs := uplinkRank(pref, o.Transport)
 		switch {
+		case theirs < mine && o.quiet():
+			log.Printf("link %s: %s says Hello over %s; its %s link is silent: closing that one", s.Name, name, s.Transport, o.Transport)
+			lose = append(lose, o)
 		case theirs < mine:
 			h.mu.Unlock()
 			log.Printf("link %s: %s already uses %s, which it prefers: closing this %s link", s.Name, name, o.Transport, s.Transport)
@@ -145,7 +153,7 @@ func (h *Hub) Preferred(board, transport, pref string) string {
 	defer h.mu.Unlock()
 	best, bestRank := "", mine
 	for s := range h.live {
-		if s.Board() != board || s.helloSeen.Load() == nil || s.handedOver() {
+		if s.Board() != board || s.helloSeen.Load() == nil || s.handedOver() || s.quiet() {
 			continue
 		}
 		if r := uplinkRank(pref, s.Transport); r < bestRank {
