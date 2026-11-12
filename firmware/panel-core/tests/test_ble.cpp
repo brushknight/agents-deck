@@ -17,12 +17,15 @@
 #include "net_model.h"
 
 static void decide() {
-  // USB holds: Bluetooth never carries, whatever the preference; a bond stays quiet.
+  // USB holds: Bluetooth never carries, whatever the preference; a bond stays
+  // findable (standby) so the deck can add or check it.
   for (NetUplink p : {NetUplink::Auto, NetUplink::Wifi, NetUplink::Ble}) {
     BleDecision d = bleDecide(p, true, false, true, true, false);
-    assert(!d.wanted && d.advertise == BleAdvertise::Off && !d.dropCentral);
+    assert(!d.wanted && d.advertise == BleAdvertise::Standby && !d.dropCentral);
     d = bleDecide(p, true, false, true, true, true);   // the bonded deck is connected: let it go
     assert(!d.wanted && d.dropCentral);
+    d = bleDecide(p, true, false, true, true, true, true);   // ...unless it is being introduced
+    assert(!d.wanted && !d.dropCentral);
     // No bond: always open for setup, even on USB.
     d = bleDecide(p, true, false, true, false, false);
     assert(d.advertise == BleAdvertise::Open && !d.dropCentral);
@@ -31,10 +34,10 @@ static void decide() {
   BleDecision d = bleDecide(NetUplink::Auto, false, false, true, true, false);
   assert(d.wanted && d.advertise == BleAdvertise::Bonded);
   d = bleDecide(NetUplink::Auto, false, true, true, true, true);
-  assert(!d.wanted && d.advertise == BleAdvertise::Off && d.dropCentral);
+  assert(!d.wanted && d.advertise == BleAdvertise::Standby && d.dropCentral);
   // wifi: Bluetooth only while the board can't use Wi-Fi yet (setting it up).
   d = bleDecide(NetUplink::Wifi, false, false, true, true, false);
-  assert(!d.wanted && d.advertise == BleAdvertise::Off);
+  assert(!d.wanted && d.advertise == BleAdvertise::Standby);
   d = bleDecide(NetUplink::Wifi, false, false, false, true, true);
   assert(d.wanted && !d.dropCentral);
   // ble: Bluetooth even with Wi-Fi up (net_link.h keeps Wi-Fi off then anyway).
@@ -43,6 +46,42 @@ static void decide() {
   assert(!uplinkAllowsWifi(NetUplink::Ble) && uplinkAllowsWifi(NetUplink::Auto) && uplinkAllowsWifi(NetUplink::Wifi));
   assert(uplinkOf(0) == NetUplink::Auto && uplinkOf(1) == NetUplink::Wifi && uplinkOf(2) == NetUplink::Ble &&
          uplinkOf(9) == NetUplink::Auto);
+}
+
+// Adding a board over Bluetooth while USB (or Wi-Fi) carries its session:
+// the freshly paired central keeps its link for the introduction, then goes;
+// the bond keeps advertising so the deck finds it again.
+static void introduction() {
+  assert(!bleIntroducing(false, 0, false));                  // nobody secure: nothing to introduce
+  assert(bleIntroducing(true, 0, false));                    // just paired (or encrypted with the bond)
+  assert(bleIntroducing(true, kBleIntroMs - 1, false));
+  assert(!bleIntroducing(true, kBleIntroMs, false));         // the window is over
+  assert(!bleIntroducing(true, 10, true));                   // it carried the session: no window after
+  // On USB, the passkey typed: the board is bonded now, the deck reads Info
+  // and checks on USB, the link stays.
+  uint32_t secureFor = 0;
+  for (; secureFor < kBleIntroMs; secureFor += 500) {
+    BleDecision d = bleDecide(NetUplink::Auto, true, false, true, true, true, bleIntroducing(true, secureFor, false));
+    assert(!d.wanted && !d.dropCentral);
+  }
+  // Then it goes, and the board waits on standby.
+  BleDecision d = bleDecide(NetUplink::Auto, true, false, true, true, true, bleIntroducing(true, secureFor, false));
+  assert(!d.wanted && d.dropCentral);
+  d = bleDecide(NetUplink::Auto, true, false, true, true, false);
+  assert(d.advertise == BleAdvertise::Standby);
+  // The same on Wi-Fi under auto.
+  d = bleDecide(NetUplink::Auto, false, true, true, true, true, true);
+  assert(!d.wanted && !d.dropCentral);
+  // The deck sets ble and the cable goes: Bluetooth is wanted, advertised
+  // quickly, and the deck's link (secure, not new) is kept and carries.
+  d = bleDecide(NetUplink::Ble, false, false, true, true, true, false);
+  assert(d.wanted && d.advertise == BleAdvertise::Bonded && !d.dropCentral);
+  // Back to auto with Wi-Fi up: Bluetooth gives way at once (it carried).
+  d = bleDecide(NetUplink::Auto, false, true, true, true, true, bleIntroducing(true, 100, true));
+  assert(!d.wanted && d.dropCentral && d.advertise == BleAdvertise::Standby);
+  // Wi-Fi goes: Bluetooth is wanted again, and findable.
+  d = bleDecide(NetUplink::Auto, false, false, true, true, false);
+  assert(d.wanted && d.advertise == BleAdvertise::Bonded);
 }
 
 static void usbHolds() {
@@ -214,6 +253,7 @@ static void drawing() {
 
 int main() {
   decide();
+  introduction();
   usbHolds();
   forgetGesture();
   words();

@@ -16,8 +16,16 @@
 //     it, and gives way (the board drops the central) as soon as another
 //     link does.
 //   - A board with no bond advertises to anyone (setup) and pairs with a
-//     passkey on its screen. A bonded board advertises only while Bluetooth
-//     may carry the session, and takes only its bonded deck.
+//     passkey on its screen. A bonded board always advertises (slower while
+//     Bluetooth isn't wanted) so its deck can find it again, and takes only
+//     its bonded deck: anyone else is dropped unless it encrypts with the
+//     bond's keys within seconds.
+//   - Introduction: a central that has just made (or used) the bond keeps
+//     its link for kBleIntroMs even while another link carries the session,
+//     so the deck can finish adding the board: it checks the board id over
+//     the encrypted link and hears NetStatus.ble CONNECTED on the board's
+//     USB or Wi-Fi session. Then, if Bluetooth still isn't wanted, the board
+//     lets it go.
 //   - Holding BOOT (or the screen, while it shows a notice) for 5 s asks
 //     "forget Bluetooth?"; pressing again within 10 s forgets the bond and
 //     the board is back in setup.
@@ -45,8 +53,13 @@ struct BleView {
 
 // Open: connectable, anyone may pair (setup). Bonded: connectable, but only
 // the bonded deck gets in (ble_link.h refuses pairing and drops anyone who
-// doesn't encrypt with the bond's keys).
-enum class BleAdvertise : uint8_t { Off, Open, Bonded };
+// doesn't encrypt with the bond's keys). Standby: the same, less often,
+// while another link carries the session: the deck can still reach the
+// board (to add it, check it, or take over when that link goes).
+enum class BleAdvertise : uint8_t { Off, Open, Bonded, Standby };
+
+// How long a fresh central keeps its link while Bluetooth isn't wanted.
+constexpr uint32_t kBleIntroMs = 20000;
 
 struct BleDecision {
   bool wanted;              // Bluetooth may carry the session now
@@ -54,11 +67,18 @@ struct BleDecision {
   bool dropCentral;         // a bonded central is connected but another link has the session
 };
 
+// The central is being introduced: secure for less than kBleIntroMs, and
+// Bluetooth hasn't carried the session on this connection.
+static inline bool bleIntroducing(bool centralSecure, uint32_t secureForMs, bool carried) {
+  return centralSecure && !carried && secureForMs < kBleIntroMs;
+}
+
 // usbHolds: a deck answers on USB (or the board is still listening there
 // after boot). wifiUp: the Wi-Fi session is up. wifiPossible: the board has
 // a network and a certificate (and the preference allows Wi-Fi).
+// introducing: bleIntroducing() for the connected central.
 static inline BleDecision bleDecide(NetUplink pref, bool usbHolds, bool wifiUp, bool wifiPossible, bool bonded,
-                                    bool centralSecure) {
+                                    bool centralSecure, bool introducing = false) {
   bool wanted = false;
   if (!usbHolds) {
     switch (pref) {
@@ -69,8 +89,8 @@ static inline BleDecision bleDecide(NetUplink pref, bool usbHolds, bool wifiUp, 
   }
   BleDecision d;
   d.wanted = wanted;
-  d.advertise = !bonded ? BleAdvertise::Open : wanted ? BleAdvertise::Bonded : BleAdvertise::Off;
-  d.dropCentral = bonded && centralSecure && !wanted;
+  d.advertise = !bonded ? BleAdvertise::Open : wanted ? BleAdvertise::Bonded : BleAdvertise::Standby;
+  d.dropCentral = bonded && centralSecure && !wanted && !introducing;
   return d;
 }
 

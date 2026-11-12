@@ -345,8 +345,8 @@ static void tlsDown() {
 
 #if PANEL_HAS_BLE
 // The session leaves Bluetooth (another link has it, or the link went).
-// dropCentral: let the central go too (a bonded board doesn't advertise
-// then, so it stays away until Bluetooth is wanted again).
+// dropCentral: let the central go too (the board then advertises on standby,
+// so its deck can come back when Bluetooth is wanted again).
 static void bleStop(bool dropCentral) {
   if (!bleCarrying) return;
   bleCarrying = false;
@@ -388,8 +388,9 @@ static void bleLoop(uint32_t now) {
   ble_link::poll();
   const bool usbHolds = deck_link_state(usb) == DECK_LINK_ONLINE || netUsbHolds(plan, now);
   const bool wifiUp = tlsUp && plan.view.via == NetVia::Wifi;
-  const BleDecision d =
-      bleDecide(uplink, usbHolds, wifiUp, canWifi(), ble_link::isBonded(), ble_link::centralSecure());
+  const bool secure = ble_link::centralSecure();
+  const bool intro = bleIntroducing(secure, ble_link::secureForMs(), ble_link::carriedNow());
+  const BleDecision d = bleDecide(uplink, usbHolds, wifiUp, canWifi(), ble_link::isBonded(), secure, intro);
   bleWanted = d.wanted;
   ble_link::advertise(d.advertise);
   if (d.dropCentral) ble_link::disconnect();
@@ -402,6 +403,7 @@ static void bleLoop(uint32_t now) {
     NET_LOG("net: Bluetooth takes the session (MTU %u)", (unsigned)ble_link::attMtu());
     deck_ble_open(ble_link::bytes(), ble_link::attMtu());
     bleCarrying = true;
+    ble_link::markCarried();
     if (hooks.switched) hooks.switched(NetVia::Ble);
     deck_link_begin(&bcore);   // Hello over Bluetooth
   }
@@ -412,6 +414,8 @@ static void bleLoop(uint32_t now) {
   }
   const BlePhase ph = ble_link::view().phase;
   if (ph != lastBlePhase) {
+    // A passkey just accepted: say so (the computer may still be adding it).
+    if (lastBlePhase == BlePhase::Pairing && ph == BlePhase::Connected && hooks.toast) hooks.toast("Bluetooth paired");
     lastBlePhase = ph;
     statusDue = true;          // the deck hears the bond and the connection change
   }

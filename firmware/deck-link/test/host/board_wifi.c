@@ -23,6 +23,16 @@
  *       it the board pairs (CertRequest), takes Wi-Fi credentials
  *       (WifiConfig) and the uplink preference (LinkConfig), and reports
  *       NetStatus with transport BLE, as a board does.
+ *   board_wifi (--serial | --wifi) --ble PATH ...
+ *       both at once, as a board with a cable (or Wi-Fi) and Bluetooth: the
+ *       first link carries the session while its deck answers; a central
+ *       that connects meanwhile is kept for --ble-intro-ms (default 20000)
+ *       without a Hello (the deck adds the board then) and reported in
+ *       NetStatus on the first link (ble=CONNECTED, then BONDED once it
+ *       goes). When the first link ends (stdin closes, TLS closes) Bluetooth
+ *       takes the session: Hello on a central already there, or on the next.
+ *       A central that connects is taken as bonded from then on (kept in
+ *       DIR as ble_bond), as if it had paired with the passkey.
  *   --focus ID
  *       after its first snapshot, asks the deck to focus agent ID (Focus), a
  *       command as a person pressing a tile sends one.
@@ -44,6 +54,10 @@
  *   firmware written bytes=<n>
  *   ble name=<deck-xxxxxx> passkey=<6 digits> info=<the Info value>
  *   ble connected          ble disconnected          uplink value=<0|1|2>
+ *   ble standby            (connected while the other link carries: no Hello)
+ *   ble carries            (Hello over Bluetooth)
+ *   ble dropped why=<intro|other-link>   (the board let the central go)
+ *   serial unplugged       wifi gone      (with --ble: the first link ended)
  *   focus seq=<n> id=<id>  result seq=<n> code=<n>   (the deck's answers)
  * Exit status: 0 at --seconds or EOF, 3 when no host could be reached, 4
  * when the certificate was rejected.
@@ -124,6 +138,15 @@ static bool fkv_erase(void *u, const char *key)
 
 /* ---- the board ---------------------------------------------------------------- */
 
+static bool over_serial; /* the first link is serial: pairing and credentials allowed */
+static bool over_wifi;	 /* the first link is TLS */
+static bool over_ble;	 /* a Bluetooth socket, alone or beside the first link */
+static bool primary_up;	 /* the first link is there (stdin open, TLS open) */
+static deck_link_t plink; /* the first link's core */
+static deck_link_t blink; /* the Bluetooth core */
+static bool ble_carrying; /* Bluetooth carries the session (said Hello) */
+static bool ble_bonded;
+
 static size_t serial_write(const uint8_t *d, size_t n, void *user)
 {
 	(void)user;
@@ -133,7 +156,10 @@ static size_t serial_write(const uint8_t *d, size_t n, void *user)
 		if (w < 0) {
 			if (errno == EINTR)
 				continue;
-			write_failed = 1;
+			if (over_ble)
+				primary_up = false; /* unplugged: Bluetooth may take over */
+			else
+				write_failed = 1;
 			break;
 		}
 		done += (size_t)w;
@@ -149,8 +175,6 @@ static uint32_t now_ms(void *user)
 	return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
 }
 
-static bool over_serial; /* or Bluetooth: pairing and credentials allowed */
-static bool over_ble;
 static deck_ble_t ble;
 static uint8_t ble_ring[32768];
 static int ble_fd = -1;
@@ -175,13 +199,18 @@ static void send_net_status(deck_link_t *c)
 {
 	agentsdeck_link_v1_NetStatus s = agentsdeck_link_v1_NetStatus_init_zero;
 	deck_wifi_t w;
-	s.transport = agentsdeck_link_v1_Transport_TRANSPORT_BLE;
-	s.ble = agentsdeck_link_v1_BleState_BLE_CONNECTED;
+	s.transport = c == &blink ? agentsdeck_link_v1_Transport_TRANSPORT_BLE
+		      : over_serial ? agentsdeck_link_v1_Transport_TRANSPORT_SERIAL
+				    : agentsdeck_link_v1_Transport_TRANSPORT_WIFI;
+	s.ble = ble_fd >= 0 ? agentsdeck_link_v1_BleState_BLE_CONNECTED
+		: ble_bonded ? agentsdeck_link_v1_BleState_BLE_BONDED
+			     : agentsdeck_link_v1_BleState_BLE_SETUP;
 	s.uplink = deck_store_load_uplink(&kv);
 	s.has_cert = deck_cert_valid(&cert);
 	if (deck_store_load_wifi(&kv, &w)) {
 		snprintf(s.ssid, sizeof s.ssid, "%s", w.ssid);
-		s.wifi = agentsdeck_link_v1_WifiState_WIFI_IDLE;
+		s.wifi = c == &plink && over_wifi ? agentsdeck_link_v1_WifiState_WIFI_CONNECTED
+						   : agentsdeck_link_v1_WifiState_WIFI_IDLE;
 	} else {
 		s.wifi = agentsdeck_link_v1_WifiState_WIFI_NOT_SET;
 	}
@@ -263,7 +292,8 @@ static void on_welcome(deck_link_t *c, const char *name, agentsdeck_link_v1_Scop
 	/* Pairing: over USB (or Bluetooth) only, once approved, when the deck doesn't hold our certificate. */
 	if (over_ble)
 		send_net_status(c);
-	if ((over_serial || over_ble) && approved && !pairing.seq && deck_cert_needed(&cert, serial)) {
+	bool hands = (c == &plink && over_serial) || (c == &blink && ble_carrying);
+	if (hands && approved && !pairing.seq && deck_cert_needed(&cert, serial)) {
 		uint32_t seq = deck_pair_request(c, &pairing, "board-wifi");
 		fprintf(stderr, "pair request seq=%u\n", (unsigned)seq);
 	}
@@ -339,13 +369,35 @@ static void on_snapshot_end(deck_link_t *c)
 
 static void usage(void)
 {
-	fprintf(stderr, "usage: board_wifi (--serial | --wifi | --ble PATH) --store DIR [--board-id ID] [--seconds N]\n\t[--mtu N] [--focus ID] [--firmware VERSION] [--firmware-board B --firmware-out FILE]\n");
+	fprintf(stderr, "usage: board_wifi (--serial | --wifi | --ble PATH | --serial --ble PATH | --wifi --ble PATH) --store DIR\n\t[--board-id ID] [--seconds N] [--mtu N] [--ble-intro-ms N] [--focus ID] [--firmware VERSION]\n\t[--firmware-board B --firmware-out FILE]\n");
 	exit(2);
+}
+
+/* The first link carries the session: its deck answered. */
+static bool primary_online(void) { return primary_up && deck_link_state(&plink) == DECK_LINK_ONLINE; }
+
+static void ble_close(const char *why)
+{
+	if (why)
+		fprintf(stderr, "ble dropped why=%s\n", why);
+	fprintf(stderr, "ble disconnected\n");
+	deck_ble_close(&ble);
+	close(ble_fd);
+	ble_fd = -1;
+	ble_carrying = false;
+	if (primary_online())
+		send_net_status(&plink); /* the deck hears the connection go */
+}
+
+static void ble_carry(void)
+{
+	ble_carrying = true;
+	fprintf(stderr, "ble carries\n");
+	deck_link_begin(&blink); /* Hello over Bluetooth */
 }
 
 int main(int argc, char **argv)
 {
-	static deck_link_t link;
 	deck_link_config_t cfg;
 	memset(&cfg, 0, sizeof cfg);
 	cfg.board_id = "AA:BB:CC:00:00:77";
@@ -353,23 +405,25 @@ int main(int argc, char **argv)
 	cfg.firmware = "0.1.0";
 	cfg.fields = agentsdeck_link_v1_FieldGroup_FIELDS_TILE;
 	long seconds = 10;
-	int mode = 0;
 	const char *ble_path = NULL;
 	long mtu = 185;
+	long intro_ms = 20000;
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
 		if (strcmp(a, "--serial") == 0)
-			mode = 1;
+			over_serial = true;
 		else if (strcmp(a, "--wifi") == 0)
-			mode = 2;
+			over_wifi = true;
 		else if (!v)
 			usage();
 		else if (strcmp(a, "--store") == 0)
 			store_dir = v, i++;
 		else if (strcmp(a, "--ble") == 0)
-			mode = 3, ble_path = v, i++;
+			over_ble = true, ble_path = v, i++;
 		else if (strcmp(a, "--mtu") == 0)
 			mtu = strtol(v, NULL, 10), i++;
+		else if (strcmp(a, "--ble-intro-ms") == 0)
+			intro_ms = strtol(v, NULL, 10), i++;
 		else if (strcmp(a, "--board-id") == 0)
 			cfg.board_id = v, i++;
 		else if (strcmp(a, "--firmware-board") == 0)
@@ -385,7 +439,7 @@ int main(int argc, char **argv)
 		else
 			usage();
 	}
-	if (!mode)
+	if ((!over_serial && !over_wifi && !over_ble) || (over_serial && over_wifi))
 		usage();
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stderr, NULL, _IOLBF, 0);
@@ -399,18 +453,21 @@ int main(int argc, char **argv)
 	cfg.on_snapshot_begin = on_snapshot_begin;
 	cfg.on_agent = on_agent;
 	cfg.on_snapshot_end = on_snapshot_end;
-	int in_fd = STDIN_FILENO;
 	int listen_fd = -1;
-	if (mode == 3) {
+	if (over_ble) {
 		if (mtu < DECK_BLE_MTU_MIN || mtu > 517)
 			usage();
-		over_ble = true;
+		char bond[2];
+		size_t bl = sizeof bond;
+		ble_bonded = fkv_get(NULL, "ble_bond", bond, &bl);
 		deck_ble_config_t bc = {sock_notify, NULL, ble_ring, sizeof ble_ring};
 		deck_ble_init(&ble, &bc);
-		cfg.write = deck_ble_write;
-		cfg.user = &ble;
-		cfg.on_wifi_config = on_wifi_config;
-		cfg.on_link_config = on_link_config;
+		deck_link_config_t b = cfg;
+		b.write = deck_ble_write;
+		b.user = &ble;
+		b.on_wifi_config = on_wifi_config;
+		b.on_link_config = on_link_config;
+		deck_link_init(&blink, &b);
 		struct sockaddr_un sa;
 		memset(&sa, 0, sizeof sa);
 		sa.sun_family = AF_UNIX;
@@ -430,11 +487,16 @@ int main(int argc, char **argv)
 		deck_ble_info(info, sizeof info, "board-wifi", cfg.board_id, cfg.firmware, true);
 		fprintf(stderr, "ble name=%s passkey=%06u info=%s\n", name,
 			(unsigned)deck_ble_passkey((uint32_t)ts.tv_nsec ^ (uint32_t)getpid()), info);
-	} else if (mode == 1) {
-		over_serial = true;
-		cfg.write = serial_write;
-		cfg.on_wifi_config = on_wifi_config;
-	} else {
+	}
+	if (over_serial) {
+		deck_link_config_t p = cfg;
+		p.write = serial_write;
+		p.on_wifi_config = on_wifi_config;
+		if (over_ble)
+			p.on_link_config = on_link_config; /* the preference comes over any link */
+		deck_link_init(&plink, &p);
+		primary_up = true;
+	} else if (over_wifi) {
 		if (!deck_cert_valid(&cert)) {
 			fprintf(stderr, "tls failed host=- error=%d %s\n", DECK_TLS_BAD_CONFIG,
 				deck_tls_strerror(DECK_TLS_BAD_CONFIG));
@@ -457,75 +519,108 @@ int main(int argc, char **argv)
 		}
 		if (e != DECK_TLS_OK)
 			return 3;
-		cfg.write = deck_tls_write;
-		cfg.user = &tls;
+		deck_link_config_t p = cfg;
+		p.write = deck_tls_write;
+		p.user = &tls;
 		if (fw_out)
-			cfg.on_firmware_offer = on_firmware_offer;
-		in_fd = tls.fd;
+			p.on_firmware_offer = on_firmware_offer;
+		if (over_ble)
+			p.on_link_config = on_link_config;
+		deck_link_init(&plink, &p);
+		primary_up = true;
 	}
-	deck_link_init(&link, &cfg);
-	if (mode != 3)
-		deck_link_begin(&link);
+	if (primary_up)
+		deck_link_begin(&plink);
 
-	uint32_t start = now_ms(NULL);
+	uint32_t start = now_ms(NULL), ble_since = 0;
 	int status = 0;
 	while (!write_failed) {
-		if (seconds > 0 && (uint32_t)(now_ms(NULL) - start) >= (uint32_t)seconds * 1000u)
+		uint32_t now = now_ms(NULL);
+		if (seconds > 0 && (uint32_t)(now - start) >= (uint32_t)seconds * 1000u)
 			break;
 		uint8_t buf[1024];
-		if (mode == 2) {
-			int n = deck_tls_read(&tls, buf, sizeof buf);
-			if (n > 0) {
-				deck_link_feed(&link, buf, (size_t)n);
-				continue;
-			}
+		if (over_wifi && primary_up) {
+			int n;
+			while ((n = deck_tls_read(&tls, buf, sizeof buf)) > 0)
+				deck_link_feed(&plink, buf, (size_t)n);
 			if (n < 0) {
 				fprintf(stderr, "closed error=%d %s\n", -n, deck_tls_strerror((deck_tls_err_t)-n));
 				status = -n == DECK_TLS_CERT_REJECTED ? 4 : 0;
-				break;
+				if (!over_ble)
+					break;
+				fprintf(stderr, "wifi gone\n");
+				deck_tls_close(&tls);
+				primary_up = false;
 			}
 		}
-		if (mode == 3) {
-			/* One central at a time: accept, run the session, and on EOF wait for the next. */
-			struct pollfd pfd = {ble_fd >= 0 ? ble_fd : listen_fd, POLLIN, 0};
-			if (poll(&pfd, 1, 50) > 0) {
+		struct pollfd pfd[2];
+		int np = 0, pi = -1, bi = -1;
+		if (primary_up) {
+			pi = np;
+			pfd[np++] = (struct pollfd){over_serial ? STDIN_FILENO : tls.fd, POLLIN, 0};
+		}
+		if (over_ble) {
+			bi = np;
+			pfd[np++] = (struct pollfd){ble_fd >= 0 ? ble_fd : listen_fd, POLLIN, 0};
+		}
+		if (poll(pfd, (nfds_t)np, 50) > 0) {
+			if (pi >= 0 && over_serial && (pfd[pi].revents & (POLLIN | POLLHUP))) {
+				ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
+				if (n == 0) {
+					if (!over_ble)
+						break;
+					fprintf(stderr, "serial unplugged\n");
+					primary_up = false;
+				} else if (n > 0) {
+					deck_link_feed(&plink, buf, (size_t)n);
+				}
+			}
+			if (bi >= 0 && (pfd[bi].revents & (POLLIN | POLLHUP))) {
 				if (ble_fd < 0) {
 					ble_fd = accept(listen_fd, NULL, NULL);
 					if (ble_fd >= 0) {
 						fprintf(stderr, "ble connected\n");
 						deck_ble_open(&ble, (uint16_t)mtu);
-						deck_link_begin(&link);
+						ble_since = now_ms(NULL);
+						if (!ble_bonded) /* it paired: bonded from now on */
+							{
+							(void)fkv_set(NULL, "ble_bond", "1", 1);
+							ble_bonded = true;
+						}
+						if (primary_online()) {
+							fprintf(stderr, "ble standby\n");
+							send_net_status(&plink); /* the deck hears a secure central */
+						} else {
+							ble_carry();
+						}
 					}
 				} else {
 					/* A write from the deck: at most MTU - 3 bytes, as over the air. */
 					size_t want = (size_t)mtu - 3 < sizeof buf ? (size_t)mtu - 3 : sizeof buf;
 					ssize_t n = read(ble_fd, buf, want);
-					if (n <= 0) {
-						fprintf(stderr, "ble disconnected\n");
-						deck_ble_close(&ble);
-						close(ble_fd);
-						ble_fd = -1;
-					} else if (!deck_ble_rx_push(&ble, buf, (size_t)n)) {
+					if (n <= 0)
+						ble_close(NULL);
+					else if (!deck_ble_rx_push(&ble, buf, (size_t)n))
 						fprintf(stderr, "board_wifi: ble write refused (%zd bytes)\n", n);
-					}
 				}
 			}
-			if (ble_fd >= 0) {
-				deck_ble_rx_feed(&ble, &link, 0);
-				deck_link_poll(&link);
-				deck_ble_pump(&ble, 0);
+		}
+		if (ble_fd >= 0) {
+			if (ble_carrying && primary_online()) {
+				ble_close("other-link"); /* the other link's deck takes over */
+			} else if (!ble_carrying && !primary_online()) {
+				ble_carry(); /* the other link went: Bluetooth takes the session */
+			} else if (!ble_carrying && (uint32_t)(now_ms(NULL) - ble_since) >= (uint32_t)intro_ms) {
+				ble_close("intro"); /* introduced, and not wanted */
 			}
-			continue;
 		}
-		struct pollfd pfd = {in_fd, POLLIN, 0};
-		if (poll(&pfd, 1, 50) > 0 && mode == 1) {
-			ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
-			if (n == 0)
-				break;
-			if (n > 0)
-				deck_link_feed(&link, buf, (size_t)n);
+		if (primary_up)
+			deck_link_poll(&plink);
+		if (ble_fd >= 0 && ble_carrying) {
+			deck_ble_rx_feed(&ble, &blink, 0);
+			deck_link_poll(&blink);
+			deck_ble_pump(&ble, 0);
 		}
-		deck_link_poll(&link);
 	}
 	deck_tls_close(&tls);
 	if (listen_fd >= 0) {

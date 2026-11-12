@@ -104,9 +104,15 @@ USB only.
 ESP32-S3 libraries, nothing to add), pairs with LE Secure Connections and a passkey the screen shows,
 and keeps one bond in NVS; a third Deck Link core runs on the kit's `deck_ble.h` stream. Over it the
 board pairs for Wi-Fi and takes Wi-Fi credentials as over USB, so it can be set up without a cable.
-`ble_model.h` holds the rules, host-tested in `tests/test_ble.cpp`: when it advertises, when
-Bluetooth carries the session (USB first, then the deck's preference: `auto`, `wifi` or `ble`), and
-the gesture that forgets the bond (BOOT, or the screen on a notice, held 5 s, then pressed again).
+`ble_model.h` holds the rules, host-tested in `tests/test_ble.cpp`: when it advertises (a bond
+always: quickly while Bluetooth may carry the session, about once a second on standby while another
+link does, so the deck can find it again), when Bluetooth carries the session (USB first, then the
+deck's preference: `auto`, `wifi` or `ble`), the introduction (a central that has just encrypted
+keeps its link for 20 s while another link carries the session, so the deck can add the board; the
+board reports it in `NetStatus` there), and the gesture that forgets the bond (BOOT, or the screen
+on a notice, held 5 s, then pressed again). In setup the board asks for no encryption itself:
+pairing starts when the computer subscribes to TX, never for a scan that only reads Info. A passkey
+accepted shows the toast "Bluetooth paired".
 
 `NetView.via` is `NetVia::Ble` while Bluetooth carries the session or is where the board waits; the
 notices (`netNotice()`) say "Bluetooth setup", "waiting for the deck / over Bluetooth", the passkey
@@ -125,20 +131,25 @@ Checking it on a board (`idf5-debug` prints `ble:` and `net:` lines; nothing her
    quiet. Connect from the deck's Bluetooth helper (or a GATT tool such as LightBlue): the board shows
    `pair deck-xxxxxx` and six digits; type them in the Mac's dialog. Info reads `paired=1` after.
    Typing a wrong passkey fails and leaves no bond. A second Mac can't pair while the first holds the
-   bond, and the board never shows it a passkey.
-2. **First setup with no cable** (board on a charger): approve it on the deck; it pairs for Wi-Fi
+   bond, and the board never shows it a passkey. `agentctl bluetooth scan` alone never shows a
+   passkey.
+2. **Add while on USB.** Plugged in and live on USB: `agentctl bluetooth add deck-xxxxxx` shows the
+   passkey stage, the board shows the code over its home screen, then "Bluetooth paired"; the job
+   ends "added", and the debug log shows the link dropped about 20 s later at most (or as soon as the
+   deck hangs up). `agentctl devices` lists bluetooth "standing by, it uses USB".
+3. **First setup with no cable** (board on a charger): approve it on the deck; it pairs for Wi-Fi
    over Bluetooth (toast "paired for Wi-Fi"), takes the default network ("trying Wi-Fi…", "Wi-Fi
    works"), then with `auto` moves to Wi-Fi and lets Bluetooth go.
-3. **Snapshot speed.** `uplink ble`, 32 agents with prompts: time from the board's Hello to the full
+4. **Snapshot speed.** `uplink ble`, 32 agents with prompts: time from the board's Hello to the full
    home (the debug log and the deck's log); expect well under a second at 2M PHY and MTU 247.
-4. **Hand-over.** `auto`: switch the Wi-Fi access point off: the board goes to Bluetooth within the
+5. **Hand-over.** `auto`: switch the Wi-Fi access point off: the board goes to Bluetooth within the
    Wi-Fi retry time; on again: back to Wi-Fi, never two sessions in the deck's log. Plug USB in: USB
    takes over at once; unplug: back after 30 s.
-5. **Range and reconnect.** Walk away until the link drops, come back: it reconnects by itself
+6. **Range and reconnect.** Walk away until the link drops, come back: it reconnects by itself
    (bonded advertising), with no passkey. Restart the board and the Mac: the same.
-6. **Forget.** Hold BOOT 5 s, press again: "Bluetooth forgotten", Info `paired=0`, setup again. The
+7. **Forget.** Hold BOOT 5 s, press again: "Bluetooth forgotten", Info `paired=0`, setup again. The
    Mac must forget the board too before pairing again.
-7. **An update while Bluetooth is on.** On Wi-Fi with a bond, offer a firmware: Bluetooth stops for
+8. **An update while Bluetooth is on.** On Wi-Fi with a bond, offer a firmware: Bluetooth stops for
    the download (`ble: stopped`), the update installs, and after the restart the bond still works.
    Watch the `heap … largest` line in the debug log during the download.
 
