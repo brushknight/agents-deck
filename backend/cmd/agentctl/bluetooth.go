@@ -182,7 +182,7 @@ func printBluetoothBoards(rows []admin.BluetoothBoard) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tBOARD\tFIRMWARE\tSIGNAL\tSTATE")
 	for _, b := range rows {
-		state := "paired with another computer"
+		state := "paired with another computer (or this one): agentctl bluetooth add " + b.Name + " to try"
 		switch {
 		case b.Added:
 			state = "yours: " + b.Device
@@ -192,6 +192,8 @@ func printBluetoothBoards(rows []admin.BluetoothBoard) error {
 			state = "in setup: agentctl bluetooth add " + b.Name
 		case b.BoardID == "":
 			state = "couldn't read it: bring it closer"
+		case b.Device != "":
+			state = "paired, known as " + b.Device + " but not added over Bluetooth here: agentctl bluetooth add " + b.Name
 		}
 		board := orDash(b.Model)
 		if board == "-" {

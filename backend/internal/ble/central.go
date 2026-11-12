@@ -35,6 +35,15 @@ const NotHere = "Bluetooth isn't available on this computer yet"
 // ErrUnavailable: no helper, the helper isn't running, or the radio is off.
 var ErrUnavailable = errors.New(NotHere)
 
+// LinkError is why a link ended or never came up, as the helper said it:
+// Code is one of the codes in clients/ble/README.md ("pairing-failed",
+// "pairing-timeout", "gone", ...), Reason its plain words.
+type LinkError struct {
+	Code, Reason string
+}
+
+func (e *LinkError) Error() string { return e.Reason }
+
 // Find is the helper to run: $AGENTS_DECK_BLE_HELPER, else deck-ble next to
 // this executable (inside the app on macOS), else "".
 func Find() string {
@@ -320,7 +329,7 @@ func (c *Central) handle(m msg) {
 		s.credit(m.N)
 	case "disconnected":
 		c.drop(m.ID, s)
-		s.fail(errors.New(orText(m.Reason, "the board disconnected")))
+		s.fail(&LinkError{Code: m.Code, Reason: orText(m.Reason, "the board disconnected")})
 	case "error":
 		if m.Message != "" {
 			c.drop(m.ID, s)

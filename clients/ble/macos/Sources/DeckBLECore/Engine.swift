@@ -12,6 +12,9 @@ public protocol Radio: AnyObject {
     /// Turn on TX notifications. On a board that needs pairing, this is what
     /// makes macOS ask for the code (Engine.radioSubscribed or radioClosed).
     func subscribe(_ id: UUID)
+    /// Read Info again on the open link (Engine.radioInfo). After the
+    /// subscription this read travels over the encrypted link.
+    func readInfo(_ id: UUID)
     /// Disconnect (Engine.radioClosed follows with .cancelled).
     func close(_ id: UUID)
     /// Drop every reference to the peripheral.
@@ -41,8 +44,14 @@ public final class Engine {
     public private(set) var scanning = false
 
     struct Link {
+        /// opening: connecting and reading Info. subscribing: TX asked for
+        /// (macOS pairs here when the board needs it). confirming: TX is on,
+        /// so the link is encrypted; Info is read again over it. ready:
+        /// "connected" went out.
+        enum Stage { case opening, subscribing, confirming, ready }
+        var stage = Stage.opening
         var info: BoardInfo?
-        var subscribed = false
+        var ready: Bool { stage == .ready }
         var outbox = Data()
         /// Bytes at the front of outbox already reported in "sent": a write
         /// the board refused for now goes back there, and isn't counted twice.
@@ -118,7 +127,7 @@ public final class Engine {
                 return
             }
             if let l = links[id] {
-                if l.subscribed { send(.connected(id: id, mtu: radio.maxWrite(id), info: l.info)) }
+                if l.ready { send(.connected(id: id, mtu: radio.maxWrite(id), info: l.info)) }
                 return // already on its way
             }
             links[id] = Link()
@@ -157,7 +166,7 @@ public final class Engine {
     /// pump sends what is queued for a link while the radio takes it, cut to
     /// the largest write it allows, and tells the service how much went out.
     func pump(_ id: UUID) {
-        guard var l = links[id], l.subscribed else { return }
+        guard var l = links[id], l.ready else { return }
         var n = 0
         while !l.outbox.isEmpty && radio.canSend(id) {
             let size = max(20, radio.maxWrite(id)) // 20: the smallest ATT payload
@@ -227,11 +236,24 @@ public final class Engine {
 
     public func radioInfo(_ id: UUID, _ raw: Data) {
         let info = BoardInfo.parse(raw)
-        if links[id] != nil {
-            links[id]!.info = info
-            if info.paired != true { send(.passkey(id: id)) }
-            radio.subscribe(id)
-            if probing == id { probing = nil; nextProbe() }
+        if let l = links[id] {
+            switch l.stage {
+            case .opening:
+                links[id]!.info = info
+                links[id]!.stage = .subscribing
+                // In setup: subscribing makes macOS pair, and the person
+                // types the code the board shows now.
+                if info.paired != true { send(.passkey(id: id)) }
+                radio.subscribe(id)
+                if probing == id { probing = nil; nextProbe() }
+            case .confirming:
+                // Read over the encrypted link: what "connected" reports,
+                // and what the service binds the board by.
+                links[id]!.info = info
+                announce(id)
+            default:
+                break
+            }
             return
         }
         if probing == id {
@@ -244,8 +266,15 @@ public final class Engine {
     }
 
     public func radioSubscribed(_ id: UUID) {
+        guard let l = links[id], l.stage == .subscribing else { return }
+        links[id]!.stage = .confirming
+        radio.readInfo(id)
+    }
+
+    /// The link is ready: "connected", then what the board sent meanwhile.
+    func announce(_ id: UUID) {
         guard links[id] != nil else { return }
-        links[id]!.subscribed = true
+        links[id]!.stage = .ready
         send(.connected(id: id, mtu: radio.maxWrite(id), info: links[id]!.info))
         let early = links[id]!.early
         links[id]!.early = Data()
@@ -255,7 +284,7 @@ public final class Engine {
 
     public func radioReceived(_ id: UUID, _ data: Data) {
         guard let l = links[id], !data.isEmpty else { return }
-        if !l.subscribed {
+        if !l.ready {
             // The board's Hello can beat the confirmation of the subscription.
             if links[id]!.early.count + data.count <= maxLine / 2 { links[id]!.early.append(data) }
             return

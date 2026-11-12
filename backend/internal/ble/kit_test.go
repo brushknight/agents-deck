@@ -122,16 +122,22 @@ func startBoard(t *testing.T, bin string, args ...string) (*boardLog, *exec.Cmd)
 	return l, cmd
 }
 
-func TestBluetoothEndToEndWithTheKit(t *testing.T) {
-	bin := kitBoard(t)
+// kitDeck is the deck for the kit's end-to-end tests: 32 agents, a CA
+// (boards pair for Wi-Fi), a default network, the network listener, and the
+// Bluetooth helper (the shim), with its folder.
+type kitDeck struct {
+	*rig
+	wd *link.WifiDefault
+}
+
+func newKitDeck(t *testing.T) *kitDeck {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "blekit") // short: unix socket paths are limited
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 
-	// The deck: 32 agents, a CA (boards pair for Wi-Fi), a default network,
-	// the network listener, and the Bluetooth helper (the shim).
 	st := store.New("", "test-mac", "9.9")
 	for i := 0; i < 32; i++ {
 		a := model.Agent{ID: fmt.Sprintf("a%02d", i), Title: fmt.Sprintf("checkout-api %02d: a title long enough to span pieces", i),
@@ -172,15 +178,22 @@ func TestBluetoothEndToEndWithTheKit(t *testing.T) {
 	srv.DeviceHosts = []string{"127.0.0.1"}
 	srv.DevicePort, _ = strconv.Atoi(port)
 
-	// The board, in setup: it listens on its "radio" (the socket).
-	boardStore := filepath.Join(dir, "nvs")
-	if err := os.Mkdir(boardStore, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	ble, _ := startBoard(t, bin, "--ble", filepath.Join(dir, "k.sock"), "--store", boardStore, "--mtu", "185",
-		"--focus", "a03", "--seconds", "90")
-	adv := ble.wait("ble name=", 5*time.Second)
-	name, info := "", ""
+	exe, _ := os.Executable()
+	central := &Central{Path: exe, Env: []string{fakeEnv + "=" + dir}, MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond}
+	up := &Uplinks{Central: central, Deck: link.ServerDeck{S: srv}, Hub: hub, Devices: srv.Devices, Audit: srv.Audit.Log,
+		Every: 50 * time.Millisecond, Tune: func(s *link.Session) { s.RecheckEvery, s.Debounce = 50*time.Millisecond, 20*time.Millisecond }}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go central.Run(ctx)
+	go up.Run(ctx)
+	r := &rig{t: t, dir: dir, srv: srv, ctl: ctl, hub: hub, central: central, up: up}
+	r.waitFor("the helper is ready", func() bool { return central.Status().Available })
+	return &kitDeck{rig: r, wd: wd}
+}
+
+// advertised is what a board_wifi --ble says it advertises: name and Info.
+func advertised(l *boardLog) (name, info string) {
+	adv := l.wait("ble name=", 5*time.Second)
 	for _, f := range strings.Fields(adv) {
 		if v, ok := strings.CutPrefix(f, "name="); ok {
 			name = v
@@ -189,6 +202,22 @@ func TestBluetoothEndToEndWithTheKit(t *testing.T) {
 			info = v
 		}
 	}
+	return name, info
+}
+
+func TestBluetoothEndToEndWithTheKit(t *testing.T) {
+	bin := kitBoard(t)
+	k := newKitDeck(t)
+	dir, srv, ctl, hub, up, r, wd := k.dir, k.srv, k.ctl, k.hub, k.up, k.rig, k.wd
+
+	// The board, in setup: it listens on its "radio" (the socket).
+	boardStore := filepath.Join(dir, "nvs")
+	if err := os.Mkdir(boardStore, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ble, _ := startBoard(t, bin, "--ble", filepath.Join(dir, "k.sock"), "--store", boardStore, "--mtu", "185",
+		"--focus", "a03", "--seconds", "90")
+	name, info := advertised(ble)
 	if name != "deck-000077" || !strings.Contains(info, "id=AA:BB:CC:00:00:77") {
 		t.Fatalf("advertised %q with Info %q", name, info)
 	}
@@ -200,17 +229,6 @@ func TestBluetoothEndToEndWithTheKit(t *testing.T) {
 		}
 	}
 	writeBoards()
-
-	exe, _ := os.Executable()
-	central := &Central{Path: exe, Env: []string{fakeEnv + "=" + dir}, MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond}
-	up := &Uplinks{Central: central, Deck: link.ServerDeck{S: srv}, Hub: hub, Devices: srv.Devices, Audit: srv.Audit.Log,
-		Every: 50 * time.Millisecond, Tune: func(s *link.Session) { s.RecheckEvery, s.Debounce = 50*time.Millisecond, 20*time.Millisecond }}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go central.Run(ctx)
-	go up.Run(ctx)
-	r := &rig{t: t, dir: dir, srv: srv, ctl: ctl, hub: hub, central: central, up: up}
-	r.waitFor("the helper is ready", func() bool { return central.Status().Available })
 
 	// 1. A scan shows the board, in setup, with what its Info says.
 	if err := up.Scan(true); err != nil {

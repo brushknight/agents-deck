@@ -120,6 +120,7 @@ type Session struct {
 	boardUplink    linkpb.Uplink
 	rxAt           atomic.Int64 // when the board last sent a frame (unix ns), for Hub (any goroutine)
 	wrongTransport atomic.Bool  // its NetStatus named another transport than this link's
+	bleSecureAt    atomic.Int64 // when its NetStatus last said a secure Bluetooth central is connected (unix ns)
 
 	// stop ends Run when the board moves to an uplink the deck prefers
 	// (Hub.arbitrate, uplink.go).
@@ -484,6 +485,9 @@ func (s *Session) onNetStatus(n *linkpb.NetStatus) {
 		log.Printf("link %s: %s Wi-Fi %s", s.Name, s.dev.Name, line)
 	}
 	s.boardBle, s.boardUplink = n.Ble, n.Uplink
+	if n.Ble == linkpb.BleState_BLE_CONNECTED {
+		s.bleSecureAt.Store(time.Now().UnixNano())
+	}
 	s.checkTransport(n)
 	s.syncUplink()
 	s.defaultWifi(n)

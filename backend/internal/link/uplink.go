@@ -3,6 +3,7 @@ package link
 import (
 	"errors"
 	"log"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 )
@@ -178,4 +179,33 @@ func (h *Hub) onlyBLE(board string) bool {
 		any = true
 	}
 	return any
+}
+
+// BLEConfirm is for adding a board over Bluetooth while another link carries
+// its session. via is the transport of the board's live session that proves
+// which board it is ("" when it has none): USB serial (in your hands), or
+// Wi-Fi opened with its device certificate. confirmed: on that session the
+// board said, at or after since, that a central is connected to it over an
+// encrypted, passkey-authenticated Bluetooth link (NetStatus.ble CONNECTED).
+func (h *Hub) BLEConfirm(board string, since time.Time) (via string, confirmed bool) {
+	if h == nil {
+		return "", false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for s := range h.live {
+		if s.Board() != board || s.helloSeen.Load() == nil || s.handedOver() || s.quiet() || s.wrongTransport.Load() {
+			continue
+		}
+		if s.Transport != OverSerial && (s.Transport != OverWifi || s.Peer == nil) {
+			continue
+		}
+		if via == "" {
+			via = s.Transport
+		}
+		if at := s.bleSecureAt.Load(); at != 0 && !time.Unix(0, at).Before(since) {
+			return s.Transport, true
+		}
+	}
+	return via, false
 }

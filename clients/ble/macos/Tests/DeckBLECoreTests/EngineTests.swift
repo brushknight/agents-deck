@@ -9,6 +9,7 @@ final class FakeRadio: Radio {
     var known: Set<UUID> = []
     var opened: [UUID] = []
     var subscribed: [UUID] = []
+    var infoReads: [UUID] = []
     var closed: [UUID] = []
     var forgotten: [UUID] = []
     var sent: [Data] = []
@@ -22,6 +23,7 @@ final class FakeRadio: Radio {
         return true
     }
     func subscribe(_ id: UUID) { subscribed.append(id) }
+    func readInfo(_ id: UUID) { infoReads.append(id) }
     func close(_ id: UUID) { closed.append(id) }
     func forget(_ id: UUID) { forgotten.append(id) }
     func canSend(_ id: UUID) -> Bool { room > 0 }
@@ -138,15 +140,41 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(radio.subscribed, [board])
     }
 
+    /// TX is on (the link is encrypted now): Info is read again over it, and
+    /// "connected" carries that answer.
+    func confirm(_ info: String = "board=round;id=b1;fw=0.4.0;paired=1") {
+        engine.radioSubscribed(board)
+        XCTAssertEqual(radio.infoReads.last, board, "Info read again once TX is on")
+        engine.radioInfo(board, Data(info.utf8))
+    }
+
     func testConnectAskForPasskeyThenConnected() {
         connect(paired: false)
         XCTAssertEqual(events("passkey").count, 1, "a board in setup makes macOS ask for its code")
         XCTAssertEqual(events("connected").count, 0, "not connected before pairing finishes")
         engine.radioSubscribed(board)
+        XCTAssertEqual(events("connected").count, 0, "not before Info is read over the encrypted link")
+        engine.radioInfo(board, Data("board=round;id=b1;fw=0.4.0;paired=1".utf8))
         let c = events("connected")
         XCTAssertEqual(c.count, 1)
         XCTAssertEqual(c[0]["mtu"] as? Int, 182)
         XCTAssertEqual(c[0]["boardId"] as? String, "b1")
+        XCTAssertEqual(c[0]["paired"] as? Bool, true, "the second read, after pairing")
+        XCTAssertEqual(events("passkey").count, 1, "asked once")
+    }
+
+    func testConnectedReportsTheEncryptedInfo() {
+        connect(paired: true)
+        confirm("board=round;id=b2;fw=0.4.0;paired=1")
+        XCTAssertEqual(events("connected").first?["boardId"] as? String, "b2", "what the board says over the encrypted link")
+        XCTAssertEqual(radio.subscribed, [board], "subscribed once")
+    }
+
+    func testSubscribedTwiceReadsInfoOnce() {
+        connect(paired: true)
+        engine.radioSubscribed(board)
+        engine.radioSubscribed(board)
+        XCTAssertEqual(radio.infoReads, [board])
     }
 
     func testBondedBoardNeedsNoPasskey() {
@@ -178,7 +206,7 @@ final class EngineTests: XCTestCase {
         engine.handle(.write(id: board, data: frame))
         XCTAssertTrue(radio.sent.isEmpty, "nothing goes out before TX is subscribed")
         radio.room = 2
-        engine.radioSubscribed(board)
+        confirm()
         XCTAssertEqual(radio.sent.map(\.count), [20, 20], "cut to the largest write, until the radio is full")
         XCTAssertEqual(events("sent").last?["n"] as? Int, 40)
         radio.room = 5
@@ -194,14 +222,14 @@ final class EngineTests: XCTestCase {
 
     func testReceivedDataIsBase64() {
         connect(paired: true)
-        engine.radioSubscribed(board)
+        confirm()
         engine.radioReceived(board, Data([0x01, 0x02, 0x00]))
         XCTAssertEqual(events("data").first?["data"] as? String, "AQIA")
     }
 
     func testDisconnectAndForget() {
         connect(paired: true)
-        engine.radioSubscribed(board)
+        confirm()
         engine.handle(.disconnect(id: board))
         XCTAssertEqual(radio.closed, [board])
         engine.radioClosed(board, .cancelled)
@@ -213,7 +241,7 @@ final class EngineTests: XCTestCase {
 
     func testBluetoothOffEndsLinks() {
         connect(paired: true)
-        engine.radioSubscribed(board)
+        confirm()
         engine.radioState(.off)
         XCTAssertEqual(events("disconnected").first?["code"] as? String, "bluetooth-off")
         XCTAssertEqual(events("state").last?["state"] as? String, "off")
@@ -221,9 +249,10 @@ final class EngineTests: XCTestCase {
 
     func testHelloBeforeTheSubscriptionIsConfirmed() {
         connect(paired: true)
+        engine.radioSubscribed(board)
         engine.radioReceived(board, Data([0x05, 0x01, 0x00])) // the board's Hello, early
         XCTAssertEqual(events("data").count, 0, "nothing before connected")
-        engine.radioSubscribed(board)
+        engine.radioInfo(board, Data("board=round;id=b1;fw=0.4.0;paired=1".utf8))
         XCTAssertEqual(lines.suffix(2).map { $0["ev"] as? String }, ["connected", "data"], "kept and passed on after connected")
         XCTAssertEqual(events("data").first?["data"] as? String, "BQEA")
     }
@@ -231,7 +260,7 @@ final class EngineTests: XCTestCase {
     func testRefusedWriteIsSentAgainInOrderAndCountedOnce() {
         connect(paired: true)
         radio.mtu = 20
-        engine.radioSubscribed(board)
+        confirm()
         let frame = Data((0..<30).map { UInt8($0) })
         radio.room = 1
         engine.handle(.write(id: board, data: frame))

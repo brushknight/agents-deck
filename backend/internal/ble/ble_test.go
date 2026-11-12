@@ -547,3 +547,176 @@ func TestUplinkPreferenceAndHandOver(t *testing.T) {
 		t.Fatalf("one session per board: %+v", links)
 	}
 }
+
+// usb plays a USB serial session of the board on the same hub.
+func (r *rig) usb(ctx context.Context, boardID string) (*board, chan error) {
+	deckEnd, boardEnd := net.Pipe()
+	s := link.NewSession(link.ServerDeck{S: r.srv}, deckEnd, "test-port")
+	s.Hub, s.Where = r.hub, "test-port"
+	s.RecheckEvery = 50 * time.Millisecond
+	ended := make(chan error, 1)
+	go func() { ended <- s.Run(ctx); deckEnd.Close() }()
+	b := &board{t: r.t, conn: boardEnd}
+	r.t.Cleanup(func() { boardEnd.Close() })
+	b.send(hello(boardID))
+	if w := b.next().GetWelcome(); w == nil {
+		r.t.Fatal("no welcome on USB")
+	}
+	return b, ended
+}
+
+func netStatus(t linkpb.Transport, ble linkpb.BleState) *linkpb.Frame {
+	return &linkpb.Frame{Body: &linkpb.Frame_NetStatus{NetStatus: &linkpb.NetStatus{Transport: t, Ble: ble, Wifi: linkpb.WifiState_WIFI_NOT_SET}}}
+}
+
+type addResult struct {
+	d      devices.Device
+	err    error
+	stages []string
+}
+
+// addAsync adds periph1 in the background.
+func (r *rig) addAsync() chan addResult {
+	done := make(chan addResult, 1)
+	go func() {
+		var stages []string
+		d, err := r.up.Add(context.Background(), periph1, devices.Act, func(stage, _ string) { stages = append(stages, stage) })
+		done <- addResult{d, err, stages}
+	}()
+	return done
+}
+
+// A board live on USB doesn't say Hello over Bluetooth: its USB session
+// confirms the paired link (NetStatus: Bluetooth connected), and the board is
+// added without a session over Bluetooth.
+func TestAddWhileOnUSB(t *testing.T) {
+	r := newRig(t, setupBoards())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	usb, _ := r.usb(ctx, board1)
+	usb.send(netStatus(linkpb.Transport_TRANSPORT_SERIAL, linkpb.BleState_BLE_SETUP))
+	r.scan()
+	done := r.addAsync()
+	ble := r.accept(periph1)
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case res := <-done:
+		t.Fatalf("added before the board confirmed: %+v", res)
+	default:
+	}
+	usb.send(netStatus(linkpb.Transport_TRANSPORT_SERIAL, linkpb.BleState_BLE_CONNECTED))
+	res := <-done
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if strings.Join(res.stages, ",") != "connect,passkey,connected,done" {
+		t.Fatalf("stages: %v", res.stages)
+	}
+	if res.d.BLE != periph1 || !res.d.Approved || res.d.BoardID != board1 {
+		t.Fatalf("device: %+v", res.d)
+	}
+	if !ble.closed() {
+		t.Fatal("the Bluetooth link stayed up beside USB")
+	}
+	r.waitFor("standing by", func() bool { ls := r.up.State(res.d); return ls.State == "standing by" && ls.Uses == link.OverSerial })
+	if l := r.hub.Links(); len(l) != 1 || l[0].Transport != link.OverSerial {
+		t.Fatalf("links: %+v", l)
+	}
+	// ble is allowed now; USB still wins while it is there.
+	if err := r.srv.Devices.SetUplink(res.d.Name, "ble"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if n := r.count("connect " + periph1); n != 1 {
+		t.Fatalf("Bluetooth connected beside USB (%d connects)", n)
+	}
+}
+
+// The board this computer is still paired with (a bond left from an attempt
+// that failed): no passkey, the same confirmation.
+func TestAddWithALeftoverBond(t *testing.T) {
+	boards := setupBoards()
+	boards[0].Paired = true
+	r := newRig(t, boards)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	usb, _ := r.usb(ctx, board1)
+	// A NetStatus from before the attempt doesn't count.
+	usb.send(netStatus(linkpb.Transport_TRANSPORT_SERIAL, linkpb.BleState_BLE_CONNECTED))
+	time.Sleep(50 * time.Millisecond)
+	r.scan()
+	done := r.addAsync()
+	r.accept(periph1)
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case res := <-done:
+		t.Fatalf("added on an old NetStatus: %+v", res)
+	default:
+	}
+	usb.send(netStatus(linkpb.Transport_TRANSPORT_SERIAL, linkpb.BleState_BLE_CONNECTED))
+	res := <-done
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if strings.Join(res.stages, ",") != "connect,connected,done" {
+		t.Fatalf("stages: %v", res.stages)
+	}
+	if res.d.BLE != periph1 {
+		t.Fatalf("device: %+v", res.d)
+	}
+}
+
+// While USB carries the board, a Hello over Bluetooth during an add isn't
+// enough: only the USB session's word binds it.
+func TestAddWhileOnUSBTurnsAwayAHello(t *testing.T) {
+	r := newRig(t, setupBoards())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.usb(ctx, board1)
+	r.scan()
+	done := r.addAsync()
+	ble := r.accept(periph1)
+	ble.send(hello(board1))
+	res := <-done
+	if res.err == nil || !strings.Contains(res.err.Error(), "confirms this Bluetooth link there") {
+		t.Fatalf("add: %+v", res)
+	}
+	if d, _ := r.srv.Devices.ByBoardID(board1); d.BLE != "" || d.Approved {
+		t.Fatalf("bound or approved: %+v", d)
+	}
+}
+
+// No word from the board in time: a timeout that says what is missing.
+func TestAddWhileOnUSBTimesOut(t *testing.T) {
+	was := AddTimeout
+	AddTimeout = 500 * time.Millisecond
+	defer func() { AddTimeout = was }()
+	r := newRig(t, setupBoards())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.usb(ctx, board1)
+	r.scan()
+	done := r.addAsync()
+	r.accept(periph1)
+	res := <-done
+	if res.err == nil || !strings.Contains(res.err.Error(), "didn't confirm the Bluetooth link over USB") {
+		t.Fatalf("add: %+v", res)
+	}
+	if d, _ := r.srv.Devices.ByBoardID(board1); d.BLE != "" {
+		t.Fatalf("bound: %+v", d)
+	}
+}
+
+// A paired board that refuses this computer (paired with another one) is
+// told apart from a wrong code.
+func TestAddRefusedByABondedBoard(t *testing.T) {
+	boards := setupBoards()
+	boards[0].Paired, boards[0].Passkey = true, "fail"
+	boards[0].Info = strings.Replace(boards[0].Info, "paired=0", "paired=1", 1)
+	r := newRig(t, boards)
+	r.scan()
+	res := <-r.addAsync()
+	if res.err == nil || !strings.Contains(res.err.Error(), "refused this computer") {
+		t.Fatalf("add: %+v", res)
+	}
+}

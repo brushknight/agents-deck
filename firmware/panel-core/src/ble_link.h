@@ -13,11 +13,13 @@
 //     display only, so the computer asks for the 6-digit passkey the board
 //     shows (net_model.h's words, on every layout). A pairing that ends
 //     without MITM (Just Works) is undone and the central dropped.
-//   - One bond. With none the board is in setup: connectable for anyone.
-//     With one it takes only that deck: a new pairing is refused (no passkey
-//     is ever shown then), a repeat pairing from the bonded deck too, and a
-//     central that hasn't encrypted with the bond's keys within 10 s is
-//     dropped. forget() clears the bond (BOOT held, ble_model.h).
+//   - One bond. With none the board is in setup: connectable for anyone,
+//     and pairing starts only when the computer asks for RX or TX (so a scan
+//     that just reads Info never makes it ask for a code). With one it takes
+//     only that deck: a new pairing is refused (no passkey is ever shown
+//     then), a repeat pairing from the bonded deck too, and a central that
+//     hasn't encrypted with the bond's keys within 10 s is dropped. forget()
+//     clears the bond (BOOT held, ble_model.h).
 //   - Connection: 2M PHY, data length 251, ATT MTU up to 247, an interval of
 //     15 to 30 ms: about what a Mac allows, enough for a 32-agent snapshot in
 //     well under a second.
@@ -83,6 +85,8 @@ static volatile uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
 static volatile uint32_t connAt = 0;
 static volatile bool bondedAtConnect = false;
 static volatile bool secure = false;         // encrypted, authenticated, 16-byte key, the bonded peer
+static volatile uint32_t secureAt = 0;       // when it became secure
+static volatile bool carried = false;        // Bluetooth carried the session on this connection
 static volatile bool subscribed = false;     // the deck listens on TX
 static volatile uint16_t mtu = DECK_BLE_MTU_MIN;
 static volatile bool mtuChanged = false;
@@ -204,6 +208,7 @@ static void onReset(int reason) {
 static void endConnection() {
   conn = BLE_HS_CONN_HANDLE_NONE;
   secure = false;
+  carried = false;
   subscribed = false;
   pairing = false;
   mtu = DECK_BLE_MTU_MIN;
@@ -237,8 +242,10 @@ static int gapEvent(struct ble_gap_event* event, void*) {
       p.latency = 0;
       p.supervision_timeout = BLE_GAP_SUPERVISION_TIMEOUT_MS(4000);
       ble_gap_update_params(h, &p);
-      // Ask for encryption: a bonded deck encrypts with its keys, a new one pairs.
-      ble_gap_security_initiate(h);
+      // Bonded: ask for encryption at once, the deck encrypts with the bond's
+      // keys. In setup, wait: the computer pairs when it subscribes to TX
+      // (insufficient authentication), never for a scan that only reads Info.
+      if (bondedAtConnect) ble_gap_security_initiate(h);
       break;
     }
     case BLE_GAP_EVENT_DISCONNECT:
@@ -280,6 +287,7 @@ static int gapEvent(struct ble_gap_event* event, void*) {
         ble_gap_terminate(h, BLE_ERR_AUTH_FAIL);
         break;
       }
+      secureAt = millis();
       secure = (h == conn);
       bondChanged = true;
       break;
@@ -415,9 +423,11 @@ static void advertise(BleAdvertise mode) {
   memset(&p, 0, sizeof p);
   p.conn_mode = BLE_GAP_CONN_MODE_UND;
   p.disc_mode = BLE_GAP_DISC_MODE_GEN;
-  // Setup: found quickly. Bonded: a little slower, still a reconnect within a second or so.
-  p.itvl_min = BLE_GAP_ADV_ITVL_MS(mode == BleAdvertise::Open ? 100 : 150);
-  p.itvl_max = BLE_GAP_ADV_ITVL_MS(mode == BleAdvertise::Open ? 150 : 300);
+  // Setup: found quickly. Bonded: a little slower, still a reconnect within a
+  // second or so. Standby (another link carries the session): about once a
+  // second, enough for the deck to find it and little air time beside Wi-Fi.
+  p.itvl_min = BLE_GAP_ADV_ITVL_MS(mode == BleAdvertise::Open ? 100 : mode == BleAdvertise::Bonded ? 150 : 1000);
+  p.itvl_max = BLE_GAP_ADV_ITVL_MS(mode == BleAdvertise::Open ? 150 : mode == BleAdvertise::Bonded ? 300 : 1300);
   const int rc = ble_gap_adv_start(ownAddrType, nullptr, BLE_HS_FOREVER, &p, gapEvent, nullptr);
   if (rc != 0) advNow = BleAdvertise::Off;
 }
@@ -479,6 +489,11 @@ static bool isBonded() { return bonded; }   // as last counted, also while stopp
 // Connected to the bonded deck over a secure link, and it listens on TX.
 static bool ready() { return running && secure && subscribed && conn != BLE_HS_CONN_HANDLE_NONE; }
 static bool centralSecure() { return running && secure; }
+// How long the central has been secure (0 when it isn't).
+static uint32_t secureForMs() { return running && secure ? millis() - secureAt : 0; }
+// Bluetooth carries the session on this connection (net_link.h).
+static void markCarried() { carried = true; }
+static bool carriedNow() { return carried; }
 static uint16_t attMtu() { return mtu; }
 static deck_ble_t* bytes() { return &stream; }
 static const char* bleName() { return name; }
