@@ -245,10 +245,17 @@ static int gapEvent(struct ble_gap_event* event, void*) {
       // Bonded: ask for encryption at once, the deck encrypts with the bond's
       // keys. In setup, wait: the computer pairs when it subscribes to TX
       // (insufficient authentication), never for a scan that only reads Info.
-      if (bondedAtConnect) ble_gap_security_initiate(h);
+      {
+        // The computer encrypts by itself: with the bond's keys as soon as it
+        // touches TX, or by pairing in setup. Asking for it from here as well
+        // collided with the computer's own request on a real Mac (the second
+        // one failed, status 7), so the board only waits and checks.
+        NET_LOG("ble: connected, %s", bondedAtConnect ? "bonded" : "setup");
+      }
       break;
     }
     case BLE_GAP_EVENT_DISCONNECT:
+      NET_LOG("ble: disconnected, reason 0x%x, was %s", event->disconnect.reason, secure ? "secure" : "not secure");
       if (event->disconnect.conn.conn_handle == conn) endConnection();
       break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -277,8 +284,12 @@ static int gapEvent(struct ble_gap_event* event, void*) {
       const bool ok = event->enc_change.status == 0 && linkOk(h, &d);
       const bool found = ble_gap_conn_find(h, &d) == 0;
       const bool ourDeck = found && bondedAtConnect && ble_addr_cmp(&d.peer_id_addr, &bondPeer) == 0;
+      NET_LOG("ble: encryption change status %d, link ok %d, enc %d auth %d bonded %d key %d, our deck %d", event->enc_change.status,
+              (int)ok, found ? d.sec_state.encrypted : -1, found ? d.sec_state.authenticated : -1,
+              found ? d.sec_state.bonded : -1, found ? d.sec_state.key_size : -1, (int)ourDeck);
       // Bonded: only the bonded deck. Setup: this pairing made the bond. And
       // only with the passkey (MITM), a full key, and a bond.
+      if (event->enc_change.status != 0 && found && d.sec_state.encrypted) break;   // a second request failed; the link itself still stands (poll() judges it)
       if (!ok || !d.sec_state.bonded || (bondedAtConnect && !ourDeck)) {
         if (found && d.sec_state.encrypted && !ourDeck) {
           badPeer = d.peer_id_addr;   // whatever this pairing stored goes (poll() deletes it)
@@ -472,9 +483,32 @@ static void poll() {
   }
   const uint32_t now = millis();
   const uint16_t h = conn;
+  // The link's own state decides, not the order events came in: on a real
+  // Mac the encryption event can arrive before this side has noted the
+  // connection, and then it was missed for good.
+  if (h != BLE_HS_CONN_HANDLE_NONE && !secure && !pairing) {
+    struct ble_gap_conn_desc d;
+    if (linkOk(h, &d) && d.sec_state.bonded) {
+      ble_addr_t peers[4];
+      int n = 0;
+      bool known = false;
+      if (ble_store_util_bonded_peers(peers, &n, 4) == 0)
+        for (int i = 0; i < n; i++)
+          if (ble_addr_cmp(&peers[i], &d.peer_id_addr) == 0) known = true;
+      if (known) {
+        NET_LOG("ble: the link is encrypted with the bond's keys");
+        secureAt = now;
+        secure = true;
+        bondChanged = true;
+      }
+    }
+  }
   if (h != BLE_HS_CONN_HANDLE_NONE && !secure &&
       now - connAt > (bondedAtConnect ? kBondedWaitMs : kSetupWaitMs))
+  {
+    NET_LOG("ble: no encryption within the wait, hanging up");
     ble_gap_terminate(h, BLE_ERR_REM_USER_CONN_TERM);   // didn't encrypt (or pair) in time
+  }
   if (pairing && now - passkeyAt > kPasskeyMs) {
     pairing = false;
     if (h != BLE_HS_CONN_HANDLE_NONE) ble_gap_terminate(h, BLE_ERR_REM_USER_CONN_TERM);

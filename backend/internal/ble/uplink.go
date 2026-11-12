@@ -390,17 +390,27 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 		return devices.Device{}, errors.New("a board added over Bluetooth gets view or act; admin is given by hand (agentctl devices scope)")
 	}
 	n, ok := u.Central.Seen(id)
-	switch {
-	case !ok:
+	if !ok {
 		return devices.Device{}, errors.New("no such board nearby: scan first (agentctl bluetooth scan)")
-	case !n.HasInfo || n.BoardID == "":
-		return devices.Device{}, errors.New("couldn't read what " + orText(n.Name, "that board") + " is: bring it closer and scan again")
 	}
-	if d, ok := u.Devices.ByBoardID(n.BoardID); ok && d.Revoked {
-		return devices.Device{}, fmt.Errorf("%s was revoked: agentctl devices approve %s first, then add it again", d.Name, d.Name)
+	// A scan reads what a board is on a short connection without pairing. A
+	// board that is already paired with this computer doesn't answer that
+	// (seen on a real board), so its id may be unknown here: then it is taken
+	// from the read made over the encrypted link, which is the one that counts.
+	boardID := n.BoardID
+	known := func(boardID string) (devices.Device, error) {
+		if d, ok := u.Devices.ByBoardID(boardID); ok && d.Revoked {
+			return devices.Device{}, fmt.Errorf("%s was revoked: agentctl devices approve %s first, then add it again", d.Name, d.Name)
+		}
+		if d, ok := u.Devices.ByBLE(id); ok && d.BoardID == boardID && !d.Revoked {
+			return d, fmt.Errorf("%s is already one of your boards over Bluetooth", d.Name)
+		}
+		return devices.Device{}, nil
 	}
-	if d, ok := u.Devices.ByBLE(id); ok && d.BoardID == n.BoardID && !d.Revoked {
-		return d, fmt.Errorf("%s is already one of your boards over Bluetooth", d.Name)
+	if boardID != "" {
+		if d, err := known(boardID); err != nil {
+			return d, err
+		}
 	}
 	name := orText(n.Name, "the board")
 	ctx, cancel := context.WithTimeout(ctx, AddTimeout)
@@ -433,9 +443,22 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 		u.Central.Forget(id)
 		return devices.Device{}, err
 	}
-	if st.BoardID != "" && st.BoardID != n.BoardID {
+	if boardID == "" {
+		if st.BoardID == "" {
+			go func() { defer close(r.done); _ = st.Close() }()
+			return fail(errors.New("couldn't read what " + name + " is, even over the encrypted link: bring it closer and try again"))
+		}
+		boardID = st.BoardID
+		if d, err := known(boardID); err != nil {
+			go func() { defer close(r.done); _ = st.Close() }()
+			r.cancel()
+			<-r.done
+			return d, err
+		}
+	}
+	if st.BoardID != "" && st.BoardID != boardID {
 		go func() { defer close(r.done); _ = st.Close() }()
-		return fail(fmt.Errorf("over the encrypted link the board says it is %q, but it advertised %q", st.BoardID, n.BoardID))
+		return fail(fmt.Errorf("over the encrypted link the board says it is %q, but it advertised %q", st.BoardID, boardID))
 	}
 	if asked.Load() {
 		prog("connected", "Paired. Checking with the board.")
@@ -446,7 +469,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 	go func() {
 		defer close(r.done)
 		defer r.cancel()
-		u.session(rctx, r, st, bleDeck{Deck: u.Deck, u: u, r: r, boardID: n.BoardID, add: add})
+		u.session(rctx, r, st, bleDeck{Deck: u.Deck, u: u, r: r, boardID: boardID, add: add})
 	}()
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
@@ -457,7 +480,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 			prog("done", d.Name+" is one of your boards now, connected over Bluetooth.")
 			return d, nil
 		case <-tick.C:
-			d, via, ok, err := u.confirmed(n.BoardID, r, since, scope)
+			d, via, ok, err := u.confirmed(boardID, r, since, scope)
 			if err != nil {
 				return fail(err)
 			}
@@ -470,7 +493,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 			}
 		case <-r.done:
 			// The session ended: maybe the board confirmed elsewhere just before.
-			if d, via, ok, err := u.confirmed(n.BoardID, r, since, scope); err == nil && ok {
+			if d, via, ok, err := u.confirmed(boardID, r, since, scope); err == nil && ok {
 				prog("done", d.Name+" is one of your boards now. It uses "+viaWords(via)+" now.")
 				return d, nil
 			}
@@ -479,7 +502,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 			err := r.err
 			u.mu.Unlock()
 			if ctx.Err() != nil {
-				return devices.Device{}, u.unconfirmed(ctx, n.BoardID)
+				return devices.Device{}, u.unconfirmed(ctx, boardID)
 			}
 			if err != nil {
 				return devices.Device{}, fmt.Errorf("not added: %v", err)
@@ -489,7 +512,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 			r.cancel()
 			<-r.done
 			u.Central.Forget(id)
-			return devices.Device{}, u.unconfirmed(ctx, n.BoardID)
+			return devices.Device{}, u.unconfirmed(ctx, boardID)
 		}
 	}
 }
