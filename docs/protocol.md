@@ -222,11 +222,22 @@ In practice:
   RX and TX characteristics need an authenticated, encrypted link, so the computer pairs: the board
   shows a 6-digit code and you type it into the window the computer opens. The deck never sees the
   code.
-- The board's `Hello` must carry the board id its Info showed when you added it, or it is refused.
+- The binding rests on what the encrypted link proves, never on the advertisement or the Info read
+  without encryption. Once TX is on (the link is encrypted and authenticated), the helper reads Info
+  again over it: its board id must be the one the scan showed. Then:
+  - a board with no other link says `Hello` over Bluetooth, with that board id, or it is refused;
+  - a board with a live session on USB, or on Wi-Fi with its device certificate, carries its session
+    there and says no `Hello` over Bluetooth: that session must report the secure central
+    (`NetStatus.ble` `CONNECTED`) after the add began. A `Hello` over Bluetooth from such a board is
+    refused while it is being added. The board keeps the new link for 20 s for this, then lets it go;
+    Bluetooth stands by.
+
   Then the board is approved with scope `act` (or `view`; never `admin`, which is given by hand),
   bound to this computer's identifier for it, and audited (`"action": "approve", "detail": "added over
-  Bluetooth with the passkey on its screen, scope act"` and `"bluetooth add <name>"`). A revoked board
-  is refused until `agentctl devices approve`.
+  Bluetooth with the passkey on its screen, scope act"` and `"bluetooth add <name>"`, whose detail says
+  what confirmed it). A revoked board is refused until `agentctl devices approve`.
+- A board this computer is still paired with (an add that failed after the code was typed) is added
+  the same way with no code: the computer encrypts with the bond it holds, which came from the passkey.
 - After that it is a device like any other: same scope check, audit log, `agentctl devices`. Its
   later links must say `Hello` with the same board id. Revoking it ends its Bluetooth link and forgets
   it; approved again, it is added again with a new passkey.
@@ -238,8 +249,10 @@ In practice:
 - The helper (`deck-ble`) only carries bytes between the service and the radio. It stores no
   credentials, keys or passkeys and never sees the code: the operating system pairs and keeps the
   bond.
-- A board with no bond advertises as connectable for anyone (it is in setup). A bonded board accepts
-  only its bonded computer, and goes back to setup only from its own screen.
+- A board with no bond advertises as connectable for anyone (it is in setup); it asks for no code
+  until the computer asks for RX or TX, so scanning never pops up a pairing window. A bonded board
+  keeps advertising (less often while another uplink carries it) so this computer can always reach it
+  again, accepts only its bonded computer, and goes back to setup only from its own screen.
 
 Known limits, plainly:
 
@@ -342,7 +355,7 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | GET | `/admin/v1/bluetooth` | – | `{"available", "why", "helper", "radio", "scanning", "restarts", "lastError"}`: `helper` is `none` (this computer has no Bluetooth helper: "Bluetooth isn't available on this computer yet"), `starting`, `running` or `restarting`; `radio` is `on`, `off`, `unauthorized` (not allowed in the system's privacy settings), `unsupported`, `resetting` |
 | POST | `/admin/v1/bluetooth/scan` | `{"on": true\|false}` (on when left out) | `204`; `503` with `why` when Bluetooth isn't available. Starting a scan forgets the boards seen before |
 | GET | `/admin/v1/bluetooth/boards` | – | `{"boards": [{"id", "name", "rssi", "board", "model", "boardId", "firmware", "setup", "device", "added"}], "scanning", "available", "why"}`: the boards seen since the scan started, strongest first. `setup`: not bonded, ready to be added; `device`: already one of your devices; `added`: added over Bluetooth here |
-| POST | `/admin/v1/bluetooth/boards/{id}/add` | `{"scope": "view"\|"act"}` (the setting for new boards when left out) | `202` and a job (`kind` `bluetooth-add`): stages `connect`, `passkey` ("Type the code shown on the board into the window this computer opens."), `connected`, `done` with `device`; or `failed` with the reason (wrong code or cancelled, timed out, out of range, another board's `Hello`, revoked) |
+| POST | `/admin/v1/bluetooth/boards/{id}/add` | `{"scope": "view"\|"act"}` (the setting for new boards when left out) | `202` and a job (`kind` `bluetooth-add`): stages `connect`, `passkey` (only for a board in setup: "Type the code shown on deck-1a2b3c into the window this computer opens.", sent once the helper is connected and has asked for TX, which is when the computer opens its window), `connected` (the link is encrypted; the deck checks with the board), `done` with `device`; or `failed` with the reason (wrong code or cancelled, the code not typed in time, the board dropped the link, refused by a board paired with another computer, timed out connecting, not confirmed by the board's USB or Wi-Fi session, another board's `Hello`, revoked) |
 | GET | `/admin/v1/firmware` | – | the latest release's boards: `{"version", "boards": [{"board", "name", "chip", "types", "usb", "flash_size", "wifi", "ota", "picture", "version"}], "releaseKey"}` |
 | GET | `/admin/v1/jobs` | – | `{"jobs": […]}`, newest first (kept in memory, the last 50) |
 | GET | `/admin/v1/jobs/{id}` | – | `{"id", "kind": "flash"\|"board-update"\|"app-update"\|"bluetooth-add", "state": "running"\|"done"\|"failed"\|"cancelled", "percent", "stage", "message", "error", "bootHelp", "steps", "done", "total"}` |

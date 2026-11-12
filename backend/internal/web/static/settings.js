@@ -705,7 +705,7 @@ async function btAddBoard(b, el) {
 const ADD_STEPS = [
   ['connect', 'Connect to the board'],
   ['passkey', 'Type the code from the board'],
-  ['connected', 'Paired: wait for its hello'],
+  ['connected', 'Paired: checking with the board'],
   ['done', 'Added'],
 ];
 
@@ -749,13 +749,15 @@ function nearbyRow(b) {
   const right = [];
   let state;
   if (b.added) state = `Yours: ${labelOf(b.device)}`;
-  else if (b.setup) {
-    state = b.device ? `In setup · was ${labelOf(b.device)}` : 'In setup';
+  else if (b.setup || b.boardId) {
+    // Paired but not added here: a bond this computer may still hold (an
+    // add that didn't finish). Adding it again needs no code then.
+    if (b.setup) state = b.device ? `In setup · was ${labelOf(b.device)}` : 'In setup';
+    else state = b.device ? `Paired, not added here · ${labelOf(b.device)}` : 'Paired with this computer or another';
     right.push(h('span', { class: 'note', 'aria-hidden': 'true' }, 'it may'),
       seg(`What ${b.name} may do`, SCOPES.slice(0, 2), S.btScope[b.id] || 'act', (v) => { S.btScope[b.id] = v; draw(); }, { key: `bts-${b.id}` }),
       btn('Add', (e) => btAddBoard(b, e.currentTarget), 'p', { 'data-k': `bta-${b.id}` }));
-  } else if (!b.boardId) state = 'Couldn\'t read it: bring it closer';
-  else state = 'Paired with another computer';
+  } else state = 'Couldn\'t read it: bring it closer';
   const what = [b.model || b.board || 'a board', b.firmware ? `firmware ${b.firmware}` : ''].filter(Boolean).join(' · ');
   const sig = signal(b.rssi);
   const meta = h('span', {}, what, sig ? ' · ' : '', sig, ` · ${state}`);

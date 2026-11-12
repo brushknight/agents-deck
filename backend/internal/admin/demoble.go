@@ -133,7 +133,7 @@ func (b *demoBluetooth) Add(ctx context.Context, id string, scope devices.Scope,
 	if err := wait(5 * time.Second); err != nil {
 		return devices.Device{}, err
 	}
-	prog("connected", "Paired. Waiting for the board to say hello.")
+	prog("connected", "Paired. Checking with the board.")
 	if err := wait(1500 * time.Millisecond); err != nil {
 		return devices.Device{}, err
 	}

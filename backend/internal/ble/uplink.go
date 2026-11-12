@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -249,7 +250,9 @@ func (u *Uplinks) session(ctx context.Context, r *run, st *Stream, deck bleDeck)
 
 // bleDeck is the Deck for a session over Bluetooth: the board must say Hello
 // with the board id it was added with; while it is being added, its Hello
-// binds it to this Bluetooth identifier and approves it.
+// binds it to this Bluetooth identifier and approves it, unless the board
+// has a live session on USB or Wi-Fi: then that session must confirm the
+// link (Uplinks.Add) and this Hello is turned away.
 type bleDeck struct {
 	link.Deck
 	u       *Uplinks
@@ -267,6 +270,13 @@ func (b bleDeck) Board(boardID, typ, firmware string) (devices.Device, error) {
 	if b.boardID != "" && boardID != b.boardID {
 		return devices.Device{}, fmt.Errorf("this Bluetooth link belongs to board %q, but the board said Hello as %q", b.boardID, boardID)
 	}
+	if b.add != nil {
+		if d, ok := b.u.Devices.ByBoardID(boardID); ok {
+			if via, _ := b.u.Hub.BLEConfirm(d.Name, time.Time{}); via != "" {
+				return devices.Device{}, fmt.Errorf("%s is connected over %s: the board confirms this Bluetooth link there", d.Name, viaWords(via))
+			}
+		}
+	}
 	d, err := b.Deck.Board(boardID, typ, firmware)
 	if err != nil {
 		return d, err
@@ -281,21 +291,10 @@ func (b bleDeck) Board(boardID, typ, firmware string) (devices.Device, error) {
 	if b.add == nil {
 		return d, nil
 	}
-	if err := b.u.Devices.SetBLE(d.Name, b.r.id); err != nil {
-		return d, err
-	}
-	nd, approved, err := b.u.Devices.ApproveAs(d.Name, b.add.scope)
+	nd, err := b.u.bind(d, b.r, b.add.scope, "its Hello over the encrypted link")
 	if err != nil {
 		return d, err
 	}
-	if approved {
-		b.u.audit(devices.AuditEntry{Device: nd.Name, Action: "approve", Status: http.StatusOK,
-			Detail: "added over Bluetooth with the passkey on its screen, scope " + string(nd.Scope)})
-	}
-	b.u.audit(devices.AuditEntry{Device: "local", Action: "bluetooth add " + nd.Name, Status: http.StatusOK, Detail: "board id " + boardID})
-	b.u.mu.Lock()
-	b.r.adding = false
-	b.u.mu.Unlock()
 	select {
 	case b.add.hello <- nd:
 	default:
@@ -303,17 +302,80 @@ func (b bleDeck) Board(boardID, typ, firmware string) (devices.Device, error) {
 	return nd, nil
 }
 
+func viaWords(t string) string {
+	switch t {
+	case link.OverSerial:
+		return "USB"
+	case link.OverWifi:
+		return "Wi-Fi"
+	}
+	return t
+}
+
+// bind makes d one of your boards over Bluetooth with the identifier of r:
+// bound to it, approved with scope (unless it was approved before), noted
+// in the audit log.
+func (u *Uplinks) bind(d devices.Device, r *run, scope devices.Scope, how string) (devices.Device, error) {
+	if err := u.Devices.SetBLE(d.Name, r.id); err != nil {
+		return d, err
+	}
+	nd, approved, err := u.Devices.ApproveAs(d.Name, scope)
+	if err != nil {
+		return d, err
+	}
+	if approved {
+		u.audit(devices.AuditEntry{Device: nd.Name, Action: "approve", Status: http.StatusOK,
+			Detail: "added over Bluetooth with the passkey on its screen, scope " + string(nd.Scope)})
+	}
+	u.audit(devices.AuditEntry{Device: "local", Action: "bluetooth add " + nd.Name, Status: http.StatusOK,
+		Detail: "board id " + d.BoardID + ", confirmed by " + how})
+	u.mu.Lock()
+	r.adding, r.hello, r.device = false, true, nd.Name
+	delete(u.why, r.id)
+	u.mu.Unlock()
+	return nd, nil
+}
+
+// confirmed binds the board added on r when its live USB or Wi-Fi session
+// confirms the Bluetooth link: the board reported a secure central there
+// since the attempt began. ok is false while it hasn't (or it has no such
+// session; via says which).
+func (u *Uplinks) confirmed(boardID string, r *run, since time.Time, scope devices.Scope) (d devices.Device, via string, ok bool, err error) {
+	d, found := u.Devices.ByBoardID(boardID)
+	if !found {
+		return d, "", false, nil
+	}
+	via, yes := u.Hub.BLEConfirm(d.Name, since)
+	if !yes {
+		return d, via, false, nil
+	}
+	d, err = u.bind(d, r, scope, "its "+viaWords(via)+" session (NetStatus: Bluetooth connected)")
+	return d, via, err == nil, err
+}
+
 // Progress is told each step of adding a board.
 type Progress func(stage, message string)
 
 // AddTimeout bounds adding a board: connecting, the person typing the code,
-// and its Hello.
+// and the board's confirmation.
 var AddTimeout = 3 * time.Minute
 
-// Add connects to a board seen in the scan, lets the computer pair with it
-// (the person types the code shown on the board), and waits for its Hello:
-// the board then becomes one of your devices, approved with scope, bound to
-// this Bluetooth identifier. A revoked board is refused: approve it first.
+// Add connects to a board seen in the scan and lets the computer pair with
+// it (the person types the code shown on the board; a board this computer
+// is still paired with needs none). Once the link is encrypted the helper
+// reads the board's Info again over it; the board id there must be the one
+// it advertised. Then the board is bound to this Bluetooth identifier and
+// approved with scope, on what the encrypted link proves:
+//
+//   - a board with a live session on USB or Wi-Fi (its certificate) keeps
+//     Bluetooth for an introduction: that session must report the secure
+//     central (NetStatus.ble CONNECTED) after the attempt began. No session
+//     runs over Bluetooth then; the link closes, and Bluetooth stands by.
+//   - any other board says Hello over the encrypted link, and its session
+//     carries on over Bluetooth.
+//
+// A revoked board is refused: approve it first. Stages: connect, passkey (only
+// when the board is in setup), connected, done.
 func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog Progress) (devices.Device, error) {
 	if prog == nil {
 		prog = func(string, string) {}
@@ -340,6 +402,7 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 	if d, ok := u.Devices.ByBLE(id); ok && d.BoardID == n.BoardID && !d.Revoked {
 		return d, fmt.Errorf("%s is already one of your boards over Bluetooth", d.Name)
 	}
+	name := orText(n.Name, "the board")
 	ctx, cancel := context.WithTimeout(ctx, AddTimeout)
 	defer cancel()
 	r, rctx, err := u.claim(context.Background(), id, "", true)
@@ -348,45 +411,135 @@ func (u *Uplinks) Add(ctx context.Context, id string, scope devices.Scope, prog 
 	}
 	stop := context.AfterFunc(ctx, r.cancel) // a cancelled job ends the attempt; a finished one leaves the link up
 	defer stop()
-	prog("connect", "Connecting to "+orText(n.Name, "the board"))
+	since := time.Now()
+	prog("connect", "Connecting to "+name)
+	var asked atomic.Bool
+	// The helper says "passkey" once it is connected, has read Info (the board
+	// is in setup) and asks for TX: macOS opens its window for the code now,
+	// and the board shows it.
 	st, err := u.Central.Connect(rctx, id, func(string) {
-		prog("passkey", "Type the code shown on the board into the window this computer opens.")
+		asked.Store(true)
+		prog("passkey", "Type the code shown on "+name+" into the window this computer opens.")
 	})
 	if err != nil {
 		r.cancel()
 		close(r.done)
 		u.Central.Forget(id)
-		if ctx.Err() != nil {
-			return devices.Device{}, errors.New("timed out: the code wasn't typed, or the board went out of range")
-		}
+		return devices.Device{}, addFailed(ctx, err, asked.Load(), n.Setup)
+	}
+	fail := func(err error) (devices.Device, error) {
+		r.cancel()
+		<-r.done
+		u.Central.Forget(id)
 		return devices.Device{}, err
 	}
-	prog("connected", "Paired. Waiting for the board to say hello.")
+	if st.BoardID != "" && st.BoardID != n.BoardID {
+		go func() { defer close(r.done); _ = st.Close() }()
+		return fail(fmt.Errorf("over the encrypted link the board says it is %q, but it advertised %q", st.BoardID, n.BoardID))
+	}
+	if asked.Load() {
+		prog("connected", "Paired. Checking with the board.")
+	} else {
+		prog("connected", "Connected with the pairing this computer already has. Checking with the board.")
+	}
 	add := &adding{scope: scope, hello: make(chan devices.Device, 1)}
 	go func() {
 		defer close(r.done)
 		defer r.cancel()
 		u.session(rctx, r, st, bleDeck{Deck: u.Deck, u: u, r: r, boardID: n.BoardID, add: add})
 	}()
-	select {
-	case d := <-add.hello:
-		stop()
-		prog("done", d.Name+" is one of your boards now, connected over Bluetooth.")
-		return d, nil
-	case <-r.done:
-		u.Central.Forget(id)
-		u.mu.Lock()
-		err := r.err
-		u.mu.Unlock()
-		if err != nil && ctx.Err() == nil {
-			return devices.Device{}, fmt.Errorf("not added: %v", err)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case d := <-add.hello:
+			stop()
+			prog("done", d.Name+" is one of your boards now, connected over Bluetooth.")
+			return d, nil
+		case <-tick.C:
+			d, via, ok, err := u.confirmed(n.BoardID, r, since, scope)
+			if err != nil {
+				return fail(err)
+			}
+			if ok {
+				r.cancel() // the board uses another link: Bluetooth stands by
+				<-r.done
+				prog("done", d.Name+" is one of your boards now. It uses "+viaWords(via)+
+					" now; Bluetooth takes over when its uplink preference says so (agentctl devices uplink "+d.Name+" ble).")
+				return d, nil
+			}
+		case <-r.done:
+			// The session ended: maybe the board confirmed elsewhere just before.
+			if d, via, ok, err := u.confirmed(n.BoardID, r, since, scope); err == nil && ok {
+				prog("done", d.Name+" is one of your boards now. It uses "+viaWords(via)+" now.")
+				return d, nil
+			}
+			u.Central.Forget(id)
+			u.mu.Lock()
+			err := r.err
+			u.mu.Unlock()
+			if ctx.Err() != nil {
+				return devices.Device{}, u.unconfirmed(ctx, n.BoardID)
+			}
+			if err != nil {
+				return devices.Device{}, fmt.Errorf("not added: %v", err)
+			}
+			return devices.Device{}, errors.New("the board dropped the Bluetooth link before it confirmed")
+		case <-ctx.Done():
+			r.cancel()
+			<-r.done
+			u.Central.Forget(id)
+			return devices.Device{}, u.unconfirmed(ctx, n.BoardID)
 		}
-		return devices.Device{}, errors.New("the board hung up before it said hello")
-	case <-ctx.Done():
-		r.cancel()
-		u.Central.Forget(id)
-		return devices.Device{}, errors.New("the board didn't say hello in time")
 	}
+}
+
+// unconfirmed: the link came up but the board neither said Hello over it nor
+// confirmed it on its other session in time.
+func (u *Uplinks) unconfirmed(ctx context.Context, boardID string) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return errors.New("cancelled")
+	}
+	if d, ok := u.Devices.ByBoardID(boardID); ok {
+		if via, _ := u.Hub.BLEConfirm(d.Name, time.Time{}); via != "" {
+			return fmt.Errorf("timed out: paired, but %s didn't confirm the Bluetooth link over %s (its firmware may be older than this computer's agents deck: update it and add it again)", d.Name, viaWords(via))
+		}
+	}
+	return errors.New("timed out: paired, but the board didn't start a session over Bluetooth (with its uplink preference wifi it keeps Bluetooth for setup only: plug it in with a USB cable and add it again)")
+}
+
+// addFailed says why connecting and pairing failed, from the person's side.
+func addFailed(ctx context.Context, err error, asked, setup bool) error {
+	var le *LinkError
+	if errors.As(err, &le) {
+		switch le.Code {
+		case "pairing-failed":
+			if asked {
+				return errors.New("pairing failed: the code typed didn't match the one on the board, or pairing was cancelled")
+			}
+			if !setup {
+				return errors.New("the board refused this computer: it is paired with another computer, or it forgot this one. " +
+					"Put it back in setup (hold BOOT for 5 seconds, then press it again), remove it in System Settings, Bluetooth if it is listed there, and add it again")
+			}
+		case "pairing-timeout":
+			return errors.New("pairing timed out: the code shown on the board wasn't typed in time")
+		case "gone":
+			if asked {
+				return errors.New("the board dropped the Bluetooth link before pairing finished")
+			}
+			return errors.New("the board dropped the Bluetooth link")
+		}
+		return err
+	}
+	switch {
+	case errors.Is(ctx.Err(), context.Canceled):
+		return errors.New("cancelled")
+	case ctx.Err() != nil && asked:
+		return errors.New("timed out: the code shown on the board wasn't typed")
+	case ctx.Err() != nil:
+		return errors.New("timed out connecting: the board isn't advertising or is out of range (is it on and nearby? scan again)")
+	}
+	return err
 }
 
 // LinkState is a board's Bluetooth link, for the device list.

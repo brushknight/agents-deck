@@ -384,16 +384,26 @@ looking at that board, as a USB cable proves it is plugged in.
   anything else with "insufficient authentication", which is what makes the computer pair. A pairing
   that ends without the passkey (Just Works) is undone and the connection dropped.
 - One bond. A board without one is **in setup**: connectable for anyone, and it pairs with whoever
-  types its passkey. A bonded board takes **only its bonded deck**: it refuses any new pairing (it
-  never shows a passkey then), refuses a repeat pairing from the bonded deck too, and drops a
-  connection that hasn't encrypted with the bond's keys within 10 s.
+  types its passkey. It doesn't ask for encryption itself: pairing starts when the computer asks for
+  RX or TX, so a scan that only reads Info never makes the computer ask for a code. A bonded board
+  takes **only its bonded deck**: it refuses any new pairing (it never shows a passkey then), refuses
+  a repeat pairing from the bonded deck too, and drops a connection that hasn't encrypted with the
+  bond's keys within 10 s.
 - **Forget** on the board: hold BOOT (or, while it shows a notice, its screen) for 5 s; it asks
   "forget Bluetooth?"; press again within 10 s. The bond is gone and the board is in setup again.
   Remove the board from the computer's Bluetooth settings too, or that computer can't pair with it
   again.
-- A Bluetooth board is still a device with a name, a scope and an audit trail: the deck registers it
-  on its `Hello` as pending and the person approves it (`agentctl devices approve`, or the Settings
-  page); it is never approved automatically on first sight. Revoking it ends its sessions.
+- A Bluetooth board is still a device with a name, a scope and an audit trail: adding it on the
+  computer (`agentctl bluetooth add`, which needs the passkey) approves it; it is never approved
+  automatically on first sight. Revoking it ends its sessions.
+- What binds the computer's Bluetooth identifier for the board to a device is what the encrypted link
+  proves, never the advertisement or a read of Info without encryption. Once TX is on (so the link is
+  encrypted and authenticated), the deck reads Info again over it, and its `id` must be the one
+  advertised. Then either the board says `Hello` over that link (a board with no other link), or, when
+  it has a live session on USB or on Wi-Fi with its certificate, that session must report the secure
+  central (`NetStatus.ble = CONNECTED`, sent when it happens) after the attempt began. A `Hello` over
+  Bluetooth from a board live elsewhere isn't enough while it is being added
+  ([Adding a board that has another link](#adding-a-board-that-has-another-link)).
 - Once approved, it pairs for Wi-Fi (`CertRequest`) and takes Wi-Fi credentials (`WifiConfig`) over
   Bluetooth exactly as over USB. The bond and the certificate are kept in the board's NVS, which is
   plain flash unless flash encryption is on (see [Pairing](#pairing-over-usb-serial-or-bluetooth)).
@@ -403,10 +413,13 @@ looking at that board, as a USB cable proves it is plugged in.
 - The advertisement carries the service UUID; the scan response carries the name `deck-` and the last
   six hex digits of the board id, lower case (`AA:BB:CC:1A:2B:3C` is `deck-1a2b3c`).
 - A board without a bond always advertises (setup), every 100 to 150 ms, on USB too.
-- A bonded board advertises only while Bluetooth may carry its session ([Uplinks](#uplinks)), every
-  150 to 300 ms; otherwise it is silent and lets its deck go.
+- A bonded board always advertises, so its deck can find it again: every 150 to 300 ms while
+  Bluetooth may carry its session ([Uplinks](#uplinks)), and on standby every 1 to 1.3 s while another
+  link carries it (to be added, checked, or taken over from when that link goes). On standby it is no
+  more open than otherwise: it still takes only its bonded deck. The computer uses resolvable private
+  addresses, so the board can't filter by address before a connection; it filters by the bond's keys.
 - On a connection it asks for the 2M PHY, 251-byte packets and an interval of 15 to 30 ms (latency 0,
-  timeout 4 s), then for encryption.
+  timeout 4 s); a bonded board then asks for encryption.
 
 ### Uplinks
 
@@ -428,6 +441,10 @@ takes over closes the other (on Bluetooth, the board drops the connection).
   link. The deck sends it to an approved board whose `NetStatus.ble` is set (and not `UNSUPPORTED`)
   when `NetStatus.uplink` differs from the device's preference: at the start of a session and after
   every change, once per value per session; after a 501 it stops for the session.
+- A central that has just encrypted (it paired, or used the bond) keeps its link for 20 s even while
+  another link carries the session, without a `Hello`: the **introduction**, so the deck can finish
+  adding the board. After that, or at once for a connection on which Bluetooth carried the session,
+  the board drops a central that Bluetooth isn't wanted for.
 - Firmware updates come over Wi-Fi only: a board on Bluetooth refuses an offer ("on Bluetooth: update
   it over Wi-Fi or USB"). While an update downloads the board stops Bluetooth (the TLS download wants
   its memory) and starts it again after.
@@ -447,6 +464,31 @@ board (no bond, no cable)                         deck (its Bluetooth helper)
   (auto) joins Wi-Fi, TLS 1.3 up: drops Bluetooth, Hello over Wi-Fi
 ```
 
+### Adding a board that has another link
+
+Most boards that get Bluetooth are already on USB or Wi-Fi. They don't say `Hello` over Bluetooth
+then (another link carries the session), so the deck confirms the link on the session the board
+already has:
+
+```
+board (on USB, in setup)                           deck
+  │ Hello, Welcome … on USB                         agentctl bluetooth add deck-1a2b3c
+  advertises deck-1a2b3c ◀──────────────────────── connect, read Info (paired=0): "type the code"
+  ◀── subscribe TX: "insufficient authentication" → the computer pairs
+  shows "pair deck-1a2b3c / 042917" ◀── the person types 042917 on the computer
+  encrypted, bonded; the introduction starts (20 s, no Hello)
+  │ NetStatus {transport: SERIAL, ble: CONNECTED} on USB ──▶│
+                                  ◀── read Info again, over the encrypted link: id matches
+                                                    bound to this Bluetooth identifier, approved
+                                  ◀── hangs up      Bluetooth stands by (USB is in use)
+  │ NetStatus {ble: BONDED} on USB ──▶│
+  advertises on standby
+```
+
+A board the computer is still paired with (an attempt that failed after pairing) goes the same way
+with no passkey: the computer encrypts with the bond it holds. Then `agentctl devices uplink NAME ble`
+makes Bluetooth the board's uplink when the cable is out, and `auto` or `wifi` moves it back.
+
 | message | direction | field | over |
 |---|---|---|---|
 | `LinkConfig` | deck → board, answered with `Result` | 66 | any |
@@ -459,7 +501,9 @@ board (no bond, no cable)                         deck (its Bluetooth helper)
 Bluetooth link is a Unix socket: it listens at PATH, and whatever connects plays an encrypted, bonded
 central (it is never asked for the passkey, which it prints). It speaks the same byte stream as RX and
 TX, cut to `--mtu` (default 185), and pairs, takes credentials and the uplink preference as a board
-does. See the top of `board_wifi.c`.
+does. With `--serial` or `--wifi` as well it has both links: the first carries the session, a
+central gets the introduction and is reported in `NetStatus` there, and Bluetooth takes over when the
+first link ends. See the top of `board_wifi.c`.
 
 ## Limits
 
