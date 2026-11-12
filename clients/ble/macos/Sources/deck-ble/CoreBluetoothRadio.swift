@@ -13,6 +13,7 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var rx: [UUID: CBCharacteristic] = [:]
     private var tx: [UUID: CBCharacteristic] = [:]
+    private var info: [UUID: CBCharacteristic] = [:]
     private var closing: Set<UUID> = []
     private let service = CBUUID(string: DeckGATT.service)
     private let rxID = CBUUID(string: DeckGATT.rx)
@@ -45,8 +46,9 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         closing.remove(id)
         switch p.state {
         case .connected:
-            if let info = p.services?.first(where: { $0.uuid == service })?.characteristics?.first(where: { $0.uuid == infoID }) {
-                p.readValue(for: info)
+            if let i = p.services?.first(where: { $0.uuid == service })?.characteristics?.first(where: { $0.uuid == infoID }) {
+                info[id] = i
+                p.readValue(for: i)
             } else {
                 p.discoverServices([service])
             }
@@ -67,6 +69,14 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         p.setNotifyValue(true, for: c)
     }
 
+    func readInfo(_ id: UUID) {
+        guard let p = peripherals[id], let c = info[id] else {
+            engine?.radioClosed(id, .notADeck)
+            return
+        }
+        p.readValue(for: c)
+    }
+
     func close(_ id: UUID) {
         guard let p = peripherals[id] else {
             engine?.radioClosed(id, .cancelled)
@@ -84,6 +94,7 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         peripherals[id] = nil
         rx[id] = nil
         tx[id] = nil
+        info[id] = nil
         closing.remove(id)
     }
 
@@ -150,6 +161,7 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         let id = p.identifier
         rx[id] = nil
         tx[id] = nil
+        info[id] = nil
         pendingWrite[id] = nil
         if closing.remove(id) != nil {
             engine?.radioClosed(id, .cancelled)
@@ -179,6 +191,7 @@ final class CoreBluetoothRadio: NSObject, Radio, CBCentralManagerDelegate, CBPer
         }
         rx[p.identifier] = r
         tx[p.identifier] = t
+        info[p.identifier] = i
         p.readValue(for: i)
     }
 

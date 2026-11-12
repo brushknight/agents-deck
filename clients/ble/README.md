@@ -43,7 +43,7 @@ data or keys.
 | line | what the helper does |
 |---|---|
 | `{"op":"scan","on":true}` | look for boards advertising the service; `"on":false` stops. Answers `scanning`; while on, `found` for each board, and again once its Info is read |
-| `{"op":"connect","id":"…"}` | connect to that board (seen in a scan, or known from before), find the service, read Info, subscribe to TX. A board out of range is waited for, with no time limit, until `disconnect`. Answers `connecting`, maybe `passkey`, then `connected` or `disconnected` |
+| `{"op":"connect","id":"…"}` | connect to that board (seen in a scan, or known from before), find the service, read Info, subscribe to TX, then read Info again (over the link, encrypted now). A board out of range is waited for, with no time limit, until `disconnect`. Answers `connecting`, maybe `passkey`, then `connected` or `disconnected` |
 | `{"op":"write","id":"…","data":"<base64>"}` | queue bytes for RX; they go out in order, cut to the largest write, as fast as the link takes them. `sent` reports them gone |
 | `{"op":"disconnect","id":"…"}` | hang up (or stop waiting for the board). Answers `disconnected` with code `cancelled` |
 | `{"op":"forget","id":"…"}` | hang up and drop every reference to the board. Answers `forgotten`. See "Bonds" for what it can't do |
@@ -58,8 +58,8 @@ data or keys.
 | `{"ev":"scanning","on":true}` | scanning started or stopped |
 | `{"ev":"found","id":"…","name":"deck-3fa9c1","rssi":-58}` | a board seen. A second `found` adds its Info: `"board"`, `"boardId"`, `"firmware"`, `"paired"` (false: in setup). Info is read on a short connection without pairing, once per board per scan; a bonded board may refuse others, and then has no Info |
 | `{"ev":"connecting","id":"…"}` | `connect` started |
-| `{"ev":"passkey","id":"…","message":"Type the 6-digit code shown on the board into the window macOS opens."}` | the board is in setup (`paired=0`), so subscribing will make the computer pair: the person types the code from the board's screen into the system's window. The helper never sees the code |
-| `{"ev":"connected","id":"…","mtu":182,"board":"…","boardId":"…","firmware":"…"}` | TX notifications are on: the link is paired, encrypted and ready. `mtu`: the largest single write |
+| `{"ev":"passkey","id":"…","message":"Type the 6-digit code shown on the board into the window macOS opens."}` | connected, Info read: the board is in setup (`paired=0`), and the helper is subscribing to TX now, which makes the computer pair: the system's window opens and the board shows the code. The helper can't see that window or the code; this is the moment they appear. Not sent for a board the computer is paired with (`paired=1`): it encrypts with the bond, silently |
+| `{"ev":"connected","id":"…","mtu":182,"board":"…","boardId":"…","firmware":"…","paired":true}` | TX notifications are on, so the link is paired, encrypted and ready; the Info fields are from a read made after that, over the encrypted link (the service binds the board by them). `mtu`: the largest single write |
 | `{"ev":"data","id":"…","data":"<base64>"}` | bytes from TX |
 | `{"ev":"sent","id":"…","n":120}` | that many queued bytes went out |
 | `{"ev":"disconnected","id":"…","code":"…","reason":"…"}` | the link ended or never came up; `reason` is plain words for people. Codes: `pairing-failed` (wrong code, or cancelled), `pairing-removed` (the board forgot this computer), `pairing-timeout`, `timeout` (out of range, switched off), `gone` (the board hung up), `cancelled` (the service asked), `unknown-peripheral` (never seen, never paired: scan first), `not-a-deck` (no Deck Link service), `bluetooth-off`, `error` |
@@ -87,16 +87,25 @@ error (insufficient authentication or encryption) or the link drops; a timeout s
 "encryption is insufficient" or "encryption timed out". The helper turns these into the codes above.
 
 **What the helper can observe.** Only outcomes: TX subscribed (the board accepted the link), or an
-error. CoreBluetooth doesn't say whether a link is encrypted, whether pairing used a passkey or "just
+error. It can't see the pairing window either, so `passkey` goes out when the window is about to
+open: after Info says `paired=0`, as it subscribes. The board itself never asks for encryption while
+it is in setup, so pairing (and the window) only follows that subscription, not a scan's short
+connection that reads Info. CoreBluetooth doesn't say whether a link is encrypted, whether pairing used a passkey or "just
 works", whether a bond exists, or which key size was used. So the service can't verify the security
 rule itself: it relies on the board refusing RX and TX on any link that isn't encrypted and
 authenticated (MITM), and on the board advertising Info's `paired` honestly. A board that offered
 "just works" would break the rule, and only the firmware can prevent that.
 
+**Adding a board that is on USB or Wi-Fi.** Such a board doesn't say `Hello` over Bluetooth (its
+other link carries the session); it keeps the new link for 20 s and reports it on that other link. The
+service binds the board by the Info read over the encrypted link plus that report
+(`backend/internal/ble`, `Uplinks.Add`), then disconnects. Nothing changes in the line protocol.
+
 **Bonds.** macOS keeps the bond in its own Bluetooth settings, for the whole computer, not in the
 helper or the deck's data folder. The helper can't list, check or remove bonds: `forget` only drops
 its references. To remove a bond, the person forgets the board in System Settings, Bluetooth (if it is
-listed there) and puts the board back in setup from its screen. When the board drops its side, macOS
+listed there) and puts the board back in setup from its screen. A bond both sides still hold (an add
+that failed after the code was typed) needs nothing: adding the board again connects with it, no code. When the board drops its side, macOS
 reports "peer removed pairing information" and the helper says `pairing-removed`. The identifier of
 a board stays the same on this computer while the bond lasts, which is how known boards are connected
 again (`retrievePeripherals(withIdentifiers:)`), without a scan.
