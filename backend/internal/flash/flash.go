@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/brushknight/agents-deck/backend/internal/serial"
@@ -116,19 +117,30 @@ func WriteWith(ctx context.Context, p serial.Port, image io.Reader, size int64, 
 			}
 		}
 	}
-	if err := s.writeDeflate(data, offset, prog); err != nil {
-		var re *ROMError
-		if !errors.As(err, &re) || re.What != "begin the compressed write" {
-			return err
+	// A whole-flash image is written in pieces that leave the board's saved
+	// settings (name, certificate, Wi-Fi, Bluetooth bond) where they are.
+	parts := keepSettings(data, offset)
+	var done int64
+	for _, part := range parts {
+		base, total := done, size
+		pp := func(stage string, d, _ int64) { prog(stage, base+d, total) }
+		if err := s.writeDeflate(part.data, part.offset, pp); err != nil {
+			var re *ROMError
+			if !errors.As(err, &re) || re.What != "begin the compressed write" {
+				return err
+			}
+			// A ROM that won't take compressed data: write it plain.
+			if err := s.writePlain(part.data, part.offset, pp); err != nil {
+				return err
+			}
 		}
-		// A ROM that won't take compressed data: write it plain.
-		if err := s.writePlain(data, offset, prog); err != nil {
-			return err
-		}
+		done += int64(len(part.data))
 	}
 	prog("verify", 0, size)
-	if err := s.verify(data, offset); err != nil {
-		return err
+	for _, part := range parts {
+		if err := s.verify(part.data, part.offset); err != nil {
+			return err
+		}
 	}
 	prog("verify", size, size)
 	prog("reset", 0, 0)
@@ -288,4 +300,70 @@ func (s *session) verify(data []byte, offset uint32) error {
 		return fmt.Errorf("%w: the region is still empty", ErrVerify)
 	}
 	return ErrVerify
+}
+
+// part is one stretch of an image and where it goes in flash.
+type part struct {
+	data   []byte
+	offset uint32
+}
+
+// keepSettings cuts a whole-flash image (one written at 0x0, holding the
+// bootloader, the partition table and the app) into the pieces to write,
+// leaving out the board's settings partitions where the image only has
+// padding there. A merged image fills the gap between the partition table
+// and the app with 0xFF, and that gap is where the board keeps its name,
+// certificate and Wi-Fi network (the "nvs" partition): writing the padding
+// would erase them. Anything else is written as it is.
+func keepSettings(data []byte, offset uint32) []part {
+	whole := []part{{data, offset}}
+	const tableAt, entry = 0x8000, 32
+	if offset != 0 || len(data) < tableAt+entry {
+		return whole
+	}
+	type span struct{ from, to int }
+	var skip []span
+	for at := tableAt; at+entry <= len(data) && at < tableAt+0xC00; at += entry {
+		e := data[at : at+entry]
+		if e[0] != 0xAA || e[1] != 0x50 { // end of the table (or its MD5 line)
+			break
+		}
+		typ, sub := e[2], e[3]
+		from := int(uint32(e[4]) | uint32(e[5])<<8 | uint32(e[6])<<16 | uint32(e[7])<<24)
+		size := int(uint32(e[8]) | uint32(e[9])<<8 | uint32(e[10])<<16 | uint32(e[11])<<24)
+		// data partitions that hold settings: nvs (0x02) and nvs keys (0x04)
+		if typ != 0x01 || (sub != 0x02 && sub != 0x04) {
+			continue
+		}
+		to := from + size
+		if from%sectorSize != 0 || to%sectorSize != 0 || from <= tableAt || to > len(data) {
+			continue
+		}
+		blank := true
+		for _, b := range data[from:to] {
+			if b != 0xFF {
+				blank = false
+				break
+			}
+		}
+		if blank {
+			skip = append(skip, span{from, to})
+		}
+	}
+	if len(skip) == 0 {
+		return whole
+	}
+	sort.Slice(skip, func(i, j int) bool { return skip[i].from < skip[j].from })
+	var parts []part
+	at := 0
+	for _, sp := range skip {
+		if sp.from > at {
+			parts = append(parts, part{data[at:sp.from], uint32(at)})
+		}
+		at = sp.to
+	}
+	if at < len(data) {
+		parts = append(parts, part{data[at:], uint32(at)})
+	}
+	return parts
 }
