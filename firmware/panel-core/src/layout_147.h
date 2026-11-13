@@ -2,6 +2,10 @@
 // The whole 320 x 172 frame. This is the only file that knows where things
 // are on the screen: a hero panel on the left (one agent, with details) and
 // a 2 x 4 mini-board of the fleet on the right.
+//
+// The width and height come from the Canvas, so the same layout fits any
+// screen 320 wide and 170 to 172 tall (the 1.47" and the LilyGO T-Display-S3).
+// kScreenW and kScreenH are the 1.47"'s size.
 #include <stdio.h>
 #include <string.h>
 
@@ -56,12 +60,12 @@ static inline Tone toneOf(const Agent& a) {
 
 static inline void centered(Canvas& c, const Font& f, int y, const char* s, uint16_t color) {
   const int w = utf8Len(s) * f.cellW;
-  c.text(f, w < kScreenW ? (kScreenW - w) / 2 : 0, y, s, color, kScreenW);
+  c.text(f, w < c.w ? (c.w - w) / 2 : 0, y, s, color, c.w);
 }
 
 static inline void notice(Canvas& c, Pose pose, uint16_t body, const char* title, const char* hint, uint32_t ms,
                           const char* hint2 = nullptr) {
-  drawSprite(c, kScreenW / 2 - 28, 26, 4, Species::Claude, pose, body, col::bg, ms, true);
+  drawSprite(c, c.w / 2 - 28, 26, 4, Species::Claude, pose, body, col::bg, ms, true);
   centered(c, FONT_L, 92, title, col::ink);
   centered(c, FONT_S, 120, hint, col::dim);
   if (hint2) centered(c, FONT_S, 138, hint2, col::ink);
@@ -81,8 +85,8 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
   const uint16_t soft = waiting ? col::bg : col::dim;
   char buf[112];
 
-  if (waiting) c.rect(0, 0, heroW, kScreenH, col::accent);
-  if (a.status == Status::Error) c.frame(0, 0, heroW, kScreenH, col::accent, 2);
+  if (waiting) c.rect(0, 0, heroW, c.h, col::accent);
+  if (a.status == Status::Error) c.frame(0, 0, heroW, c.h, col::accent, 2);
 
   const Tone tone = toneOf(a);
   // 4 px right of the text margin: a cap's brim reaches 3 units left of the body.
@@ -151,7 +155,7 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
 static inline void miniBoard(Canvas& c, const ScreenInput& in) {
   using namespace layout;
   const Fleet& f = *in.fleet;
-  c.rect(heroW, 6, 1, kScreenH - 12, col::line);
+  c.rect(heroW, 6, 1, c.h - 12, col::line);
   const bool overflow = f.total > miniCells;
   for (int i = 0; i < miniCells; i++) {
     const int cx = miniX + (i % 2) * stepX, cy = miniY + (i / 2) * stepY;

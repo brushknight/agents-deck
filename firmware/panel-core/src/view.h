@@ -58,11 +58,25 @@ static inline int resolveHero(const Fleet& f, ViewState& v, uint32_t nowMs) {
   return autoHero(f);
 }
 
-static inline void pressNext(const Fleet& f, ViewState& v, uint32_t nowMs) {
+// Pins the agent `step` places after the hero (before it when negative), wrapping.
+static inline void pressStep(const Fleet& f, ViewState& v, uint32_t nowMs, int step) {
   if (f.count == 0) return;
   const int cur = resolveHero(f, v, nowMs);
-  const int next = (cur + 1) % f.count;
+  const int next = ((cur + step) % f.count + f.count) % f.count;
   snprintf(v.heldId, sizeof v.heldId, "%s", f.agents[next].id);
+  v.hold = true;
+  v.holdUntilMs = nowMs + kHoldMs;
+}
+
+static inline void pressNext(const Fleet& f, ViewState& v, uint32_t nowMs) { pressStep(f, v, nowMs, 1); }
+
+// The other way, for boards with a second button.
+static inline void pressPrev(const Fleet& f, ViewState& v, uint32_t nowMs) { pressStep(f, v, nowMs, -1); }
+
+// Pins agent i as hero, as a touch on its mini-board cell does.
+static inline void pressPin(const Fleet& f, ViewState& v, uint32_t nowMs, int i) {
+  if (i < 0 || i >= f.count) return;
+  snprintf(v.heldId, sizeof v.heldId, "%s", f.agents[i].id);
   v.hold = true;
   v.holdUntilMs = nowMs + kHoldMs;
 }

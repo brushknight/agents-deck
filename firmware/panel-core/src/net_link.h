@@ -31,6 +31,13 @@
 #include <WiFi.h>
 #endif
 
+// Modem sleep saves power, but every frame from the deck then waits for the
+// router's next beacon (100-300 ms on a phone's hotspot). A board that is
+// always powered can build with -DNET_WIFI_SLEEP=0 for 10-30 ms instead.
+#ifndef NET_WIFI_SLEEP
+#define NET_WIFI_SLEEP 1
+#endif
+
 #ifndef NET_LOG
 #define NET_LOG(...) do {} while (0)
 #endif
@@ -189,7 +196,7 @@ static void wifiStart() {
     WiFi.persistent(false);         // the credentials live in our NVS namespace, not the driver's
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(false);   // net_model.h decides when to try again
-    WiFi.setSleep(true);
+    WiFi.setSleep(NET_WIFI_SLEEP);
     wifiOn = true;
   } else {
     WiFi.disconnect(false, false);
