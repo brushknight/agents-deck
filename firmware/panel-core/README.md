@@ -9,6 +9,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | board | layout | folder |
 |---|---|---|
 | Waveshare ESP32-S3-LCD-1.47B, 320×172 | `layout_147.h`: one agent in detail and a mini-board | `devices/waveshare-lcd-147` |
+| LilyGO T-Display-S3, 320×170 | `layout_tds3.h`: the 1.47" layout in bigger text, with touch, two buttons and the prompt's options | `devices/lilygo-t-display-s3` |
 | Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's UI at 2/3 | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
 | LilyGO T4-S3, 2.41″ AMOLED, 450×600 | `layout_square.h`, `specT4S3()`: the 1.8″'s UI with 2×3 tiles on screen, bigger critters, the card's numbers one to a line | `devices/lilygo-t4-s3` |
@@ -29,7 +30,8 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/deck_cmd.h` | the board's scope and the commands it sends (Answer, Focus, Interrupt, Dismiss), shared by square and round |
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
 | `src/panel_layout.h` | the square boards' layout interface (`PanelLayout`) and UI state: screens, scroll, the finger |
-| `src/layout_147.h` | the 1.47" layout |
+| `src/layout_147.h` | the 1.47" layout (its size comes from the canvas) |
+| `src/layout_tds3.h` | the T-Display-S3's: the 1.47" layout in bigger text, its touch and buttons (`tds3::touch`, `tds3::key`), and the prompt view |
 | `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel (grid, card, prompts) at a scale (`BigSpec`; 2/3 for 480×480); its fonts (`tools/make_font_big.py`) |
 | `src/layout_square.h` | the square boards' layout (`SquarePanel`), one system with per-board numbers (`SquareSpec`): home, card, prompt, notices, touch and scrolling |
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
@@ -92,15 +94,15 @@ and `layout_big.h` draw the Wi-Fi notices with `netNotice()` in their own notice
 a notice sits low, clear of its text. `PanelUi::wifi` (set by `grid_app.h`) puts the Wi-Fi mark
 (`drawNetMark()`, `round_geom.h`) on home: after "agents" in the list's header (the 1.8″ AMOLED and the T4-S3);
 at the right of the page bars' row in a grid (the 4″), which then stays with one page too, and
-hit-testing follows it. The 4″, the 1.8″ AMOLED and the T4-S3 have `idf5` projects; the 1.47″ is on 2.0.17 and
-USB only.
+hit-testing follows it. The 4″, the 1.8″ AMOLED, the T4-S3 and the T-Display-S3 have `idf5` projects; the 1.47″ is on
+2.0.17 and USB only.
 
 ## Tests and pictures
 
 ```bash
 tests/run.sh
 c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto -DPANEL_MAX_AGENTS=64 -DPANEL_OPTION_LABEL=96 sim/render.cpp -o out/render
-mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, 147, orbit, dial
+mkdir -p out/lcd4 && out/render ../../docs/fixtures/state.json out/lcd4 300 lcd4      # or amoled18, t4s3, 147, tds3, orbit, dial
 python3 tools/ppm2png.py out/grid.png out/lcd4/grid.ppm                            # needs pillow
 tools/render_docs.sh                                                               # every device's docs/
 ```

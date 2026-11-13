@@ -191,6 +191,11 @@ jobs:
             project: firmware/devices/waveshare-lcd-147
             env: waveshare-s3-147b
             home: .platformio
+          - board: lilygo-t-display-s3
+            name: LilyGO T-Display-S3
+            project: firmware/devices/lilygo-t-display-s3/idf5
+            env: idf5
+            home: .platformio-pioarduino
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       PLATFORMIO_CORE_DIR: /github/home/${{ matrix.home }}
