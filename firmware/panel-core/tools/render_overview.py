@@ -29,6 +29,7 @@ BOARDS = {
     "amoled18": (300, 44),
     "t4s3": (300, 24),
     "147": (300, 18),
+    "tds3": (300, 10),
 }
 
 # output name: (layout, frame)
@@ -57,6 +58,9 @@ SHOTS = {
     "lcd147-waiting": ("147", "auto"),
     "lcd147-running": ("147", "hero-00"),
     "lcd147-approval": ("147", "notice-unapproved"),
+    "tds3-waiting": ("tds3", "auto"),
+    "tds3-running": ("tds3", "hero-00"),
+    "tds3-approval": ("tds3", "notice-unapproved"),
 }
 
 
