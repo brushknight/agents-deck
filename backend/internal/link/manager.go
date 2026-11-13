@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 // PortConfig is one registered serial port (config.json "link.ports").
@@ -207,7 +209,7 @@ func (m *Manager) Status() []PortStatus {
 // deck steps aside while you flash or monitor a board. The daemon's own
 // children don't count: between fork and exec they hold every descriptor.
 func otherUsers(path string) string {
-	out, err := exec.Command("/usr/sbin/lsof", "-F", "pcR", path).Output()
+	out, err := exec.Command(paths.Lsof(), "-F", "pcR", path).Output()
 	if err != nil && len(out) == 0 {
 		return ""
 	}

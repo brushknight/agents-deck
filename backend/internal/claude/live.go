@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 // Live is a Claude Code session running in some terminal on this machine,
@@ -163,7 +165,10 @@ var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 // aren't on one of skipTTYs (agentctl's own tmux panes), each matched to its
 // session transcript. Processes whose transcript can't be found are left out.
 func LiveSessions(skipTTYs map[string]bool) []Live {
-	out, err := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=").Output()
+	// lstart in English whatever the locale ("vie nov 13" doesn't parse).
+	ps := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=")
+	ps.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := ps.Output()
 	if err != nil {
 		return nil
 	}
@@ -292,7 +297,7 @@ func processCwds(procs []Live) map[int]string {
 	for i, p := range procs {
 		pids[i] = strconv.Itoa(p.PID)
 	}
-	out, _ := exec.Command("/usr/sbin/lsof", "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
+	out, _ := exec.Command(paths.Lsof(), "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
 	cwds := map[int]string{}
 	pid := 0
 	for _, l := range strings.Split(string(out), "\n") {
