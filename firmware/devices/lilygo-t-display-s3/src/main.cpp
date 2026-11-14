@@ -179,7 +179,7 @@ static void send(const DeckCommand& c) {
     case DeckCmd::Interrupt: seq = deck_interrupt(link(), c.agent); break;
     default: return;
   }
-  ui.cmdSeq = seq;
+  tds3::sent(ui, c, seq);
 }
 
 // ---------------------------------------------------------------- drawing

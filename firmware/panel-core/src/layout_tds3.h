@@ -101,7 +101,8 @@ struct Ui {
   // Feedback.
   char toast[40] = "";
   uint32_t toastStart = 0, toastUntil = 0;
-  uint32_t cmdSeq = 0;       // the command waiting for its Result (set by the firmware)
+  uint32_t cmdSeq = 0;       // the command waiting for its Result (sent() sets it)
+  DeckCmd cmdKind = DeckCmd::None;   // and what it was, for the words when it fails
   // The hero's slide (noteHero): +1 comes in from the right, -1 from the left.
   char heroId[12] = "";
   int pendingDir = 0;        // what a swipe, a tap or a button asked for
@@ -757,6 +758,12 @@ static inline DeckCommand key(Ui& ui, const Fleet& f, ViewState& v, Key k, bool 
   return commandFor(DeckCmd::Focus, a);
 }
 
+// The firmware sent c to the deck as seq (0: not sent).
+static inline void sent(Ui& ui, const DeckCommand& c, uint32_t seq) {
+  ui.cmdSeq = seq;
+  ui.cmdKind = c.cmd;
+}
+
 // The deck's Result for a command. Only failures change what the toast says.
 static inline void result(Ui& ui, uint32_t seq, uint32_t code, uint32_t ms) {
   if (!seq || seq != ui.cmdSeq) return;
@@ -764,6 +771,9 @@ static inline void result(Ui& ui, uint32_t seq, uint32_t code, uint32_t ms) {
   if (code >= 200 && code < 300) return;
   if (code == 403) toast(ui, "not allowed: scope", ms, 2500);
   else if (code == 409) toast(ui, "the prompt changed", ms, 2500);
+  // The deck couldn't do it on this computer (e.g. no way to raise that terminal).
+  else if (ui.cmdKind == DeckCmd::Focus) toast(ui, "can't open its terminal", ms, 2500);
+  else if (ui.cmdKind == DeckCmd::Interrupt) toast(ui, "couldn't interrupt", ms, 2500);
   else {
     char b[24];
     snprintf(b, sizeof b, "failed (%u)", (unsigned)code);

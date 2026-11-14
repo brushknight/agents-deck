@@ -303,6 +303,16 @@ int main() {
     ui.cmdSeq = 10;
     result(ui, 10, 500, 40);
     assert(!strcmp(ui.toast, "failed (500)") && !toastShown(ui, 40 + 2600));
+    // A focus or interrupt the deck couldn't carry out says which.
+    DeckCommand fc;
+    fc.cmd = DeckCmd::Focus;
+    sent(ui, fc, 11);
+    result(ui, 11, 500, 50);
+    assert(!strcmp(ui.toast, "can't open its terminal"));
+    fc.cmd = DeckCmd::Interrupt;
+    sent(ui, fc, 12);
+    result(ui, 12, 500, 60);
+    assert(!strcmp(ui.toast, "couldn't interrupt"));
   }
 
   // ---- motion: the marching frame moves, a new hero slides in from its side
