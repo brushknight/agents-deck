@@ -203,6 +203,47 @@ func TestSessionApprovalSnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+// A board decodes Welcome into fixed buffers: a development build's version
+// (v0.1.1-20-gbbfc910-dirty is 24 bytes) or a long host name must be clipped,
+// or the board drops the whole Welcome and never gets past Hello.
+func TestWelcomeFitsTheBoardsBuffers(t *testing.T) {
+	srv, _ := testDeck(t)
+	srv.Store = store.New("", strings.Repeat("host", 20), "v0.1.1-20-gbbfc910-dirty")
+	b := start(t, srv, Binary)
+	b.send(hi("AA:BB:CC:00:11:22"))
+	w := b.next().GetWelcome()
+	if w == nil {
+		t.Fatal("no Welcome")
+	}
+	if n := len(w.ServerVersion); n > limits["Welcome.server_version"].size-1 {
+		t.Errorf("server_version is %d bytes, the board holds %d: %q", n, limits["Welcome.server_version"].size-1, w.ServerVersion)
+	}
+	if n := len(w.ServerName); n > limits["Welcome.server_name"].size-1 {
+		t.Errorf("server_name is %d bytes, the board holds %d", n, limits["Welcome.server_name"].size-1)
+	}
+	if n := len(w.DeviceName); n > limits["Welcome.device_name"].size-1 {
+		t.Errorf("device_name is %d bytes, the board holds %d", n, limits["Welcome.device_name"].size-1)
+	}
+	// The snapshot starts with the same name and version.
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Subscribe{Subscribe: &linkpb.Subscribe{SlotCount: 16, Fields: 1 | 4}}})
+	if err := srv.Devices.Approve("oled-tile-001122"); err != nil {
+		t.Fatal(err)
+	}
+	if w := b.next().GetWelcome(); w == nil || !w.Approved {
+		t.Fatalf("welcome after approval: %+v", w)
+	}
+	sb := b.next().GetSnapshotBegin()
+	if sb == nil {
+		t.Fatal("no SnapshotBegin")
+	}
+	if n := len(sb.Server.Version); n > limits["Server.version"].size-1 {
+		t.Errorf("snapshot server version is %d bytes, the board holds %d: %q", n, limits["Server.version"].size-1, sb.Server.Version)
+	}
+	if n := len(sb.Server.Name); n > limits["Server.name"].size-1 {
+		t.Errorf("snapshot server name is %d bytes, the board holds %d", n, limits["Server.name"].size-1)
+	}
+}
+
 func TestSessionTypedReplies(t *testing.T) {
 	srv, _ := testDeck(t)
 	b := start(t, srv, Binary)
