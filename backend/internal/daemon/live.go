@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -306,6 +307,13 @@ func (d *Daemon) attachBackground(e store.Entry) error {
 	d.live.mu.Unlock()
 	if bin == "" || bin == "-" || !shortIDRe.MatchString(e.LiveAttach) {
 		return errors.New("can't open this background session")
+	}
+	if runtime.GOOS == "linux" { // a new GNOME Terminal tab
+		if out, err := exec.Command("gnome-terminal", "--tab", "--", bin, "attach", e.LiveAttach).CombinedOutput(); err != nil {
+			return fmt.Errorf("GNOME Terminal: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		log.Printf("focus %s (background): claude attach %s", e.A.ID, e.LiveAttach)
+		return nil
 	}
 	cmd := shellJoin([]string{bin, "attach", e.LiveAttach})
 	script := "tell application \"iTerm2\"\n activate\n if (count of windows) = 0 then create window with default profile\n tell current window to create tab with default profile command \"" +
