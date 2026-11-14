@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -40,3 +41,18 @@ func Devices() string    { return filepath.Join(Data(), "devices.json") } // pai
 func Audit() string      { return filepath.Join(Data(), "audit.log") }    // one line per action, by device
 func HooksFile() string  { return filepath.Join(Data(), "claude-hooks.json") }
 func Log() string        { return filepath.Join(Data(), "agentd.log") }
+
+// Lsof is the lsof binary: macOS keeps it in /usr/sbin, most Linux
+// distributions in /usr/bin. The daemon may run with a minimal PATH (launchd,
+// systemd), so the usual places come first.
+func Lsof() string {
+	for _, p := range []string{"/usr/sbin/lsof", "/usr/bin/lsof"} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("lsof"); err == nil {
+		return p
+	}
+	return "lsof"
+}

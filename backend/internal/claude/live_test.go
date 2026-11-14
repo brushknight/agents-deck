@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -79,7 +80,7 @@ func TestLiveSessionsFindsAHandStartedClaude(t *testing.T) {
 	}
 	// script(1) gives it a real terminal, like a tab would; its input stays
 	// open (a pipe we never write to), or it would quit at once.
-	cmd := exec.Command("script", "-q", "/dev/null", fake, "20")
+	cmd := scriptCmd(fake, "20")
 	cmd.Dir = work
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -119,4 +120,13 @@ func TestLiveSessionsFindsAHandStartedClaude(t *testing.T) {
 			}
 		}
 	}
+}
+
+// scriptCmd runs bin in a real terminal through script(1): BSD's (macOS)
+// takes the command after the log file, util-linux's (Linux) takes it in -c.
+func scriptCmd(bin, arg string) *exec.Cmd {
+	if runtime.GOOS == "linux" {
+		return exec.Command("script", "-q", "-c", bin+" "+arg, "/dev/null")
+	}
+	return exec.Command("script", "-q", "/dev/null", bin, arg)
 }

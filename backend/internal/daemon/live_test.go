@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func TestWatchedHandStartedSession(t *testing.T) {
 	if err := os.Symlink("/bin/sleep", fake); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("script", "-q", "/dev/null", fake, "30")
+	cmd := scriptCmd(fake, "30")
 	cmd.Dir = work
 	stdin, _ := cmd.StdinPipe()
 	if err := cmd.Start(); err != nil {
@@ -143,4 +144,13 @@ func TestClaudeAgentsList(t *testing.T) {
 	if e.A.Status != model.Waiting || e.A.Waiting == nil || e.LiveAttach != "ab12cd34" {
 		t.Fatalf("blocked = needs you: %+v %q", e.A, e.LiveAttach)
 	}
+}
+
+// scriptCmd runs bin in a real terminal through script(1): BSD's (macOS)
+// takes the command after the log file, util-linux's (Linux) takes it in -c.
+func scriptCmd(bin, arg string) *exec.Cmd {
+	if runtime.GOOS == "linux" {
+		return exec.Command("script", "-q", "-c", bin+" "+arg, "/dev/null")
+	}
+	return exec.Command("script", "-q", "/dev/null", bin, arg)
 }
