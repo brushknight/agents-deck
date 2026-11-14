@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -60,24 +61,61 @@ func StealFocus(tty string) error {
 	if _, err := gdbus("ActivateResult", "'"+screen+"'", "['"+marker+"']", "uint32 0"); err != nil {
 		return err
 	}
-	raiseTitled(marker)
-	return nil
+	return raiseTitled(marker)
 }
 
-// raiseTitled raises the X11 window titled title, if wmctrl can see one.
-func raiseTitled(title string) {
+// raiseTitled raises the X11 window titled title, if wmctrl can see one. No
+// wmctrl (Wayland) is not an error: the tab is already selected.
+func raiseTitled(title string) error {
 	wm, err := exec.LookPath("wmctrl")
 	if err != nil {
-		return
+		return nil
 	}
+	env := x11Env()
+	var last error
 	for i := 0; i < 10; i++ { // the window takes the tab's title once the tab is selected
-		out, _ := exec.Command(wm, "-l").Output()
-		if id := windowTitled(string(out), title); id != "" {
-			_ = exec.Command(wm, "-i", "-a", id).Run()
-			return
+		cmd := exec.Command(wm, "-l")
+		cmd.Env = env
+		out, err := cmd.Output()
+		if err != nil {
+			last = err
+		} else if id := windowTitled(string(out), title); id != "" {
+			raise := exec.Command(wm, "-i", "-a", id)
+			raise.Env = env
+			if err := raise.Run(); err != nil {
+				return errors.New("tab selected, but wmctrl couldn't raise the window: " + err.Error())
+			}
+			return nil
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+	if last != nil {
+		return errors.New("tab selected, but wmctrl can't reach the display: " + last.Error())
+	}
+	return nil
+}
+
+// x11Env is the daemon's environment with the display variables filled in.
+// A daemon started at boot, as a systemd user service, can start before the
+// desktop session exports DISPLAY and XAUTHORITY; the user manager has them
+// by the time anyone clicks focus.
+func x11Env() []string {
+	env := os.Environ()
+	if os.Getenv("DISPLAY") != "" {
+		return env
+	}
+	out, err := exec.Command("systemctl", "--user", "show-environment").Output()
+	if err != nil {
+		return env
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		for _, k := range []string{"DISPLAY=", "XAUTHORITY="} {
+			if strings.HasPrefix(l, k) {
+				env = append(env, l)
+			}
+		}
+	}
+	return env
 }
 
 // windowTitled is the id of the window titled title in `wmctrl -l` output
