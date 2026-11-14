@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os/exec"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,11 @@ import (
 // tab's own title is pushed before and popped after (XTWINOPS 22 and 23,
 // which VTE keeps a stack for), so nothing shows. gdbus does the D-Bus
 // calls: no dependency for the daemon.
+//
+// GNOME's focus-stealing prevention honours that activation only some of the
+// time (it comes with no user timestamp). On X11, wmctrl then raises the
+// window, now titled with the marker, as a pager would, which the window
+// manager always honours. Without wmctrl (Wayland) the tab is still selected.
 const (
 	pushTitle   = "\x1b[22;0t"
 	popTitle    = "\x1b[23;0t"
@@ -51,8 +57,39 @@ func StealFocus(tty string) error {
 	if screen == "" {
 		return errors.New("no GNOME Terminal tab shows " + tty)
 	}
-	_, err := gdbus("ActivateResult", "'"+screen+"'", "['"+marker+"']", "uint32 0")
-	return err
+	if _, err := gdbus("ActivateResult", "'"+screen+"'", "['"+marker+"']", "uint32 0"); err != nil {
+		return err
+	}
+	raiseTitled(marker)
+	return nil
+}
+
+// raiseTitled raises the X11 window titled title, if wmctrl can see one.
+func raiseTitled(title string) {
+	wm, err := exec.LookPath("wmctrl")
+	if err != nil {
+		return
+	}
+	for i := 0; i < 10; i++ { // the window takes the tab's title once the tab is selected
+		out, _ := exec.Command(wm, "-l").Output()
+		if id := windowTitled(string(out), title); id != "" {
+			_ = exec.Command(wm, "-i", "-a", id).Run()
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+// windowTitled is the id of the window titled title in `wmctrl -l` output
+// (id, desktop, host, title), "" when none is.
+func windowTitled(list, title string) string {
+	for _, l := range strings.Split(list, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 4 && strings.Join(f[3:], " ") == title {
+			return f[0]
+		}
+	}
+	return ""
 }
 
 // gdbus calls a method of GNOME Terminal's search provider; out is the reply

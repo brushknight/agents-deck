@@ -308,14 +308,19 @@ func (d *Daemon) attachBackground(e store.Entry) error {
 	if bin == "" || bin == "-" || !shortIDRe.MatchString(e.LiveAttach) {
 		return errors.New("can't open this background session")
 	}
+	// In the session's own account, or claude attach finds no such job.
+	argv := []string{bin, "attach", e.LiveAttach}
+	if dir := accountForSession(e.SessionID, e.A.Cwd).ConfigDir(); dir != "" {
+		argv = append([]string{"env", "CLAUDE_CONFIG_DIR=" + dir}, argv...)
+	}
 	if runtime.GOOS == "linux" { // a new GNOME Terminal tab
-		if out, err := exec.Command("gnome-terminal", "--tab", "--", bin, "attach", e.LiveAttach).CombinedOutput(); err != nil {
+		if out, err := exec.Command("gnome-terminal", append([]string{"--tab", "--"}, argv...)...).CombinedOutput(); err != nil {
 			return fmt.Errorf("GNOME Terminal: %v: %s", err, strings.TrimSpace(string(out)))
 		}
 		log.Printf("focus %s (background): claude attach %s", e.A.ID, e.LiveAttach)
 		return nil
 	}
-	cmd := shellJoin([]string{bin, "attach", e.LiveAttach})
+	cmd := shellJoin(argv)
 	script := "tell application \"iTerm2\"\n activate\n if (count of windows) = 0 then create window with default profile\n tell current window to create tab with default profile command \"" +
 		strings.ReplaceAll(cmd, `"`, `\"`) + "\"\nend tell"
 	if out, err := exec.Command("osascript", "-e", script).CombinedOutput(); err != nil {

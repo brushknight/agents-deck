@@ -16,3 +16,15 @@ func TestScreenOf(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowTitled(t *testing.T) {
+	list := "0x02000003 -1 Shangri-La plank\n" +
+		"0x03c0823c  0 Shangri-La agents-deck-0011223344556677\n" +
+		"0x05400003  0 Shangri-La agents-deck-0011223344556677 - Brave\n"
+	if got := windowTitled(list, "agents-deck-0011223344556677"); got != "0x03c0823c" {
+		t.Errorf("got %q, want the terminal's window", got)
+	}
+	if got := windowTitled(list, "agents-deck-ffff"); got != "" {
+		t.Errorf("got %q for a title nobody has", got)
+	}
+}
