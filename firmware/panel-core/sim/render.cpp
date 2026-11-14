@@ -1,14 +1,16 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|tds3|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
 //
 // Writes PPM files: hero-<slot>.ppm (each agent as the hero), notice-*.ppm
 // (the full-screen states), poses.ppm (every pose of both species) and
-// hats.ppm (every hat). With lcd4, amoled18 or t4s3 it draws the square boards'
+// hats.ppm (every hat). tds3 is the LilyGO T-Display-S3's (layout_tds3.h):
+// the same heroes and notices, plus prompt-*.ppm (a waiting agent's options)
+// and toast.ppm. With lcd4, amoled18 or t4s3 it draws the square boards'
 // screens (home, scrolling or paging, cards, prompts, notices); with orbit or
 // dial the round boards'.
 // With orbit or dial it draws the round boards (sim/round_shots.h): home
@@ -21,6 +23,7 @@
 #include <vector>
 
 #include "layout_147.h"
+#include "layout_tds3.h"
 #include "layout_big.h"
 #include "layout_square.h"
 #include "fixture.h"
@@ -38,6 +41,61 @@ static void writePpm(const std::string& path, const Canvas& c) {
 }
 
 static const char* const kDevice = "waveshare-lcd-147-a1b2c3";
+
+// The LilyGO T-Display-S3 (layout_tds3.h), with scope act: every hero (a
+// waiting one as its prompt), the board's own pick, the hold with the deck
+// offline, the notices, both prompts of the fixture and a toast.
+static int renderTds3(const std::string& dir, const Fleet& fleet, uint32_t ms, int64_t now) {
+  using namespace tds3;
+  static const char* const dev = "lilygo-t-display-s3-a1b2c3";
+  std::vector<uint16_t> buf(kW * kH);
+  Canvas c{buf.data(), kW, kH};
+  Ui ui;
+  ui.heroSince = ms - 60000;          // long settled: context bars at their value
+  for (int i = 0; i < fleet.count; i++) {
+    draw(c, {&fleet, i, LinkState::Live, dev, ms, now, false, DeckScope::Act, &ui});
+    char name[32];
+    snprintf(name, sizeof name, "/hero-%02u.ppm", fleet.agents[i].slot);
+    writePpm(dir + name, c);
+    if (fleet.agents[i].status == Status::Waiting) {
+      // The same agent with view scope: no buttons.
+      draw(c, {&fleet, i, LinkState::Live, dev, ms, now, false, DeckScope::View, &ui});
+      snprintf(name, sizeof name, "/view-%02u.ppm", fleet.agents[i].slot);
+      writePpm(dir + name, c);
+    }
+  }
+  const int pick = autoHero(fleet);
+  draw(c, {&fleet, pick, LinkState::Live, dev, ms, now, false, DeckScope::Act, &ui});
+  writePpm(dir + "/auto.ppm", c);
+  for (int i = 0; i < fleet.count; i++)
+    if (fleet.agents[i].status == Status::Running) {
+      draw(c, {&fleet, i, LinkState::Lost, dev, ms, now, true, DeckScope::Act, &ui});
+      writePpm(dir + "/held-lost.ppm", c);
+      toast(ui, "focus", ms - 500);   // half a second in: fully up
+      draw(c, {&fleet, i, LinkState::Live, dev, ms, now, true, DeckScope::Act, &ui});
+      writePpm(dir + "/toast.ppm", c);
+      ui.toast[0] = '\0';
+      break;
+    }
+  int prompts = 0;
+  for (int i = 0; i < fleet.count; i++)
+    if (promptView(fleet.agents[i], DeckScope::Act)) {
+      draw(c, {&fleet, i, LinkState::Live, dev, ms, now, false, DeckScope::Act, &ui});
+      writePpm(dir + (prompts++ ? "/prompt-question.ppm" : "/prompt-permission.ppm"), c);
+      if (prompts == 2) break;
+    }
+  static Fleet empty;
+  snprintf(empty.server, sizeof empty.server, "workstation");
+  const struct { const char* name; LinkState link; } kNotices[] = {
+      {"connecting", LinkState::Connecting}, {"unapproved", LinkState::Unapproved},
+      {"noagents", LinkState::Live},         {"offline-empty", LinkState::Lost},
+  };
+  for (const auto& n : kNotices) {
+    draw(c, {&empty, -1, n.link, dev, ms, now, false, DeckScope::Act, &ui});
+    writePpm(dir + "/notice-" + n.name + ".ppm", c);
+  }
+  return 0;
+}
 
 // The grid boards on Wi-Fi: home with its mark (and the "paired for Wi-Fi"
 // toast), then the connecting notice in every Wi-Fi phase. Leaves `in` live.
@@ -314,8 +372,9 @@ int main(int argc, char** argv) {
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-28c", "tca9554 ok" DECK_DOT "gt911 0x5D", 16000000);
   if (layout == "selftest21")
     return round_shots::renderSelftest(dir, "waveshare-touch-lcd-21", "tca9554 ok" DECK_DOT "cst820 ok", 16000000);
+  if (layout == "tds3") return renderTds3(dir, fleet, ms, now);
   if (layout != "147") {
-    fprintf(stderr, "unknown layout %s (147, lcd4, amoled18, t4s3, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
+    fprintf(stderr, "unknown layout %s (147, tds3, lcd4, amoled18, t4s3, orbit, dial, spring, spring28, selftest28, selftest21)\n", layout.c_str());
     return 2;
   }
 

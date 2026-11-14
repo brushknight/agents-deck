@@ -7,14 +7,10 @@
 #include "../sim/fixture.h"
 
 static const uint16_t GUARD = 0xDEAD;
-static const int PAD = 2 * kScreenW;
 
-int main() {
-  // The sample fleet, as the deck would send it over Deck Link.
-  static DeckFleet d;
-  assert(fixture::load(FIXTURE, d));
-  const Fleet& f = d.fleet;
-
+// The whole screen at one size: the layout takes its size from the canvas.
+static void run(const Fleet& f, const int kScreenW, const int kScreenH) {
+  const int PAD = 2 * kScreenW;
   std::vector<uint16_t> mem(kScreenW * kScreenH + 2 * PAD, GUARD);
   Canvas c{mem.data() + PAD, kScreenW, kScreenH};
   auto guards = [&] {
@@ -102,6 +98,13 @@ int main() {
     for (int y = 40 + 4 * 4; y < kScreenH; y++)               // rows from the body's top down are untouched
       for (int x = 0; x < kScreenW; x++) assert(c.px[y * kScreenW + x] == bare[y * kScreenW + x]);
   }
+}
 
+int main() {
+  // The sample fleet, as the deck would send it over Deck Link.
+  static DeckFleet d;
+  assert(fixture::load(FIXTURE, d));
+  run(d.fleet, kScreenW, kScreenH);   // Waveshare ESP32-S3-LCD-1.47B
+  run(d.fleet, 320, 170);             // LilyGO T-Display-S3
   return 0;
 }

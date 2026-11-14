@@ -335,6 +335,16 @@ int main() {
     assert(h.has_display && h.display.width == 320 && h.display.height == 172 && h.display.color);
     assert(h.inputs_count == 1 && h.inputs[0] == agentsdeck_link_v1_Input_INPUT_BUTTON);
 
+    // A board with touch and two buttons says so: touch first, then a button each.
+    {
+      deck_link_config_t two;
+      memset(&two, 0, sizeof two);
+      panelConfig(two, "AA:BB:CC:00:11:22", "test", PanelSpec{"lilygo-t-display-s3", 320, 170, true, 2});
+      assert(two.display_width == 320 && two.display_height == 170 && two.input_count == 3);
+      assert(two.inputs[0] == agentsdeck_link_v1_Input_INPUT_TOUCH);
+      assert(two.inputs[1] == agentsdeck_link_v1_Input_INPUT_BUTTON && two.inputs[2] == agentsdeck_link_v1_Input_INPUT_BUTTON);
+    }
+
     // An approved Welcome: the board subscribes to every agent with the panel's fields.
     std::vector<uint8_t> stream;
     auto add = [&](const agentsdeck_link_v1_Frame& f) {

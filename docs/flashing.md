@@ -67,6 +67,7 @@ From the root of the clone, the command for your board:
 | 1.8″ AMOLED | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload` |
 | LilyGO T4-S3 | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5 -t upload` |
 | 1.47″ strip | 2.0.17 (USB only) | `pio run -d firmware/devices/waveshare-lcd-147 -t upload` |
+| LilyGO T-Display-S3 | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/lilygo-t-display-s3/idf5 -e idf5 -t upload` |
 
 With more than one board plugged in, add `--upload-port /dev/cu.usbmodem…` to pick one. The deck lets
 go of the port while PlatformIO uses it, so you don't need to stop anything.

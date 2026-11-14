@@ -61,13 +61,7 @@ static LinkState linkState() {
   return linkStateOf(deck_link_state(link()), deck_link_approved(link()));
 }
 
-static DeckScope scope() {
-  switch (deck_link_scope(link())) {
-    case agentsdeck_link_v1_Scope_SCOPE_ADMIN: return DeckScope::Admin;
-    case agentsdeck_link_v1_Scope_SCOPE_ACT:   return DeckScope::Act;
-    default:                                   return DeckScope::View;
-  }
-}
+static DeckScope scope() { return deckScope(deck_link_scope(link())); }
 
 static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
   if (ctx != link()) return;               // the other link (USB while on Wi-Fi): not what the screen shows

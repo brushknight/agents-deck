@@ -20,6 +20,7 @@ draws the same pixels as the boards, from the made-up fleet in
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
+| <img src="images/devices/tds3-running.png" width="110" alt=""> | [LilyGO T-Display-S3](#lilygo-t-display-s3-strip) | 1.9″ strip, 320×170 | one agent in detail and a mini-board, big text | yes on the Touch version, and two buttons | yes | [`lilygo-t-display-s3`](../firmware/devices/lilygo-t-display-s3) |
 | <img src="images/panel-board-v2.png" width="90" alt=""> | [Desk panel](#desk-panel-4-720720) | 4″ square, 720×720 | the full deck (Flutter app) | yes | yes (that's how it connects) | [`clients/flutter`](../clients/flutter/agents_ui) |
 
 ## What every board has in common
@@ -170,6 +171,29 @@ left, a mini-board of eight on the right, and an RGB LED that flashes orange whe
 - **Get one:** [Waveshare ESP32-S3-LCD-1.47B](https://www.waveshare.com/esp32-s3-lcd-1.47b.htm) (the
   "B" version, without touch; about $13 in Waveshare's shop, October 2026). Details: [the board's README](../firmware/devices/waveshare-lcd-147/README.md).
   Original drawing, mascots and font by **belidor**.
+
+## LilyGO T-Display-S3 (strip)
+
+The 1.47″ strip's layout on LilyGO's popular 1.9″ board, in bigger text, and it answers: a waiting
+agent's options become buttons along the bottom.
+
+| waiting | working | before approval |
+|---|---|---|
+| <img src="images/devices/tds3-waiting.png" width="260" alt="an agent waiting, its options as buttons"> | <img src="images/devices/tds3-running.png" width="260" alt="an agent working"> | <img src="images/devices/tds3-approval.png" width="260" alt="the waiting for approval notice"> |
+
+- **What's special:** tap an option to answer, tap the agent to put the prompt away (hold it to bring it
+  back) or to focus its terminal, tap a mini-board
+  cell or swipe to change agent. The lower button shows the next agent and BOOT the one before; held
+  for a second, the lower one answers the primary option (or focuses) and BOOT interrupts. Works on
+  the T-Display-S3 and the T-Display-S3 Touch (without touch, the buttons do it all). With scope
+  `view` it only looks. With no agents it shows the time and two critters walking about.
+- **Build:** `idf5` (`pio run -d firmware/devices/lilygo-t-display-s3/idf5 -e idf5 -t upload`), USB and
+  Wi-Fi; the board's folder itself has a 2.0.17 build, USB only.
+- **Known issues:** a board fresh from LilyGO may need the BOOT + RST dance for its first upload, then
+  a press of RST to start the firmware.
+- **Get one:** [LilyGO T-Display-S3](https://lilygo.cc/products/t-display-s3) (the Touch version for
+  touch; about $14 in LilyGO's shop, November 2026). Details:
+  [the board's README](../firmware/devices/lilygo-t-display-s3/README.md).
 
 ## Desk panel (4″, 720×720)
 

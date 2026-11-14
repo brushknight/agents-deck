@@ -97,6 +97,21 @@ int main() {
     pressNext(f, w, 0xFFFFFF00u);
     assert(resolveHero(f, w, 0x00000010u) == 2);
     assert(resolveHero(f, w, 0xFFFFFF00u + kHoldMs) == 1);
+
+    // The second button goes the other way, wrapping too.
+    ViewState p;
+    pressPrev(f, p, 1000);                           // from b to a
+    assert(p.hold && resolveHero(f, p, 1001) == 0);
+    pressPrev(f, p, 2000);                           // wraps to c
+    assert(resolveHero(f, p, 2001) == 2);
+    pressNext(f, p, 3000);                           // and back to a
+    assert(resolveHero(f, p, 3001) == 0);
+    pressPin(f, p, 3500, 2);                         // a touch on c's cell
+    assert(p.hold && resolveHero(f, p, 3501) == 2);
+    pressPin(f, p, 3600, 7);                         // no such agent: nothing changes
+    assert(resolveHero(f, p, 3601) == 2);
+    pressPrev(empty, p, 4000);
+    assert(resolveHero(empty, p, 4000) == -1 && !p.hold);   // nothing to pin; the old hold lapses
   }
 
   // new waiting

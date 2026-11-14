@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "deck_cmd.h"
 #include "deck_link.h"
 #include "model.h"
 #include "view.h"
@@ -270,6 +271,15 @@ static inline bool deckApply(DeckFleet& d, const agentsdeck_link_v1_Frame& f, ui
   }
 }
 
+// What the deck lets this board do (Welcome.scope).
+static inline DeckScope deckScope(agentsdeck_link_v1_Scope s) {
+  switch (s) {
+    case agentsdeck_link_v1_Scope_SCOPE_ADMIN: return DeckScope::Admin;
+    case agentsdeck_link_v1_Scope_SCOPE_ACT:   return DeckScope::Act;
+    default:                                   return DeckScope::View;
+  }
+}
+
 // The board's Hello and Subscribe: a 320 x 172 colour screen, one button,
 // every agent with the fields above. The caller adds the transport and callbacks.
 constexpr const char* kPanelType = "waveshare-lcd-147";
@@ -279,6 +289,7 @@ struct PanelSpec {
   const char* type;
   uint32_t width, height;
   bool touch;          // a touch screen besides the BOOT button
+  uint8_t buttons = 1; // buttons, BOOT included
 };
 
 static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, const char* firmware,
@@ -291,7 +302,8 @@ static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, con
   cfg.display_color = true;
   cfg.input_count = 0;
   if (spec.touch) cfg.inputs[cfg.input_count++] = agentsdeck_link_v1_Input_INPUT_TOUCH;
-  cfg.inputs[cfg.input_count++] = agentsdeck_link_v1_Input_INPUT_BUTTON;
+  for (int i = 0; i < spec.buttons && cfg.input_count < 4; i++)   // Hello.inputs holds 4
+    cfg.inputs[cfg.input_count++] = agentsdeck_link_v1_Input_INPUT_BUTTON;
   cfg.first_slot = 0;
   cfg.slot_count = 0;   // every agent; the board keeps the kMaxAgents lowest slots
   cfg.fields = kPanelFields;

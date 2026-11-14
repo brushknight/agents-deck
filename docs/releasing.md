@@ -31,6 +31,7 @@ same tag.
 | `lilygo-t4-s3` | `lilygo-t4-s3/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
 | `waveshare-touch-lcd-4` | `waveshare-touch-lcd-4` | `waveshare-touch-lcd-4` | arduino-esp32 2.0.17, USB only (its `idf5` build is experimental) |
 | `waveshare-lcd-147` | `waveshare-lcd-147` | `waveshare-s3-147b` | arduino-esp32 2.0.17, USB only |
+| `lilygo-t-display-s3` | `lilygo-t-display-s3/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
 
 Flashing one by hand: [docs/flashing.md](flashing.md#from-a-release-image).
 

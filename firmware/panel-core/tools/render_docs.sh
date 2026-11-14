@@ -1,7 +1,8 @@
 #!/bin/sh
 # Renders every screen of the grid and round boards from docs/fixtures/state.json
-# into their docs/ folders as PNG (and the 1.47" sheet into out/). Needs a C++
-# compiler and Python with pillow (PYTHON=... to pick one).
+# into their docs/ folders as PNG, the T-Display-S3's README picture, (and the
+# 1.47" sheet into out/). Needs a C++ compiler and Python with pillow
+# (PYTHON=... to pick one).
 set -eu
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
@@ -40,6 +41,12 @@ for spec in spring28:waveshare-touch-lcd-28c spring:waveshare-touch-lcd-21; do
     out/$layout/wifi-wrong-password.ppm out/$layout/wifi-cert-rejected.ppm --cols 4 --gap 8 >/dev/null
   echo "$docs"
 done
+# The LilyGO T-Display-S3: a working hero and a waiting one's prompt, side by side.
+docs=../devices/lilygo-t-display-s3/docs
+rm -rf out/tds3 && mkdir -p out/tds3 "$docs"
+out/render ../../docs/fixtures/state.json out/tds3 300 tds3
+"$PY" tools/ppm2png.py "$docs/screen.png" out/tds3/hero-00.ppm out/tds3/prompt-permission.ppm --cols 2 --scale 2 >/dev/null
+echo "$docs"
 for spec in selftest28:waveshare-touch-lcd-28c selftest21:waveshare-touch-lcd-21; do
   layout=${spec%%:*}
   docs=../devices/${spec#*:}/docs

@@ -145,8 +145,9 @@ with a button, and a rotary-encoder knob. Ready-made devices are in
 [firmware/devices](../firmware/devices), and [devices.md](devices.md) tours them with screenshots: two
 round Waveshare screens (2.8″ and 2.1″) with the spring carousel, the Waveshare 4″ square with the desk
 panel's 4×4 grid, the Waveshare 1.8″ AMOLED and the LilyGO T4-S3 with scrolling tiles, and the
-read-only Waveshare 1.47″ strip. The touch boards answer prompts with scope `act`, and their `idf5`
-builds also work over Wi-Fi. They share [firmware/panel-core](../firmware/panel-core).
+read-only Waveshare 1.47″ strip, and the LilyGO T-Display-S3 strip, which answers with a tap or its
+buttons. The touch boards answer prompts with scope `act`, and their `idf5` builds also work over
+Wi-Fi. They share [firmware/panel-core](../firmware/panel-core).
 
 ```sh
 agentctl link ports                      # USB serial ports that look like boards

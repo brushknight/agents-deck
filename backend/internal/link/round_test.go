@@ -11,13 +11,20 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
 // buildRoundSim compiles the round boards' host program
 // (firmware/panel-core/sim/round_sim.cpp: the kit, the adapter, the round
-// state machine and both layouts) into dir. Skips the test without C and C++
-// compilers.
+// state machine and both layouts) into dir.
 func buildRoundSim(t *testing.T, dir string) string {
+	t.Helper()
+	return buildSim(t, dir, "round_sim", "-DPANEL_MAX_AGENTS=64", "-DPANEL_OPTION_LABEL=96")
+}
+
+// buildSim compiles firmware/panel-core/sim/<name>.cpp with the kit into dir.
+// Skips the test without C and C++ compilers.
+func buildSim(t *testing.T, dir, name string, defines ...string) string {
 	t.Helper()
 	cc, err := exec.LookPath("cc")
 	if err != nil {
@@ -39,15 +46,53 @@ func buildRoundSim(t *testing.T, dir string) string {
 		}
 		objs = append(objs, obj)
 	}
-	bin := filepath.Join(dir, "round_sim")
-	args := []string{"-std=c++17", "-O1", "-DPANEL_MAX_AGENTS=64", "-DPANEL_OPTION_LABEL=96",
-		"-I" + filepath.Join(fw, "panel-core", "src"), "-I" + kit, "-I" + filepath.Join(kit, "proto"),
-		filepath.Join(fw, "panel-core", "sim", "round_sim.cpp")}
+	bin := filepath.Join(dir, name)
+	args := append([]string{"-std=c++17", "-O1"}, defines...)
+	args = append(args, "-I"+filepath.Join(fw, "panel-core", "src"), "-I"+kit, "-I"+filepath.Join(kit, "proto"),
+		filepath.Join(fw, "panel-core", "sim", name+".cpp"))
 	args = append(append(args, objs...), "-o", bin)
 	if out, err := exec.Command(cxx, args...).CombinedOutput(); err != nil {
-		t.Fatalf("round_sim doesn't build: %v\n%s", err, out)
+		t.Fatalf("%s doesn't build: %v\n%s", name, err, out)
 	}
 	return bin
+}
+
+// runSimAgainstDeck runs a board's host program (cmd) against the real
+// session on srv: its stdin and stdout are the serial line, its stderr the
+// log. When the board shows up unapproved as name, the deck approves it with
+// scope act. Returns the board's log once it exits.
+func runSimAgainstDeck(t *testing.T, srv *server.Server, name string, cmd *exec.Cmd) string {
+	t.Helper()
+	in, _ := cmd.StdinPipe()
+	out, _ := cmd.StdoutPipe()
+	errp, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := NewSession(ServerDeck{srv}, struct {
+		io.Reader
+		io.Writer
+	}{out, in}, filepath.Base(cmd.Path))
+	sess.RecheckEvery, sess.Debounce = 50*time.Millisecond, 20*time.Millisecond
+	go func() { _ = sess.Run(ctx) }()
+	var log []string
+	approved := false
+	sc := bufio.NewScanner(errp)
+	for sc.Scan() {
+		l := sc.Text()
+		log = append(log, l)
+		if !approved && strings.HasPrefix(l, "link state=unapproved device="+name) {
+			approved = true
+			go func() {
+				_ = srv.Devices.Approve(name)
+				_ = srv.Devices.SetScope(name, devices.Act)
+			}()
+		}
+	}
+	_ = cmd.Wait()
+	return strings.Join(log, "\n")
 }
 
 // A round board end to end against the real session: it says Hello as a
@@ -65,38 +110,8 @@ func TestRoundBoardAnswersThroughTheDeck(t *testing.T) {
 	} {
 		t.Run(tc.layout, func(t *testing.T) {
 			srv, ctl := testDeck(t)
-			cmd := exec.Command(bin, "--layout", tc.layout, "--type", tc.typ, "--board-id", tc.id, "--answer",
-				"--seconds", "6")
-			in, _ := cmd.StdinPipe()
-			out, _ := cmd.StdoutPipe()
-			errp, _ := cmd.StderrPipe()
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			sess := NewSession(ServerDeck{srv}, struct {
-				io.Reader
-				io.Writer
-			}{out, in}, "round_sim")
-			sess.RecheckEvery, sess.Debounce = 50*time.Millisecond, 20*time.Millisecond
-			go func() { _ = sess.Run(ctx) }()
-			var log []string
-			approved := false
-			sc := bufio.NewScanner(errp)
-			for sc.Scan() {
-				l := sc.Text()
-				log = append(log, l)
-				if !approved && strings.HasPrefix(l, "link state=unapproved device="+tc.name) {
-					approved = true
-					go func() {
-						_ = srv.Devices.Approve(tc.name)
-						_ = srv.Devices.SetScope(tc.name, devices.Act)
-					}()
-				}
-			}
-			_ = cmd.Wait()
-			all := strings.Join(log, "\n")
+			all := runSimAgainstDeck(t, srv, tc.name, exec.Command(bin, "--layout", tc.layout, "--type", tc.typ,
+				"--board-id", tc.id, "--answer", "--seconds", "6"))
 			for _, want := range []string{
 				"link state=unapproved device=" + tc.name,
 				"link state=live device=" + tc.name + " scope=act",
