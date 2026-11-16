@@ -125,6 +125,31 @@ void main() {
     expect(find.text('doing now'), findsNothing);
   });
 
+  testWidgets('the card says when the agent was last active', (tester) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final now = DateTime.parse(
+      (fixture['server'] as Map)['time'] as String,
+    ).toUtc();
+    for (final a in (fixture['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['id'] == 'k3f9a2') {
+        a['lastActive'] = now
+            .subtract(const Duration(hours: 3, minutes: 5))
+            .toIso8601String();
+      }
+    }
+    await _pumpApp(tester, FakeAgentsSource.fromState(fixture));
+    await _open(tester, 'checkout-api');
+    expect(find.text('last active 3h ago'), findsOneWidget);
+    expect(find.text('last prompt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Not known: no line at all.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 400));
+    await _open(tester, 'billing-jobs');
+    expect(find.byKey(const Key('agent-last-active')), findsNothing);
+  });
+
   testWidgets('no back button on the panel (it closes cards by swiping)', (
     tester,
   ) async {

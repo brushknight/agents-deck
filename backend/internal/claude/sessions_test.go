@@ -67,18 +67,6 @@ func TestMatchAndFind(t *testing.T) {
 	if !all[0].Match("TOKEN api") || all[0].Match("token docs") || !all[1].Match("install") {
 		t.Error("match")
 	}
-	if _, n := FindSession(all, "1111"); n != 2 {
-		t.Errorf("ambiguous prefix: %d", n)
-	}
-	if s, n := FindSession(all, "11112"); n != 1 || s.AITitle != "Docs" {
-		t.Errorf("unique prefix: %d %+v", n, s)
-	}
-	if _, n := FindSession(all, "111"); n != 0 {
-		t.Error("too-short prefix must not match")
-	}
-	if s, n := FindSession(all, all[0].ID); n != 1 || s.ID != all[0].ID {
-		t.Error("full id")
-	}
 	if !IsSessionID(all[0].ID) || IsSessionID("'; rm -rf ~") {
 		t.Error("IsSessionID")
 	}

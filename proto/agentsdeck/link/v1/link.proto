@@ -136,7 +136,7 @@ message Subscribe {
 enum FieldGroup {
   FIELDS_NONE = 0;
   FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
 }
@@ -221,6 +221,7 @@ message Agent {
   int64 updated_at_ms = 32;
   string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
   Account account = 34;  // the Claude account it runs in; unset while only one is set up
+  int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
 }
 
 message Activity {
@@ -304,7 +305,11 @@ message Order {
   repeated string agent_ids = 1;
 }
 
-message Restore {}
+// Restore brings back agents lost with the tmux server: the ones listed, or
+// every lost agent when agent_ids is empty.
+message Restore {
+  repeated string agent_ids = 1;
+}
 
 // A hat for the agent's working folder (agent_id), or for a folder by path.
 message SetHat {

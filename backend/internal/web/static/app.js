@@ -45,6 +45,12 @@ const rel = (iso) => {
   if (h < 48) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
 };
+// "last active 3h ago", or "" while the deck doesn't know.
+const lastActive = (a) => {
+  const r = a.lastActive ? rel(a.lastActive) : '';
+  if (!r) return '';
+  return ageMin(a.lastActive) < 1 ? 'last active just now' : `last active ${r} ago`;
+};
 const ageMin = (iso) => (now() - Date.parse(iso)) / 60000;
 const tilde = (p) => (p || '').replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
 const ctxPct = (a) => {
@@ -1083,6 +1089,7 @@ function buildInfo(a) {
   const stat = (k) => { const v = h('span', { class: 'v' }); return [h('div', { class: 'stat' }, h('span', { class: 'k', text: k }), v), v]; };
   const S = ['tokens in', 'tokens out', 'cache read', 'cache write', 'cost', 'turns'].map(stat);
   const prompt = h('span', { class: 'val' });
+  const active = h('span', { class: 'lbl' });
   const foot = h('span');
   const server = h('span');
   const note = h('div', { class: 'note', role: 'status', 'aria-live': 'polite' });
@@ -1098,7 +1105,7 @@ function buildInfo(a) {
     h('div', { class: 'sec' }, doingLbl, doing),
     h('div', { class: 'sec' }, h('div', { class: 'ctx-head' }, h('span', { class: 'h' }, 'context', ctxNums), ctxPctEl), bar),
     h('div', { class: 'stats' }, S.map((s) => s[0])),
-    h('div', { class: 'sec grow' }, h('span', { class: 'lbl', text: 'last prompt' }), prompt),
+    h('div', { class: 'sec grow' }, h('span', { class: 'lbl', text: 'last prompt' }), prompt, active),
     h('div', { class: 'd-foot' }, foot, server),
     actions, note);
 
@@ -1128,6 +1135,7 @@ function buildInfo(a) {
     if (S[4][1].dataset.v !== cost) { S[4][1].dataset.v = cost; S[4][1].replaceChildren(cost, ...(codexThread(x) ? [] : [h('small', { text: 'est' })])); }
     setText(S[5][1], String(x.turns ?? 0));
     setText(prompt, x.lastPrompt || '—');
+    setText(active, lastActive(x)); // its latest message sent or received (survives restarts)
     setText(foot, [x.modelLabel || x.model, tilde(x.cwd), x.branch].filter(Boolean).join(' · '));
     setText(server, state?.server?.name || '');
   };
@@ -1443,6 +1451,7 @@ async function startFixture() {
     a.statusSince = iso(t0 - ago);
     a.startedAt = iso(t0 - ago - 40 * 60000);
     a.updatedAt = iso(t0 - 5000);
+    a.lastActive = iso(t0 - ago - 30000);
   }
   if (params.has('empty')) data.agents = [];
   if (params.has('many')) data.agents = Array.from({ length: 40 }, (_, i) => ({ ...data.agents[i % data.agents.length], id: `m${String(i).padStart(5, '0')}`, slot: i }));

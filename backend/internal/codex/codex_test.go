@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -80,5 +81,25 @@ func TestTailStartsNearTheEndOfHugeRollouts(t *testing.T) {
 	}
 	if e.Offset != int64(b.Len()) || e.Pending != "" {
 		t.Fatalf("offset %d of %d, pending %q", e.Offset, b.Len(), e.Pending)
+	}
+}
+
+func TestRolloutLastActive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	lines := []string{
+		`{"timestamp":"2026-11-02T09:00:00Z","type":"session_meta","payload":{"id":"x"}}`,
+		`{"timestamp":"2026-11-02T09:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]}}`,
+		`{"timestamp":"2026-11-02T09:04:00Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}`,
+		`{"timestamp":"2026-11-02T09:09:00Z","type":"event_msg","payload":{"type":"token_count"}}`,
+		`{"timestamp":"2026-11-02T09:10:00Z","type":"response_item","payload":{"type":"message","role":"developer","content":[]}}`,
+		`not json`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &store.Entry{Transcript: path}
+	Tail(e)
+	if want := time.Date(2026, 11, 2, 9, 4, 0, 0, time.UTC); !e.A.LastActive.Equal(want) {
+		t.Fatalf("last active %v, want %v", e.A.LastActive, want)
 	}
 }

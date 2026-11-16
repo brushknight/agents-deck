@@ -251,3 +251,38 @@ func TestSmallFramesAndNoise(t *testing.T) {
 		t.Fatalf("shrunk agent: detail %d bytes", len(a.GetWaiting().GetDetail()))
 	}
 }
+
+type restoringCtl struct {
+	fakeCtl
+	asked []string
+}
+
+func (r *restoringCtl) RestoreJSON(ids []string) any {
+	r.asked = ids
+	out := []map[string]string{}
+	for _, id := range ids {
+		out = append(out, map[string]string{"id": id, "title": "t", "action": "resumed"})
+	}
+	return out
+}
+
+// Restore with agent ids restores only those.
+func TestSessionRestoreSome(t *testing.T) {
+	srv, _ := testDeck(t)
+	ctl := &restoringCtl{}
+	srv.Ctl = ctl
+	b := start(t, srv, Binary)
+	b.send(hi("board-3"))
+	b.next()
+	_ = srv.Devices.Approve("oled-tile-board3")
+	_ = srv.Devices.SetScope("oled-tile-board3", devices.Admin)
+	b.next()
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Restore{Restore: &linkpb.Restore{AgentIds: []string{"a1"}}}})
+	r := b.next()
+	if rr := r.GetRestoreResult(); r.Seq != 2 || len(rr.GetResults()) != 1 || rr.Results[0].Id != "a1" {
+		t.Fatalf("restore a1: %+v", r)
+	}
+	if len(ctl.asked) != 1 || ctl.asked[0] != "a1" {
+		t.Fatalf("asked: %q", ctl.asked)
+	}
+}

@@ -401,7 +401,7 @@ func updateViaService(check, yes bool) (bool, error) {
 		return true, err
 	}
 	err = followJob(job)
-	if err != nil && strings.Contains(err.Error(), "daemon not running") {
+	if errors.Is(err, errNotRunning) || errors.Is(err, errUnreachable) {
 		fmt.Println("the service is restarting with the new version")
 		return true, nil
 	}

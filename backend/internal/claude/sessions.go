@@ -170,24 +170,6 @@ func (s SessionInfo) Match(query string) bool {
 	return true
 }
 
-// FindSession resolves a full id or a unique id prefix (≥ 4 chars).
-func FindSession(all []SessionInfo, ref string) (SessionInfo, int) {
-	ref = strings.ToLower(strings.TrimSpace(ref))
-	var hits []SessionInfo
-	for _, s := range all {
-		if s.ID == ref {
-			return s, 1
-		}
-		if len(ref) >= 4 && strings.HasPrefix(s.ID, ref) {
-			hits = append(hits, s)
-		}
-	}
-	if len(hits) == 1 {
-		return hits[0], 1
-	}
-	return SessionInfo{}, len(hits)
-}
-
 // Subagents lists the subagents of the session at transcript that are still
 // working, from their own transcripts (<session>/subagents/agent-*.jsonl):
 // not ended with a final reply, and written within window, or within

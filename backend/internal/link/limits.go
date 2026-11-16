@@ -41,6 +41,7 @@ var limits = map[string]limit{
 	"LiveSession.session_id": {size: 40}, "LiveSession.title": {size: 64}, "LiveSession.cwd": {size: 128}, "LiveSession.folder": {size: 48},
 	"AccountList.accounts": {count: 4},
 	"AccountInfo.name":     {size: 16}, "AccountInfo.color": {size: 12},
+	"Restore.agent_ids":     {size: 12, count: 16},
 	"RestoreResult.results": {count: 16},
 	"Restored.id":           {size: 12}, "Restored.title": {size: 64}, "Restored.action": {size: 12}, "Restored.error": {size: 96},
 	// Pairing and Wi-Fi. For bytes, size is the byte count (no NUL): the deck

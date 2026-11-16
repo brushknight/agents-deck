@@ -821,7 +821,20 @@ class _AgentDetailState extends State<AgentDetail> {
             ],
           ),
           const SizedBox(height: 26),
-          _label('last prompt', DeckHud.dim),
+          if (state.lastActiveText(a) case final active when active.isNotEmpty)
+            Row(
+              children: [
+                _label('last prompt', DeckHud.dim),
+                const Spacer(),
+                Text(
+                  active,
+                  key: const Key('agent-last-active'),
+                  style: DeckHud.mono(size: 14, color: DeckHud.dim),
+                ),
+              ],
+            )
+          else
+            _label('last prompt', DeckHud.dim),
           const SizedBox(height: 8),
           // As many lines of it as fit (subagent rows take the room first).
           Expanded(

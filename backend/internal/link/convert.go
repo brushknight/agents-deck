@@ -71,7 +71,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		for _, s := range a.Subagents {
 			p.Subagents = append(p.Subagents, &linkpb.Subagent{Id: s.ID, Title: s.Title, Type: s.Type, Tool: s.Tool})
 		}
-		p.StartedAtMs, p.UpdatedAtMs = ms(a.StartedAt), ms(a.UpdatedAt)
+		p.StartedAtMs, p.UpdatedAtMs, p.LastActiveMs = ms(a.StartedAt), ms(a.UpdatedAt), ms(a.LastActive)
 	}
 	if has(linkpb.FieldGroup_FIELDS_PROMPT) && a.Waiting != nil {
 		w := &linkpb.Prompt{Id: a.Waiting.ID, Kind: promptKinds[a.Waiting.Kind], Title: a.Waiting.Title,

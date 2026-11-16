@@ -144,7 +144,7 @@ type FieldGroup int32
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
 	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count
-	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
+	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
 	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns
 )
@@ -1968,8 +1968,9 @@ type Agent struct {
 	SubagentCount uint32                 `protobuf:"varint,30,opt,name=subagent_count,json=subagentCount,proto3" json:"subagent_count,omitempty"` // len(subagents), sent with TILE so a small board can show it
 	StartedAtMs   int64                  `protobuf:"varint,31,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
 	UpdatedAtMs   int64                  `protobuf:"varint,32,opt,name=updated_at_ms,json=updatedAtMs,proto3" json:"updated_at_ms,omitempty"`
-	App           string                 `protobuf:"bytes,33,opt,name=app,proto3" json:"app,omitempty"`         // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
-	Account       *Account               `protobuf:"bytes,34,opt,name=account,proto3" json:"account,omitempty"` // the Claude account it runs in; unset while only one is set up
+	App           string                 `protobuf:"bytes,33,opt,name=app,proto3" json:"app,omitempty"`                                          // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
+	Account       *Account               `protobuf:"bytes,34,opt,name=account,proto3" json:"account,omitempty"`                                  // the Claude account it runs in; unset while only one is set up
+	LastActiveMs  int64                  `protobuf:"varint,35,opt,name=last_active_ms,json=lastActiveMs,proto3" json:"last_active_ms,omitempty"` // its latest message sent or received; 0 = not known yet
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2240,6 +2241,13 @@ func (x *Agent) GetAccount() *Account {
 		return x.Account
 	}
 	return nil
+}
+
+func (x *Agent) GetLastActiveMs() int64 {
+	if x != nil {
+		return x.LastActiveMs
+	}
+	return 0
 }
 
 type Activity struct {
@@ -3079,8 +3087,11 @@ func (x *Order) GetAgentIds() []string {
 	return nil
 }
 
+// Restore brings back agents lost with the tmux server: the ones listed, or
+// every lost agent when agent_ids is empty.
 type Restore struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentIds      []string               `protobuf:"bytes,1,rep,name=agent_ids,json=agentIds,proto3" json:"agent_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3113,6 +3124,13 @@ func (x *Restore) ProtoReflect() protoreflect.Message {
 // Deprecated: Use Restore.ProtoReflect.Descriptor instead.
 func (*Restore) Descriptor() ([]byte, []int) {
 	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *Restore) GetAgentIds() []string {
+	if x != nil {
+		return x.AgentIds
+	}
+	return nil
 }
 
 // A hat for the agent's working folder (agent_id), or for a folder by path.
@@ -4562,7 +4580,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xf5\b\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x9b\t\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -4600,7 +4618,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\rstarted_at_ms\x18\x1f \x01(\x03R\vstartedAtMs\x12\"\n" +
 	"\rupdated_at_ms\x18  \x01(\x03R\vupdatedAtMs\x12\x10\n" +
 	"\x03app\x18! \x01(\tR\x03app\x125\n" +
-	"\aaccount\x18\" \x01(\v2\x1b.agentsdeck.link.v1.AccountR\aaccount\"6\n" +
+	"\aaccount\x18\" \x01(\v2\x1b.agentsdeck.link.v1.AccountR\aaccount\x12$\n" +
+	"\x0elast_active_ms\x18# \x01(\x03R\flastActiveMs\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +
@@ -4654,8 +4673,9 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\"$\n" +
 	"\x05Order\x12\x1b\n" +
-	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"\t\n" +
-	"\aRestore\"\x85\x01\n" +
+	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"&\n" +
+	"\aRestore\x12\x1b\n" +
+	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"\x85\x01\n" +
 	"\x06SetHat\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x16\n" +
 	"\x06folder\x18\x02 \x01(\tR\x06folder\x12\x14\n" +

@@ -192,6 +192,11 @@ func herdrApply(e *store.Entry, a herdr.Agent, tool, screen string) bool {
 	changed := false
 	switch a.Status {
 	case "working":
+		// herdr gives no times: while it says the agent works, the service
+		// logs now (a Claude agent's transcript, when known, is exact).
+		if e.MarkActiveStep(time.Now().UTC()) {
+			changed = true
+		}
 		if e.A.Status != model.Running {
 			e.SetStatus(model.Running)
 			e.A.Unseen = false

@@ -64,7 +64,7 @@
         "kind": "permission",
         "title": "run this command?",
         "detail": "terraform apply -target=module.staging_net",
-        "context": "bash · ~/dev/infra-network/terraform",
+        "context": "bash \u00b7 ~/dev/infra-network/terraform",
         "options": [
           {
             "key": "1",
@@ -193,7 +193,7 @@
       "lastPrompt": "plan the new node pool",
       "waiting": null,
       "error": {
-        "message": "api 529 overloaded · retrying"
+        "message": "api 529 overloaded \u00b7 retrying"
       },
       "tokens": {
         "input": 200,
@@ -273,20 +273,20 @@
         "kind": "question",
         "title": "which session strategy should the login flow use?",
         "detail": "",
-        "context": "question · 1 of 1",
+        "context": "question \u00b7 1 of 1",
         "options": [
           {
             "key": "1",
-            "label": "rotating refresh tokens — short access token, refresh rotates on use",
+            "label": "rotating refresh tokens \u2014 short access token, refresh rotates on use",
             "primary": true
           },
           {
             "key": "2",
-            "label": "sliding sessions — server-side session, expiry extends on activity"
+            "label": "sliding sessions \u2014 server-side session, expiry extends on activity"
           },
           {
             "key": "3",
-            "label": "long-lived jwt — simplest, no revocation"
+            "label": "long-lived jwt \u2014 simplest, no revocation"
           }
         ]
       },
@@ -464,6 +464,81 @@
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
       "external": false
+    },
+    {
+      "id": "r3l34s",
+      "slot": 11,
+      "title": "Release Notes v2",
+      "aiTitle": "Draft the release notes",
+      "tool": "claude",
+      "status": "exited",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/release-notes",
+      "folder": "release-notes",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "draft the notes for the next release from the merged pull requests",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 900,
+        "output": 30000,
+        "cacheRead": 800000,
+        "cacheWrite": 90000
+      },
+      "context": {
+        "used": 120000,
+        "window": 200000
+      },
+      "costUsd": 1.25,
+      "turns": 9,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false,
+      "resumable": true,
+      "lost": true
+    },
+    {
+      "id": "cl34nx",
+      "slot": 12,
+      "title": "Infra Cleanup",
+      "aiTitle": "Remove unused buckets",
+      "tool": "claude",
+      "status": "exited",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/infra-tf",
+      "folder": "infra-tf",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "list the storage buckets nothing reads from and remove them",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 900,
+        "output": 30000,
+        "cacheRead": 800000,
+        "cacheWrite": 90000
+      },
+      "context": {
+        "used": 120000,
+        "window": 200000
+      },
+      "costUsd": 1.25,
+      "turns": 9,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false,
+      "resumable": true
     }
   ]
 }

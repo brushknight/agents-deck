@@ -74,6 +74,7 @@ agentsdeck.link.v1.LiveSession.folder    max_size:48
 agentsdeck.link.v1.AccountList.accounts  max_count:4
 agentsdeck.link.v1.AccountInfo.name      max_size:16
 agentsdeck.link.v1.AccountInfo.color     max_size:12
+agentsdeck.link.v1.Restore.agent_ids     max_size:12 max_count:16
 agentsdeck.link.v1.RestoreResult.results max_count:16
 agentsdeck.link.v1.Restored.id           max_size:12
 agentsdeck.link.v1.Restored.title        max_size:64

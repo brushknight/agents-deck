@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var Socket = "agentsterm" // a variable only so tests can use their own server
@@ -173,15 +174,32 @@ func describe(err error) error {
 
 // Sessions returns the names of live sessions (empty when the server is down).
 func Sessions() map[string]bool {
-	out, err := run("list-sessions", "-F", "#{session_name}")
 	live := map[string]bool{}
+	for name := range SessionActivity() {
+		live[name] = true
+	}
+	return live
+}
+
+// SessionActivity maps each live session to the last time its window
+// printed anything (tmux's window_activity; zero if tmux didn't say).
+func SessionActivity() map[string]time.Time {
+	out, err := run("list-sessions", "-F", "#{session_name} #{window_activity}")
+	live := map[string]time.Time{}
 	if err != nil {
 		return live
 	}
 	for _, l := range strings.Split(out, "\n") {
-		if l != "" {
-			live[l] = true
+		i := strings.LastIndexByte(l, ' ')
+		if i <= 0 {
+			continue
 		}
+		name, at := l[:i], l[i+1:]
+		var t time.Time
+		if n, err := strconv.ParseInt(at, 10, 64); err == nil && n > 0 {
+			t = time.Unix(n, 0).UTC()
+		}
+		live[name] = t
 	}
 	return live
 }

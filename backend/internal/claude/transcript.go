@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/pricing"
@@ -28,6 +29,9 @@ type line struct {
 	Custom    string `json:"customTitle"`
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
 	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
+	Timestamp string `json:"timestamp"`
+	IsMeta    bool   `json:"isMeta"`      // text Claude Code adds for itself (command caveats, reminders)
+	Sidechain bool   `json:"isSidechain"` // a subagent's message
 	Message   *struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -85,6 +89,9 @@ func Tail(e *store.Entry) bool {
 			var l line
 			if json.Unmarshal(sc.Bytes(), &l) != nil {
 				continue
+			}
+			if t, ok := l.activeAt(); ok && e.MarkActive(t) {
+				changed = true
 			}
 			if l.GitBranch != "" && l.GitBranch != e.A.Branch {
 				e.A.Branch, changed = l.GitBranch, true
@@ -146,6 +153,19 @@ func Tail(e *store.Entry) bool {
 		e.A.Title = e.DisplayTitle() // names follow Claude's titles live
 	}
 	return changed
+}
+
+// activeAt is when a line counts as the agent's activity: a message sent to
+// it (your prompt, a tool's result) or received from it (a reply, a tool
+// call). Everything else in a transcript does not count: titles, summaries,
+// snapshots, hook and system notes, text Claude Code adds for itself
+// (isMeta), and subagents' messages.
+func (l line) activeAt() (time.Time, bool) {
+	if l.Type != "user" && l.Type != "assistant" || l.IsMeta || l.Sidechain || l.Message == nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+	return t, err == nil
 }
 
 func apiErrorText(content json.RawMessage) string {

@@ -304,6 +304,7 @@ class Agent {
     this.account,
     this.startedAt,
     this.updatedAt,
+    this.lastActive,
   });
 
   final String id;
@@ -389,6 +390,9 @@ class Agent {
   final DateTime? startedAt;
   final DateTime? updatedAt;
 
+  /// Its latest message sent or received; null while the deck doesn't know.
+  final DateTime? lastActive;
+
   static Agent fromJson(Map<String, dynamic> j) {
     final act = _map(j['activity']);
     final wait = _map(j['waiting']);
@@ -438,6 +442,7 @@ class Agent {
       ],
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
+      lastActive: _time(j['lastActive']),
     );
   }
 
@@ -517,6 +522,17 @@ class AgentsState {
     final t = server.time;
     if (t == null) return now;
     return t.add(now.difference(receivedAt));
+  }
+
+  /// "last active 3h ago" for [a], or "" while the deck doesn't know.
+  String lastActiveText(Agent a, [DateTime? localNow]) {
+    final at = a.lastActive;
+    if (at == null) return '';
+    final d = serverNow(localNow).difference(at);
+    if (d.inMinutes < 1) return 'last active just now';
+    if (d.inHours < 1) return 'last active ${d.inMinutes}m ago';
+    if (d.inHours < 48) return 'last active ${d.inHours}h ago';
+    return 'last active ${d.inDays}d ago';
   }
 
   /// How long [a] has been in its current status (zero when unknown).

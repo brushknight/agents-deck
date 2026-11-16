@@ -88,7 +88,11 @@ func (d *Daemon) Run() {
 			accKey = k
 			d.Store.Touch()
 		}
-		live := tmux.Sessions()
+		activity := tmux.SessionActivity()
+		live := make(map[string]bool, len(activity))
+		for name := range activity {
+			live[name] = true
+		}
 		// The focused agent: the session of the most recently active client whose
 		// terminal reports focus (tmux focus-events; no AppleScript needed).
 		clients := map[string][]tmux.Client{}
@@ -111,6 +115,9 @@ func (d *Daemon) Run() {
 			}
 			changed := claude.Tail(e)
 			alive := live[e.TmuxName]
+			if alive && tmuxActive(*e, activity[e.TmuxName]) && e.MarkActiveStep(activity[e.TmuxName]) {
+				changed = true
+			}
 			young := time.Since(e.A.StartedAt) < 3*time.Second // tmux session still being created
 			switch {
 			case !alive && !young && e.A.Status != model.Exited:
@@ -173,6 +180,21 @@ func (d *Daemon) Run() {
 		d.syncHeaders(live)
 	}
 }
+
+// tmuxActive reports whether tmux's last-output time counts as activity for
+// an agent: only for tools without a transcript (a shell, Codex, Gemini or
+// opencode started here), and not the output of starting up (a shell's first
+// prompt is not something you did).
+func tmuxActive(e store.Entry, at time.Time) bool {
+	if e.A.Tool == "claude" || e.Transcript != "" || at.IsZero() {
+		return false
+	}
+	return at.Sub(e.A.StartedAt) > startupOutput
+}
+
+// startupOutput is how long after an agent starts its output is still just
+// the tool starting.
+const startupOutput = 10 * time.Second
 
 // enableFocusReports asks every newly seen client terminal to report focus
 // changes, so the focused-agent highlight follows tab clicks, not just typing.
@@ -433,6 +455,20 @@ const formSettle = 1500 * time.Millisecond
 
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
+	return d.stampActive(id, d.answer(id, promptID, key))
+}
+
+// stampActive logs an answer or interrupt sent from the deck as the agent's
+// latest activity, when it went through.
+func (d *Daemon) stampActive(id string, err error) error {
+	if err == nil {
+		now := time.Now().UTC()
+		d.Store.Update(id, func(e *store.Entry) bool { return e.MarkActive(now) })
+	}
+	return err
+}
+
+func (d *Daemon) answer(id, promptID, key string) error {
 	if e, ok := d.Store.Get(id); ok {
 		if h, ok := d.harnessOf(e); ok {
 			return d.answerInApp(h, id, promptID, key)
@@ -536,6 +572,10 @@ func (d *Daemon) Answer(id, promptID, key string) error {
 
 // Interrupt sends Esc, which stops Claude's current turn.
 func (d *Daemon) Interrupt(id string) error {
+	return d.stampActive(id, d.interrupt(id))
+}
+
+func (d *Daemon) interrupt(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound

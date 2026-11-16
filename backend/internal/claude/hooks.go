@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -35,6 +36,17 @@ func HooksSettings(agentctl string) ([]byte, error) {
 	}
 	return json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
 }
+
+// activeEvents are the hooks that mean a message went to the agent or came
+// from it: a prompt submitted, a tool call, a question, a turn ending.
+// Starting and ending a session are not activity.
+var activeEvents = map[string]bool{
+	"UserPromptSubmit": true, "PreToolUse": true, "PostToolUse": true,
+	"PermissionRequest": true, "Notification": true, "Stop": true, "PreCompact": true,
+}
+
+// Now is the clock hooks stamp activity with (tests set it).
+var Now = func() time.Time { return time.Now().UTC() }
 
 // Event is the subset of the hook payload we use.
 type Event struct {
@@ -66,6 +78,11 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 	}
 	if ev.Cwd != "" && e.A.Cwd == "" {
 		e.A.Cwd = ev.Cwd
+	}
+	if activeEvents[ev.Name] {
+		// The service logs the time itself, so agents whose transcript it
+		// can't read still have one (the transcript, when read, agrees).
+		e.MarkActive(Now())
 	}
 	switch ev.Name {
 	case "PreCompact":

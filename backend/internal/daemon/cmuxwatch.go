@@ -152,6 +152,9 @@ func (d *Daemon) syncCmux(list []cmux.Session) {
 			if s.Cwd != "" && s.Cwd != e.A.Cwd {
 				e.A.Cwd, e.A.Folder, changed = s.Cwd, filepath.Base(s.Cwd), true
 			}
+			if s.Updated > 0 && e.MarkActiveStep(seconds(s.Updated)) { // cmux's hooks' own time
+				changed = true
+			}
 			changed = cmuxApply(e, s, tool, screen, interrupted) || changed
 			return d.subagents(e) || changed
 		})

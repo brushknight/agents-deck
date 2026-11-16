@@ -376,6 +376,25 @@ void main() {
       );
     });
 
+    test('last active, on the daemon clock', () {
+      final j = jsonDecode(_fixture) as Map<String, dynamic>;
+      final server = DateTime.parse((j['server'] as Map)['time'] as String);
+      final agents = (j['agents'] as List).cast<Map<String, dynamic>>();
+      agents[0]['lastActive'] = server
+          .subtract(const Duration(days: 2, hours: 1))
+          .toIso8601String();
+      agents[1]['lastActive'] = server
+          .subtract(const Duration(seconds: 20))
+          .toIso8601String();
+      final s = AgentsState.fromJson(j, receivedAt: DateTime.utc(2030));
+      final at = DateTime.utc(2030);
+      expect(s.agents[0].lastActive, isNotNull);
+      expect(s.lastActiveText(s.agents[0], at), 'last active 2d ago');
+      expect(s.lastActiveText(s.agents[1], at), 'last active just now');
+      expect(s.agents[2].lastActive, isNull);
+      expect(s.lastActiveText(s.agents[2], at), '');
+    });
+
     test('compact counts and paths', () {
       expect([900, 1500, 84000, 410000, 1000000, 3100000].map(compactCount), [
         '900',

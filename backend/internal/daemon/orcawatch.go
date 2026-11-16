@@ -145,6 +145,9 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 			if r.a.Prompt != "" && r.a.Prompt != e.A.LastPrompt {
 				e.A.LastPrompt, changed = clipText(r.a.Prompt, 280), true
 			}
+			if r.a.UpdatedAt > 0 && e.MarkActiveStep(time.UnixMilli(r.a.UpdatedAt)) { // Orca's own time
+				changed = true
+			}
 			if orcaApply(e, r.a, screen) {
 				changed = true
 			}

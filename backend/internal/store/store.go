@@ -114,6 +114,32 @@ func (e *Entry) SetStatus(s model.Status) {
 	}
 }
 
+// MarkActive records activity at t (a message sent to the agent or received
+// from it) when t is newer than what is known. A known time never moves back,
+// so re-reading a transcript after a restart can't make an agent look older,
+// and nothing stamps "now" for activity it didn't see.
+func (e *Entry) MarkActive(t time.Time) bool {
+	if t.IsZero() || !t.After(e.A.LastActive) {
+		return false
+	}
+	e.A.LastActive = t.UTC()
+	return true
+}
+
+// ActiveStep is how far a polled source (an app's status, tmux) must move
+// the last-active time before it counts as a change: an agent at work would
+// otherwise change, and be sent to every screen, every second.
+const ActiveStep = 30 * time.Second
+
+// MarkActiveStep is MarkActive for polled sources: it moves the time only
+// in ActiveStep steps.
+func (e *Entry) MarkActiveStep(t time.Time) bool {
+	if t.Sub(e.A.LastActive) < ActiveStep {
+		return false
+	}
+	return e.MarkActive(t)
+}
+
 type Store struct {
 	mu      sync.Mutex
 	fileMu  sync.Mutex // serialises writes of the registry file

@@ -745,7 +745,11 @@ func (s *Session) command(f *linkpb.Frame) error {
 			return &linkpb.Frame{Body: &linkpb.Frame_AccountList{AccountList: l}}
 		})
 	case *linkpb.Frame_Restore:
-		code, out := s.Deck.Do(s.dev, http.MethodPost, "/v1/restore", nil)
+		var in []byte
+		if ids := b.Restore.AgentIds; len(ids) > 0 {
+			in, _ = json.Marshal(map[string][]string{"ids": ids})
+		}
+		code, out := s.Deck.Do(s.dev, http.MethodPost, "/v1/restore", in)
 		if code != http.StatusOK {
 			return s.result(f.Seq, code, errText(out))
 		}

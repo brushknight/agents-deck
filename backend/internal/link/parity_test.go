@@ -155,7 +155,7 @@ func TestAgentParity(t *testing.T) {
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, StartedAt: now, UpdatedAt: now}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
@@ -166,6 +166,12 @@ func TestAgentParity(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Errorf("toPB leaves these Agent fields unset with every group subscribed: %v", missing)
+	}
+	if got := toPB(full, 2).LastActiveMs; got != full.LastActive.UnixMilli() {
+		t.Errorf("last_active_ms = %d, want %d", got, full.LastActive.UnixMilli())
+	}
+	if got := toPB(model.Agent{ID: "a2"}, 2).LastActiveMs; got != 0 {
+		t.Errorf("unknown last activity: last_active_ms = %d, want 0", got)
 	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))

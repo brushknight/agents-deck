@@ -108,8 +108,29 @@ func (t Thread) DisplayTitle() string {
 const maxRead = 8 << 20
 
 type rolloutLine struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Timestamp string          `json:"timestamp"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+// activeAt is when a rollout line counts as the thread's activity: a
+// message from you or the model, a tool call or its result. Context,
+// token counts and instructions don't count.
+func activeAt(l rolloutLine, p payload) (time.Time, bool) {
+	if l.Type != "response_item" {
+		return time.Time{}, false
+	}
+	switch p.Type {
+	case "message":
+		if p.Role != "user" && p.Role != "assistant" {
+			return time.Time{}, false
+		}
+	case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output":
+	default:
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+	return t, err == nil
 }
 
 type payload struct {
@@ -194,6 +215,9 @@ func Tail(e *store.Entry) bool {
 		var p payload
 		if json.Unmarshal(l.Payload, &p) != nil {
 			continue
+		}
+		if t, ok := activeAt(l, p); ok && e.MarkActive(t) {
+			changed = true
 		}
 		changed = apply(e, l.Type, p, first) || changed
 	}

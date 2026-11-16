@@ -59,6 +59,7 @@ type Agent struct {
 	Account     *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
 	StartedAt   time.Time  `json:"startedAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
+	LastActive  time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
 }
 
 // Hat is the pixel hat an agent wears, picked by its working folder: shape

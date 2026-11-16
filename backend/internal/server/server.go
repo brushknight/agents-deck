@@ -36,9 +36,10 @@ type Controller interface {
 	Resume(id string) error
 }
 
-// Restorer brings back agents lost with the tmux server (POST /v1/restore).
+// Restorer brings back agents lost with the tmux server (POST /v1/restore):
+// the ones listed, or every lost agent when ids is empty.
 type Restorer interface {
-	RestoreJSON() any
+	RestoreJSON(ids []string) any
 }
 
 // Handoffer continues a Claude session in another account (POST
@@ -259,7 +260,11 @@ func (s *Server) api() *http.ServeMux {
 			writeErr(w, http.StatusNotImplemented, "restore is not available")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"results": rs.RestoreJSON()})
+		body := struct {
+			IDs []string `json:"ids"`
+		}{}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body) // optional
+		writeJSON(w, http.StatusOK, map[string]any{"results": rs.RestoreJSON(body.IDs)})
 	})
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))

@@ -37,7 +37,7 @@ mutating request whose `Origin` is not that host.
 | GET | `/v1/hats` | – | `200` `{"shapes": […], "colors": […], "overrides": {"<folder>": {"shape", "color"}}}` |
 | POST | `/v1/hats` | `{"folder": "/Users/sam/dev/app", "shape", "color"}` or `{"folder", "auto": true}` | `204` — the same, by folder |
 | POST | `/v1/live/{session}/add` | `{"slot": 9}` (optional) | `204` — puts that session on the deck, watched (`external: true`, `tool: "claude"`): status, context, cost and subagents from its transcript; answer, interrupt and resume return an error; dismiss takes it off the deck. It stays added: it comes back whenever it runs |
-| POST | `/v1/restore` | – | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}` — brings back every agent with `lost: true`: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot |
+| POST | `/v1/restore` | `{"ids": ["k3f9a2"]}` (optional) | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}`: brings back the listed agents with `lost: true`, or every one when `ids` is missing or empty: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot. A listed id that isn't lost comes back `failed` with the reason |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
@@ -111,7 +111,15 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
     { "id": "a1f3c9", "title": "map the payment retry paths", "type": "Explore", "tool": "Grep" }
   ],
   "startedAt": "2026-10-08T00:13:00Z",
-  "updatedAt": "2026-10-08T00:51:02Z"
+  "updatedAt": "2026-10-08T00:51:02Z",   // any change to this record
+  "lastActive": "2026-10-08T00:50:41Z"   // omitted until known: its latest message sent to it or received from it.
+                                  // Claude: the newest user or assistant line of its transcript (prompts, replies,
+                                  // tool calls and results; not titles, summaries, hook or system notes, isMeta
+                                  // text or subagents). Codex: the same from its rollout, and Codex's own thread
+                                  // time. Orca and cmux: their own time. Shells and other tools started here:
+                                  // tmux's last output (not their start-up). The service also logs it itself
+                                  // when it sees a prompt, a tool call, a turn end or an answer from the deck
+                                  // (herdr: while it says working). Kept across restarts, never moved back
 }
 
 // Prompt — something the agent is blocked on

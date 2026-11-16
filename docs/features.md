@@ -25,6 +25,9 @@ Tap a tile for its card:
 - **Overview.** What it's doing now, context used, tokens, estimated cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop** (or **resume** / **remove** once it has exited).
 - **Permission prompts** show the exact command with Claude's own options; **questions** show their choices; a question with several parts goes one question at a time (pick-any ones tick, then **next**), then **submit answers**. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
 - **Free-text input** can't be typed on the deck: the card sends you to the terminal.
+- **Last active** says when the agent last sent or got a message ("last active 3h ago"), also after a
+  crash or a restart. `agentctl ls` shows it as ACTIVE, and `agentctl ls --sort active` puts the most
+  recently active first.
 
 <p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>
 
@@ -130,7 +133,9 @@ Added sessions are **watched**: status (working, idle, hungry when a turn finish
 
 ## Restore after a tmux crash or reboot
 
-If the tmux server dies under live agents (a crash, a reboot), they are marked **lost with tmux** and stay on the board. `agentctl restore` (or **restore all** on the web dashboard) brings them back: Claude agents resume their own conversation, other tools start fresh in their folder, each in its old spot. `agentctl set restore auto` does it as soon as the loss is noticed.
+If the tmux server dies under live agents (a crash, a reboot), they are marked **lost with tmux** and stay on the board. `agentctl restore` (or **restore all** on the web dashboard) brings them back: Claude agents resume their own conversation, other tools start fresh in their folder, each in its old spot. `agentctl set restore auto` does it as soon as the loss is noticed. `agentctl restore <name>` brings back just that one (any part of its name works), and asks before
+restoring more than 5 at once. `resume` and `restore` are the same command: name an agent or a Claude
+session and it comes back (restored, resumed or started) and opens; one still running just opens.
 
 ## Simulated agents
 

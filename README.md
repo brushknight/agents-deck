@@ -260,14 +260,14 @@ Prefer to approve each board by hand? `agentctl devices auto-approve usb off`; a
 
 ```text
 agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]   start an agent and attach (-d: stay detached)
-agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
-agentctl ls                         the fleet at a glance
+agentctl attach <agent>             show an agent in this terminal (ctrl-q detaches)
+agentctl ls [--sort active]         the fleet at a glance, with when each agent was last active
 agentctl web                        open the dashboard
 agentctl live / add <session>       Claude sessions started by hand; put one on the deck
 agentctl sessions [words]           look up any Claude session by id, title, folder, branch or last prompt
-agentctl resume <id-prefix>         continue a Claude session as an agent
-agentctl restore                    bring back agents lost with the tmux server (crash, reboot)
-agentctl rm <id|title>              stop and forget an agent
+agentctl resume <agent or session>  bring it back and open it, whatever happened to it (see below)
+agentctl restore                    bring back everything lost with the tmux server (crash, reboot)
+agentctl rm <agent>                 stop and forget an agent
 agentctl link [ports | add <port>]  boards: how each is connected, find ports, register one
 agentctl link wifi --default --ssid NAME   the Wi-Fi network every board gets (asks for the password)
 agentctl flash <port> <image.bin>   write a board's firmware over USB (--probe: only read the chip)
@@ -278,6 +278,22 @@ agentctl status                     is the service running, where are its files
 agentctl update [--check]           check for a new version and install it
 agentctl sim start|stop             pretend agents for demos
 ```
+
+**Getting agents back.** `resume` and `restore` are one command: bring an agent back and open it.
+Name one and agentctl does what it takes: restores it if it was lost with the tmux server, resumes it
+if it ended, starts a Claude session that isn't on the deck as an agent, or, if it is still running,
+just opens it. `restore` with no name brings back everything lost in a crash (it lists them first and
+asks before more than 5; `--all` skips the question).
+
+You can name an agent by its id, the start of its id, its name, or any part of its name that only one
+agent has, in any case: `agentctl resume notes` finds "Release Notes v2". When several match,
+agentctl lists them (id, name, last active, folder) and asks for the id. With
+`source <(agentctl completion zsh)` in `~/.zshrc`, Tab offers the matching agents and sessions by
+name, the most recently active first: lost and ended agents, then running ones, then sessions.
+
+**Last active** is when an agent last sent or got a message: from the transcript for Claude and
+Codex, from the app for Orca and cmux, and logged by the service for the rest (shells, herdr). It
+survives a crash and a restart, so after one you can still tell which agents you were using.
 
 `agentctl help` lists the rest (accounts, hats, handoff, terminal and mouse settings). Building and
 flashing boards with a coding agent's help: [docs/flashing.md](docs/flashing.md#let-a-coding-agent-do-it).

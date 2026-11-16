@@ -100,7 +100,7 @@ board                                   deck
   | bit | group | fields |
   |---|---|---|
   | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count` |
-  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms` |
+  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms` |
   | 4 | `FIELDS_PROMPT` | `waiting` |
   | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns` |
 
@@ -130,7 +130,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `SetHat {agent_id or folder, shape, color, automatic}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
 | `Dismiss`, `Resume` `{agent_id}` | `POST /v1/agents/{id}/dismiss`, `…/resume` | admin | `Result` |
 | `Handoff {agent_id, account}` | `POST /v1/agents/{id}/handoff` | admin | `Result` (200 when it started) |
-| `Restore` | `POST /v1/restore` | admin | `RestoreResult` |
+| `Restore {agent_ids}` | `POST /v1/restore` | admin | `RestoreResult`: the listed lost agents, or every lost agent when `agent_ids` is empty |
 | `ListLive` | `GET /v1/live` | admin | `LiveSessions` |
 | `AddLive {session_id, slot}` | `POST /v1/live/{session}/add` | admin | `Result` |
 

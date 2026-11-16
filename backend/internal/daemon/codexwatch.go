@@ -91,6 +91,9 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 		}
 		d.Store.Update(id, func(e *store.Entry) bool {
 			changed := codex.Tail(e)
+			if t.UpdatedAtMs > 0 && e.MarkActiveStep(time.UnixMilli(t.UpdatedAtMs)) { // Codex's own time
+				changed = true
+			}
 			if title := t.DisplayTitle(); title != e.A.Title {
 				e.A.Title, changed = title, true
 			}
