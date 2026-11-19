@@ -141,6 +141,13 @@ python3 .github/scripts/firmware_release.py build --board waveshare-touch-lcd-28
 (`build` runs `pio run` again, which is quick once built; `merge --image 0x0=… --image 0x8000=…` merges
 files you name instead.)
 
+To get that build onto your boards in one click, give it a version newer than the one they run (such
+as `--version 0.2.0-dev.7`; the firmware reports it) and add the folder to agents deck:
+`agentctl firmware add dist`. Each board of that kind that runs an older version then shows
+**0.2.0-dev.7 built on this computer** with an **Install** button in Settings, Boards, over USB or
+Wi-Fi, also in a copy built from source without the release key
+([flashing.md](flashing.md#firmware-built-on-this-computer)).
+
 ### Coming soon: the web flasher
 
 A web flasher on the project's website will flash these images from the browser (Chrome or Edge, over

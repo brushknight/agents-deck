@@ -6,8 +6,8 @@ package main
 //	agentctl system [--json]
 //	agentctl settings [<key> <value>]
 //	agentctl ports [register|identify|forget <port>]
-//	agentctl flash --board <board> [--version v] <port>
-//	agentctl devices rename <id> <name> | update <id> [--version v]
+//	agentctl flash --board <board> [--version v] [--local] <port>
+//	agentctl devices rename <id> <name> | update <id> [--version v] [--local]
 //	agentctl diagnostics
 //	agentctl update (through the service when it runs)
 
@@ -235,7 +235,16 @@ func printIdentity(id admin.Identity, port string) {
 	if id.Note != "" {
 		fmt.Println(id.Note)
 	}
-	if len(id.Candidates) > 0 {
+	if len(id.Local) > 0 {
+		fmt.Println("built on this computer for this chip:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		for _, b := range id.Local {
+			fmt.Fprintf(tw, "  %s\t%s\t%s\n", b.Board, b.Name, b.Version)
+		}
+		_ = tw.Flush()
+		fmt.Printf("install with: agentctl flash --local --board <board> %s\n", port)
+	}
+	if len(id.Candidates) > 0 && id.ReleaseKey {
 		fmt.Println("boards it could be:")
 		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 		for _, b := range id.Candidates {
@@ -248,9 +257,10 @@ func printIdentity(id admin.Identity, port string) {
 		_ = tw.Flush()
 		fmt.Printf("install with: agentctl flash --board <board> %s\n", port)
 	}
-	if !id.ReleaseKey {
+	if !id.ReleaseKey && len(id.Local) == 0 {
 		fmt.Println("this copy of agents deck was built from source, so it can't check firmware downloaded from a release and won't install it.\n" +
-			"you can still install a firmware file from this computer: Install a firmware file… in Settings, Boards, or agentctl flash " + port + " <image.bin>")
+			"firmware built on this computer installs in one click: agentctl firmware add <folder>, then agentctl flash --local --board <board> " + port + "\n" +
+			"or write an image by hand: agentctl flash " + port + " <image.bin>")
 	}
 }
 
@@ -261,6 +271,7 @@ func flashBoardCmd(args []string) error {
 	fs := flag.NewFlagSet("flash", flag.ExitOnError)
 	board := fs.String("board", "", "the board, as agentctl ports identify or agentctl firmware ls names it")
 	ver := fs.String("version", "", "the firmware version (default: the latest release)")
+	local := fs.Bool("local", false, "install the build made on this computer (agentctl firmware add), not a release's")
 	var pos []string
 	for len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		pos, args = append(pos, args[0]), args[1:]
@@ -268,10 +279,12 @@ func flashBoardCmd(args []string) error {
 	_ = fs.Parse(args)
 	pos = append(pos, fs.Args()...)
 	if *board == "" || len(pos) != 1 {
-		return errors.New("usage: agentctl flash --board <board> [--version v] <port>   (the port must be registered: agentctl ports)")
+		return errors.New("usage: agentctl flash --board <board> [--version v] [--local] <port>   (the port must be registered: agentctl ports)")
 	}
+	body := localBody(*local, *ver)
+	body["board"] = *board
 	var job admin.Job
-	if err := adminCall("POST", "/admin/v1/ports/"+portRef(pos[0])+"/flash", map[string]string{"board": *board, "version": *ver}, &job); err != nil {
+	if err := adminCall("POST", "/admin/v1/ports/"+portRef(pos[0])+"/flash", body, &job); err != nil {
 		return err
 	}
 	return followJob(job)
@@ -348,15 +361,16 @@ func devicesAdminCmd(args []string) error {
 		return nil
 	case args[0] == "update" && len(args) >= 2:
 		fs := flag.NewFlagSet("devices update", flag.ExitOnError)
-		ver := fs.String("version", "", "the firmware version (default: the latest release)")
+		ver := fs.String("version", "", "the firmware version (default: the newest, a release's or one built on this computer)")
+		local := fs.Bool("local", false, "install the build made on this computer (agentctl firmware add), not a release's")
 		_ = fs.Parse(args[2:])
 		var job admin.Job
-		if err := adminCall("POST", "/admin/v1/devices/"+url.PathEscape(args[1])+"/update", map[string]string{"version": *ver}, &job); err != nil {
+		if err := adminCall("POST", "/admin/v1/devices/"+url.PathEscape(args[1])+"/update", localBody(*local, *ver), &job); err != nil {
 			return err
 		}
 		return followJob(job)
 	}
-	return errors.New("usage: agentctl devices rename <name> <new name> | update <name> [--version v]")
+	return errors.New("usage: agentctl devices rename <name> <new name> | update <name> [--version v] [--local]")
 }
 
 func diagnosticsCmd(args []string) error {

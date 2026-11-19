@@ -189,29 +189,44 @@ func printUpdate(st update.State) {
 	}
 }
 
-// firmwareCmd: agentctl firmware ls
+// firmwareCmd: agentctl firmware ls | add <folder or files> | rm <board> [<version>]
 func firmwareCmd(args []string) error {
-	if len(args) != 1 || (args[0] != "ls" && args[0] != "list") {
-		return errors.New("usage: agentctl firmware ls")
+	usage := errors.New("usage: agentctl firmware ls | add <folder or files> | rm <board> [<version>]")
+	if len(args) == 0 {
+		return usage
+	}
+	switch args[0] {
+	case "add":
+		return firmwareAdd(args[1:])
+	case "rm", "remove":
+		return firmwareRm(args[1:])
+	case "ls", "list":
+		if len(args) != 1 {
+			return usage
+		}
+	default:
+		return usage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	c := firmware.New()
 	cat, err := c.Latest(ctx)
 	if err != nil {
-		return err
+		fmt.Println("couldn't read the latest release: " + err.Error())
+	} else {
+		fmt.Printf("firmware in release %s\n", cat.Version)
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "BOARD\tNAME\tCHIP\tWI-FI\tOVER THE AIR\tSIZE")
+		for _, b := range cat.Boards {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d KB\n", b.Board, b.Name, b.Chip, yesNo(b.Wifi), yesNo(b.OTA != nil), (b.Size+1023)/1024)
+		}
+		tw.Flush()
 	}
-	fmt.Printf("firmware in release %s\n", cat.Version)
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "BOARD\tNAME\tCHIP\tWI-FI\tOVER THE AIR\tSIZE")
-	for _, b := range cat.Boards {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d KB\n", b.Board, b.Name, b.Chip, yesNo(b.Wifi), yesNo(b.OTA != nil), (b.Size+1023)/1024)
-	}
-	tw.Flush()
+	printLocalBuilds()
 	printYourBoards()
 	if c.Releases.Key == nil {
-		fmt.Println("\nThis build has no release key: it lists the firmware but never downloads or flashes it.")
-		fmt.Println("A file of your own still installs: agentctl link update --image (Wi-Fi), agentctl flash (USB).")
+		fmt.Println("\nThis copy of agents deck was built from source (no release key): it lists the release's firmware but never downloads or installs it.")
+		fmt.Println("Firmware built on this computer installs in one click: agentctl firmware add <folder>, then Install on the board's row in Settings, Boards (or agentctl devices update <name>).")
 	}
 	return nil
 }

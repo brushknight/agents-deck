@@ -68,3 +68,44 @@ func TestVersionOrderForBoards(t *testing.T) {
 		}
 	}
 }
+
+// A build made on this computer is offered when it is newer than what the
+// board runs and than a release this copy can install.
+func TestFirmwareStatusLocal(t *testing.T) {
+	ota := &firmware.OTA{File: "x.app.bin"}
+	board := &firmware.Board{Board: "waveshare-touch-lcd-4", Version: "0.1.1", Wifi: true, OTA: ota}
+	cat := &firmware.Catalog{Version: "0.1.1", Boards: []firmware.Board{*board}}
+	dev7 := &firmware.Board{Board: "waveshare-touch-lcd-4", Version: "0.2.0-dev.7", Wifi: true, OTA: ota}
+	noApp := &firmware.Board{Board: "waveshare-touch-lcd-4", Version: "0.2.0-dev.7", Wifi: true}
+	old := &firmware.Board{Board: "waveshare-touch-lcd-4", Version: "0.1.0", OTA: ota}
+	for name, tc := range map[string]struct {
+		in                        fwInput
+		state, how, latest, words string
+		ready                     bool
+	}{
+		"no key, usb":            {in: fwInput{Running: "0.2.0-dev.4", Catalog: cat, Board: board, Local: dev7, Connection: "usb", Registered: true}, state: FwLocal, how: "usb", latest: "0.2.0-dev.7", ready: true, words: "0.2.0-dev.7 built on this computer"},
+		"no key, wifi":           {in: fwInput{Running: "0.2.0-dev.4", Catalog: cat, Board: board, Local: dev7, Connection: "wifi", LocalOTA: true}, state: FwLocal, how: "wifi", latest: "0.2.0-dev.7", ready: true},
+		"wifi, no app image":     {in: fwInput{Running: "0.2.0-dev.4", Catalog: cat, Board: board, Local: noApp, Connection: "wifi", LocalOTA: true}, state: FwLocal, how: "wifi", latest: "0.2.0-dev.7", words: "built on this computer"},
+		"wifi, can't send":       {in: fwInput{Running: "0.2.0-dev.4", Local: dev7, Connection: "wifi"}, state: FwLocal, how: "wifi", latest: "0.2.0-dev.7"},
+		"dev.10 runs, dev.7":     {in: fwInput{Running: "0.2.0-dev.10", Catalog: cat, Board: board, Local: dev7, Connection: "usb", Registered: true}, state: FwNewer, latest: "0.1.1"},
+		"runs it":                {in: fwInput{Running: "0.2.0-dev.7", Catalog: cat, Board: board, Local: dev7, Connection: "usb", Registered: true}, state: FwNewer, latest: "0.1.1"},
+		"release newer, key":     {in: fwInput{Running: "0.0.9", Catalog: cat, Board: board, ReleaseKey: true, Local: old, Connection: "usb", Registered: true}, state: FwUpdate, how: "usb", latest: "0.1.1", ready: true},
+		"release newer, no key":  {in: fwInput{Running: "0.0.9", Catalog: cat, Board: board, Local: old, Connection: "usb", Registered: true}, state: FwLocal, how: "usb", latest: "0.1.0", ready: true, words: "Release 0.1.1 is newer"},
+		"offline":                {in: fwInput{Running: "0.1.1", CatalogErr: "no such host", Local: dev7, Connection: "usb", Registered: true}, state: FwLocal, how: "usb", latest: "0.2.0-dev.7", ready: true},
+		"not in the release":     {in: fwInput{Running: "0.1.1", Catalog: &firmware.Catalog{Version: "0.1.1"}, Local: dev7}, state: FwLocal, how: "unplugged", latest: "0.2.0-dev.7"},
+		"own build":              {in: fwInput{Running: "dev", Catalog: cat, Board: board, Local: dev7, Connection: "usb", Registered: true}, state: FwLocal, how: "usb", latest: "0.2.0-dev.7", ready: true, words: "build of its own (dev)"},
+		"newer than the release": {in: fwInput{Running: "0.3.0", Catalog: cat, Board: board, ReleaseKey: true, Local: dev7}, state: FwNewer, latest: "0.1.1"},
+		"usb unregistered":       {in: fwInput{Running: "0.1.1", Catalog: cat, Board: board, Local: dev7, Connection: "usb"}, state: FwLocal, how: "usb", latest: "0.2.0-dev.7"},
+	} {
+		got := firmwareStatus(tc.in)
+		if got.State != tc.state || got.How != tc.how || got.Ready != tc.ready || got.Latest != tc.latest || !strings.Contains(got.Text, tc.words) {
+			t.Errorf("%s: %+v, want %s how %q ready %v latest %s %q", name, got, tc.state, tc.how, tc.ready, tc.latest, tc.words)
+		}
+		if got.State == FwLocal && (got.Source != SourceLocal || (!got.Ready && got.Note == "")) {
+			t.Errorf("%s: %+v", name, got)
+		}
+		if strings.Contains(got.Text+got.Note, "—") {
+			t.Errorf("%s: an em dash in %q", name, got.Text+got.Note)
+		}
+	}
+}

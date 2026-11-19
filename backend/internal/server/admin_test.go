@@ -27,7 +27,8 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 		"/admin/v1/update/apply", "/admin/v1/events", "/admin/v1/diagnostics", "/v1/../admin/v1/system", "/v1/admin/v1/system",
 		"/admin/v1/bluetooth", "/admin/v1/bluetooth/scan", "/admin/v1/bluetooth/boards", "/admin/v1/bluetooth/boards/6B1F2C3D-0000-4000-8000-0000000000A1/add",
 		"/admin/v1/devices/panel/uplink", "/admin/v1/devices/panel/firmware-file", "/admin/v1/devices/panel/install-file",
-		"/admin/v1/ports/cu.x/firmware-file", "/admin/v1/ports/cu.x/install-file"}
+		"/admin/v1/ports/cu.x/firmware-file", "/admin/v1/ports/cu.x/install-file",
+		"/admin/v1/firmware/builds", "/admin/v1/firmware/builds/made-up-board/0.2.0-dev.7"}
 	for _, dev := range []string{"", "viewer", "panel", "boss", "gone"} {
 		hdr := map[string]string{}
 		ps := paths
@@ -38,7 +39,7 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 			ps = paths[:2] // refused before routing (and slowed down): two are enough
 		}
 		for _, p := range ps {
-			for _, m := range []string{"GET", "POST", "PATCH"} {
+			for _, m := range []string{"GET", "POST", "PATCH", "DELETE"} {
 				w := do(h, m, p, `{"board":"x"}`, hdr)
 				if loc := w.Header().Get("Location"); w.Code >= 300 && w.Code < 400 {
 					w = do(h, m, loc, `{"board":"x"}`, hdr) // a cleaned path: follow it once
@@ -54,9 +55,11 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 	}
 }
 
-// fileCalls take a firmware file picked on this computer.
+// fileCalls take a firmware file picked on this computer, or a build made
+// on it (agentctl firmware add).
 var fileCalls = []string{"/admin/v1/devices/panel/firmware-file", "/admin/v1/devices/panel/install-file",
-	"/admin/v1/ports/cu.usbmodem1101/firmware-file", "/admin/v1/ports/cu.usbmodem1101/install-file"}
+	"/admin/v1/ports/cu.usbmodem1101/firmware-file", "/admin/v1/ports/cu.usbmodem1101/install-file",
+	"/admin/v1/firmware/builds"}
 
 // A firmware file sent to the network listener never reaches the management
 // API, not even from a device with the admin scope: installing a file is for

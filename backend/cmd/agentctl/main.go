@@ -104,12 +104,14 @@ const usage = `agentctl: runs and controls agents deck
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
   agentctl flash <port> <image.bin> [--offset 0x0] [--probe]
                                  write a firmware image to an ESP32-S3 board over USB
-  agentctl flash --board <board> [--version v] <port>
+  agentctl flash --board <board> [--version v] [--local] <port>
                                  the service downloads, checks and writes the board's firmware
+                                 (--local: the build made on this computer)
   agentctl ports [register|identify|forget <port>]
                                  USB ports and what is on them (listed without opening them)
-  agentctl devices rename <name> <new name> | update <name>
-                                 a board's name in Settings; update its firmware
+  agentctl devices rename <name> <new name> | update <name> [--local]
+                                 a board's name in Settings; update its firmware (the newest, a
+                                 release's or one built on this computer)
   agentctl devices reset [--yes]  start the deck's certificates over (a lost CA key): network
                                  devices pair again, boards get new ones on USB
   agentctl devices uplink <name> auto|wifi|ble
@@ -121,7 +123,13 @@ const usage = `agentctl: runs and controls agents deck
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
   agentctl update [--check]      look for a new release, and install it
-  agentctl firmware ls           the boards and firmware in the latest release
+  agentctl firmware ls           the boards and firmware in the latest release, and builds made here
+  agentctl firmware add <folder or files>
+                                 keep firmware built on this computer (the release script's
+                                 agents-deck-<board>-<version>.bin, .app.bin, .manifest.json): a board
+                                 that runs an older version installs it with one click
+  agentctl firmware rm <board> [<version>]
+                                 remove builds made on this computer
   agentctl serve [--demo] [--log FILE]
                                  run the service (normally started at login, see install)
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now

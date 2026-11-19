@@ -34,11 +34,12 @@ type Job struct {
 	Device   string    `json:"device,omitempty"`
 	Board    string    `json:"board,omitempty"` // catalog board id
 	Version  string    `json:"version,omitempty"`
-	File     string    `json:"file,omitempty"`  // a firmware file picked on this computer, by name
-	Done     int64     `json:"done,omitempty"`  // bytes of the current stage
-	Total    int64     `json:"total,omitempty"` // its size
-	Chip     string    `json:"chip,omitempty"`  // what answered in install mode
-	Steps    []string  `json:"steps,omitempty"` // finished steps, in words
+	File     string    `json:"file,omitempty"`   // a firmware file picked on this computer, by name
+	Source   string    `json:"source,omitempty"` // local: a build made on this computer (firmware-builds)
+	Done     int64     `json:"done,omitempty"`   // bytes of the current stage
+	Total    int64     `json:"total,omitempty"`  // its size
+	Chip     string    `json:"chip,omitempty"`   // what answered in install mode
+	Steps    []string  `json:"steps,omitempty"`  // finished steps, in words
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished,omitzero"`
 }

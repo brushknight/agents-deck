@@ -10,7 +10,8 @@ ready-made image from the latest release:
 3. **[From a terminal](#from-a-release-image)**, with `agentctl flash`.
 
 And a fourth, for running the newest code or changing it:
-**[building it yourself](#build-from-source)** with PlatformIO.
+**[building it yourself](#build-from-source)** with PlatformIO. A build you made on this computer then
+installs with one click, like a release: [firmware built on this computer](#firmware-built-on-this-computer).
 
 Which board is which, with pictures of every screen: [devices.md](devices.md).
 
@@ -43,11 +44,14 @@ Picked the wrong board? Nothing breaks: install again with the right one. If the
 answer, Settings shows the [BOOT and RST](#if-the-board-doesnt-answer-boot-and-rst) rescue.
 
 **A copy of agents deck built from source** has no release key, so it can't check firmware
-downloaded from a release and won't install it: Settings says so in step 4 instead of offering
-**Install firmware**. You can still set the board up over its USB cable with a file from this
-computer: click **Install a firmware file...** and pick a full image, either one you built (a merged
-image written at `0x0`) or a release's `agents-deck-<board>-<version>.bin` you downloaded yourself.
-Settings reads the file first and refuses it, with the reason, before anything is written:
+downloaded from a release and won't install it. Firmware built on this computer still installs in
+one click: once a build is there ([below](#firmware-built-on-this-computer)), step 3 shows the boards
+it is for, marked "built here", and step 4's button says **Install 0.2.0-dev.7, built on this
+computer**. Without a build there, Settings says what to do instead of offering **Install firmware**,
+and you can still set the board up over its USB cable with a single file: click **Install a firmware
+file...** and pick a full image, either one you built (a merged image written at `0x0`) or a
+release's `agents-deck-<board>-<version>.bin` you downloaded yourself. Settings reads the file first
+and refuses it, with the reason, before anything is written:
 
 - an app image (`.pio/build/<env>/firmware.bin`, a release's `.app.bin`) is the firmware alone. It
   only starts on a board that already has a bootloader and a partition table, and a board with
@@ -70,10 +74,55 @@ yet, so they update on the cable.
 Updating keeps the board's name, its certificate and its Wi-Fi network.
 
 Each board in Settings, Boards says which firmware it runs, how it is connected and one line about
-updates: **Update to X available** (with an **Update** button), **Up to date**, **Newer than the
-latest release** (a build of your own, such as `0.2.0-dev.4`), **Couldn't check for updates** with
-the reason, or that updates are switched off because this build has no release key. `agentctl
-firmware ls` lists your boards the same way under the release's firmware.
+updates: **Update to X available** (with an **Update** button), **0.2.0-dev.7 built on this
+computer** (with an **Install** button, [below](#firmware-built-on-this-computer)), **Up to date**,
+**Newer than the latest release** (a build of your own, such as `0.2.0-dev.4`), **Couldn't check for
+updates** with the reason, or that a release is out and this copy installs only firmware built on
+this computer (no release key). `agentctl firmware ls` lists your boards the same way under the
+release's firmware and the builds made here.
+
+## Firmware built on this computer
+
+agents deck keeps the firmware you build in a folder of its own, `firmware-builds` in its data folder,
+next to the releases. A board that runs an older version than a build there gets an **Install**
+button on its row in Settings, Boards: one click, nothing to pick. It works with or without a release
+key.
+
+1. Build the board's release files with the release script, as [releasing.md](releasing.md#how-the-firmware-images-are-built)
+   shows. Give it a version newer than the one the board runs, such as `0.2.0-dev.7`: it is the version
+   the firmware reports, and the one agents deck compares.
+2. Put the build there:
+
+   ```bash
+   agentctl firmware add dist        # the folder the script wrote; or name its files
+   ```
+
+   It takes `agents-deck-<board>-<version>.bin` (the full image), `.app.bin` (the app image, for
+   boards with Wi-Fi) and `.manifest.json`, as the script writes them; a `firmware-manifest.json`
+   alone also works. Each build is checked before it is kept, the same checks as a file picked in
+   Settings: ESP32 images of the right kind, for the chip and flash size the manifest says, with the
+   sizes and SHA-256 it lists.
+3. Click **Install** on the board's row (or run `agentctl devices update <name>`). A board on its
+   USB cable gets the full image written at `0x0`; a board on Wi-Fi gets the app image over the air.
+   The board's line says which way before you click, and why not when it can't (a board on Wi-Fi with
+   a build that has no app image: plug it in).
+
+For a board with nothing of ours on it yet, **Set it up** offers the boards a build here is for, and
+installs its full image over the cable (or `agentctl flash --local --board <board> <port>`).
+
+`agentctl firmware ls` lists the builds with the release's firmware; `agentctl firmware rm <board>
+[<version>]` removes them. Copying the files into the folder by hand works too: they are read
+again, and checked again before every install.
+
+When a release and a build here are both newer than what a board runs, the line offers the newer of
+the two and says where it comes from (**Update to 0.3.0 available**, or **0.3.1-dev.2 built on this
+computer**). Versions compare the semver way: `0.2.0-dev.7` is older than `0.2.0-dev.10`, and both
+are older than `0.2.0`.
+
+Nothing in this comes from the network: only this computer puts builds in the folder (the service
+takes them on its own socket and on the dashboard at `127.0.0.1`, never from a board or a phone).
+A build isn't checked against a release signature, it is your own; the board still checks what it
+always checks.
 
 **A firmware file of your own.** **Install a firmware file...**, on each connected board (and in **Set
 it up** for a board on a USB port), installs a
@@ -228,6 +277,20 @@ What the two kinds of build are:
 Each board's README lists its other envs: a `debug` build that prints what it's doing on the USB port
 (`pio device monitor` shows it; the deck ignores text), and on the round boards a hardware self-test.
 
+### Or: build it once, install it with one click
+
+`pio run -t upload` writes the build over the cable right away. To keep a build and install it from
+Settings instead (on any board of that kind, over USB or Wi-Fi), build the release files and add them:
+
+```bash
+python3 .github/scripts/firmware_release.py build --board waveshare-touch-lcd-28c \
+  --dir firmware/devices/waveshare-touch-lcd-28c/idf5 --env idf5 --version 0.2.0-dev.7 --out dist
+agentctl firmware add dist
+```
+
+Every board of that kind that runs an older version then shows **0.2.0-dev.7 built on this computer**
+with an **Install** button ([firmware built on this computer](#firmware-built-on-this-computer)).
+
 ### 4. Watch it come up
 
 The board restarts, says "connecting", and a few seconds later shows your agents. On a registered port
@@ -289,7 +352,7 @@ Unplug and replug the board once it's done, so it starts the new firmware.
 | no new port when you plug the board in (`agentctl link ports`, or nothing new in Settings, Boards) | Use a USB cable that carries data (charge-only cables are a common trap), and plug straight into the computer rather than a hub. On Linux, see [the board's port can't be opened](install.md#linux-the-boards-port-cant-be-opened). |
 | flashing can't connect, or times out | [BOOT and RST](#if-the-board-doesnt-answer-boot-and-rst), then flash again. |
 | the port is busy | Close any serial monitor (`pio device monitor`, Arduino IDE, a web flasher tab). The deck itself lets go of the port while flashing. |
-| "no release key" from `agentctl firmware ls`, or Settings won't download firmware | That `agentctl` was built without the release signing key (a build from source), so it never installs anything it downloaded. Download the image and use **Install a firmware file...** in Settings, Boards or [`agentctl flash`](#from-a-release-image), or install a release ([install.md](install.md)). |
+| "no release key" from `agentctl firmware ls`, or Settings won't download firmware | That `agentctl` was built without the release signing key (a build from source), so it never installs anything it downloaded. Build the firmware and add it with `agentctl firmware add <folder>` ([firmware built on this computer](#firmware-built-on-this-computer)): the board then gets an **Install** button. Or pick a single image with **Install a firmware file...**, or install a release ([install.md](install.md)). |
 | `pio: command not found` | Install PlatformIO ([step 1](#1-install-platformio)), then open a new terminal. |
 | an `idf5` build fails with `No module named 'SCons.Tool.FortranCommon'` | pioarduino and PlatformIO Core disagree about their SCons package. Once, give the pioarduino home PlatformIO's own (the commands are below this table). |
 | the board stays on "connecting" ("plugged into the Mac?", or "waiting for the deck · on USB" on the round boards) | The deck isn't talking to it on USB: confirm the board in Settings, Boards (or `agentctl link ports` and `agentctl link add <port>`; the port name can change when you use another USB socket), and check the service runs (`agentctl status`). |

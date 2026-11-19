@@ -77,7 +77,7 @@ _agentctl() {
     'ports:USB ports and what is on them'
     'bluetooth:boards over Bluetooth'
     'flash:write firmware to a board over USB'
-    'firmware:the boards and firmware in the latest release'
+    'firmware:the firmware in the latest release and builds made here'
     'update:look for a new release, and install it'
     'system:what the service is doing'
     'settings:show or change the service settings'
@@ -172,8 +172,8 @@ _agentctl() {
         _describe -t bluetooth 'bluetooth command' sub
       fi ;;
     flash)
-      _agentctl_args '--board[the board type]:board:' '--version[firmware version]:version:' '--offset[where to write]:offset:(0x0 0x10000)' '--probe[only check the board]' '*:port or image:_files' ;;
-    firmware)   (( CURRENT == 3 )) && _values 'action' ls ;;
+      _agentctl_args '--board[the board type]:board:' '--version[firmware version]:version:' '--offset[where to write]:offset:(0x0 0x10000)' '--probe[only check the board]' '--local[the build made on this computer]' '*:port or image:_files' ;;
+    firmware)   if (( CURRENT == 3 )); then _values 'action' ls add rm; elif [[ $words[3] == add ]]; then _files; fi ;;
     update)     _agentctl_args '--check[only look]' '--yes[do not ask]' ;;
     settings)
       if (( CURRENT == 3 )); then _values 'setting' start-at-login notifications sound restore updates network

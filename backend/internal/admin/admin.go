@@ -174,6 +174,9 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/v1/bluetooth/boards/{id}/add", a.bluetoothAdd)
 
 	mux.HandleFunc("GET /admin/v1/firmware", a.firmwareCatalog)
+	mux.HandleFunc("GET /admin/v1/firmware/builds", a.listBuilds)
+	mux.HandleFunc("POST /admin/v1/firmware/builds", a.addBuild)
+	mux.HandleFunc("DELETE /admin/v1/firmware/builds/{board}/{version}", a.removeBuild)
 	mux.HandleFunc("GET /admin/v1/jobs", a.listJobs)
 	mux.HandleFunc("GET /admin/v1/jobs/{id}", a.getJob)
 	mux.HandleFunc("POST /admin/v1/jobs/{id}/cancel", a.cancelJob)

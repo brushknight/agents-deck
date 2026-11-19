@@ -466,8 +466,12 @@ async function deviceAction(d, action, body, btnEl, okMsg) {
   return r;
 }
 
+// updateDevice installs what the board's line offers: the latest release,
+// or the build made on this computer (source local).
 async function updateDevice(d, btnEl) {
-  const job = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/update`, {}));
+  const st = d.status || {};
+  const body = st.source === 'local' ? { source: 'local', version: st.latest } : {};
+  const job = await busy(btnEl, () => api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/update`, body));
   if (job && job.id) {
     putJob(job);
     location.hash = `#flash/${job.id}`;
@@ -595,14 +599,15 @@ function deviceRow(d) {
 // above the list.
 function fwText(st) {
   switch (st.state) {
-    case 'update': return st.ready ? `${st.text} · ${st.note}` : st.text;
+    case 'update':
+    case 'local': return st.ready ? `${st.text} · ${st.note}` : st.text;
     case 'current': return `Up to date · ${st.latest} is the latest release`;
-    case 'nokey': return `${st.latest} is out · this build can't install it (no release key)`;
+    case 'nokey': return `Release ${st.latest} is out · this copy installs firmware you build: agentctl firmware add <folder>`;
     case 'error': return 'Couldn\'t check for updates';
     default: return st.text;
   }
 }
-const FW_MARK = { update: 'go', newer: 'ok', current: 'ok', own: 'ok', error: 'bad', nokey: 'off' };
+const FW_MARK = { update: 'go', local: 'go', newer: 'ok', current: 'ok', own: 'ok', error: 'bad', nokey: 'off' };
 
 // The stages an update over Wi-Fi reports, in words.
 const OTA_WORDS = { offered: 'offered, waiting for the board', downloading: 'downloading', verifying: 'checking the firmware', restarting: 'restarting into it' };
@@ -635,17 +640,23 @@ function fwLine(d) {
   if (st && st.state === 'update' && st.ready) {
     acts.append(btn(`Update to ${st.latest}`, (e) => updateDevice(d, e.currentTarget), 'a', { 'data-k': `upd-${d.id}` }));
   }
+  if (st && st.state === 'local' && st.ready) {
+    acts.append(btn('Install', (e) => updateDevice(d, e.currentTarget), 'a', {
+      'data-k': `upd-${d.id}`, 'aria-label': `Install ${st.latest}, built on this computer, on ${d.name} ${st.note}`,
+    }));
+  }
   const t = deviceFileTarget(d);
   const canFile = (d.fileVia || []).length > 0;
   acts.append(...fileButton(t, canFile, d.fileNote));
   line.append(acts);
-  const upNote = st && st.state === 'update' && !st.ready ? st.note : '';
+  const upNote = st && (st.state === 'update' || st.state === 'local') && !st.ready ? st.note : '';
+  const upWord = st && st.state === 'local' ? 'To install it' : 'To update';
   if (upNote && upNote === d.fileNote) { // one reason for both (only on Bluetooth)
     line.append(h('p', { class: 'note', id: `fwn-${t.key}` }, `To update or install a file: ${upNote}.`));
     if (S.file[t.key]) line.append(filePanel(t, S.file[t.key]));
     return line;
   }
-  if (upNote) line.append(h('p', { class: 'note' }, `To update: ${upNote}.`));
+  if (upNote) line.append(h('p', { class: 'note' }, `${upWord}: ${upNote}.`));
   if (!canFile && d.fileNote && d.online) line.append(h('p', { class: 'note', id: `fwn-${t.key}` }, `A firmware file: ${d.fileNote}.`));
   else if (!canFile && d.fileNote) line.append(h('span', { class: 'sr', id: `fwn-${t.key}` }, d.fileNote));
   if (S.file[t.key]) line.append(filePanel(t, S.file[t.key]));
@@ -808,10 +819,12 @@ function drawBoards() {
   }
   for (const j of S.jobList?.jobs || []) putJob(j);
   const boards = devs.some((d) => d.kind === 'serial' && d.state === 'active');
-  if (boards && S.devices.releaseKey === false) {
+  if (boards && S.devices.releaseKey === false && !devs.some((d) => d.status?.state === 'local')) {
     out.push(h('div', { class: 'box notice', 'data-k': 'nokey' },
-      h('p', {}, 'Updates are switched off in this build (no release key).'),
-      h('p', { class: 'note' }, 'It can\'t check that firmware from a release is genuine, so it never installs one. Your boards keep working, and Install a firmware file… on a board still installs a build you made or downloaded.')));
+      h('p', {}, 'This copy installs firmware you build on this computer, not releases.'),
+      h('p', { class: 'note' }, 'It was built from source, so it can\'t check that firmware from a release is genuine and never installs one. ' +
+        'Build the firmware, then run agentctl firmware add <folder> with the folder the release script wrote: a board that runs an older version gets an Install button here. ' +
+        'Install a firmware file… on a board takes a single .bin.')));
   }
   if (boards && S.devices.catalogError && !S.devices.latest) {
     out.push(h('p', { class: 'note err' }, `Couldn't check for updates: ${S.devices.catalogError}`));
@@ -996,7 +1009,8 @@ function boardCards(list, chosen, onPick) {
   const group = h('div', { class: 'cards', role: 'radiogroup', 'aria-label': 'Which board is it?' });
   list.forEach((b, i) => {
     const on = b.board === chosen;
-    const spec = [b.flash_size ? `${Math.round(b.flash_size / 1048576)} MB` : null, b.wifi ? 'Wi-Fi' : 'USB only'].filter(Boolean).join(' · ');
+    const spec = [b.flash_size ? `${Math.round(b.flash_size / 1048576)} MB` : null, b.wifi ? 'Wi-Fi' : 'USB only',
+      b.source === 'local' ? `${b.version} built here` : null].filter(Boolean).join(' · ');
     group.append(h('button', {
       type: 'button', class: 'card', role: 'radio', 'aria-checked': on ? 'true' : 'false',
       tabindex: on || (!chosen && i === 0) ? '0' : '-1', 'data-k': `card-${b.board}`,
@@ -1015,8 +1029,10 @@ async function nbIdentify() {
   try {
     nb.identity = await api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/identify`, {});
     const id = nb.identity;
+    const offers = nbOffers(id);
     if (id.board) nb.choice = id.board.board;
-    else if (id.candidates.length === 1) nb.choice = id.candidates[0].board;
+    else if (id.source === 'session' && id.local?.length) nb.choice = id.local[0].board;
+    else if (offers.length === 1) nb.choice = offers[0].board;
   } catch (e) {
     nb.error = e;
   }
@@ -1024,9 +1040,44 @@ async function nbIdentify() {
   if (S.nb === nb) draw();
 }
 
-async function nbInstall(btnEl) {
+// nbOffers: what can go on the board in "Set up a new board", one card per
+// board: the latest release's (when this copy can install releases) or the
+// build made on this computer, whichever is newer.
+function nbOffers(id) {
+  const out = id.releaseKey ? id.candidates.map((b) => ({ ...b, source: 'release' })) : [];
+  for (const b of id.local || []) {
+    const i = out.findIndex((x) => x.board === b.board);
+    if (i < 0) out.push({ ...b, source: 'local' });
+    else if (newerVersion(b.version, out[i].version)) out[i] = { ...b, source: 'local' };
+  }
+  return out;
+}
+
+// newerVersion: a is newer than b by semver precedence (0.2.0-dev.10 > 0.2.0-dev.7 > 0.1.1).
+function newerVersion(a, b) {
+  const parse = (v) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(v || '');
+    return m ? { n: [+m[1], +m[2], +m[3]], pre: m[4] ? m[4].split('.') : [] } : null;
+  };
+  const x = parse(a), y = parse(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < 3; i++) if (x.n[i] !== y.n[i]) return x.n[i] > y.n[i];
+  if (!x.pre.length || !y.pre.length) return !x.pre.length && y.pre.length > 0;
+  for (let i = 0; i < Math.min(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i], q = y.pre[i];
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p), qn = /^\d+$/.test(q);
+    if (pn && qn) return +p > +q;
+    if (pn !== qn) return qn;
+    return p > q;
+  }
+  return x.pre.length > y.pre.length;
+}
+
+async function nbInstall(btnEl, offer) {
   const nb = S.nb;
-  const job = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/flash`, { board: nb.choice }));
+  const body = offer && offer.source === 'local' ? { board: offer.board, version: offer.version, source: 'local' } : { board: nb.choice };
+  const job = await busy(btnEl, () => api('POST', `/admin/v1/ports/${encodeURIComponent(nb.port)}/flash`, body));
   if (job && job.id) {
     putJob(job);
     nb.job = job.id;
@@ -1076,8 +1127,9 @@ function drawNewBoard() {
     out.push(row(`${d.model || d.type || 'A board'} · firmware ${d.firmware || 'unknown'}`, `It already runs agents deck, as ${d.name || 'a board'}.${id.latest ? ` The latest firmware is ${id.latest}.` : ''}`, []));
   } else {
     const fs = id.flashSize ? ` · ${Math.round(id.flashSize / 1048576)} MB flash` : '';
-    const n = id.candidates.length;
-    out.push(row(`${id.chip}${fs}`, `No agents deck firmware on it yet. ${n === 0 ? 'No board in the latest release uses this chip.' : n === 1 ? 'One board matches this chip.' : `${n} boards match this chip.`}`, []));
+    const n = nbOffers(id).length;
+    const none = id.releaseKey ? 'No board in the latest release or built on this computer uses this chip.' : 'No firmware built on this computer is for this chip.';
+    out.push(row(`${id.chip}${fs}`, `No agents deck firmware on it yet. ${n === 0 ? none : n === 1 ? 'One board matches this chip.' : `${n} boards match this chip.`}`, []));
   }
   if (id.note) out.push(h('p', { class: 'note' }, id.note));
   // A file from this computer: through the board's own calls when it runs
@@ -1087,22 +1139,30 @@ function drawNewBoard() {
     : id.source === 'probe' ? portFileTarget(p, id) : null;
   const canFile = dev ? (dev.fileVia || []).length > 0 : !!ft;
   const fileNote = dev ? (dev.fileNote || 'approve the board first') : '';
-  if (id.releaseKey && id.candidates.length) out.push(boardCards(id.candidates, nb.choice, (v) => { nb.choice = v; draw(); }));
-  if (!id.releaseKey) {
-    out.push(h('p', { class: 'note' }, 'This copy of agents deck was built from source, so it can\'t check firmware downloaded from a release and won\'t install it. You can still install a firmware file from this computer: a .bin you built or downloaded, with the Install a firmware file button below.'));
+  const offers = nbOffers(id);
+  if (offers.length) out.push(boardCards(offers, nb.choice, (v) => { nb.choice = v; draw(); }));
+  if (!id.releaseKey && !offers.length) {
+    out.push(h('p', { class: 'note' }, 'This copy of agents deck was built from source, so it can\'t check firmware downloaded from a release and won\'t install it. ' +
+      'Firmware you build on this computer installs in one click: run agentctl firmware add <folder> with the folder the release script wrote, then look at the board again. ' +
+      'Or install a single .bin you built or downloaded with the Install a firmware file button below.'));
     if (!dev && id.candidates.length) {
       out.push(h('p', { class: 'note' }, `Pick the full image, the one written at 0x0: from a release, ${id.candidates.map((b) => `agents-deck-${b.board}-<version>.bin`).join(' or ')}.`));
     }
     out.push(h('p', { class: 'note' }, 'By hand in a terminal, agentctl flash <port> <image.bin> does the same.'));
   }
   if (ft && !canFile && fileNote) out.push(h('p', { class: 'note', id: `fwn-${ft.key}` }, `To install a firmware file: ${fileNote}.`));
-  const chosen = id.candidates.find((b) => b.board === nb.choice);
-  const label = chosen ? `Install firmware ${chosen.version || id.latest}` : 'Pick the board first';
+  const chosen = offers.find((b) => b.board === nb.choice);
+  const label = !chosen ? 'Pick the board first'
+    : chosen.source === 'local' ? `Install ${chosen.version}, built on this computer` : `Install firmware ${chosen.version || id.latest}`;
+  if (chosen && chosen.source === 'local') {
+    out.push(h('p', { class: 'note' }, `${chosen.name} ${chosen.version} was built on this computer (agentctl firmware add). ` +
+      'It isn\'t a release, so no signature is checked; its files are checked against the manifest that came with them. The full image is written at 0x0 over the cable.'));
+  }
   const right = [h('a', { class: 'b', href: '#boards' }, 'Cancel')];
-  if (ft) right.push(...fileButton(ft, canFile, fileNote, id.releaseKey ? '' : 'p'));
-  if (id.releaseKey) right.push(btn(label, (e) => nbInstall(e.currentTarget), 'p', { disabled: !chosen, 'data-k': 'nb-install' }));
+  if (ft) right.push(...fileButton(ft, canFile, fileNote, offers.length ? '' : 'p'));
+  if (offers.length) right.push(btn(label, (e) => nbInstall(e.currentTarget, chosen), 'p', { disabled: !chosen, 'data-k': 'nb-install' }));
   out.push(h('div', { class: 'actions' },
-    id.releaseKey ? h('p', { class: 'note' }, 'Picked the wrong one? Nothing breaks: install again with the right board.') : null,
+    offers.length ? h('p', { class: 'note' }, 'Picked the wrong one? Nothing breaks: install again with the right board.') : null,
     h('div', { class: 'r' }, ...right)));
   if (ft && S.file[ft.key]) out.push(filePanel(ft, S.file[ft.key]));
   return out;
@@ -1158,7 +1218,8 @@ function drawFlash() {
   }
   const dev = (S.devices?.devices || []).find((d) => d.id === j.device);
   const fromSetup = S.nb && S.nb.job === j.id;
-  const boardName = (S.nb?.identity?.candidates || []).find((b) => b.board === j.board)?.name || dev?.model || j.board || 'the board';
+  const known = [...(S.nb?.identity?.candidates || []), ...(S.nb?.identity?.local || [])];
+  const boardName = known.find((b) => b.board === j.board)?.name || dev?.model || j.board || 'the board';
   $('#h-newboard').textContent = j.file ? `${j.state === 'done' ? 'Installed' : 'Installing'} ${j.file} on ${dev?.name || j.device || boardName}`
     : j.kind === 'board-update' ? `${j.state === 'done' ? 'Updated' : 'Updating'} ${dev?.name || j.device}` : `${j.state === 'done' ? 'Installed on' : 'Installing on'} ${boardName}`;
   const ended = j.state !== 'running';
@@ -1202,9 +1263,12 @@ function drawFlash() {
   }
   const cur = STAGE_ORDER.indexOf(j.stage);
   const list = h('ol', { class: 'list', 'aria-label': 'Steps' });
-  // A file picked on this computer: no download and no signature to check.
-  const pre = j.file ? 1 : 2;
-  const steps = j.file ? [{ at: ['download'], todo: () => `Use ${j.file}`, done: () => `Used ${j.file}`, side: () => 'not checked against a release' }, ...FLASH_STEPS.slice(2)] : FLASH_STEPS;
+  // A file picked on this computer, or a build made on it: no download and
+  // no signature to check.
+  const pre = j.file || j.source === 'local' ? 1 : 2;
+  const steps = j.file ? [{ at: ['download'], todo: () => `Use ${j.file}`, done: () => `Used ${j.file}`, side: () => 'not checked against a release' }, ...FLASH_STEPS.slice(2)]
+    : j.source === 'local' ? [{ at: ['download'], todo: () => `Use ${j.version}, built on this computer`, done: () => `Used ${j.version}, built on this computer`, side: () => 'checked against its manifest' }, ...FLASH_STEPS.slice(2)]
+      : FLASH_STEPS;
   steps.forEach((s, i) => {
     const at = Math.min(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
     const last = Math.max(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
@@ -1218,7 +1282,7 @@ function drawFlash() {
   });
   out.push(list);
   if (j.state === 'done') {
-    const b = (S.nb?.identity?.candidates || []).find((x) => x.board === j.board);
+    const b = known.find((x) => x.board === j.board);
     out.push(h('div', { class: 'box', role: 'status' },
       h('h2', {}, 'Done'),
       h('p', {}, j.file ? `${dev?.name || j.device || (j.board ? boardName : 'The board')} restarts into ${j.file}, pairs and shows your agents in a few seconds.` : `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
@@ -1230,7 +1294,8 @@ function drawFlash() {
     out.push(bootHelp([
       h('a', { class: 'b', href: '#boards' }, 'Back to Boards'),
       j.port && j.kind === 'flash' && !j.file ? btn('Try again', async (e) => {
-        const job = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(j.port)}/flash`, { board: j.board, version: j.version }));
+        const job = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(j.port)}/flash`,
+          j.source === 'local' ? { board: j.board, version: j.version, source: 'local' } : { board: j.board, version: j.version }));
         if (job?.id) { putJob(job); if (S.nb) S.nb.job = job.id; location.hash = `#flash/${job.id}`; }
       }, 'p') : null,
     ]));
@@ -1412,8 +1477,9 @@ function drawUpdates() {
   const withUpd = devs.filter((d) => d.update);
   for (const d of withUpd) {
     const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'not connected · plug it in to update' }[d.update.how];
-    const meta = `${d.firmware} → ${d.update.version} · ${d.update.ready ? how : d.update.note || how}`;
-    out.push(row(d.name, meta, d.update.ready ? [btn('Update', (e) => updateDevice(d, e.currentTarget), 'a')] : [],
+    const from = d.update.source === 'local' ? ' built on this computer' : '';
+    const meta = `${d.firmware} → ${d.update.version}${from} · ${d.update.ready ? how : d.update.note || how}`;
+    out.push(row(d.name, meta, d.update.ready ? [btn(from ? 'Install' : 'Update', (e) => updateDevice(d, e.currentTarget), 'a')] : [],
       { pic: pic(shapeOf(d.board || d.type), !d.online, boardOf(`${d.board} ${d.type}`)), off: !d.online, name: true }));
   }
   const latest = S.devices?.latest;

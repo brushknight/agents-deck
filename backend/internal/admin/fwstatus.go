@@ -14,6 +14,7 @@ const (
 	FwNewer    = "newer"    // runs something newer than the latest release (a build of its own)
 	FwOwn      = "own"      // runs a version that isn't a release's ("dev")
 	FwNoKey    = "nokey"    // a newer release, but this build has no release key
+	FwLocal    = "local"    // a newer build made on this computer (firmware-builds)
 	FwError    = "error"    // the release list couldn't be read
 	FwUnlisted = "unlisted" // the latest release has no firmware for this board
 	FwUnknown  = "unknown"  // the board hasn't said which firmware it runs
@@ -28,7 +29,16 @@ type FirmwareStatus struct {
 	How    string `json:"how,omitempty"`    // update: usb | wifi | bluetooth | unplugged
 	Ready  bool   `json:"ready,omitempty"`  // update: it can be installed now
 	Note   string `json:"note,omitempty"`   // update: how, or why not now
+	// Source: where Latest comes from, release (signed, from GitHub) or
+	// local (built on this computer); for update and local.
+	Source string `json:"source,omitempty"`
 }
+
+// Where an update comes from.
+const (
+	SourceRelease = "release"
+	SourceLocal   = "local"
+)
 
 // fwInput is what the status is decided from.
 type fwInput struct {
@@ -40,10 +50,74 @@ type fwInput struct {
 	Connection string            // usb | wifi | bluetooth | "" (not connected)
 	Registered bool              // on USB: its port is registered
 	OTA        bool              // this service can update boards over Wi-Fi
+	// Local is the newest build of this board made on this computer (nil:
+	// none); LocalOTA that this service can send one over Wi-Fi.
+	Local    *firmware.Board
+	LocalOTA bool
 }
 
-// firmwareStatus decides a board's one line about updates.
+// firmwareStatus decides a board's one line about updates: the latest
+// release's, or a build made on this computer when that one is newer than
+// what the board runs and than a release this build can install.
 func firmwareStatus(in fwInput) FirmwareStatus {
+	rel := releaseStatus(in)
+	if in.Local == nil || in.Running == "" {
+		return rel
+	}
+	lv, err := update.ParseVersion(in.Local.Version)
+	if err != nil {
+		return rel
+	}
+	run, runErr := update.ParseVersion(in.Running)
+	if runErr == nil && lv.Compare(run) <= 0 {
+		return rel // it runs this build, or a newer one
+	}
+	if rel.State == FwUpdate {
+		if v, err := update.ParseVersion(rel.Latest); err == nil && v.Compare(lv) >= 0 {
+			return rel // the release is as new or newer, and signed
+		}
+	}
+	return localStatus(in, rel)
+}
+
+// localStatus: install the build made on this computer.
+func localStatus(in fwInput, rel FirmwareStatus) FirmwareStatus {
+	b := in.Local
+	s := FirmwareStatus{State: FwLocal, Source: SourceLocal, Latest: b.Version, Text: b.Version + " built on this computer"}
+	if _, err := update.ParseVersion(in.Running); err != nil {
+		s.Text = "Runs a build of its own (" + in.Running + "); " + b.Version + " built on this computer can go on it"
+	} else if rel.State == FwNoKey {
+		s.Text += ". Release " + rel.Latest + " is newer, and this copy of agents deck can't install releases"
+	}
+	switch in.Connection {
+	case "usb":
+		s.How, s.Ready, s.Note = "usb", in.Registered, "over USB"
+		if !in.Registered {
+			s.Note = "its USB port isn't registered"
+		}
+	case "wifi":
+		s.How = "wifi"
+		switch {
+		case !in.LocalOTA:
+			s.Note = "plug it in with a USB cable to install it: this copy can't send firmware over Wi-Fi"
+		case b.OTA == nil:
+			s.Note = "plug it in with a USB cable to install it: this build has no app image for Wi-Fi (.app.bin)"
+		default:
+			s.Ready, s.Note = true, "over Wi-Fi"
+		}
+	case "bluetooth":
+		s.How, s.Note = "bluetooth", link.ErrOnBluetooth.Error()
+	default:
+		s.How, s.Note = "unplugged", "plug it in with a USB cable to install it"
+		if in.LocalOTA && b.OTA != nil && b.Wifi {
+			s.Note = "plug it in with a USB cable, or bring it back on Wi-Fi, to install it"
+		}
+	}
+	return s
+}
+
+// releaseStatus decides the line from the latest release alone.
+func releaseStatus(in fwInput) FirmwareStatus {
 	switch {
 	case in.Catalog == nil && in.CatalogErr != "":
 		return FirmwareStatus{State: FwError, Text: "Couldn't check for updates: " + in.CatalogErr}
@@ -71,9 +145,9 @@ func firmwareStatus(in fwInput) FirmwareStatus {
 		return FirmwareStatus{State: FwNewer, Latest: latest, Text: "Newer than the latest release (" + latest + ")"}
 	}
 	if !in.ReleaseKey {
-		return FirmwareStatus{State: FwNoKey, Latest: latest, Text: latest + " is out, but updates are switched off in this build (no release key)"}
+		return FirmwareStatus{State: FwNoKey, Latest: latest, Text: "Release " + latest + " is out; this copy installs only firmware built on this computer (no release key)"}
 	}
-	s := FirmwareStatus{State: FwUpdate, Latest: latest, Text: "Update to " + latest + " available"}
+	s := FirmwareStatus{State: FwUpdate, Source: SourceRelease, Latest: latest, Text: "Update to " + latest + " available"}
 	switch in.Connection {
 	case "usb":
 		s.How, s.Ready, s.Note = "usb", in.Registered, "over USB"

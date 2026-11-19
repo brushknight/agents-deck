@@ -72,9 +72,10 @@ type WifiRow struct {
 // Pending is a firmware update for a board.
 type Pending struct {
 	Version string `json:"version"`
-	How     string `json:"how"`            // usb | wifi | unplugged
-	Ready   bool   `json:"ready"`          // it can be updated now
-	Note    string `json:"note,omitempty"` // why not, in words
+	How     string `json:"how"`              // usb | wifi | unplugged
+	Ready   bool   `json:"ready"`            // it can be updated now
+	Note    string `json:"note,omitempty"`   // why not, in words
+	Source  string `json:"source,omitempty"` // release | local (built on this computer)
 }
 
 func (a *Admin) linksNow() []link.LinkInfo {
@@ -92,6 +93,7 @@ func (a *Admin) deviceRows() []DeviceRow {
 	a.refreshCatalog()
 	cat, catErr := a.cachedCatalog()
 	key := a.releaseKey()
+	local := a.builds().Latest()
 	labels := a.Labels()
 	links := map[string][]link.LinkInfo{}
 	for _, l := range a.linksNow() {
@@ -171,20 +173,27 @@ func (a *Admin) deviceRows() []DeviceRow {
 				board = &b
 			}
 		}
+		lb := localFor(local, d.Type, board)
+		if board == nil && lb != nil {
+			row.Board, row.Model, row.CanWifi, row.Chip = lb.Board, lb.Name, lb.Wifi, lb.Chip
+		}
 		if d.Kind == devices.Serial && d.Type != "" && !d.Revoked {
 			in := fwInput{Running: d.Firmware, Catalog: cat, CatalogErr: catErr, Board: board, ReleaseKey: key,
-				Registered: registered[usbPath], OTA: a.OTA != nil}
+				Registered: registered[usbPath], OTA: a.OTA != nil, Local: lb, LocalOTA: a.OTA != nil && a.Local != nil}
 			if row.Online {
 				in.Connection = row.Connection
 			}
 			st := firmwareStatus(in)
 			row.Status = &st
+			if st.State == FwLocal {
+				row.Update = &Pending{Version: st.Latest, How: st.How, Ready: st.Ready, Note: st.Note, Source: SourceLocal}
+			}
 			if st.State == FwUpdate || st.State == FwNoKey {
 				in.ReleaseKey = true
 				u := firmwareStatus(in)
-				row.Update = &Pending{Version: u.Latest, How: u.How, Ready: u.Ready, Note: u.Note}
+				row.Update = &Pending{Version: u.Latest, How: u.How, Ready: u.Ready, Note: u.Note, Source: SourceRelease}
 				if st.State == FwNoKey {
-					row.Update.Ready, row.Update.Note = false, "this build has no release key, so it can't install firmware from a release"
+					row.Update.Ready, row.Update.Note = false, "this copy of agents deck can't install releases; it installs firmware built on this computer (agentctl firmware add <folder>)"
 				}
 			}
 			row.FileVia, row.FileNote = a.fileWays(row)
@@ -366,12 +375,14 @@ func (a *Admin) deviceWifi(w http.ResponseWriter, r *http.Request, d devices.Dev
 	writeJSON(w, http.StatusOK, map[string]any{"sent": true, "message": msg})
 }
 
-// deviceUpdate: {"version"} ("" is the latest). A board on USB is flashed
+// deviceUpdate: {"version", "source"} ("" is the latest; source local is a
+// build made on this computer, "" whichever the board's status offers). A board on USB is flashed
 // through its registered port; a board on Wi-Fi is offered the update over
 // the air when this build can (OTA).
 func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.Device) {
 	var b struct {
 		Version string `json:"version"`
+		Source  string `json:"source"` // release | local; "" the one its status offers
 	}
 	if err := readBody(r, 1024, &b); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -379,6 +390,22 @@ func (a *Admin) deviceUpdate(w http.ResponseWriter, r *http.Request, d devices.D
 	}
 	if d.Kind != devices.Serial || d.Type == "" {
 		writeErr(w, http.StatusBadRequest, d.Name+" isn't a board with our firmware")
+		return
+	}
+	switch b.Source {
+	case SourceLocal:
+		a.deviceInstallLocal(w, d, b.Version)
+		return
+	case "":
+		if b.Version == "" {
+			if row, ok := a.deviceRow(d.Name); ok && row.Status != nil && row.Status.State == FwLocal {
+				a.deviceInstallLocal(w, d, "")
+				return
+			}
+		}
+	case SourceRelease:
+	default:
+		writeErr(w, http.StatusBadRequest, `source is "release" or "local"`)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)

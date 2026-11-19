@@ -219,7 +219,7 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 |---|---|---|
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
 | Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
-| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl bluetooth` |
+| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB, each board's network, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
 | Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |
@@ -229,9 +229,10 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 Then the service asks the board: a board running agents deck says what it is; anything else is asked
 through the ESP32's bootloader, and you pick from the boards that fit its chip and flash. If it
 doesn't answer: hold BOOT, press RST, let go of BOOT, and try again. Picking the wrong board does no
-harm: install again with the right one. In a copy built from source, which won't install firmware
-downloaded from a release, **Install a firmware file...** sets the board up from a full image on
-this computer instead ([flashing.md](flashing.md#from-the-app-settings-boards)).
+harm: install again with the right one. Firmware built on this computer (`agentctl firmware add`)
+is offered there too, also in a copy built from source, which won't install firmware downloaded from
+a release. Without one, **Install a firmware file...** sets the board up from a full image on this
+computer instead ([flashing.md](flashing.md#from-the-app-settings-boards)).
 
 **Board updates** are never automatic. A board on USB is written by the flasher (it keeps its name,
 pairing and Wi-Fi); a board on Wi-Fi downloads the update from the service over its encrypted link
@@ -239,6 +240,16 @@ and goes back to its old firmware if the new one doesn't reach the deck. Each bo
 firmware it runs and whether it is up to date, has an update, or runs something newer than the latest
 release. **Install a firmware file...** installs a build of your own from this computer, over Wi-Fi
 or USB ([flashing.md](flashing.md#from-the-app-settings-boards)).
+
+**Firmware built on this computer.** `agentctl firmware add <folder>` keeps the release script's
+files for a board (`agents-deck-<board>-<version>.bin`, `.app.bin`, `.manifest.json`) in the
+service's `firmware-builds` folder, after the same checks as a picked file. A board that runs an
+older version then says **0.2.0-dev.7 built on this computer** with an **Install** button: one click,
+over its USB cable when it's plugged in (the full image), else over Wi-Fi (the app image). When a
+release is newer still, and this copy can install releases, the line offers the release instead.
+It works with or without a release key, every install checks the files again, and nothing of it
+comes from the network ([flashing.md](flashing.md#firmware-built-on-this-computer)). `agentctl
+firmware ls` lists the builds, `agentctl firmware rm` removes them.
 
 **App updates.** The service looks for a new release two minutes after it starts and then daily.
 "Tell me" downloads and checks it and waits for you; "automatic" also installs it; "never check"

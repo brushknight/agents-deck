@@ -285,6 +285,8 @@ func (p PortRow) info() serial.Info {
 }
 
 // portAction: POST /admin/v1/ports/{id}/{register|identify|flash|forget}.
+// flash with "source": "local" writes a build made on this computer
+// (builds.go); without, a release's, downloaded and checked.
 func (a *Admin) portAction(w http.ResponseWriter, r *http.Request) {
 	p, ok := a.portByID(r.PathValue("id"))
 	if !ok {
@@ -346,9 +348,14 @@ func (a *Admin) portAction(w http.ResponseWriter, r *http.Request) {
 		var b struct {
 			Board   string `json:"board"`
 			Version string `json:"version"`
+			Source  string `json:"source"` // release (the default) | local
 		}
 		if err := readBody(r, 1024, &b); err != nil || b.Board == "" {
-			writeErr(w, http.StatusBadRequest, `body must be {"board": "<board>", "version": "<version>"} (version optional: the latest)`)
+			writeErr(w, http.StatusBadRequest, `body must be {"board": "<board>", "version": "<version>", "source": "release"|"local"} (version optional: the latest)`)
+			return
+		}
+		if b.Source == SourceLocal {
+			a.portFlashLocal(w, p, b.Board, b.Version)
 			return
 		}
 		if !p.Registered {
@@ -396,6 +403,9 @@ type Identity struct {
 	FlashSize  int64            `json:"flashSize,omitempty"`
 	MAC        string           `json:"mac,omitempty"`
 	Candidates []firmware.Board `json:"candidates"`
+	// Local: builds made on this computer that fit (the newest of each
+	// board), installed with flash {"source": "local"}.
+	Local      []firmware.Board `json:"local"`
 	Latest     string           `json:"latest,omitempty"`
 	ReleaseKey bool             `json:"releaseKey"`
 	Note       string           `json:"note,omitempty"`
@@ -414,7 +424,7 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	id := Identity{Candidates: []firmware.Board{}, ReleaseKey: a.releaseKey()}
+	id := Identity{Candidates: []firmware.Board{}, Local: []firmware.Board{}, ReleaseKey: a.releaseKey()}
 	cat, catErr := a.loadCatalog(ctx)
 	if catErr == nil {
 		id.Latest = cat.Version
@@ -428,9 +438,13 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 			if d.ID == p.Device {
 				d := d
 				id.Device = &d
+				var board *firmware.Board
 				if b, ok := cat.BoardForType(d.Type); ok && catErr == nil {
-					id.Board = &b
+					id.Board, board = &b, &b
 					id.Candidates = append(id.Candidates, b)
+				}
+				if lb := localFor(a.builds().Latest(), d.Type, board); lb != nil {
+					id.Local = append(id.Local, *lb)
 				}
 			}
 		}
@@ -458,9 +472,10 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 	}
 	id.Source, id.Chip, id.FlashSize, id.MAC = "probe", chip.Name, chip.FlashSize, chip.MAC
 	a.probes.put(p.Path, probed{chip: chip, vid: p.VID, pid: p.PID, serialNum: p.Serial, at: time.Now()})
+	id.Local = append(id.Local, a.localCandidates(chip.Name, chip.FlashSize)...)
 	if catErr == nil {
 		id.Candidates = append(id.Candidates, cat.Candidates(chip.Name, chip.FlashSize)...)
-		if len(id.Candidates) == 0 {
+		if len(id.Candidates) == 0 && len(id.Local) == 0 {
 			id.Note = fmt.Sprintf("no board in release %s uses an %s", cat.Version, chip.Name)
 		}
 	}
@@ -485,7 +500,8 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 		return Job{}, http.StatusNotImplemented, errors.New("this service can't flash boards")
 	}
 	if !a.releaseKey() {
-		return Job{}, http.StatusConflict, errors.New("this copy of agents deck was built from source, so it can't check firmware downloaded from a release and won't install it. You can still install a firmware file from this computer (Install a firmware file… in Settings, Boards, or agentctl flash <port> <image.bin>)")
+		return Job{}, http.StatusConflict, errors.New("this copy of agents deck was built from source, so it can't check firmware downloaded from a release and won't install it. " +
+			"Firmware built on this computer installs in one click: put the build there with agentctl firmware add <folder>, or pick a file with Install a firmware file… in Settings, Boards")
 	}
 	if j, ok := a.jobs.running(func(j Job) bool { return j.Port == portID(port.Path) }); ok {
 		return j, http.StatusConflict, errors.New("this board is being written already")
