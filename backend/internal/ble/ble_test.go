@@ -401,9 +401,8 @@ func TestAddPasskeyFails(t *testing.T) {
 	if len(r.srv.Devices.List()) != 0 {
 		t.Fatalf("a board that failed pairing was registered: %v", r.srv.Devices.List())
 	}
-	if !strings.Contains(r.commands(), "forget "+periph1) {
-		t.Fatalf("not forgotten:\n%s", r.commands())
-	}
+	// The helper writes its log a moment after Add returns.
+	r.waitFor("forgotten", func() bool { return r.count("forget "+periph1) >= 1 })
 	// Admin scope is never given here; unknown boards are refused.
 	if _, err := r.up.Add(context.Background(), periph2, devices.Admin, nil); err == nil {
 		t.Fatal("admin scope accepted")
