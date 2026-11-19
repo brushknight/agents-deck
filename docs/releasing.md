@@ -17,7 +17,7 @@ same tag.
 |---|---|
 | `agents-deck_<v>_macos_universal.dmg` | the menu bar app for people: `agents deck.app` (Apple Silicon and Intel in one, with agentctl and the Bluetooth helper `deck-ble` inside) and a link to Applications |
 | `agents-deck_<v>_macos_arm64.zip`, `…_macos_amd64.zip` | the same app, zipped: what `install.sh --app` and the updater fetch. One universal app under both names |
-| `agents-deck_<v>_linux_<arch>.deb` | for Debian and Ubuntu (24.04 and later), x64 and arm64: the tray app and agentctl, a systemd user service, an app menu entry and a udev rule for the boards' USB ports |
+| `agents-deck_<v>_linux_<arch>.deb` | for Ubuntu 24.04 and Debian 13 or later, x64 and arm64: the tray app and agentctl, a systemd user service, an app menu entry and a udev rule for the boards' USB ports |
 | `agents-deck_<v>_linux_<arch>.tar.gz` | the tray app's folder (`agents-deck/`, with agentctl in it and the service, udev rule and desktop entry in `share/`): what `install.sh --app` and the updater put in `~/.local/share/agents-deck/app` |
 | `agents-deck_<v>_windows_amd64_setup.exe` | the Windows installer: per user, no administrator prompt (a preview: see below) |
 | `agentctl_<v>_<os>_<arch>.tar.gz` | agentctl on its own, for `darwin` and `linux`, `arm64` and `amd64`; Windows has `agentctl_<v>_windows_amd64.zip` |

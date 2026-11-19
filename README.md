@@ -43,7 +43,7 @@ on your desk.
 |---|---|---|
 | **Mac** | `agents-deck_<version>_macos_universal.dmg` | open it, drag **agents deck** to Applications, open it from there |
 | **Windows** (preview) | `agents-deck_<version>_windows_amd64_setup.exe` | run it; no administrator password needed |
-| **Linux**, Debian or Ubuntu | `agents-deck_<version>_linux_amd64.deb` (`arm64` for ARM) | open it with your software installer, then **agents deck** from the app menu |
+| **Linux**, Ubuntu 24.04+ or Debian 13+ | `agents-deck_<version>_linux_amd64.deb` (`arm64` for ARM) | open it with your software installer, then **agents deck** from the app menu |
 | **Linux**, anything else | `agents-deck_<version>_linux_amd64.tar.gz` (`arm64` for ARM) | see [install.md](docs/install.md#other-distributions-the-targz) |
 
 The app brings everything with it and starts it when you log in. A critter appears in the menu bar

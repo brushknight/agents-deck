@@ -121,8 +121,11 @@ service again.
 ## Linux
 
 **You need** a 64-bit PC or ARM computer (x64 or arm64) with a desktop that shows tray icons (see
-[the tray on GNOME](#linux-the-tray-icon-doesnt-show)). The `.deb` is for Debian and Ubuntu 24.04 and
-later; the `.tar.gz` is for everything else.
+[the tray on GNOME](#linux-the-tray-icon-doesnt-show)). The `.deb` is for Ubuntu 24.04 and Debian 13
+or later; the `.tar.gz` is for everything else. The tray app needs GLib 2.80 or later (Ubuntu 24.04,
+Debian 13, Fedora 40 and newer): on older systems such as Ubuntu 22.04 and Debian 12 it doesn't
+start, and only `agentctl` and the dashboard in the browser work
+([only the command line](#only-the-command-line)).
 
 ### Debian and Ubuntu: the .deb
 
