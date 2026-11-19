@@ -19,6 +19,12 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
     the border, the tool chip, and the subagent critter.
   - Orange means it needs you; stripes mean a finished turn you haven't looked at.
   - Swipe or tap the page bars to change page; BOOT goes to the next page.
+- **Needs you.** One more page, to the left of the first: the agents at work, asking you something,
+  or finished and not checked yet, in the same 4×4 grid. An agent leaves 5 seconds after it stops
+  needing you, and keeps its spot while it is there. Swipe right on the first page (or tap the mark at
+  the left of the page bars) to go there, swipe left to come back; BOOT goes there after the last
+  page. The mark is solid orange while you are on it, and an orange outline with a count while
+  someone is on it. The board always starts on the first page.
 - **Card.** Tap a tile for the desk panel's overview:
   - the critter and its subagents, the title, the tool chip and the status pill;
   - doing now;

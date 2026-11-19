@@ -288,6 +288,95 @@ int main() {
       BigPanel(S).draw(c, in);
     }
   }
+  // ---- the "Needs you" screen: one step left of the first page, a page of
+  // spots, the mark at the left of the bars; taps there act as on any page
+  {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf({mk("a", 0, Status::Idle), mk("w", 5, Status::Waiting), mk("r", 9, Status::Running),
+                       mk("z", 20, Status::Running)});
+    PanelUi ui;
+    ui.att = &att;
+    bigTick(ui, f, 0);
+    assert(att.cap == 16 && att.count == 3);
+    assert(!ui.needsYou && ui.page == 0);                         // it boots on the first page
+    // One page and the screen: the bars' row stays, and its cells match a page's.
+    Fleet one = fleetOf({mk("a", 0, Status::Running)});
+    const BigGrid g1 = bigGridFor(S, ui, bigPages(one));
+    assert(g1.bars.w == S.w && g1.cell == g1.cellH);
+    const BigBars b1 = bigBars(S, g1, ui, 1);
+    assert(b1.n == 2 && b1.mark && b1.r[0].x + b1.r[0].w < b1.r[1].x);
+    // Swipe right on the first page: the screen; spots in deck order the first time.
+    const BigGrid g = bigGridFor(S, ui, 2);
+    bigTouch(ui, S, f, true, 100, 200, DeckScope::Act, 100);
+    bigTouch(ui, S, f, true, 250, 205, DeckScope::Act, 150);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 160);
+    assert(ui.needsYou && ui.screen == Screen::Home);
+    assert(bigHit(S, ui, f, bigCell(g, 0).x + 5, bigCell(g, 0).y + 5, DeckScope::Act).agent == 1);   // w
+    assert(bigHit(S, ui, f, bigCell(g, 1).x + 5, bigCell(g, 1).y + 5, DeckScope::Act).agent == 2);   // r
+    assert(bigHit(S, ui, f, bigCell(g, 2).x + 5, bigCell(g, 2).y + 5, DeckScope::Act).agent == 3);   // z (page 2)
+    assert(bigHit(S, ui, f, bigCell(g, 3).x + 5, bigCell(g, 3).y + 5, DeckScope::Act).kind == Hit::None);
+    // Further right: nothing; swipe up or down count as previous / next too.
+    bigStep(ui, f, false);
+    assert(ui.needsYou);
+    // A tile there opens its prompt, and back is the screen again.
+    tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 200);
+    assert(ui.screen == Screen::Prompt && !strcmp(ui.openId, "w"));
+    bigButton(ui, f);
+    assert(ui.screen == Screen::Home && ui.needsYou);
+    // r stops: it keeps its spot 5 s, and nobody moves up after.
+    f.agents[2].status = Status::Idle;
+    bigTick(ui, f, 1000);
+    assert(attAgent(att, f, 1) == 2);
+    bigTick(ui, f, 1000 + kAttLingerMs);
+    assert(attAgent(att, f, 1) == -1 && attAgent(att, f, 2) == 3);
+    // The mark: here, the widest; tap a page bar to leave, tap the mark to come back.
+    BigBars b = bigBars(S, g, ui, 2);
+    assert(b.n == 3 && b.r[0].w == bk(S, 56) && b.r[1].w == bk(S, 30) && b.countX < 0);
+    tap(S, ui, f, Rect{b.r[2].x, g.bars.y, b.r[2].w, g.bars.h}, DeckScope::Act, 7000);
+    assert(!ui.needsYou && ui.page == 1);
+    b = bigBars(S, g, ui, 2);
+    assert(b.countX >= 0 && b.r[0].w == bk(S, 30));               // the count before the mark, off the screen
+    assert(bigHit(S, ui, f, b.r[0].x + b.r[0].w / 2, g.bars.y + 3, DeckScope::Act).kind == Hit::NeedsYou);
+    tap(S, ui, f, Rect{b.r[0].x, g.bars.y, b.r[0].w, g.bars.h}, DeckScope::Act, 7100);
+    assert(ui.needsYou);
+    // Swipe left: the first page, never further.
+    bigTouch(ui, S, f, true, 300, 200, DeckScope::Act, 7200);
+    bigTouch(ui, S, f, true, 150, 205, DeckScope::Act, 7250);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 7260);
+    assert(!ui.needsYou && ui.page == 0);
+    // BOOT goes round: page 1, page 2, the screen, page 1.
+    bigButton(ui, f);
+    assert(!ui.needsYou && ui.page == 1);
+    bigButton(ui, f);
+    assert(ui.needsYou);
+    bigButton(ui, f);
+    assert(!ui.needsYou && ui.page == 0);
+    // Drawn: the screen's cells as a page's, the mark solid orange; the first page with the outline.
+    std::vector<uint16_t> buf(S.w * S.h);
+    Canvas c{buf.data(), S.w, S.h};
+    const Theme T = deckTheme(false);
+    PanelInput in{&f, LinkState::Live, "x", DeckScope::Act, 8000, 0, &ui, 0};
+    ui.needsYou = true;
+    BigPanel(S).draw(c, in);
+    b = bigBars(S, g, ui, 2);
+    assert(buf[(b.r[0].y + b.r[0].h / 2) * S.w + b.r[0].x + b.r[0].w / 2] == T.accent);
+    assert(buf[(b.r[1].y + b.r[1].h / 2) * S.w + b.r[1].x + b.r[1].w / 2] != T.ink);   // no page is current
+    const Rect free3 = bigCell(g, 3);
+    assert(buf[(free3.y + free3.h / 2) * S.w + free3.x + free3.w / 2] == T.emptyFill);
+    ui.needsYou = false;
+    BigPanel(S).draw(c, in);
+    b = bigBars(S, g, ui, 2);
+    assert(buf[(b.r[0].y + b.r[0].h / 2) * S.w + b.r[0].x + b.r[0].w / 2] == T.bg);    // an outline
+    assert(buf[(b.r[0].y + b.r[0].h / 2) * S.w + b.r[0].x] == T.accent);               // in orange: someone is there
+    assert(buf[(b.r[1].y + b.r[1].h / 2) * S.w + b.r[1].x + b.r[1].w / 2] == T.ink);    // page 1 is current
+    // Without the screen (no Attention), nothing changes: no mark, no row with one page.
+    PanelUi plain;
+    assert(!bigBars(S, bigGridFor(S, plain, 1), plain, 1).n && !bigGridFor(S, plain, 1).bars.w);
+    plain.needsYou = true;
+    bigTick(plain, f, 0);
+    assert(!plain.needsYou);
+  }
   printf("ok  big layout\n");
   return 0;
 }

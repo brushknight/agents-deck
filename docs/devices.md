@@ -112,7 +112,9 @@ looks like the desk panel and the web board.
 - **What's special:** the biggest board, and the closest to the desk panel: tiles by slot, paged;
   the card with its subagent crew, tokens, cache, cost and turns; prompts where you pick an answer, then **send**.
 - **Gestures:** tap a tile for its card; swipe or tap the page bars to change page; swipe right or
-  press BOOT to go back. On the card, stop arms on the first tap ("tap again to stop").
+  press BOOT to go back. On the card, stop arms on the first tap ("tap again to stop"). Swipe right
+  on the first page (or tap the mark at the left of the page bars) for **Needs you**: the agents at
+  work, asking or not checked yet, in the same grid.
 - **Build:** for now flash the **2.0.17 build** (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t
   upload`): USB only, and the steadiest picture. The `idf5` build adds Wi-Fi, but on this board it is
   **experimental**: without a bounce buffer its picture at times jumped sideways while it connected to
@@ -136,7 +138,8 @@ A small, bright AMOLED: true black, 2×2 tiles in one continuous list you scroll
   and who runs; on Wi-Fi it carries a small Wi-Fi mark. Content keeps clear of the glass's rounded
   corners.
 - **Gestures:** drag to scroll (it settles on a row; a flick carries further); tap a tile for its card;
-  swipe right or press BOOT to go back; hold stop for a second.
+  swipe right or press BOOT to go back; hold stop for a second. Swipe right on the list (or press
+  BOOT) for **Needs you**: one screen of the agents at work, asking or not checked yet.
 - **Build:** `idf5` (`pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload`).
 - **Known issues:** the board's first revision (SH8601 panel, FT3168 touch) is detected but untested.
 - **Get one:** [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm)
@@ -173,7 +176,7 @@ left, a mini-board of eight on the right, and an RGB LED that flashes orange whe
 | <img src="images/devices/lcd147-waiting.png" width="260" alt="an agent waiting, in orange"> | <img src="images/devices/lcd147-running.png" width="260" alt="an agent working"> | <img src="images/devices/lcd147-approval.png" width="260" alt="the waiting for approval notice"> |
 
 - **What's special:** read-only and cheap. It picks the agent to show by itself (waiting, then failed,
-  then hungry, then running). Its BOOT button shows the next agent for 30 s.
+  then hungry, then running). Its BOOT button shows the next agent for 30 s; held, it shows **Needs you** on the mini-board.
 - **Build:** the default env (`pio run -d firmware/devices/waveshare-lcd-147 -t upload`).
 - **Known issues:** no touch and no Wi-Fi: it stays on USB, and it never answers anything.
 - **Get one:** [Waveshare ESP32-S3-LCD-1.47B](https://www.waveshare.com/esp32-s3-lcd-1.47b.htm) (the

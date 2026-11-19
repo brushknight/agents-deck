@@ -29,6 +29,11 @@ with the glass's rounded corners masked. Every screen is in `docs/`.)
 - **Prompts.** A waiting agent opens its prompt: a one-line header, the whole question, the command
   (for permissions), and the answers with their hint lines. A permission is the orange card; a
   question is dark with an orange border. Answering needs scope `act`.
+- **Needs you.** Swipe right on the list (or press BOOT) for one screen of 2×2 spots with only the
+  agents at work, asking you something, or finished and not checked yet; swipe left (or BOOT) to go
+  back to the list. An agent leaves 5 seconds after it stops needing you, and keeps its spot while it
+  is there. Two small marks at the top of the header say where you are: the left one is solid orange
+  on that screen, an orange outline while someone is on it. The board always starts on the list.
 - **Back.** Swipe right, or press BOOT.
 - **Other screens.** Waiting for approval (with the command and the board's name), connecting, deck
   offline, no agents.

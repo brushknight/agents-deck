@@ -113,6 +113,37 @@ static void bleShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f) {
   in.net = nullptr;
 }
 
+// The "Needs you" screen (attention.h): the first page with its mark, the
+// screen itself, and the screen after one agent left (its spot stays free).
+template <class Shot, class Tick>
+static void needsYouShots(Shot shot, Tick tick, PanelInput& in, PanelUi& ui, const DeckFleet& deck, uint32_t ms) {
+  static Attention att;
+  att = Attention();
+  ui.att = &att;
+  const Fleet& f = deck.fleet;
+  tick(f, ms);
+  shot("needs-you-home");
+  ui.needsYou = true;
+  shot("needs-you");
+  ui.wifi = true;                                  // with the Wi-Fi mark beside it
+  shot("needs-you-wifi");
+  ui.wifi = false;
+  static DeckFleet gap;
+  gap = deck;
+  const int i = attAgent(att, f, 1);
+  if (i >= 0) {
+    gap.fleet.agents[i].status = Status::Idle;
+    gap.fleet.agents[i].unseen = false;
+    tick(gap.fleet, ms + 1);
+    tick(gap.fleet, ms + 1 + kAttLingerMs);
+    in.fleet = &gap.fleet;
+    shot("needs-you-gap");
+    in.fleet = &f;
+  }
+  ui.needsYou = false;
+  ui.att = nullptr;
+}
+
 // The square boards: every screen of one spec.
 static int renderSquare(const std::string& dir, const SquareSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
                         int64_t now) {
@@ -127,6 +158,7 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
     writePpm(dir + "/" + name + ".ppm", c);
   };
   shot("home");
+  needsYouShots(shot, [&](const Fleet& fl, uint32_t t) { squareTick(ui, S, fl, t); }, in, ui, deck, ms);
 
   if (S.home == HomeKind::List) {
     // Mid-scroll, the finger down: the position bar shows.
@@ -228,6 +260,7 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
     writePpm(dir + "/" + name + ".ppm", c);
   };
   shot("home");
+  needsYouShots(shot, [&](const Fleet& fl, uint32_t t) { bigTick(ui, fl, t); }, in, ui, deck, ms);
   {
     static DeckFleet more;
     more = deck;
@@ -372,6 +405,12 @@ int main(int argc, char** argv) {
   writePpm(dir + "/auto.ppm", c);
   drawScreen(c, {&fleet, 0, LinkState::Lost, kDevice, ms, now, true});
   writePpm(dir + "/held-lost.ppm", c);
+  {                                                // the "Needs you" mini-board (hold the button)
+    static Attention att;
+    attSync(att, fleet, layout::miniCells, ms);
+    drawScreen(c, {&fleet, autoHero(fleet), LinkState::Live, kDevice, ms, now, false, &att, true});
+    writePpm(dir + "/needs-you.ppm", c);
+  }
 
   static Fleet empty;
   snprintf(empty.server, sizeof empty.server, "workstation");

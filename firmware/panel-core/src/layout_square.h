@@ -22,6 +22,10 @@
 //           network not found, deck not reachable, certificate rejected)
 //   Wi-Fi   on Wi-Fi a small mark: in the list's header after "agents"; the
 //           grid keeps the page bars' row for it, at the right
+//   attn    the "Needs you" screen (attention.h): on a grid, a page left of
+//           the first, its mark at the left of the page bars; on a list, one
+//           screen of what the list shows at once, left of the list, with
+//           two small marks at the top of the header
 //
 // Back from a card or a prompt: swipe right, or BOOT. A tile's icons (tool
 // chip, subagent critter) keep to a band above the critter, so they never
@@ -228,6 +232,68 @@ static inline int posBarAlpha(const PanelUi& ui, uint32_t ms) {
   return (int)(15 - (t - kPosBarHoldMs) * 15 / kPosBarFadeMs);
 }
 
+// ---------------------------------------------------------------- the "Needs you" screen
+
+// Its spots: one page of the grid, or what the list shows at once (2 x 2 on
+// the 1.8", 2 x 3 on the T4-S3).
+static inline int squareSpots(const SquareSpec& S) {
+  const int n = S.home == HomeKind::Grid ? perPage(S) : S.cols * ((S.h - S.headerH + S.gap) / rowPitch(S));
+  return n < kAttMaxSpots ? n : kAttMaxSpots;
+}
+
+static inline bool onNeedsYou(const PanelUi& ui) { return ui.needsYou && ui.att; }
+
+// The grid's row under the cells stays with one page on Wi-Fi (the mark's)
+// and with the "Needs you" screen (its mark at the left).
+static inline GridGeom gridGeomFor(const SquareSpec& S, const PanelUi& ui, int pages) {
+  return gridGeom(S, pages, ui.wifi || ui.att);
+}
+
+// The page bars: the "Needs you" mark (with a board that has the screen),
+// then a bar per page. r[0] is the mark when `mark`. Hits go to the nearest.
+struct SquareBars {
+  int n = 0;
+  bool mark = false;
+  Rect r[20];
+  int countX = -1;             // the count before the mark, -1 for none
+};
+
+static inline SquareBars squareBars(const SquareSpec& S, const GridGeom& g, const PanelUi& ui, int pages) {
+  SquareBars b;
+  if (!g.bars.w || (pages < 2 && !ui.att)) return b;
+  if (pages > 19) pages = 19;
+  const bool here = onNeedsYou(ui);
+  const int page = here ? -1 : ui.page;
+  const int cur = 56, other = 30, h = 8, gap = 12, mh = 10, mw = here ? cur : other;
+  const int count = ui.att ? ui.att->count : 0;
+  const int countW = ui.att && !here && count > 0 ? (count > 9 ? 2 : 1) * S.label->cellW + 7 : 0;
+  int total = 0;
+  if (ui.att) total += countW + mw + gap;
+  for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + (p ? gap : 0);
+  int x = (S.w - total) / 2;
+  if (ui.att) {
+    if (countW) b.countX = x;
+    b.r[b.n++] = Rect{x + countW, g.bars.y + (g.bars.h - mh) / 2, mw, mh};
+    b.mark = true;
+    x += countW + mw + gap;
+  }
+  for (int p = 0; p < pages; p++) {
+    const int w = p == page ? cur : other;
+    b.r[b.n++] = Rect{x, g.bars.y + (g.bars.h - h) / 2, w, h};
+    x += w + gap;
+  }
+  return b;
+}
+
+static inline int squareBarAt(const SquareBars& b, int x) {
+  int best = -1, bestD = 0;
+  for (int i = 0; i < b.n; i++) {
+    const int c = b.r[i].x + b.r[i].w / 2, d = x > c ? x - c : c - x;
+    if (best < 0 || d < bestD) { best = i; bestD = d; }
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------- card and prompt geometry
 
 // The card's round buttons, left to right: focus, interrupt (running), stop (admin).
@@ -349,13 +415,29 @@ static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const F
   if (ui.screen == Screen::Home) {
     if (S.home == HomeKind::Grid) {
       const int pages = pageCount(S, f);
-      const GridGeom g = gridGeom(S, pages, ui.wifi);
-      if (pages > 1 && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
-      const int i = agentAt(S, f, ui.page < pages ? ui.page : 0, cellAt(S, g, x, y));
+      const GridGeom g = gridGeomFor(S, ui, pages);
+      const SquareBars bars = squareBars(S, g, ui, pages);
+      if (bars.n && g.bars.contains(x, y)) {
+        const int k = squareBarAt(bars, x);
+        if (bars.mark && k == 0) h.kind = Hit::NeedsYou;
+        else { h.kind = Hit::PageBar; h.index = k - (bars.mark ? 1 : 0); }
+        return h;
+      }
+      const int cell = cellAt(S, g, x, y);
+      const int i = onNeedsYou(ui) ? attAgent(*ui.att, f, cell) : agentAt(S, f, ui.page < pages ? ui.page : 0, cell);
       if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
       return h;
     }
     if (y < S.headerH) return h;
+    if (onNeedsYou(ui)) {                          // the list's first screen, spot by spot
+      for (int s = 0; s < squareSpots(S); s++)
+        if (listTile(S, s, 0).contains(x, y)) {
+          const int i = attAgent(*ui.att, f, s);
+          if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
+          return h;
+        }
+      return h;
+    }
     for (int i = 0; i < f.count; i++)
       if (listTile(S, i, ui.scroll).contains(x, y)) { h.kind = Hit::Tile; h.agent = i; return h; }
     return h;
@@ -424,7 +506,8 @@ static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Flee
   DeckCommand out;
   switch (h.kind) {
     case Hit::Tile: squareOpen(ui, f, h.agent); break;
-    case Hit::PageBar: ui.page = h.index; break;
+    case Hit::PageBar: ui.page = h.index; ui.needsYou = false; break;
+    case Hit::NeedsYou: ui.needsYou = ui.att != nullptr; break;
     case Hit::Focus:
       out = commandFor(DeckCmd::Focus, f.agents[h.agent]);
       uiToast(ui, "focus", ms, 1200);
@@ -458,17 +541,26 @@ static inline void squareSwipe(PanelUi& ui, const SquareSpec& S, const Fleet& f,
     if (s == Swipe::Right) squareHome(ui);
     return;
   }
+  const bool next = s == Swipe::Left || s == Swipe::Up;
+  if (onNeedsYou(ui)) {                            // back to the first page (the top of the list)
+    if (S.home == HomeKind::Grid ? next : s == Swipe::Left) { ui.needsYou = false; ui.page = 0; }
+    return;
+  }
   if (S.home == HomeKind::Grid) {
     const int pages = pageCount(S, f);
-    if ((s == Swipe::Left || s == Swipe::Up) && ui.page < pages - 1) ui.page++;
-    else if ((s == Swipe::Right || s == Swipe::Down) && ui.page > 0) ui.page--;
+    if (next && ui.page < pages - 1) ui.page++;
+    else if (!next && ui.page > 0) ui.page--;
+    else if (!next && ui.att) ui.needsYou = true;  // left of the first page
+  } else if (s == Swipe::Right && ui.att) {        // the list scrolls up and down; "Needs you" is to its left
+    ui.needsYou = true;
   }
 }
 
 static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fleet& f, bool touching, int x, int y,
                                       DeckScope scope, uint32_t ms) {
   DeckCommand out;
-  const bool list = S.home == HomeKind::List && ui.screen == Screen::Home;
+  if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);   // the spots the finger lands on are the ones drawn
+  const bool list = S.home == HomeKind::List && ui.screen == Screen::Home && !onNeedsYou(ui);   // "Needs you" doesn't scroll
   if (touching) {
     if (!ui.down) {
       ui.down = true;
@@ -551,6 +643,8 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
 // Animations and timeouts. True while something moves.
 static inline bool squareTick(PanelUi& ui, const SquareSpec& S, const Fleet& f, uint32_t ms) {
   squareFix(ui, S, f);
+  if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);
+  else ui.needsYou = false;
   if (ui.backAfterToast && (int32_t)(ui.toastUntil - ms) <= 0) squareHome(ui);
   if (ui.animating) {
     const uint32_t t = ms - ui.animStart;
@@ -580,12 +674,18 @@ static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32
   ui.backAfterToast = false;   // stay: show what went wrong
 }
 
-// BOOT: back from a card or a prompt; on a grid, the next page.
+// BOOT: back from a card or a prompt. On a grid, the next page, round to the
+// "Needs you" screen after the last one, then the first page again; on a
+// list, the "Needs you" screen and back.
 static inline void squareButton(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
   if (ui.screen != Screen::Home) { squareHome(ui); return; }
+  if (onNeedsYou(ui)) { ui.needsYou = false; ui.page = 0; return; }
   if (S.home == HomeKind::Grid) {
     const int pages = pageCount(S, f);
-    ui.page = (ui.page + 1) % pages;
+    if (ui.att && ui.page >= pages - 1) ui.needsYou = true;
+    else ui.page = (ui.page + 1) % pages;
+  } else if (ui.att) {
+    ui.needsYou = true;
   }
 }
 
@@ -800,8 +900,22 @@ static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base, bool bl
   else drawNetMark(c, (float)cx, (float)base, T.dim);
 }
 
+// The list's two views as two small marks over the header, in the middle
+// (the header's text leaves no room for them on the 1.8" on Wi-Fi): "Needs
+// you" (solid orange while you are on it, an orange outline while someone is
+// on it), then the list (bright while you are on it).
+static inline void listMarks(Canvas& c, const SquareSpec& S, const Theme& T, const PanelUi& ui) {
+  const bool here = onNeedsYou(ui);
+  const int cur = 20, other = 10, h = 6, gap = 5, y = 3;
+  const int mw = here ? cur : other, lw = here ? other : cur;
+  const int x = (S.w - mw - gap - lw) / 2;
+  if (here) fillPill(c, x, y, mw, h, T.accent);
+  else strokePill(c, x, y, mw, h, 2, ui.att->count ? T.accent : T.ringTrack);
+  fillPill(c, x + mw + gap, y, lw, h, here ? T.ringTrack : T.ink);
+}
+
 static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link,
-                              bool wifi, bool ble = false) {
+                              bool wifi, bool ble = false, const PanelUi* ui = nullptr) {
   c.rect(0, 0, S.w, S.headerH, T.bg);
   const Font& hf = *S.question;
   const int x0 = S.m + S.cornerR / 4;
@@ -809,6 +923,7 @@ static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, co
   c.text(hf, x0, ty, "agents", T.ink);
   // On Wi-Fi the mark follows the title, its base about on the title's baseline.
   if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4, ble);
+  if (ui && ui->att) listMarks(c, S, T, *ui);
   char buf[48];
   if (link == LinkState::Lost) snprintf(buf, sizeof buf, "offline");
   else {
@@ -821,16 +936,32 @@ static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, co
   c.text(rf, S.w - x0 - w, (S.headerH - rf.cellH) / 2 + 3, buf, link == LinkState::Lost || n.waiting ? T.accent : T.dim);
 }
 
+// A free spot on the list's "Needs you" screen: the grid's empty cell with the list's corners.
+static inline void listEmpty(Canvas& c, const Theme& T, const Rect& r) {
+  roundRect(c, r.x, r.y, r.w, r.h, 8, T.emptyFill);
+  roundFrame(c, r.x, r.y, r.w, r.h, 8, 1, T.emptyOutline);
+}
+
 static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
   const Fleet& f = *in.fleet;
   const PanelUi& ui = *in.ui;
+  if (onNeedsYou(ui)) {                            // one screen of spots, no scrolling
+    for (int s = 0; s < squareSpots(S); s++) {
+      const Rect r = listTile(S, s, 0);
+      const int i = attAgent(*ui.att, f, s);
+      if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, S.headerH);
+      else listEmpty(c, T, r);
+    }
+    listHeader(c, S, T, f, in.link, ui.wifi, ui.ble, &ui);
+    return;
+  }
   for (int i = 0; i < f.count; i++) {
     const Rect r = listTile(S, i, ui.scroll);
     if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
     tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i,
          S.headerH);
   }
-  listHeader(c, S, T, f, in.link, ui.wifi, ui.ble);
+  listHeader(c, S, T, f, in.link, ui.wifi, ui.ble, &ui);
   // The position bar while the list moves, fading a second after it settles.
   const int alpha = posBarAlpha(ui, in.ms);
   const float mx = maxScroll(S, f);
@@ -848,20 +979,27 @@ static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
 }
 
 static inline void pageBars(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, int page, int pages,
-                            const Rect& area) {
-  if (pages < 2 || !area.w) return;
+                            const GridGeom& g, const PanelUi& ui) {
+  const SquareBars b = squareBars(S, g, ui, pages);
+  if (!b.n) return;
   bool hot[64] = {};
   for (int i = 0; i < f.count; i++)
     if (f.agents[i].status == Status::Waiting && f.agents[i].slot / perPage(S) < 64) hot[f.agents[i].slot / perPage(S)] = true;
-  const int cur = 56, other = 30, h = 8, gap = 12;
-  int total = 0;
-  for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + (p ? gap : 0);
-  int x = (S.w - total) / 2;
-  const int y = area.y + (area.h - h) / 2;
-  for (int p = 0; p < pages; p++) {
-    const int w = p == page ? cur : other;
-    fillPill(c, x, y, w, h, p == page ? T.ink : (p < 64 && hot[p]) ? T.accent : T.ringTrack);
-    x += w + gap;
+  const bool here = onNeedsYou(ui);
+  if (b.mark) {                                    // "Needs you": solid orange while you are on it, an orange
+    const Rect m = b.r[0];                         // outline (and the count) while someone is on it
+    if (here) fillPill(c, m.x, m.y, m.w, m.h, T.accent);
+    else strokePill(c, m.x, m.y, m.w, m.h, 2, ui.att->count ? T.accent : T.ringTrack);
+    if (b.countX >= 0) {
+      char n[4];
+      snprintf(n, sizeof n, "%d", ui.att->count > 99 ? 99 : ui.att->count);
+      c.text(*S.label, b.countX, m.y + m.h / 2 - S.label->cellH / 2, n, T.accent);
+    }
+  }
+  for (int k = b.mark ? 1 : 0; k < b.n; k++) {
+    const int p = k - (b.mark ? 1 : 0);
+    const Rect r = b.r[k];
+    fillPill(c, r.x, r.y, r.w, r.h, !here && p == page ? T.ink : (p < 64 && hot[p]) ? T.accent : T.ringTrack);
   }
 }
 
@@ -870,14 +1008,14 @@ static inline void gridHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
   const PanelUi& ui = *in.ui;
   const int pages = pageCount(S, f);
   const int page = ui.page < pages ? ui.page : pages - 1;
-  const GridGeom g = gridGeom(S, pages, ui.wifi);
+  const GridGeom g = gridGeomFor(S, ui, pages);
   for (int cell = 0; cell < perPage(S); cell++) {
     const Rect r = cellRect(S, g, cell);
-    const int i = agentAt(S, f, page, cell);
+    const int i = onNeedsYou(ui) ? attAgent(*ui.att, f, cell) : agentAt(S, f, page, cell);
     if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, false, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, 0);
     else emptyCell(c, T, r);
   }
-  pageBars(c, S, T, f, page, pages, g.bars);
+  pageBars(c, S, T, f, page, pages, g, ui);
   if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6, ui.ble);
   if (in.link == LinkState::Lost) {
     const Font& lf = *S.label;

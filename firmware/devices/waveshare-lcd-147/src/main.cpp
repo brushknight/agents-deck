@@ -33,6 +33,8 @@ static Canvas canvas{frame, kScreenW, kScreenH};
 static DeckLink deck;
 static DeckFleet deckFleet;           // the fleet, kept current from Deck Link frames
 static ViewState view;
+static Attention att;                 // the "Needs you" spots (attention.h), for as long as the board runs
+static bool needsYou = false;         // the mini-board shows them (hold the button)
 static char deviceName[40] = "";      // the board's name on the deck, from Welcome
 
 static LinkState linkState() { return linkStateOf(deck.state(), deck.approved()); }
@@ -66,7 +68,8 @@ static void renderNow() {
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
   const int hero = f ? resolveHero(*f, view, ms) : -1;
-  drawScreen(canvas, {f, hero, shown, deviceName, ms, deckNowEpoch(deckFleet, ms), view.hold});
+  if (f) attSync(att, *f, layout::miniCells, ms);
+  drawScreen(canvas, {f, hero, shown, deviceName, ms, deckNowEpoch(deckFleet, ms), view.hold, &att, needsYou});
   lcd->draw16bitRGBBitmap(0, 0, frame, kScreenW, kScreenH);
 }
 
@@ -112,16 +115,29 @@ static void updateBacklight() {
 }
 
 // ---------------------------------------------------------------- button
-// BOOT only changes which agent is shown; the board never sends a command.
+// BOOT only changes what is shown; the board never sends a command. A press
+// shows the next agent; held for kLongPressMs it swaps the mini-board for the
+// "Needs you" screen and back (on its own, while still held).
+constexpr uint32_t kLongPressMs = 700;
+
 static void buttonPump() {
-  static bool down = false;
+  static bool down = false, longDone = false;
   static uint32_t changedAt = 0;
   const bool level = digitalRead(PIN_BOOT) == LOW;
   const uint32_t now = millis();
+  if (down && !longDone && now - changedAt >= kLongPressMs) {
+    longDone = true;
+    if (deckFleet.have) {
+      needsYou = !needsYou;
+      renderNow();
+    }
+  }
   if (level == down || now - changedAt < 30) return;      // debounce
   down = level;
   changedAt = now;
-  if (down && deckFleet.have) {
+  if (down) {
+    longDone = false;
+  } else if (!longDone && deckFleet.have) {               // a short press, on release
     pressNext(deckFleet.fleet, view, now);
     renderNow();
   }
@@ -134,6 +150,7 @@ void setup() {
   Serial.setRxBufferSize(16384);
   Serial.begin(115200);                                   // native USB: the rate is ignored
   pinMode(PIN_BOOT, INPUT_PULLUP);
+  att.rand = [] { return esp_random() / 4294967296.0; };   // the chip's hardware RNG
   pinMode(PIN_LCD_BL, OUTPUT);
   analogWrite(PIN_LCD_BL, BL_ACTIVE);
   setLed(0, 0, 0);

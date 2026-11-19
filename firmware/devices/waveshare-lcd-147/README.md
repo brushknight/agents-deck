@@ -25,6 +25,10 @@ default `view` scope is all it needs.
   the rest. Equal rank: the most recent change wins.
 - **BOOT button**: a short press shows the next agent and holds it for 30 s. A small square in the
   footer marks the hold. A new waiting agent ends it. The button changes only what the board shows.
+- **Needs you**: hold BOOT (0.7 s) and the mini-board shows only the agents at work, asking you
+  something, or finished and not checked yet, in the same 8 cells, under a thin orange line. An
+  agent leaves 5 seconds after it stops needing you, and keeps its cell while it is there. Hold BOOT
+  again to go back. The board always starts on the normal mini-board.
 - **LED**: orange flashes when an agent waits or failed, a slow blue breath while agents run, off
   otherwise.
 - **Backlight**: dim when every agent is idle.

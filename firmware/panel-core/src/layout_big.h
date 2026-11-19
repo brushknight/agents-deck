@@ -23,10 +23,14 @@
 //           not found, deck not reachable, certificate rejected)
 //   Wi-Fi   on Wi-Fi a small mark at the right of the page bars' row, which
 //           then stays with one page too
+//   attn    the "Needs you" screen (attention.h), one page left of the first:
+//           the same grid, spot by spot; its mark sits at the left of the
+//           page bars (whose row then stays with one page too)
 //
 // Back: swipe right, or BOOT. Pure C++ (no Arduino).
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "canvas.h"
@@ -119,6 +123,66 @@ static inline int bigAgentAt(const Fleet& f, int page, int cell) {
   for (int i = 0; i < f.count; i++)
     if (f.agents[i].slot == page * 16 + cell) return i;
   return -1;
+}
+
+// The page bars' row stays with one page on Wi-Fi (the mark's) and with the
+// "Needs you" screen (its mark at the left).
+static inline bool bigRow(const PanelUi& ui) { return ui.wifi || ui.att; }
+
+static inline BigGrid bigGridFor(const BigSpec& S, const PanelUi& ui, int pages) { return bigGrid(S, pages, bigRow(ui)); }
+
+// What a home cell holds: the deck's page by slot, or on the "Needs you"
+// screen the agent in that spot. -1 for a free cell.
+static inline int bigCellAgent(const PanelUi& ui, const Fleet& f, int page, int cell) {
+  if (ui.needsYou && ui.att) return attAgent(*ui.att, f, cell);
+  return bigAgentAt(f, page, cell);
+}
+
+// _PageBars: the "Needs you" mark (with a board that has the screen), then a
+// bar per page. r[0] is the mark when `mark`. Hits go to the nearest one.
+struct BigBars {
+  int n = 0;
+  bool mark = false;
+  Rect r[20];
+  int countX = -1;             // the count before the mark ("3"), -1 for none
+};
+
+static inline BigBars bigBars(const BigSpec& S, const BigGrid& g, const PanelUi& ui, int pages) {
+  BigBars b;
+  if (!g.bars.w || (pages < 2 && !ui.att)) return b;
+  if (pages > 19) pages = 19;
+  const bool here = ui.needsYou && ui.att;
+  const int page = here ? -1 : ui.page;
+  const int cur = bk(S, 56), other = bk(S, 30), h = bk(S, 8), pad = bk(S, 6);
+  const int mh = bk(S, 10), mw = here ? cur : other;
+  const int count = ui.att ? ui.att->count : 0;
+  const int countW = ui.att && !here && count > 0 ? (count > 9 ? 2 : 1) * S.label->cellW + bk(S, 7) : 0;
+  int total = 0;
+  if (ui.att) total += bk(S, 6) + countW + mw + bk(S, 12);
+  for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + 2 * pad;
+  int x = (S.w - total) / 2;
+  if (ui.att) {
+    if (countW) b.countX = x + bk(S, 6);
+    b.r[b.n++] = Rect{x + bk(S, 6) + countW, g.bars.y + (g.bars.h - mh) / 2, mw, mh};
+    b.mark = true;
+    x += bk(S, 6) + countW + mw + bk(S, 12);
+  }
+  for (int p = 0; p < pages; p++) {
+    const int w = p == page ? cur : other;
+    b.r[b.n++] = Rect{x + pad, g.bars.y + (g.bars.h - h) / 2, w, h};
+    x += w + 2 * pad;
+  }
+  return b;
+}
+
+// The bar under x: the nearest one (the row is the touch target).
+static inline int bigBarAt(const BigBars& b, int x) {
+  int best = -1, bestD = 0;
+  for (int i = 0; i < b.n; i++) {
+    const int d = abs(x - (b.r[i].x + b.r[i].w / 2));
+    if (best < 0 || d < bestD) { best = i; bestD = d; }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------- the card's parts
@@ -261,11 +325,17 @@ static inline PanelHit bigHit(const BigSpec& S, const PanelUi& ui, const Fleet& 
   PanelHit h;
   if (ui.screen == Screen::Home) {
     const int pages = bigPages(f);
-    const BigGrid g = bigGrid(S, pages, ui.wifi);
-    if (pages > 1 && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
+    const BigGrid g = bigGridFor(S, ui, pages);
+    const BigBars bars = bigBars(S, g, ui, pages);
+    if (bars.n && g.bars.contains(x, y)) {
+      const int k = bigBarAt(bars, x);
+      if (bars.mark && k == 0) h.kind = Hit::NeedsYou;
+      else { h.kind = Hit::PageBar; h.index = k - (bars.mark ? 1 : 0); }
+      return h;
+    }
     for (int cell = 0; cell < 16; cell++)
       if (bigCell(g, cell).contains(x, y)) {
-        const int i = bigAgentAt(f, ui.page < pages ? ui.page : 0, cell);
+        const int i = bigCellAgent(ui, f, ui.page < pages ? ui.page : 0, cell);
         if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
         return h;
       }
@@ -311,7 +381,8 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
   DeckCommand out;
   switch (h.kind) {
     case Hit::Tile: bigOpen(ui, f, h.agent); break;
-    case Hit::PageBar: ui.page = h.index; break;
+    case Hit::PageBar: ui.page = h.index; ui.needsYou = false; break;
+    case Hit::NeedsYou: ui.needsYou = ui.att != nullptr; break;
     case Hit::Focus:
       if (!canAct(scope)) { uiToast(ui, "view only: needs scope act", ms); break; }
       out = commandFor(DeckCmd::Focus, f.agents[h.agent]);
@@ -351,10 +422,28 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
   return out;
 }
 
+// Home's pages, one step at a time: the "Needs you" screen sits left of the
+// first page.
+static inline void bigStep(PanelUi& ui, const Fleet& f, bool next) {
+  const int pages = bigPages(f);
+  if (ui.needsYou) {
+    if (next) { ui.needsYou = false; ui.page = 0; }
+  } else if (next) {
+    if (ui.page < pages - 1) ui.page++;
+  } else if (ui.page > 0) {
+    ui.page--;
+  } else if (ui.att) {
+    ui.needsYou = true;
+  }
+}
+
+static inline int bigSpots() { return 16; }
+
 static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f, bool touching, int x, int y,
                                    DeckScope scope, uint32_t ms) {
   DeckCommand out;
   constexpr int slop = 14, swipeMin = 40;
+  if (ui.att) attSync(*ui.att, f, bigSpots(), ms);   // the spots the finger lands on are the ones drawn
   if (touching) {
     if (!ui.down) {
       ui.down = true;
@@ -383,10 +472,7 @@ static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f
     if (ui.screen != Screen::Home) {
       if (horizontal && dx > 0) bigHome(ui);
     } else {
-      const int pages = bigPages(f);
-      const bool next = horizontal ? dx < 0 : dy < 0;
-      if (next && ui.page < pages - 1) ui.page++;
-      else if (!next && ui.page > 0) ui.page--;
+      bigStep(ui, f, horizontal ? dx < 0 : dy < 0);
     }
   }
   return out;
@@ -396,6 +482,8 @@ static inline bool bigTick(PanelUi& ui, const Fleet& f, uint32_t ms) {
   const int pages = bigPages(f);
   if (ui.page >= pages) ui.page = pages - 1;
   if (ui.page < 0) ui.page = 0;
+  if (ui.att) attSync(*ui.att, f, bigSpots(), ms);
+  else ui.needsYou = false;
   if (ui.screen != Screen::Home) {
     const int i = findAgent(f, ui.openId);
     if (i < 0) bigHome(ui);
@@ -425,9 +513,14 @@ static inline void bigResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t 
   ui.backAfterToast = false;
 }
 
+// BOOT: back from a card or a prompt; on home the next page, round to the
+// "Needs you" screen after the last one, then the first page again.
 static inline void bigButton(PanelUi& ui, const Fleet& f) {
   if (ui.screen != Screen::Home) { bigHome(ui); return; }
-  ui.page = (ui.page + 1) % bigPages(f);
+  const int pages = bigPages(f);
+  if (ui.needsYou) { ui.needsYou = false; ui.page = 0; }
+  else if (ui.att && ui.page >= pages - 1) ui.needsYou = true;
+  else ui.page = (ui.page + 1) % pages;
 }
 
 // ---------------------------------------------------------------- drawing
@@ -560,10 +653,10 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
   const PanelUi& ui = *in.ui;
   const int pages = bigPages(f);
   const int page = ui.page < pages ? ui.page : pages - 1;
-  const BigGrid g = bigGrid(S, pages, ui.wifi);
+  const BigGrid g = bigGridFor(S, ui, pages);
   for (int cell = 0; cell < 16; cell++) {
     const Rect r = bigCell(g, cell);
-    const int i = bigAgentAt(f, page, cell);
+    const int i = bigCellAgent(ui, f, page, cell);
     if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i);
     else {
       c.rect(r.x, r.y, r.w, r.h, T.emptyFill);
@@ -572,19 +665,29 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
   }
   if (ui.wifi && g.bars.w)                           // the Wi-Fi (or Bluetooth) mark (round_geom.h), right-aligned with the grid
     (ui.ble ? drawBleMark : drawNetMark)(c, (float)(g.x0 + 4 * g.cell + 3 * g.gap - 18), (float)(g.bars.y + g.bars.h / 2 + 6), T.dim);
-  if (pages > 1) {                                   // _PageBars
+  const BigBars bars = bigBars(S, g, ui, pages);
+  if (bars.n) {                                      // _PageBars
     bool hot[64] = {};
     for (int i = 0; i < f.count; i++)
       if (f.agents[i].status == Status::Waiting && f.agents[i].slot / 16 < 64) hot[f.agents[i].slot / 16] = true;
-    const int cur = bk(S, 56), other = bk(S, 30), h = bk(S, 8), pad = bk(S, 6);
-    int total = 0;
-    for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + 2 * pad;
-    int x = (S.w - total) / 2 + pad;
-    const int y = g.bars.y + (g.bars.h - h) / 2;
-    for (int p = 0; p < pages; p++) {
-      const int w = p == page ? cur : other;
-      rrect(c, Rect{x, y, w, h}, bk(S, 4), p == page ? T.ink : (p < 64 && hot[p]) ? T.accent : kRowOutline);
-      x += w + 2 * pad;
+    const bool here = ui.needsYou && ui.att;
+    if (bars.mark) {                                 // "Needs you": solid orange while you are on it, an orange
+      const Rect m = bars.r[0];                      // outline (and the count) while someone is on it
+      const int count = ui.att->count;
+      const uint16_t edge = here || count > 0 ? T.accent : kRowOutline;
+      const int bw = bk(S, 2) < 1 ? 1 : bk(S, 2);
+      rrect(c, m, m.h / 2, edge);
+      if (!here) rrect(c, Rect{m.x + bw, m.y + bw, m.w - 2 * bw, m.h - 2 * bw}, m.h / 2 - bw, T.bg);
+      if (bars.countX >= 0) {
+        char n[4];
+        snprintf(n, sizeof n, "%d", count > 99 ? 99 : count);
+        textAt(c, *S.label, bars.countX, m.y + m.h / 2 - fontPx(*S.label) / 2, n, T.accent);
+      }
+    }
+    for (int k = bars.mark ? 1 : 0; k < bars.n; k++) {
+      const int p = k - (bars.mark ? 1 : 0);
+      const bool cur = !here && p == page;
+      rrect(c, bars.r[k], bk(S, 4), cur ? T.ink : (p < 64 && hot[p]) ? T.accent : kRowOutline);
     }
   }
   if (in.link == LinkState::Lost) {                  // _OfflineChip, 22 px off the bottom

@@ -28,6 +28,11 @@ Every screen is in `docs/`.)
   and interrupt need scope `act`; stop needs `admin`.
 - **Prompts.** A waiting agent opens its prompt: the question, the command (for permissions), the
   answers. Answering needs scope `act`.
+- **Needs you.** Swipe right on the list (or press BOOT) for one screen of 2×3 spots with only the
+  agents at work, asking you something, or finished and not checked yet; swipe left (or BOOT) to go
+  back. An agent leaves 5 seconds after it stops needing you, and keeps its spot while it is there.
+  Two small marks at the top of the header say where you are: the left one is solid orange on that
+  screen, an orange outline while someone is on it. The board always starts on the list.
 - **Back.** Swipe right, or press BOOT. There's no back button.
 - **AMOLED.** True black; it dims when every agent is idle and nobody touched it for 30 s.
 
