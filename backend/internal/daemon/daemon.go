@@ -133,7 +133,7 @@ func (d *Daemon) Run() {
 				changed = true
 			}
 			if n%2 == 0 && alive && e.A.Tool == "claude" {
-				if d.subagents(e) {
+				if d.subagents(e, e.RunSince()) {
 					changed = true
 				}
 				// A turn that ended without its hook (Esc, a restart) ends here;
@@ -151,8 +151,7 @@ func (d *Daemon) Run() {
 			}
 			attached := len(clients[e.TmuxName]) > 0
 			focused := front != "" && front == e.TmuxName
-			if focused && e.A.Unseen {
-				e.A.Unseen = false // you looked at it
+			if lookedAt(e, focused) {
 				changed = true
 			}
 			if attached != e.A.Attached || focused != e.A.Focused {
@@ -227,40 +226,33 @@ func (d *Daemon) enableFocusReports(list []tmux.Client) {
 	}
 }
 
-// subagents tracks the session's working subagents, and shows an idle agent
-// as running while any are left, back to idle once they are done or quiet.
-func (d *Daemon) subagents(e *store.Entry) bool {
-	if e.A.Status != model.Running {
-		e.Background = false
+// subagents reads which of the session's subagents work now (since: when
+// its Claude Code process started) and follows them in its status: an agent
+// whose main thread is between turns runs while any are left, and is idle
+// (unseen) once the last one is done. Call it only while the process lives.
+func (d *Daemon) subagents(e *store.Entry, since time.Time) bool {
+	changed := setSubagents(e, since)
+	return claude.FollowSubagents(e) || changed
+}
+
+// lookedAt clears unseen when the agent's terminal is the focused one: you
+// see what it finished. It reports whether the agent changed.
+func lookedAt(e *store.Entry, focused bool) bool {
+	if !focused || !e.A.Unseen {
+		return false
 	}
-	// A subagent that wrote anything in the last half hour and hasn't given
-	// its final reply is working: one writing a long reply or waiting on a
-	// long command is quiet for many minutes.
-	subs := claude.Subagents(e.Transcript, 30*time.Minute, 30*time.Minute)
-	changed := !slices.Equal(subs, e.A.Subagents)
+	e.A.Unseen = false
+	return true
+}
+
+// setSubagents reads the session's working subagents into the agent.
+func setSubagents(e *store.Entry, since time.Time) bool {
+	subs := claude.Subagents(e.Transcript, since, time.Now())
+	if slices.Equal(subs, e.A.Subagents) {
+		return false
+	}
 	e.A.Subagents = subs
-	switch {
-	case len(subs) > 0 && e.A.Status == model.Idle:
-		e.SetStatus(model.Running)
-		e.Background = true
-		changed = true
-	case len(subs) == 0 && e.Background:
-		e.SetStatus(model.Idle)
-		e.A.Unseen = true // its subagents finished: it has something to show
-		e.Background = false
-		changed = true
-	}
-	if e.Background {
-		detail := "1 subagent working"
-		if len(subs) != 1 {
-			detail = fmt.Sprintf("%d subagents working", len(subs))
-		}
-		if e.A.Activity == nil || e.A.Activity.Detail != detail {
-			e.A.Activity = &model.Activity{Tool: "Task", Detail: detail}
-			changed = true
-		}
-	}
-	return changed
+	return true
 }
 
 // exitedTTL is how long an exited agent stays on the board, resumable, before
@@ -337,9 +329,7 @@ func (d *Daemon) Hook(agentID string, body []byte) error {
 	if !d.Store.Update(agentID, func(e *store.Entry) bool {
 		var changed bool
 		changed, scan = claude.Apply(e, ev)
-		if e.A.Unseen && front == e.TmuxName {
-			e.A.Unseen = false // finished while you were watching it
-		}
+		lookedAt(e, front != "" && front == e.TmuxName) // finished while you were watching it
 		return changed
 	}) {
 		return server.ErrNotFound

@@ -20,6 +20,18 @@ void main() {
     expect(agentPillLabel(a, s), startsWith('lost with tmux · '));
   });
 
+  test('only subagents at work: the tile counts them', () {
+    final fixture = jsonDecode(_fixture) as Map<String, dynamic>;
+    final first = (fixture['agents'] as List).first as Map<String, dynamic>;
+    first.addAll({
+      'status': 'running',
+      'activity': {'tool': 'Task', 'detail': '3 subagents working'},
+    });
+    final s = AgentsState.fromJson(fixture);
+    expect(s.agents.first.subagents, hasLength(3));
+    expect(agentMetaLine(s.agents.first, s), startsWith('3 subagents · '));
+  });
+
   group('SseParser', () {
     test('parses a state frame and skips ping comments', () {
       final p = SseParser();

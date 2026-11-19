@@ -61,14 +61,52 @@ type Event struct {
 	NotificationType string          `json:"notification_type"`
 	Source           string          `json:"source"`
 	Reason           string          `json:"reason"`
-	Trigger          string          `json:"trigger"` // PreCompact: manual | auto
+	Trigger          string          `json:"trigger"`  // PreCompact: manual | auto
+	AgentID          string          `json:"agent_id"` // set when a subagent fired it (same session id as the main thread)
+}
+
+// fromSubagent reports whether a subagent of the session fired the event,
+// not its main thread.
+func (ev Event) fromSubagent() bool {
+	return ev.AgentID != "" || strings.Contains(ev.TranscriptPath, "/subagents/")
+}
+
+// asksYou reports whether the event is a prompt that waits for you: those
+// show whoever asks, the main thread or a subagent.
+func (ev Event) asksYou() bool {
+	switch ev.Name {
+	case "PermissionRequest":
+		return true
+	case "PreToolUse":
+		return ev.ToolName == "AskUserQuestion"
+	case "Notification":
+		return ev.NotificationType == "permission_prompt" || ev.NotificationType == "elicitation_dialog" ||
+			ev.NotificationType == "" && strings.Contains(ev.Message, "permission")
+	}
+	return false
 }
 
 // Apply folds one hook event into the agent. It returns true when the agent
 // changed and whether the pane should be scanned for prompt options.
 func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 	working := e.A.Status == model.Running && !e.Background // in a turn, by its hooks
-	e.Background = false                                    // hooks are the real status again
+	sub := ev.fromSubagent()
+	if sub && !ev.asksYou() {
+		return subagentEvent(e, ev)
+	}
+	if ev.asksYou() {
+		// Whose prompt it is: a subagent's, asked while the main thread was
+		// between turns, ends back on the subagents' work (subagentEvent).
+		between := sub && !working && e.A.Status != model.Waiting
+		defer func() {
+			if e.A.Status == model.Waiting {
+				e.WaitAgent, e.WaitBackground = "", between
+				if sub {
+					e.WaitAgent = ev.AgentID
+				}
+			}
+		}()
+	}
 	// Only the main transcript counts; a subagent's own file would swap the
 	// context ring to the subagent's and force a full re-read on the way back.
 	if ev.TranscriptPath != "" && e.Transcript != ev.TranscriptPath && !strings.Contains(ev.TranscriptPath, "/subagents/") {
@@ -93,6 +131,7 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		// report the trigger "auto" when it isn't a /compact.
 		e.CompactToIdle = ev.Trigger == "manual" || !working
 		e.SetStatus(model.Running)
+		e.Background = false
 		detail := "compacting conversation"
 		if ev.Trigger == "auto" {
 			detail = "auto-compacting · context full"
@@ -105,12 +144,14 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 			}
 			break
 		}
+		e.RunStart = Now() // a new run: subagents of earlier ones are gone
 		if e.A.Status == model.Starting || e.A.Status == model.Exited || e.A.Status == model.Error {
 			e.SetStatus(model.Idle)
 		}
 	case "UserPromptSubmit":
 		e.A.Unseen = false // it's being fed
 		e.SetStatus(model.Running)
+		e.Background = false
 		e.A.LastPrompt = clip(oneLine(ev.Prompt), 280)
 		e.A.Turns++
 	case "PreToolUse":
@@ -120,7 +161,11 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 				return true, true
 			}
 		}
+		if sub {
+			return subagentEvent(e, ev) // a question we could not read: the subagent's own call
+		}
 		e.SetStatus(model.Running)
+		e.Background = false
 		e.A.Activity = &model.Activity{Tool: ev.ToolName, Detail: ToolDetail(ev.ToolName, ev.ToolInput, e.A.Cwd)}
 	case "PermissionRequest":
 		if ev.ToolName == "AskUserQuestion" {
@@ -147,7 +192,7 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 			}
 			return true, true
 		case ev.NotificationType == "idle_prompt":
-			if e.A.Status == model.Running {
+			if e.A.Status == model.Running && !e.Background { // (subagents at work keep it running)
 				e.SetStatus(model.Idle)
 			}
 		case ev.NotificationType == "elicitation_dialog":
@@ -159,15 +204,40 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		}
 	case "PostToolUse":
 		e.SetStatus(model.Running)
+		e.Background = false
 		e.A.Activity = nil
 	case "Stop":
-		e.SetStatus(model.Idle)
 		e.A.Unseen = true // finished: hungry until you look at it (the daemon clears it if you are)
+		// Its background subagents may still work: then it goes on running
+		// for them, without showing idle in between.
+		e.A.Subagents = Subagents(e.Transcript, e.RunSince(), Now())
+		if len(e.A.Subagents) > 0 {
+			ShowBackground(e)
+		} else {
+			e.SetStatus(model.Idle)
+		}
 	case "SessionEnd":
 		e.SetStatus(model.Exited)
 		e.A.Unseen = false
 	default:
 		return false, false
+	}
+	return true, false
+}
+
+// subagentEvent folds in a hook event a subagent fired that asks nothing of
+// you (its tool calls). Those are the subagent's, not the main thread's: they
+// change nothing, except that the subagent that asked you something going on
+// ends the wait (you answered).
+func subagentEvent(e *store.Entry, ev Event) (changed, scanPane bool) {
+	if e.A.Status != model.Waiting || e.WaitAgent == "" || ev.AgentID != e.WaitAgent || ev.Name != "PreToolUse" && ev.Name != "PostToolUse" {
+		return false, false
+	}
+	if e.WaitBackground {
+		ShowBackground(e) // asked between turns: back to the subagents' work
+	} else {
+		e.SetStatus(model.Running) // asked while the main thread waits on the subagent
+		e.A.Activity = &model.Activity{Tool: "Task"}
 	}
 	return true, false
 }
@@ -179,7 +249,9 @@ func EndCompact(e *store.Entry) bool {
 	if e.A.Activity == nil || e.A.Activity.Tool != CompactTool {
 		return false
 	}
-	if e.CompactToIdle {
+	if e.CompactToIdle && len(e.A.Subagents) > 0 {
+		ShowBackground(e) // its subagents work on
+	} else if e.CompactToIdle {
 		e.SetStatus(model.Idle)
 	} else {
 		e.A.Activity = nil

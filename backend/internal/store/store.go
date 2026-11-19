@@ -15,27 +15,30 @@ import (
 
 // Entry is one agent: the wire view plus private bookkeeping.
 type Entry struct {
-	A             model.Agent `json:"agent"`
-	SessionID     string      `json:"sessionId"`  // Claude session uuid
-	Transcript    string      `json:"transcript"` // Claude JSONL path, learned from hooks
-	TmuxName      string      `json:"tmuxName"`
-	Sim           bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
-	TitleSet      bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
-	Account       string      `json:"account,omitempty"`  // the Claude account the deck started it in ("" = see its transcript)
-	CustomTitle   string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
-	External      bool        `json:"-"`                  // mirrored from another app (Codex, Orca, herdr, cmux); never persisted
-	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
-	CompactToIdle bool        `json:"-"`                  // the running compaction started between turns: idle again after it
-	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
-	LiveAttach    string      `json:"-"`                  // a watched background session: its `claude attach` id
-	OrcaTerminal  string      `json:"-"`                  // an agent in Orca: its terminal handle
-	OrcaPane      string      `json:"-"`                  // …and Orca's pane key (stable id)
-	OrcaTurn      int64       `json:"-"`                  // …stateStartedAt of the state its prompt was built for
-	HerdrSocket   string      `json:"-"`                  // an agent in herdr: its session's socket
-	HerdrPane     string      `json:"-"`                  // …its pane ("w1:p2"; changes when panes move)
-	HerdrTurn     int64       `json:"-"`                  // …state_change_seq of the state its prompt was built for
-	CmuxSurface   string      `json:"-"`                  // an agent in cmux: its terminal (surface id)
-	CmuxTurn      float64     `json:"-"`                  // …updatedAt of the hook report its prompt was built for
+	A              model.Agent `json:"agent"`
+	SessionID      string      `json:"sessionId"`  // Claude session uuid
+	Transcript     string      `json:"transcript"` // Claude JSONL path, learned from hooks
+	TmuxName       string      `json:"tmuxName"`
+	Sim            bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
+	TitleSet       bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
+	Account        string      `json:"account,omitempty"`  // the Claude account the deck started it in ("" = see its transcript)
+	CustomTitle    string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
+	External       bool        `json:"-"`                  // mirrored from another app (Codex, Orca, herdr, cmux); never persisted
+	Background     bool        `json:"-"`                  // shown running only because its subagents work (its main thread is between turns)
+	WaitBackground bool        `json:"-"`                  // the open prompt is a subagent's, asked while the main thread was between turns
+	WaitAgent      string      `json:"-"`                  // …and that subagent's id
+	RunStart       time.Time   `json:"-"`                  // when Claude Code last started or resumed the session (SessionStart)
+	CompactToIdle  bool        `json:"-"`                  // the running compaction started between turns: idle again after it
+	LiveTTY        string      `json:"-"`                  // a watched hand-started session: its terminal
+	LiveAttach     string      `json:"-"`                  // a watched background session: its `claude attach` id
+	OrcaTerminal   string      `json:"-"`                  // an agent in Orca: its terminal handle
+	OrcaPane       string      `json:"-"`                  // …and Orca's pane key (stable id)
+	OrcaTurn       int64       `json:"-"`                  // …stateStartedAt of the state its prompt was built for
+	HerdrSocket    string      `json:"-"`                  // an agent in herdr: its session's socket
+	HerdrPane      string      `json:"-"`                  // …its pane ("w1:p2"; changes when panes move)
+	HerdrTurn      int64       `json:"-"`                  // …state_change_seq of the state its prompt was built for
+	CmuxSurface    string      `json:"-"`                  // an agent in cmux: its terminal (surface id)
+	CmuxTurn       float64     `json:"-"`                  // …updatedAt of the hook report its prompt was built for
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`
@@ -111,7 +114,20 @@ func (e *Entry) SetStatus(s model.Status) {
 	}
 	if s != model.Running {
 		e.A.Activity = nil
+		e.Background = false
 	}
+	if s != model.Waiting {
+		e.WaitBackground, e.WaitAgent = false, ""
+	}
+}
+
+// RunSince is when the agent's current Claude Code process started, as far
+// as is known: subagents launched before it belong to an earlier run.
+func (e *Entry) RunSince() time.Time {
+	if e.RunStart.After(e.A.StartedAt) {
+		return e.RunStart
+	}
+	return e.A.StartedAt
 }
 
 // MarkActive records activity at t (a message sent to the agent or received

@@ -141,22 +141,28 @@ func (d *Daemon) syncCmux(list []cmux.Session) {
 				e.SessionID, e.Transcript, e.Offset, e.Usage, e.Pending = s.ID, s.Transcript, 0, nil, ""
 				changed = true
 			}
-			tool, interrupted := "", time.Time{}
+			tool, interrupted, turn := "", time.Time{}, false
 			if e.Transcript != "" {
 				if claude.Tail(e) { // model, context, tokens, cost, title
 					changed = true
 				}
-				_, tool = claude.TranscriptTurn(e.Transcript, 10*time.Minute)
+				turn, tool = claude.TranscriptTurn(e.Transcript, 10*time.Minute)
 				interrupted = claude.InterruptedAt(e.Transcript)
 			}
+			// cmux lists only sessions whose process is alive; when it
+			// started is not known here.
+			changed = setSubagents(e, time.Time{}) || changed
+			// cmux's hooks hear the subagents too: "running" with the main
+			// thread between turns is them at work.
+			background := !turn && len(e.A.Subagents) > 0
 			if s.Cwd != "" && s.Cwd != e.A.Cwd {
 				e.A.Cwd, e.A.Folder, changed = s.Cwd, filepath.Base(s.Cwd), true
 			}
 			if s.Updated > 0 && e.MarkActiveStep(seconds(s.Updated)) { // cmux's hooks' own time
 				changed = true
 			}
-			changed = cmuxApply(e, s, tool, screen, interrupted) || changed
-			return d.subagents(e) || changed
+			changed = cmuxApply(e, s, tool, screen, interrupted, background) || changed
+			return claude.FollowSubagents(e) || changed
 		})
 	}
 }
@@ -164,8 +170,9 @@ func (d *Daemon) syncCmux(list []cmux.Session) {
 // cmuxApply maps the state cmux's hooks report onto the agent; tool is the
 // tool call the agent is in (from its transcript), screen (may be "") the
 // terminal's text when a new question appeared, interrupted when the
-// transcript last shows a turn interrupted (zero if not).
-func cmuxApply(e *store.Entry, s cmux.Session, tool, screen string, interrupted time.Time) bool {
+// transcript last shows a turn interrupted (zero if not), background when
+// only its subagents work (the main thread is between turns).
+func cmuxApply(e *store.Entry, s cmux.Session, tool, screen string, interrupted time.Time, background bool) bool {
 	changed := false
 	state := s.Lifecycle
 	// No hook runs when a turn is interrupted: an interrupt after the hooks'
@@ -176,7 +183,16 @@ func cmuxApply(e *store.Entry, s cmux.Session, tool, screen string, interrupted 
 	}
 	switch state {
 	case "running":
-		if e.A.Status != model.Running {
+		if background {
+			if e.A.Status == model.Running && !e.Background {
+				e.SetStatus(model.Idle) // the main thread's turn is over; FollowSubagents shows the subagents
+				e.A.Unseen = true
+				changed = true
+			}
+			break
+		}
+		if e.A.Status != model.Running || e.Background {
+			e.Background = false
 			e.SetStatus(model.Running)
 			e.A.Unseen = false
 			changed = true
@@ -204,6 +220,9 @@ func cmuxApply(e *store.Entry, s cmux.Session, tool, screen string, interrupted 
 		e.A.Waiting = p
 		changed = true
 	default: // idle
+		if e.Background && e.A.Status == model.Running {
+			break // its subagents work on (FollowSubagents ends it)
+		}
 		if e.A.Status == model.Running || e.A.Status == model.Waiting {
 			e.SetStatus(model.Idle) // also clears the activity
 			e.A.Unseen = !stopped   // a turn finished while we watched (you stopped it yourself)

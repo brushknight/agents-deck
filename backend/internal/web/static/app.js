@@ -96,10 +96,18 @@ const needsYou = (a) => a.status === 'waiting' || a.status === 'error';
 // Finished a turn nobody has reviewed yet: hungry until its terminal is focused.
 const hungry = (a) => a.status === 'idle' && a.unseen;
 
+// Claude's turn is over and only its subagents work: "3 subagents", not the
+// main thread at a tool (the service sets this activity line for it).
+function subsOnly(a) {
+  const n = (a.subagents || []).length;
+  if (!n || !/^\d+ subagents? working$/.test(a.activity?.detail || '')) return '';
+  return `${n} subagent${n === 1 ? '' : 's'}`;
+}
+
 function tileMeta(a) {
   if (hungry(a)) return 'hungry · feed me';
   switch (a.status) {
-    case 'running': return `${verb(a.activity?.tool)} · ${ctxPct(a)}% ctx`;
+    case 'running': return `${subsOnly(a) || verb(a.activity?.tool)} · ${ctxPct(a)}% ctx`;
     case 'waiting': {
       const w = a.waiting || {};
       if (w.kind === 'permission') {

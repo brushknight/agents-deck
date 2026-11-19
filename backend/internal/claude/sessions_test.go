@@ -73,10 +73,12 @@ func TestMatchAndFind(t *testing.T) {
 	_ = fmt.Sprint
 }
 
-func TestSubagents(t *testing.T) {
+// The fallback: a session whose main transcript says nothing about its
+// subagents (see subagents_test.go for the main transcript's records).
+func TestSubagentsFallback(t *testing.T) {
 	dir := t.TempDir()
 	tr := filepath.Join(dir, "0b5c2f4e-1111-4222-8333-944455556666.jsonl")
-	if subs := Subagents(tr, time.Minute, time.Hour); subs != nil {
+	if subs := Subagents(tr, time.Time{}, time.Now()); subs != nil {
 		t.Fatalf("no subagents folder: %v", subs)
 	}
 	sub := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
@@ -96,22 +98,23 @@ func TestSubagents(t *testing.T) {
 	write("agent-a1.jsonl", toolCall+"\n"+result+"\n"+`{"type":"attachment","attachment":{}}`+"\n")
 	write("agent-a1.meta.json", `{"agentType":"Explore","description":"find  the\nauth code"}`)
 	write("agent-a2.jsonl", toolCall+"\n"+result+"\n"+final+"\n") // finished
-	old := time.Now().Add(-5 * time.Minute)
-	// a3: quiet for 5 minutes, but inside a tool call (a long build): working.
-	inTool := write("agent-a3.jsonl", toolCall+"\n")
-	// a4: quiet for 5 minutes after a tool result: gone.
+	// a3: quiet for 20 minutes after a tool result (a long reply): working.
+	// a4: quiet for 31 minutes: gone. ("If they did something in 30 minutes,
+	// keep the main thread active.")
+	inTool := write("agent-a3.jsonl", toolCall+"\n"+result+"\n")
 	quiet := write("agent-a4.jsonl", toolCall+"\n"+result+"\n")
-	for _, f := range []string{inTool, quiet} {
+	for f, ago := range map[string]time.Duration{inTool: 20 * time.Minute, quiet: 31 * time.Minute} {
+		old := time.Now().Add(-ago)
 		if err := os.Chtimes(f, old, old); err != nil {
 			t.Fatal(err)
 		}
 	}
-	subs := Subagents(tr, time.Minute, time.Hour)
+	subs := Subagents(tr, time.Time{}, time.Now())
 	if len(subs) != 2 || subs[1].ID != "a3" && subs[0].ID != "a3" {
 		t.Fatalf("want a1 and a3 working: %+v", subs)
 	}
-	if got := Subagents(tr, time.Minute, 2*time.Minute); len(got) != 1 {
-		t.Fatalf("a tool call past toolWindow is over: %+v", got)
+	if got := Subagents(tr, time.Time{}, time.Now().Add(15*time.Minute)); len(got) != 1 || got[0].ID != "a1" {
+		t.Fatalf("a3 quiet past half an hour is over: %+v", got)
 	}
 	for _, x := range subs {
 		if x.ID == "a1" {

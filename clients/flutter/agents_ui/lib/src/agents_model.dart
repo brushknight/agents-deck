@@ -576,7 +576,17 @@ String tildePath(String path) {
 String agentMetaLine(Agent a, AgentsState state, [DateTime? localNow]) {
   switch (a.status) {
     case AgentStatus.running:
-      final verb = a.activity?.verb;
+      // Claude's turn is over and only its subagents work (the service sets
+      // this activity line): "3 subagents", not the main thread at a tool.
+      final n = a.subagents.length;
+      final subsOnly =
+          n > 0 &&
+          RegExp(
+            r'^\d+ subagents? working$',
+          ).hasMatch(a.activity?.detail ?? '');
+      final verb = subsOnly
+          ? '$n subagent${n == 1 ? '' : 's'}'
+          : a.activity?.verb;
       return '${verb == null || verb.isEmpty ? 'working' : verb}'
           ' · ${a.contextPercent}% ctx';
     case AgentStatus.waiting:

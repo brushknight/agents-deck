@@ -152,8 +152,9 @@ func (d *Daemon) syncLive() {
 		d.Store.Update(id, func(e *store.Entry) bool {
 			changed := claude.Tail(e) // tokens, context, model, title
 			e.LiveTTY, e.LiveAttach = l.TTY, l.ShortID
+			changed = setSubagents(e, l.Started) || changed // it is live: its subagents may be too
 			changed = d.liveStatus(e, l) || changed
-			return d.subagents(e) || changed
+			return claude.FollowSubagents(e) || changed
 		})
 	}
 }
@@ -162,10 +163,13 @@ func (d *Daemon) syncLive() {
 // working until Claude's final reply of the turn, then idle (hungry once a
 // turn finishes while we watch).
 func (d *Daemon) liveStatus(e *store.Entry, l claude.Live) bool {
-	running, tool := claude.TranscriptTurn(e.Transcript, 10*time.Minute)
+	turn, tool := claude.TranscriptTurn(e.Transcript, 10*time.Minute)
+	running := turn
 	changed := false
 	if l.Reported { // Claude Code's own report beats reading the transcript
-		running = l.Busy
+		// Busy with the main thread between turns is its subagents at work:
+		// FollowSubagents shows that.
+		running = l.Busy && (turn || len(e.A.Subagents) == 0)
 		if l.Blocked {
 			if e.A.Status != model.Waiting {
 				e.SetStatus(model.Waiting)
@@ -181,11 +185,13 @@ func (d *Daemon) liveStatus(e *store.Entry, l claude.Live) bool {
 		}
 	}
 	switch {
-	case running && e.A.Status != model.Running:
+	case running && (e.A.Status != model.Running || e.Background):
 		e.SetStatus(model.Running)
+		e.Background = false // the main thread is in a turn again
+		e.A.Activity = nil
 		e.A.Unseen = false
 		changed = true
-	case !running && e.A.Status == model.Running:
+	case !running && e.A.Status == model.Running && !e.Background:
 		e.SetStatus(model.Idle) // also clears the activity
 		e.A.Unseen = true       // a turn finished while we watched
 		changed = true

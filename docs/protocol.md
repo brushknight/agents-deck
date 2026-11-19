@@ -107,7 +107,9 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // colour = (h >> 8) mod 8), false when chosen by hand
   "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
                                   // the account (Claude config folder) the session runs in; color is a hat colour
-  "subagents": [                  // omitted when none: subagents still working, oldest first
+  "subagents": [                  // omitted when none: subagents (and workflow runs, type "workflow") still
+                                  // working, oldest first. While only they work (Claude's turn is over) the
+                                  // agent is "running" with activity {"tool": "Task", "detail": "2 subagents working"}
     { "id": "a1f3c9", "title": "map the payment retry paths", "type": "Explore", "tool": "Grep" }
   ],
   "startedAt": "2026-10-08T00:13:00Z",
