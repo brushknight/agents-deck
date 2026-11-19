@@ -270,6 +270,7 @@ class Agent {
   const Agent({
     required this.id,
     required this.slot,
+    this.attentionSlot = 0,
     required this.title,
     this.aiTitle = '',
     this.tool = 'claude',
@@ -309,6 +310,10 @@ class Agent {
 
   final String id;
   final int slot;
+
+  /// Its spot on the "Needs you" grid, 1..16 (4 x 4, by rows), or 0 when it
+  /// isn't there. The service decides it, so every screen shows the same.
+  final int attentionSlot;
   final String title;
   final String aiTitle;
 
@@ -402,6 +407,7 @@ class Agent {
     return Agent(
       id: _str(j['id']),
       slot: _int(j['slot']),
+      attentionSlot: _int(j['attentionSlot']),
       title: _str(j['title']),
       aiTitle: _str(j['aiTitle']),
       tool: _str(j['tool']),

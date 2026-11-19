@@ -1,178 +1,101 @@
-// The "needs you" screen's spots (static/attention.js), no browser needed:
+// The "needs you" screen (static/attention.js), no browser needed:
 //   node --test backend/internal/web/attention_test.mjs
 // go test ./internal/web runs it too when node is installed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { arrange, LINGER_MS, wantsYou } from './static/attention.js';
+import { needsYou, packed, simulate, wantsYou, LINGER_MS, SPOTS } from './static/attention.js';
 
-const ag = (spec) => Object.entries(spec).map(([id, status]) => ({ id, status }));
-const never = () => { throw new Error('no random spot expected'); };
+const ids = (spots) => spots.map((a) => (a ? a.id : null));
 
-// run steps the screen through a list of [agents, capacity, now] and returns the last result.
-function run(steps, rand = never, state = {}) {
-  let r;
-  for (const [agents, cap, now] of steps) { r = arrange(state, agents, cap, now, rand); state = r.state; }
-  return r;
-}
-
-test('working and asking agents are on it, the rest are not', () => {
+test('who needs you: working, asking, or hungry', () => {
   assert.ok(wantsYou({ status: 'running' }));
   assert.ok(wantsYou({ status: 'starting' }));
   assert.ok(wantsYou({ status: 'waiting' }));
-  for (const s of ['idle', 'error', 'exited', '']) assert.ok(!wantsYou({ status: s }));
-  const r = arrange({}, ag({ a: 'running', b: 'idle', c: 'waiting', d: 'error', e: 'starting' }), 16, 0, never);
-  assert.deepEqual(r.spots.slice(0, 4), ['a', 'c', 'e', null]);
-  assert.equal(r.count, 3);
-  assert.equal(r.more, 0);
-  assert.equal(r.spots.length, 16);
-});
-
-test('newcomers take the lowest free spot; nobody moves up when one leaves', () => {
-  let r = arrange({}, ag({ a: 'running', b: 'running', c: 'running' }), 4, 0, never);
-  assert.deepEqual(r.spots, ['a', 'b', 'c', null]);
-  r = arrange(r.state, ag({ a: 'running', b: 'idle', c: 'running' }), 4, 1000, never);
-  assert.deepEqual(r.spots, ['a', 'b', 'c', null], 'b lingers');
-  r = arrange(r.state, ag({ a: 'running', b: 'idle', c: 'running' }), 4, 1000 + LINGER_MS, never);
-  assert.deepEqual(r.spots, ['a', null, 'c', null], 'b left, c stays put');
-  r = arrange(r.state, ag({ a: 'running', b: 'idle', c: 'running', d: 'waiting' }), 4, 7000, never);
-  assert.deepEqual(r.spots, ['a', 'd', 'c', null], 'd takes the lowest free spot');
-});
-
-test('an agent stays 5 seconds after it stops, and wake says when it leaves', () => {
-  let r = arrange({}, ag({ a: 'waiting' }), 4, 0, never);
-  r = arrange(r.state, ag({ a: 'idle' }), 4, 100, never);
-  assert.equal(r.spots[0], 'a');
-  assert.equal(r.wake, 100 + LINGER_MS);
-  r = arrange(r.state, ag({ a: 'idle' }), 4, 100 + LINGER_MS - 1, never);
-  assert.equal(r.spots[0], 'a');
-  r = arrange(r.state, ag({ a: 'idle' }), 4, 100 + LINGER_MS, never);
-  assert.equal(r.spots[0], null);
-  assert.equal(r.count, 0);
-  assert.equal(r.wake, null);
-});
-
-test('back to work within 5 seconds: it never leaves', () => {
-  let r = arrange({}, ag({ a: 'running', b: 'running' }), 4, 0, never);
-  r = arrange(r.state, ag({ a: 'idle', b: 'running' }), 4, 1000, never);
-  r = arrange(r.state, ag({ a: 'waiting', b: 'running' }), 4, 4000, never);
-  assert.equal(r.wake, null);
-  r = arrange(r.state, ag({ a: 'waiting', b: 'running' }), 4, 60000, never);
-  assert.deepEqual(r.spots.slice(0, 2), ['a', 'b']);
-  // and the 5 seconds start over the next time it stops
-  r = arrange(r.state, ag({ a: 'idle', b: 'running' }), 4, 61000, never);
-  assert.equal(r.wake, 61000 + LINGER_MS);
-});
-
-test('a returning agent gets its old spot back when it is free', () => {
-  const r = run([
-    [ag({ a: 'running', b: 'running', c: 'running' }), 4, 0],
-    [ag({ a: 'running', b: 'idle', c: 'running' }), 4, 1],
-    [ag({ a: 'running', b: 'idle', c: 'running' }), 4, 1 + LINGER_MS],
-    [ag({ a: 'idle', b: 'idle', c: 'running' }), 4, 10000],
-    [ag({ a: 'idle', b: 'idle', c: 'running' }), 4, 20000], // a left too: 0 and 1 are free
-    [ag({ a: 'idle', b: 'running', c: 'running' }), 4, 30000],
-  ]);
-  assert.deepEqual(r.spots, [null, 'b', 'c', null], 'b goes back to 1, not the lowest free 0');
-});
-
-test('its old spot taken: a random free spot, which it then remembers', () => {
-  let r = run([
-    [ag({ a: 'running', b: 'running' }), 4, 0],
-    [ag({ a: 'idle', b: 'running' }), 4, 1],
-    [ag({ a: 'idle', b: 'running' }), 4, 1 + LINGER_MS], // a left spot 0
-    [ag({ a: 'idle', b: 'running', n: 'running' }), 4, 10000], // n takes 0
-  ]);
-  assert.deepEqual(r.spots, ['n', 'b', null, null]);
-  // free spots are 2 and 3; rand 0.9 picks the last, so not simply the first
-  r = arrange(r.state, ag({ a: 'running', b: 'running', n: 'running' }), 4, 11000, () => 0.9);
-  assert.deepEqual(r.spots, ['n', 'b', null, 'a']);
-  assert.equal(r.state.memory.a, 3);
-  // leave and come back once more: spot 3 again, no random pick
-  r = run([
-    [ag({ a: 'idle', b: 'running', n: 'running' }), 4, 12000],
-    [ag({ a: 'idle', b: 'running', n: 'running' }), 4, 12000 + LINGER_MS],
-    [ag({ a: 'running', b: 'running', n: 'running' }), 4, 20000],
-  ], never, r.state);
-  assert.deepEqual(r.spots, ['n', 'b', null, 'a']);
-});
-
-test('a full screen: the rest wait with a count, oldest first', () => {
-  let r = run([
-    [ag({ a: 'running', b: 'running' }), 2, 0],
-    [ag({ a: 'running', b: 'running', c: 'running' }), 2, 1000],
-    [ag({ a: 'running', b: 'running', c: 'running', d: 'waiting' }), 2, 2000],
-  ]);
-  assert.deepEqual(r.spots, ['a', 'b']);
-  assert.equal(r.more, 2);
-  assert.equal(r.count, 4);
-  // d sits earlier in deck order, but c has waited longer
-  r = arrange(r.state, ag({ d: 'waiting', a: 'idle', b: 'running', c: 'running' }), 2, 3000, never);
-  r = arrange(r.state, ag({ d: 'waiting', a: 'idle', b: 'running', c: 'running' }), 2, 3000 + LINGER_MS, never);
-  assert.deepEqual(r.spots, ['c', 'b'], 'c (first-timer) takes the freed spot');
-  assert.equal(r.more, 1);
-});
-
-test('a waiting agent that stops working while it waits for a spot drops out after 5 seconds', () => {
-  let r = arrange({}, ag({ a: 'running', b: 'running' }), 1, 0, never);
-  assert.equal(r.more, 1);
-  r = arrange(r.state, ag({ a: 'running', b: 'idle' }), 1, 1000, never);
-  assert.equal(r.more, 1);
-  r = arrange(r.state, ag({ a: 'running', b: 'idle' }), 1, 1000 + LINGER_MS, never);
-  assert.equal(r.more, 0);
-  assert.equal(r.count, 1);
-});
-
-test('the grid shrinks: agents in spots that are gone are placed again, the others keep theirs', () => {
-  let r = arrange({}, ag({ a: 'running', b: 'running', c: 'running', d: 'running', e: 'running' }), 16, 0, never);
-  r = run([
-    [ag({ a: 'running', b: 'idle', c: 'idle', d: 'running', e: 'running' }), 16, 1],
-    [ag({ a: 'running', b: 'idle', c: 'idle', d: 'running', e: 'running' }), 16, 1 + LINGER_MS],
-  ], never, r.state);
-  assert.deepEqual(r.spots.slice(0, 5), ['a', null, null, 'd', 'e']);
-  // 16 -> 4 spots: e (spot 4) is gone; free are 1 and 2, rand 0 picks 1
-  r = arrange(r.state, ag({ a: 'running', b: 'idle', c: 'idle', d: 'running', e: 'running' }), 4, 10000, () => 0);
-  assert.deepEqual(r.spots, ['a', 'e', null, 'd']);
-  assert.equal(r.state.memory.e, 1);
-  // and back to 16: nobody moves
-  r = arrange(r.state, ag({ a: 'running', b: 'idle', c: 'idle', d: 'running', e: 'running' }), 16, 11000, never);
-  assert.deepEqual(r.spots.slice(0, 5), ['a', 'e', null, 'd', null]);
-});
-
-test('after a reload, remembered spots come back, and newcomers do not take them', () => {
-  const memory = { a: 5, b: 0, gone: 3 };
-  const r = arrange({ memory }, ag({ n: 'running', a: 'running', b: 'waiting' }), 16, 0, never);
-  assert.equal(r.spots[5], 'a');
-  assert.equal(r.spots[0], 'b');
-  assert.equal(r.spots[1], 'n', 'n took the lowest spot nobody remembers');
-  assert.ok(!('gone' in r.state.memory), 'ids no longer on the deck are forgotten');
-});
-
-test('agents that leave the deck leave the screen at once', () => {
-  let r = arrange({}, ag({ a: 'running', b: 'running' }), 4, 0, never);
-  r = arrange(r.state, ag({ b: 'running' }), 4, 10, never);
-  assert.deepEqual(r.spots, [null, 'b', null, null]);
-  assert.equal(r.count, 1);
-});
-
-test('no room at all', () => {
-  const r = arrange({}, ag({ a: 'running' }), 0, 0, never);
-  assert.deepEqual(r.spots, []);
-  assert.equal(r.more, 1);
-});
-
-test('finished and not looked at yet (hungry): stays until you check it', () => {
   assert.ok(wantsYou({ status: 'idle', unseen: true }));
-  assert.ok(!wantsYou({ status: 'idle', unseen: false }));
-  const hungry = [{ id: 'a', status: 'idle', unseen: true }, { id: 'b', status: 'running' }];
-  // Long after it finished, it is still in its spot.
-  let r = run([[ag({ a: 'running', b: 'running' }), 16, 0], [hungry, 16, 1000], [hungry, 16, 10 * 60 * 1000]]);
-  assert.deepEqual(r.spots.slice(0, 2), ['a', 'b']);
-  // Checked: it leaves 5 seconds later, and b does not move.
-  const seen = [{ id: 'a', status: 'idle', unseen: false }, { id: 'b', status: 'running' }];
-  const t = 10 * 60 * 1000;
-  let state = r.state;
-  r = arrange(state, seen, 16, t + 1000, never); state = r.state;
-  assert.deepEqual(r.spots.slice(0, 2), ['a', 'b']);
-  r = arrange(state, seen, 16, t + 1000 + LINGER_MS, never);
-  assert.deepEqual(r.spots.slice(0, 2), [null, 'b']);
+  for (const s of ['idle', 'error', 'exited', '']) assert.ok(!wantsYou({ status: s }));
+});
+
+test('each agent goes in the spot the service gave it', () => {
+  const agents = [
+    { id: 'a', slot: 0, status: 'running', attentionSlot: 3 },
+    { id: 'b', slot: 1, status: 'waiting', attentionSlot: 16 },
+    { id: 'c', slot: 2, status: 'idle', attentionSlot: 1 }, // stopped: still there for 5 s
+    { id: 'd', slot: 3, status: 'idle', attentionSlot: 0 },
+  ];
+  const r = needsYou(agents);
+  assert.equal(r.spots.length, SPOTS);
+  assert.deepEqual(ids(r.spots), ['c', null, 'a', null, null, null, null, null, null, null, null, null, null, null, null, 'b']);
+  assert.equal(r.count, 3);
+  assert.equal(r.asking, 1);
+  assert.ok(r.server);
+});
+
+test('a full grid: the ones waiting for a spot count too', () => {
+  const agents = Array.from({ length: 18 }, (_, i) => ({ id: `a${i}`, slot: i, status: 'running', attentionSlot: i < 16 ? i + 1 : 0 }));
+  agents[17].status = 'waiting';
+  const r = needsYou(agents);
+  assert.equal(r.spots.filter(Boolean).length, 16);
+  assert.equal(r.count, 18);
+  assert.equal(r.asking, 1);
+});
+
+test('bad or doubled spots are ignored', () => {
+  const r = needsYou([
+    { id: 'a', slot: 0, status: 'running', attentionSlot: 2 },
+    { id: 'b', slot: 1, status: 'running', attentionSlot: 2 },
+    { id: 'c', slot: 2, status: 'running', attentionSlot: 17 },
+  ]);
+  assert.deepEqual(ids(r.spots).slice(0, 3), [null, 'a', null]);
+});
+
+test('an older service sends no spots: the agents that need you, in deck order', () => {
+  const r = needsYou([
+    { id: 'z', slot: 5, status: 'waiting' },
+    { id: 'a', slot: 1, status: 'running' },
+    { id: 'i', slot: 0, status: 'idle' },
+  ]);
+  assert.equal(r.server, false);
+  assert.deepEqual(ids(r.spots).slice(0, 3), ['a', 'z', null]);
+  assert.equal(r.count, 2);
+  // nobody needs you: an empty screen either way
+  const none = needsYou([{ id: 'i', slot: 0, status: 'idle' }]);
+  assert.ok(none.server);
+  assert.equal(none.count, 0);
+});
+
+test('a smaller screen shows them by spot, lowest first', () => {
+  const spots = new Array(SPOTS).fill(null);
+  spots[9] = { id: 'j' }; spots[2] = { id: 'c' }; spots[0] = { id: 'a' };
+  assert.deepEqual(packed(spots, 2).map((a) => a.id), ['a', 'c']);
+  assert.deepEqual(packed(spots, 8).map((a) => a.id), ['a', 'c', 'j']);
+});
+
+// ?fixture mode stands in for the service with simulate(): the same rules.
+const fleet = (spec) => Object.entries(spec).map(([id, status], slot) => ({ id, slot, status }));
+const spotsOf = (agents) => Object.fromEntries(agents.filter((a) => a.attentionSlot).map((a) => [a.id, a.attentionSlot]));
+const never = () => { throw new Error('no random spot expected'); };
+
+test('fixture: lowest free spot, the 5 s stay, the old spot back, else a random one', () => {
+  let agents = fleet({ a: 'running', b: 'running', c: 'running' });
+  let r = simulate({}, agents, 0, never);
+  assert.deepEqual(spotsOf(agents), { a: 1, b: 2, c: 3 });
+  agents = fleet({ a: 'running', b: 'idle', c: 'running' });
+  r = simulate(r.state, agents, 1000, never);
+  assert.equal(r.wake, 1000 + LINGER_MS);
+  assert.deepEqual(spotsOf(agents), { a: 1, b: 2, c: 3 }, 'b stays 5 s');
+  r = simulate(r.state, agents, 1000 + LINGER_MS, never);
+  assert.deepEqual(spotsOf(agents), { a: 1, c: 3 }, 'b left, c stays put');
+  agents = fleet({ a: 'running', b: 'running', c: 'running' });
+  r = simulate(r.state, agents, 9000, never);
+  assert.deepEqual(spotsOf(agents), { a: 1, b: 2, c: 3 }, 'b back in its old spot');
+  // b leaves, n takes spot 2, b comes back: a random free spot
+  agents = fleet({ a: 'running', b: 'idle', c: 'running' });
+  r = simulate(r.state, agents, 10000, never);
+  r = simulate(r.state, agents, 10000 + LINGER_MS, never);
+  agents = [...fleet({ a: 'running', b: 'idle', c: 'running' }), { id: 'n', slot: 9, status: 'running' }];
+  r = simulate(r.state, agents, 20000, never);
+  assert.equal(spotsOf(agents).n, 2);
+  agents = [...fleet({ a: 'running', b: 'running', c: 'running' }), { id: 'n', slot: 9, status: 'running' }];
+  r = simulate(r.state, agents, 21000, () => 0.99);
+  assert.equal(spotsOf(agents).b, 16);
 });

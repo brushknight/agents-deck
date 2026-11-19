@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:agents_deck_ui/agents_deck_ui.dart';
 import 'package:flutter/gestures.dart';
@@ -7,13 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The "Needs you" screen inside the deck: getting there, who is on it, the
-/// sticky spots and the 5 s leave (on a clock the test moves by hand).
-class _Clock {
-  DateTime t = DateTime.utc(2026, 10, 8, 12);
-  DateTime call() => t;
-}
-
+/// The "Needs you" screen inside the deck: getting there, and every agent
+/// drawn in the spot the service gave it (attentionSlot).
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -29,38 +23,28 @@ void main() {
     }
   });
 
-  late _Clock clock;
-  setUp(() => clock = _Clock());
-
-  Future<AttentionSpots> pump(WidgetTester tester, AgentsSource source) async {
+  Future<void> pump(WidgetTester tester, AgentsSource source) async {
     tester.view.physicalSize = const Size(720, 720);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    final spots = AttentionSpots(
-      capacity: 16,
-      random: math.Random(7),
-      now: clock.call,
-    );
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: DeckHud.bg),
-        home: Scaffold(
-          body: AgentsApp(source: source, animate: false, attention: spots),
-        ),
+        home: Scaffold(body: AgentsApp(source: source, animate: false)),
       ),
     );
     await tester.pump();
-    return spots;
   }
 
   /// The demo fleet with everyone already looked at, so only the agents
-  /// working or asking are on the screen.
+  /// working or asking are on the screen, with the spots the service gives.
   FakeAgentsSource seenDemo() {
     final json = FakeAgentsSource.demo().toJson();
     for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
       a['unseen'] = false;
+      a['attentionSlot'] = 0;
     }
-    return FakeAgentsSource.fromState(json);
+    return FakeAgentsSource.fromState(json, attention: true);
   }
 
   final screen = find.byKey(const Key('attention-screen'));
@@ -75,17 +59,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// The demo fleet with [status] set on the agents in [ids].
-  Map<String, dynamic> withStatus(
+  /// The fleet of [source] with each listed agent's attentionSlot (and
+  /// status) set as a service would send them.
+  Map<String, dynamic> withSpots(
     FakeAgentsSource source,
-    Iterable<String> ids,
-    String status,
+    Map<String, (String, int)> spots,
   ) {
     final json = source.toJson();
     for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
-      if (ids.contains(a['id'])) {
+      if (spots[a['id']] case (final status, final spot)) {
         a['status'] = status;
         if (status != 'waiting') a['waiting'] = null;
+        a['attentionSlot'] = spot;
       }
     }
     return json;
@@ -109,7 +94,6 @@ void main() {
     await pump(tester, seenDemo());
     expect(screen, findsNothing);
     expect(find.byType(AgentTile), findsNWidgets(11));
-    expect(find.byKey(const Key('attention-screen')), findsNothing);
     final count = find.byKey(const Key('agents-attention-count'));
     expect(tester.widget<Text>(count).data, '7');
   });
@@ -120,7 +104,6 @@ void main() {
     await pump(tester, seenDemo());
     await swipeToAttention(tester);
     expect(screen, findsOneWidget);
-    expect(find.byKey(const Key('attention-screen')), findsOneWidget);
     for (final id in busy) {
       expect(tile(id), findsOneWidget, reason: id);
     }
@@ -184,94 +167,48 @@ void main() {
     expect(find.byKey(const Key('agent-interrupt')), findsOneWidget);
   });
 
-  testWidgets('a finished agent stays 5 s, then its spot is left empty', (
+  testWidgets('each agent sits in the spot the service gave it', (
     tester,
   ) async {
-    final source = seenDemo();
-    await pump(tester, source);
-    await swipeToAttention(tester);
-    final where = {for (final id in busy) id: tester.getTopLeft(tile(id))};
-
-    source.load(withStatus(source, ['t3st5a'], 'idle'));
-    await tester.pump();
-    expect(tile('t3st5a'), findsOneWidget);
-
-    clock.t = clock.t.add(const Duration(seconds: 4));
-    await tester.pump(const Duration(seconds: 4));
-    expect(tile('t3st5a'), findsOneWidget);
-
-    clock.t = clock.t.add(const Duration(seconds: 1));
-    await tester.pump(const Duration(seconds: 1));
-    expect(tile('t3st5a'), findsNothing);
-    expect(find.byKey(const Key('attention-spot-empty')), findsNWidgets(10));
-    // Nobody else moved.
-    for (final id in busy.where((id) => id != 't3st5a')) {
-      expect(tester.getTopLeft(tile(id)), where[id], reason: id);
-    }
-    // It is still on the normal deck.
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    await tester.pumpAndSettle();
-    expect(find.text('api-tests'), findsOneWidget);
-    expect(
-      tester.widget<Text>(find.byKey(const Key('agents-attention-count'))).data,
-      '6',
+    final source = FakeAgentsSource.fromState(seenDemo().toJson());
+    source.load(
+      withSpots(source, {
+        'k3f9a2': ('running', 16),
+        'h0m3l4': ('waiting', 1),
+        't3st5a': ('running', 2),
+        'k8sn0d': ('running', 5),
+        '4uthfl': ('idle', 0),
+        'plug1n': ('idle', 0),
+        'fw0t4x': ('idle', 0),
+      }),
     );
-  });
-
-  testWidgets('back to work inside 5 s: it never leaves its spot', (
-    tester,
-  ) async {
-    final source = seenDemo();
     await pump(tester, source);
     await swipeToAttention(tester);
-    final at = tester.getTopLeft(tile('t3st5a'));
+    final one = tester.getTopLeft(tile('h0m3l4'));
+    final two = tester.getTopLeft(tile('t3st5a'));
+    final five = tester.getTopLeft(tile('k8sn0d'));
+    final sixteen = tester.getTopLeft(tile('k3f9a2'));
+    expect(two.dy, one.dy);
+    expect(two.dx, greaterThan(one.dx));
+    expect(five.dx, one.dx);
+    expect(five.dy, greaterThan(one.dy));
+    expect(sixteen.dx, greaterThan(two.dx));
+    expect(sixteen.dy, greaterThan(five.dy));
+    expect(find.byKey(const Key('attention-spot-empty')), findsNWidgets(12));
 
-    source.load(withStatus(source, ['t3st5a'], 'idle'));
-    clock.t = clock.t.add(const Duration(seconds: 3));
-    await tester.pump(const Duration(seconds: 3));
-    source.load(withStatus(source, ['t3st5a'], 'running'));
-    clock.t = clock.t.add(const Duration(seconds: 10));
-    await tester.pump(const Duration(seconds: 10));
-    expect(tester.getTopLeft(tile('t3st5a')), at);
-  });
-
-  testWidgets('sticky spots: back to its own spot, else a free one', (
-    tester,
-  ) async {
-    final source = seenDemo();
-    final spots = await pump(tester, source);
-    await swipeToAttention(tester);
-    expect(spots.spotOf('t3st5a'), 2);
-    final at = tester.getTopLeft(tile('t3st5a'));
-
-    source.load(withStatus(source, ['t3st5a'], 'idle'));
-    clock.t = clock.t.add(const Duration(seconds: 5));
-    await tester.pump(const Duration(seconds: 5));
+    // The service moves one and lets another go: the rest stay put.
+    source.load(
+      withSpots(source, {'t3st5a': ('idle', 0), 'k3f9a2': ('running', 3)}),
+    );
+    await tester.pump();
     expect(tile('t3st5a'), findsNothing);
-
-    // Back to work: its old spot is free, so it goes there.
-    source.load(withStatus(source, ['t3st5a'], 'running'));
-    await tester.pump();
-    expect(tester.getTopLeft(tile('t3st5a')), at);
-
-    // It leaves again; a newcomer (docs-site) takes the lowest free spot,
-    // which is t3st5a's. t3st5a then lands somewhere else that is free.
-    source.load(withStatus(source, ['t3st5a'], 'idle'));
-    clock.t = clock.t.add(const Duration(seconds: 5));
-    await tester.pump(const Duration(seconds: 5));
-    source.load(withStatus(source, ['d0cs1t'], 'running'));
-    await tester.pump();
-    expect(spots.spotOf('d0cs1t'), 2);
-    source.load(withStatus(source, ['d0cs1t', 't3st5a'], 'running'));
-    await tester.pump();
-    final spot = spots.spotOf('t3st5a')!;
-    expect(spot, greaterThanOrEqualTo(7));
-    expect(spots.rememberedSpotOf('t3st5a'), spot);
-    expect(tile('t3st5a'), findsOneWidget);
-    expect(tile('d0cs1t'), findsOneWidget);
+    expect(tester.getTopLeft(tile('h0m3l4')), one);
+    expect(tester.getTopLeft(tile('k8sn0d')), five);
+    expect(tester.getTopLeft(tile('k3f9a2')).dy, one.dy);
+    expect(tester.getTopLeft(tile('k3f9a2')).dx, greaterThan(two.dx));
   });
 
-  testWidgets('full: 16 spots and "+N more"; a freed spot seats the next', (
+  testWidgets('full: 16 spots, and the count includes the ones waiting', (
     tester,
   ) async {
     final fixture = seenDemo().toJson();
@@ -284,73 +221,66 @@ void main() {
           'slot': i,
           'title': 'agent-$i',
           'status': 'running',
+          'attentionSlot': i < 16 ? 16 - i : 0,
         },
     ];
-    final source = FakeAgentsSource.fromState({...fixture, 'agents': agents});
-    await pump(tester, source);
+    await pump(
+      tester,
+      FakeAgentsSource.fromState({...fixture, 'agents': agents}),
+    );
     expect(
       tester.widget<Text>(find.byKey(const Key('agents-attention-count'))).data,
       '20',
     );
     await swipeToAttention(tester);
-    expect(find.byKey(const Key('agents-page-attention')), findsOneWidget);
     expect(
       find.descendant(of: screen, matching: find.byType(AgentTile)),
       findsNWidgets(16),
     );
-
-    final json = source.toJson();
-    (json['agents'] as List)[3]['status'] = 'idle';
-    source.load(json);
-    clock.t = clock.t.add(const Duration(seconds: 5));
-    await tester.pump(const Duration(seconds: 5));
-    expect(tile('a00003'), findsNothing);
-    expect(tile('a00016'), findsOneWidget); // waited longest
+    expect(tile('a00016'), findsNothing);
+    expect(
+      tester.getTopLeft(tile('a00015')).dy,
+      lessThan(tester.getTopLeft(tile('a00000')).dy),
+    );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'an older service sends no spots: the busy agents in deck order',
+    (tester) async {
+      final json = seenDemo().toJson();
+      for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
+        a.remove('attentionSlot');
+      }
+      await pump(tester, FakeAgentsSource.fromState(json));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('agents-attention-count')))
+            .data,
+        '7',
+      );
+      await swipeToAttention(tester);
+      final at = [for (final id in busy) tester.getTopLeft(tile(id))];
+      for (var i = 1; i < at.length; i++) {
+        final before = at[i - 1], here = at[i];
+        expect(
+          here.dy > before.dy || (here.dy == before.dy && here.dx > before.dx),
+          isTrue,
+          reason: busy[i],
+        );
+      }
+    },
+  );
 
   testWidgets('nobody working or asking: a plain empty screen, no count', (
     tester,
   ) async {
     final source = seenDemo();
-    source.load(withStatus(source, busy, 'idle'));
+    source.load(withSpots(source, {for (final id in busy) id: ('idle', 0)}));
     await pump(tester, source);
     expect(find.byKey(const Key('agents-attention-count')), findsNothing);
     expect(find.byKey(const Key('agents-page-attention')), findsOneWidget);
     await swipeToAttention(tester);
     expect(find.byKey(const Key('attention-spot-empty')), findsNWidgets(16));
-  });
-
-  testWidgets('the leave timer stops with the board', (tester) async {
-    final source = seenDemo();
-    await pump(tester, source);
-    source.load(withStatus(source, ['t3st5a'], 'idle'));
-    await tester.pump();
-    await tester.pumpWidget(const SizedBox());
-    // A pending timer would fail the test here.
-  });
-
-  testWidgets('spots outlive the board when the host keeps none', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(720, 720);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
-    final source = seenDemo();
-    Widget app() => MaterialApp(
-      home: Scaffold(body: AgentsApp(source: source, animate: false)),
-    );
-    await tester.pumpWidget(app());
-    await swipeToAttention(tester);
-    final at = tester.getTopLeft(tile('plug1n'));
-    await tester.pumpWidget(const SizedBox());
-    // Rebuilt from scratch: a different agent is busy now, plug1n keeps 5.
-    source.load(withStatus(source, ['k3f9a2'], 'idle'));
-    await tester.pumpWidget(app());
-    await tester.pump();
-    expect(screen, findsNothing); // opens on the deck again
-    await swipeToAttention(tester);
-    expect(tester.getTopLeft(tile('plug1n')), at);
-    await tester.pumpWidget(const SizedBox());
   });
 }

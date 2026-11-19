@@ -2,7 +2,7 @@
 // (no inline handlers, no eval, no style attributes — only CSSOM custom properties).
 // Contract: docs/protocol.md. Live data: GET /v1/state + SSE /v1/events ("state" snapshots).
 
-import { arrange } from './attention.js';
+import { needsYou as needsYouScreen, packed, simulate, SPOTS } from './attention.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -546,7 +546,8 @@ function makeRing() {
   return { svg, fill };
 }
 
-function makeTile(a) {
+// wire makes it draggable: onto the deck's slots (wireDrag) or the "needs you" spots.
+function makeTile(a, wire = wireDrag) {
   const spr = h('span', { class: 'spr' });
   const name = h('span', { class: 'name' });
   const meta = h('span', { class: 'meta' });
@@ -557,7 +558,7 @@ function makeTile(a) {
   const el = h('button', { type: 'button', class: 'tile', 'data-id': a.id },
     chip, subs, spr, name, meta, ring.svg, bar);
   el.addEventListener('click', () => openDetail(a.id));
-  wireDrag(el, a.id);
+  wire(el, a.id);
   return { el, spr, name, meta, subs, chip, bar, subsKey: '', acctKey: '', ring: ring.fill, dash: '', cls: '', label: '' };
 }
 
@@ -792,68 +793,100 @@ function stepView(dir) {
     if (e.key === 'ArrowRight') { e.preventDefault(); stepView(1); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); stepView(-1); }
   });
-  // A new window size can change how many spots the "needs you" screen has.
+  // A new window size can change how many columns the "needs you" screen has.
   let raf = 0;
   addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => state && renderGrid()); });
 })();
 
 // ---------------------------------------------------------------- needs you
-// One screen, never paged, as many spots as one page of the deck at this window
-// size. Who sits where is worked out in attention.js; here it is only drawn.
-// The spots are remembered across reloads.
-const ATTN_KEY = 'agents.attentionSpots';
-const ATTN_BAR = 38; // .pagebar height + its margin-top, under the grid
-let attn = { memory: {} };
-try { attn.memory = JSON.parse(localStorage.getItem(ATTN_KEY) || '{}') || {}; } catch { /* storage unavailable */ }
-let attnSaved = JSON.stringify(attn.memory);
-let attnOut = { spots: [], count: 0, asking: 0, cols: 4, rows: 4 };
-let attnTimer = 0;
+// One screen, never paged. The service decides who sits in which of its 16
+// spots (attentionSlot, read by attention.js), so the panel, the boards and
+// every browser show the same. Here it is only drawn: in the panel view as
+// the 4×4 page; in a window like the deck's board, spot by spot in as many
+// columns as one page of the deck has; on a phone packed, lowest spot first.
+// Drag a tile onto another spot to move it there (or swap the two).
+let attnOut = { spots: [], count: 0, asking: 0, server: true, cols: 4 };
 const attnTiles = new Map(); // id -> tile, like tiles, for the "needs you" screen
 const attnFree = [];         // free spots, drawn as the deck's free cells, by index
+let attnDragId = null;
 
-// Columns x rows of one page of the deck: the panel's 4×4, or as many tiles as
-// fit the window (one column of rows on a phone). The detail panel beside the
-// deck doesn't count: opening an agent must not reshuffle the screen.
-function attnSize() {
-  if (panelOn()) return { cols: 4, rows: 4 };
+// Columns of one page of the deck: the panel's 4, or as many tiles as fit the
+// window (one on a phone). The detail panel beside the deck doesn't count:
+// opening an agent must not reshuffle the screen.
+function attnCols() {
+  if (panelOn()) return 4;
+  if (onPhone()) return 1;
   const main = document.querySelector('.main');
   const css = getComputedStyle(document.documentElement);
   const gutter = parseFloat(css.getPropertyValue('--gutter')) || 16;
   const gap = parseFloat(css.getPropertyValue('--gap')) || 8;
   const det = $('detail');
   const beside = !det.hidden && getComputedStyle(det).position !== 'fixed' ? det.offsetWidth : 0;
-  // The deck's own grid (app.css .grid, .pagebar), so a tile here is the size
-  // of a tile on the deck, and going there never changes the screen's size.
+  // The deck's own grid (app.css .grid), so a tile here is the size of a tile
+  // on the deck, and going there never changes the screen's size.
   const width = Math.min(main.offsetWidth + beside - 2 * gutter, 9 * 212);
-  const height = main.offsetHeight - 2 * gutter - ATTN_BAR;
-  if (onPhone()) return { cols: 1, rows: Math.max(1, Math.floor((height + gap) / (78 + gap))) };
   const min = parseFloat(css.getPropertyValue('--tile-min')) || 176;
-  const cols = Math.max(1, Math.floor((width + gap) / (min + gap)));
-  const tile = (width - (cols - 1) * gap) / cols;
-  return { cols, rows: Math.max(1, Math.floor((height + gap) / (tile + gap))) };
+  return Math.max(1, Math.floor((width + gap) / (min + gap)));
 }
 
 function stepAttention() {
-  const { cols, rows } = attnSize();
-  const agents = [...state.agents].sort((x, y) => x.slot - y.slot);
-  const r = arrange(attn, agents, cols * rows, Date.now());
-  attn = r.state;
-  const byId = new Map(agents.map((a) => [a.id, a]));
-  const asking = Object.keys(attn.joined).filter((id) => byId.get(id)?.status === 'waiting').length;
-  attnOut = { spots: r.spots, count: r.count, asking, cols, rows };
-  const mem = JSON.stringify(attn.memory);
-  if (mem !== attnSaved) {
-    attnSaved = mem;
-    try { localStorage.setItem(ATTN_KEY, mem); } catch { /* storage unavailable */ }
-  }
-  // Wake up when a lingering agent is due to leave.
-  clearTimeout(attnTimer);
-  if (r.wake != null) attnTimer = setTimeout(() => state && renderGrid(), Math.max(0, r.wake - Date.now()) + 30);
+  attnOut = { ...needsYouScreen(state.agents), cols: attnCols() };
 }
 
-// A free spot: the deck's free cell, but it does nothing when clicked.
+// placeAttention mirrors the service: whoever holds the target spot swaps into ours.
+async function placeAttention(id, spot) {
+  const a = state?.agents.find((x) => x.id === id);
+  if (!a || !a.attentionSlot || spot < 1 || spot > SPOTS || a.attentionSlot === spot) return;
+  for (const x of state.agents) if (x.attentionSlot === spot) x.attentionSlot = a.attentionSlot;
+  a.attentionSlot = spot;
+  renderGrid();
+  const r = await api(`/v1/agents/${encodeURIComponent(id)}/attention`, { slot: spot });
+  if (!r.ok) loadState(); // put the real spots back
+}
+
+// Moving works where the spots are the service's own and drawn as they are.
+const attnMovable = () => attnOut.server && !onPhone();
+
+function wireAttnDrop(el, spot) {
+  el.addEventListener('dragover', (e) => {
+    if (!attnDragId || !attnMovable()) return;
+    e.preventDefault();
+    el.dataset.drop = 'swap';
+  });
+  el.addEventListener('dragleave', () => { delete el.dataset.drop; });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    delete el.dataset.drop;
+    if (attnDragId) placeAttention(attnDragId, spot());
+  });
+}
+
+function wireAttnDrag(el, id) {
+  el.draggable = true;
+  el.addEventListener('dragstart', (e) => {
+    if (!attnMovable()) { e.preventDefault(); return; }
+    attnDragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    el.dataset.dragging = '';
+    $('attn-grid').classList.add('dragging');
+  });
+  wireAttnDrop(el, () => state?.agents.find((x) => x.id === id)?.attentionSlot);
+  el.addEventListener('dragend', () => {
+    attnDragId = null;
+    $('attn-grid').classList.remove('dragging');
+    for (const t of attnTiles.values()) { delete t.el.dataset.drop; delete t.el.dataset.dragging; }
+    for (const c of attnFree) if (c) delete c.dataset.drop;
+  });
+}
+
+// A free spot: the deck's free cell, but clicking it does nothing (an agent
+// can be dragged onto it).
 function attnSpot(i) {
-  if (!attnFree[i]) attnFree[i] = h('div', { class: 'tile-empty inert', 'aria-hidden': 'true' });
+  if (!attnFree[i]) {
+    attnFree[i] = h('div', { class: 'tile-empty inert', 'aria-hidden': 'true' });
+    wireAttnDrop(attnFree[i], () => i + 1);
+  }
   return attnFree[i];
 }
 
@@ -866,21 +899,24 @@ function renderAttention() {
   const { spots, cols } = attnOut;
   const grid = $('attn-grid');
   grid.style.setProperty('--cols', String(cols));
-  const byId = new Map(state.agents.map((a) => [a.id, a]));
   const seen = new Set();
-  // Like the deck's board: cells up to the last agent, its row filled out. The
-  // panel always draws all 16.
-  const last = spots.reduce((m, id, i) => (id && byId.has(id) ? i : m), -1);
-  const n = panelOn() ? spots.length : Math.ceil((last + 1) / cols) * cols;
-  const want = spots.slice(0, n).map((id, i) => {
-    const a = id && byId.get(id);
-    if (!a) return attnSpot(i);
-    seen.add(id);
-    let t = attnTiles.get(id);
-    if (!t) { t = makeTile(a); t.el.draggable = false; attnTiles.set(id, t); }
+  const tileFor = (a) => {
+    seen.add(a.id);
+    let t = attnTiles.get(a.id);
+    if (!t) { t = makeTile(a, wireAttnDrag); attnTiles.set(a.id, t); }
     updateTile(t, a);
     return t.el;
-  });
+  };
+  let want;
+  if (onPhone() && !panelOn()) {
+    want = packed(spots, SPOTS).map(tileFor);
+  } else {
+    // Like the deck's board: cells up to the last agent, its row filled out.
+    // The panel always draws all 16.
+    const last = spots.reduce((m, a, i) => (a ? i : m), -1);
+    const n = panelOn() ? SPOTS : Math.min(SPOTS, Math.ceil((last + 1) / cols) * cols);
+    want = spots.slice(0, n).map((a, i) => (a ? tileFor(a) : attnSpot(i)));
+  }
   for (const [id, t] of attnTiles) if (!seen.has(id)) { t.el.remove(); attnTiles.delete(id); }
   reconcile(grid, want);
 }
@@ -1568,8 +1604,16 @@ const PERM = { kind: 'permission', title: 'run this command?', context: 'bash ·
   options: [{ key: '1', label: 'yes', primary: true }, { key: '2', label: "yes, and don't ask again for make" }, { key: '3', label: 'no' }] };
 
 const iso = (ms) => new Date(ms).toISOString();
+// The "needs you" spots the service would give (attention.js simulate), and a
+// timer for the next agent to leave them.
+let fxAttn = {};
+let fxAttnTimer = 0;
 function fxEmit() {
   fx.server.time = iso(Date.now());
+  const r = simulate(fxAttn, [...fx.agents].sort((x, y) => x.slot - y.slot), Date.now());
+  fxAttn = r.state;
+  clearTimeout(fxAttnTimer);
+  if (r.wake != null) fxAttnTimer = setTimeout(fxEmit, Math.max(0, r.wake - Date.now()) + 30);
   applyState(structuredClone(fx));
 }
 
@@ -1688,6 +1732,17 @@ async function fixtureAction(path, body) {
   if (action === 'move') {
     for (const x of fx.agents) if (x.slot === body.slot) x.slot = a.slot;
     a.slot = body.slot;
+    fxEmit();
+    return { ok: true, status: 204 };
+  }
+  if (action === 'attention') {
+    if (!a.attentionSlot) return { ok: false, status: 409, error: "the agent isn't on the Needs you screen" };
+    for (const x of fx.agents) if (x.attentionSlot === body.slot) x.attentionSlot = a.attentionSlot;
+    a.attentionSlot = body.slot;
+    for (const x of fx.agents) {
+      const id = x.id;
+      if (x.attentionSlot) { fxAttn.shown[id] = x.attentionSlot; fxAttn.memory[id] = x.attentionSlot; } else delete fxAttn.shown[id];
+    }
     fxEmit();
     return { ok: true, status: 204 };
   }

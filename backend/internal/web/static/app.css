@@ -686,15 +686,14 @@ body.panel-mode.paged .grid { aspect-ratio: auto; height: calc(var(--pv) - 30px)
 /* ---------- "needs you": one screen left of the deck's first page ----------
    Drawn as a page of the deck: the same grid, tiles and free cells. Only the
    mark in the page bar shows you are on it. The columns are set from app.js
-   (attnSize) so spots don't move when the detail panel opens. */
+   (attnCols) so spots don't move when the detail panel opens. */
 .main { touch-action: pan-y; } /* sideways swipes change page */
 body:not(.panel-mode) .grid.attn-grid { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
 .attn { display: contents; } /* its grid sits in .main just like the deck's */
 .tile-empty.inert { pointer-events: none; } /* a free spot here, not a slot to add a session to */
+.attn-grid.dragging .tile-empty.inert { pointer-events: auto; } /* …but a tile can be dropped on it */
 @media (max-width: 640px) {
-  body:not(.panel-mode) .grid.attn-grid { grid-template-columns: 1fr; }
-  /* the phone list draws no free cells; a free spot still holds its row */
-  body:not(.panel-mode) .tile-empty.inert { display: block; visibility: hidden; aspect-ratio: auto; min-height: 78px; }
+  body:not(.panel-mode) .grid.attn-grid { grid-template-columns: 1fr; } /* packed: no free spots */
 }
 
 /* the bar under the deck: the "needs you" mark on the far left, with its count */

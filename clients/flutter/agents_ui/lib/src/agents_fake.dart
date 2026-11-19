@@ -6,19 +6,28 @@ import 'package:flutter/foundation.dart';
 import 'agents_client.dart';
 import 'agents_demo_state.dart';
 import 'agents_model.dart';
+import 'attention.dart';
 
 /// In-memory [AgentsSource]: the protocol fixture, with commands applied the
 /// way `agentctl serve --demo` applies them (an answer resumes the agent,
 /// interrupt idles it, focus moves the focus flag). Tests construct it
 /// still; the desktop demo (`AGENTS_DEMO=1`) passes `animate: true` so the
 /// fleet works, finishes and asks for things on its own.
+///
+/// The demo also gives agents their "Needs you" spots ([Agent.attentionSlot])
+/// the way the service does, without the 5 s stay and with the lowest free
+/// spot where the service picks a random one. [FakeAgentsSource.fromState]
+/// sends states as they are, like a service would (pass `attention: true`
+/// to have spots given there too).
 class FakeAgentsSource implements AgentsSource {
   FakeAgentsSource._(
     this._json, {
     required bool animate,
     AgentsLink link = AgentsLink.connected,
     bool liveClock = false,
+    bool attention = false,
   }) : _liveClock = liveClock,
+       _attention = attention,
        _snapshot = ValueNotifier(AgentsSnapshot(link: link)) {
     _emit();
     if (animate) {
@@ -37,17 +46,24 @@ class FakeAgentsSource implements AgentsSource {
       final age = _demoAges[slot % _demoAges.length];
       a['statusSince'] = now.subtract(age).toIso8601String();
     }
-    return FakeAgentsSource._(json, animate: animate, liveClock: true);
+    return FakeAgentsSource._(
+      json,
+      animate: animate,
+      liveClock: true,
+      attention: true,
+    );
   }
 
   /// Any state (tests: empty fleets, more than 16 agents, …).
   factory FakeAgentsSource.fromState(
     Map<String, dynamic> json, {
     AgentsLink link = AgentsLink.connected,
+    bool attention = false,
   }) => FakeAgentsSource._(
     jsonDecode(jsonEncode(json)) as Map<String, dynamic>,
     animate: false,
     link: link,
+    attention: attention,
   );
 
   static const _demoAges = [
@@ -62,6 +78,12 @@ class FakeAgentsSource implements AgentsSource {
 
   /// Demo: the daemon clock follows ours. Fixed states keep their own.
   final bool _liveClock;
+
+  /// Gives "Needs you" spots like the service ([_arrangeAttention]).
+  final bool _attention;
+
+  /// Agent id to the "Needs you" spot it had last.
+  final _attentionHome = <String, int>{};
   Timer? _timer;
   int _tick = 0;
 
@@ -112,9 +134,45 @@ class FakeAgentsSource implements AgentsSource {
     return null;
   }
 
+  /// The service's "Needs you" rules, simplified: an agent that needs you
+  /// keeps its spot; a newcomer goes back to its old spot when that is free,
+  /// else takes the lowest free one; one that stops needing you leaves.
+  void _arrangeAttention() {
+    bool wants(Map<String, dynamic> a) =>
+        const {'starting', 'running', 'waiting'}.contains(a['status']) ||
+        (a['status'] == 'idle' && a['unseen'] == true);
+    final agents = [..._agents]
+      ..sort((x, y) => (x['slot'] as num).compareTo(y['slot'] as num));
+    final taken = <int>{};
+    final newcomers = <Map<String, dynamic>>[];
+    for (final a in agents) {
+      final s = (a['attentionSlot'] as num?)?.toInt() ?? 0;
+      if (!wants(a)) {
+        a['attentionSlot'] = 0;
+      } else if (s >= 1 && s <= needsYouSpots && taken.add(s)) {
+        _attentionHome[a['id'] as String] = s;
+      } else {
+        a['attentionSlot'] = 0;
+        newcomers.add(a);
+      }
+    }
+    for (final a in newcomers) {
+      final home = _attentionHome[a['id']];
+      var spot = home != null && !taken.contains(home) ? home : 0;
+      for (var s = 1; spot == 0 && s <= needsYouSpots; s++) {
+        if (!taken.contains(s)) spot = s;
+      }
+      if (spot == 0) break; // full: the rest wait
+      taken.add(spot);
+      a['attentionSlot'] = spot;
+      _attentionHome[a['id'] as String] = spot;
+    }
+  }
+
   void _emit() {
     final link = _snapshot.value.link;
     if (link == AgentsLink.unconfigured) return;
+    if (_attention) _arrangeAttention();
     final now = DateTime.now().toUtc();
     final server = _json['server'];
     final prev = server is Map ? DateTime.tryParse('${server['time']}') : null;

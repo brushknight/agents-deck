@@ -1,87 +1,90 @@
-// The "needs you" screen: who is on it and in which spot. No DOM here, so
+// The "needs you" screen: who is in which spot. No DOM here, so
 // attention_test.mjs (node --test) can check it. app.js draws the result.
 //
-// An agent is on the screen while it works (running, starting) or asks you
-// something (waiting), and for LINGER_MS after that. Spots are sticky: an agent
-// keeps its spot while it is on the screen, and nothing moves up when another
-// one leaves. A newcomer takes the lowest free spot; an agent that was here
-// before gets its old spot back when that is free, else a random free one
-// (which it then remembers). When the screen is full the rest wait, oldest
-// first, for a spot to free up.
+// The service decides who is on the screen and where (docs/protocol.md, "The
+// Needs you grid"): every agent carries its spot in attentionSlot, 1..16 on a
+// 4×4 grid, or 0 when it isn't there. So every screen shows the same agents in
+// the same spots. needsYou() only reads that.
 
+export const SPOTS = 16;
+
+// The rule the service uses: working (running, starting), asking (waiting), or
+// finished and not looked at yet (hungry).
+export const wantsYou = (a) => a.status === 'running' || a.status === 'starting' || a.status === 'waiting'
+  || (a.status === 'idle' && !!a.unseen);
+
+// needsYou(agents) -> { spots, count, asking, server }
+//   spots   16 entries, the agent in each spot (spot n at index n-1) or null
+//   count   every agent on the screen, with the ones waiting for a spot (it is full)
+//   asking  of those, how many ask you something
+//   server  false for an older service that sends no spots: then the agents that
+//           need you fill the spots in deck order (no 5 s stay, no remembered spots)
+export function needsYou(agents) {
+  const spots = new Array(SPOTS).fill(null);
+  let placed = 0;
+  for (const a of agents) {
+    const s = a.attentionSlot;
+    if (Number.isInteger(s) && s >= 1 && s <= SPOTS && !spots[s - 1]) { spots[s - 1] = a; placed++; }
+  }
+  const wanting = agents.filter(wantsYou);
+  if (!placed && wanting.length) {
+    const list = [...wanting].sort((x, y) => x.slot - y.slot);
+    list.slice(0, SPOTS).forEach((a, i) => { spots[i] = a; });
+    return { spots, count: list.length, asking: list.filter((a) => a.status === 'waiting').length, server: false };
+  }
+  const members = [...spots.filter(Boolean), ...wanting.filter((a) => !a.attentionSlot)];
+  return { spots, count: members.length, asking: members.filter((a) => a.status === 'waiting').length, server: true };
+}
+
+// packed(spots, cells): for a screen with fewer cells than 16 (a phone), the
+// agents in order of their spot, lowest first; the ones that don't fit aren't shown.
+export const packed = (spots, cells) => spots.filter(Boolean).slice(0, Math.max(0, cells));
+
+// ---------------------------------------------------------------- fixture
+// ?fixture mode has no service: simulate(prev, agents, now, rand) gives each
+// agent the attentionSlot the service would (store/attention.go), so the page
+// can be tried on its own. The page itself never arranges.
 export const LINGER_MS = 5000;
 
-export const wantsYou = (a) => a.status === 'running' || a.status === 'starting' || a.status === 'waiting'
-  || (a.status === 'idle' && !!a.unseen); // finished, not looked at yet (hungry): stays until you check it
-
-// arrange(prev, agents, capacity, now, rand) -> { state, spots, more, count, wake }
-//   prev      the previous state (or {}); only prev.memory needs to survive a reload
-//   agents    every agent on the deck, in deck order ({ id, status })
-//   capacity  columns x rows of the screen
-//   now       a clock in ms
-//   rand      () -> [0, 1), for the random free spot
-// spots[i] is the id of the agent in spot i, or null. more counts agents on the
-// screen that have no spot yet (it is full). count is everyone on the screen,
-// placed or waiting. wake is when to call again for a lingering agent to
-// leave (ms), or null.
-export function arrange(prev, agents, capacity, now, rand = Math.random) {
-  const cap = Math.max(0, Math.floor(capacity) || 0);
+// simulate -> { state, wake }: state goes back in as prev next time; wake is
+// when a lingering agent leaves (ms), or null.
+export function simulate(prev, agents, now, rand = Math.random) {
   const ids = new Set(agents.map((a) => a.id));
   const keep = (o) => Object.fromEntries(Object.entries(o || {}).filter(([id]) => ids.has(id)));
   const memory = keep(prev.memory);   // id -> the spot it had last
   const shown = keep(prev.shown);     // id -> its spot now
-  const leaveAt = keep(prev.leaveAt); // id -> when it leaves (stopped working or asking)
+  const leaveAt = keep(prev.leaveAt); // id -> when it leaves
   const joined = keep(prev.joined);   // id -> when it came on the screen
   const order = new Map(agents.map((a, i) => [a.id, i]));
-
-  let wake = null;
   const members = [];
   for (const a of agents) {
-    if (wantsYou(a)) {
-      delete leaveAt[a.id];
-    } else if (a.id in joined) {
+    if (wantsYou(a)) delete leaveAt[a.id];
+    else if (a.id in joined) {
       if (!(a.id in leaveAt)) leaveAt[a.id] = now + LINGER_MS;
-      if (now >= leaveAt[a.id]) {
-        delete leaveAt[a.id]; delete joined[a.id]; delete shown[a.id];
-        continue;
-      }
-      wake = wake == null ? leaveAt[a.id] : Math.min(wake, leaveAt[a.id]);
-    } else {
-      continue;
-    }
+      if (now >= leaveAt[a.id]) { delete leaveAt[a.id]; delete joined[a.id]; delete shown[a.id]; continue; }
+    } else continue;
     if (!(a.id in joined)) joined[a.id] = now;
     members.push(a.id);
   }
-
-  // Spots that still exist keep their agent; the others are placed again.
-  const spots = new Array(cap).fill(null);
-  for (const id of Object.keys(shown)) {
-    const i = shown[id];
-    if (Number.isInteger(i) && i >= 0 && i < cap && spots[i] == null) spots[i] = id;
-    else delete shown[id];
+  const taken = new Set();
+  for (const id of members) {
+    const s = shown[id];
+    if (Number.isInteger(s) && !taken.has(s)) taken.add(s); else delete shown[id];
   }
-  const free = () => spots.flatMap((v, i) => (v == null ? [i] : []));
+  const free = () => Array.from({ length: SPOTS }, (_, i) => i + 1).filter((s) => !taken.has(s));
   const waiting = members.filter((id) => !(id in shown))
-    .sort((x, y) => joined[x] - joined[y] || order.get(x) - order.get(y));
-  const picked = waiting.slice(0, free().length); // oldest first
-  const put = (id, i) => { spots[i] = id; shown[id] = i; memory[id] = i; };
-  // Old spots first, so a newcomer doesn't take the spot a returning agent had.
+    .sort((x, y) => joined[x] - joined[y] || order.get(x) - order.get(y))
+    .slice(0, free().length);
+  const put = (id, s) => { taken.add(s); shown[id] = s; memory[id] = s; };
   const rest = [];
-  for (const id of picked) {
-    const m = memory[id];
-    if (Number.isInteger(m) && m >= 0 && m < cap && spots[m] == null) put(id, m);
-    else rest.push(id);
+  for (const id of waiting) {
+    if (Number.isInteger(memory[id]) && !taken.has(memory[id])) put(id, memory[id]); else rest.push(id);
   }
   for (const id of rest) {
     const f = free();
-    if (!(id in memory)) put(id, f[0]);
-    else put(id, f[Math.min(f.length - 1, Math.floor(rand() * f.length))]);
+    put(id, id in memory ? f[Math.min(f.length - 1, Math.floor(rand() * f.length))] : f[0]);
   }
-  return {
-    state: { memory, shown, leaveAt, joined },
-    spots,
-    more: waiting.length - picked.length,
-    count: members.length,
-    wake,
-  };
+  for (const a of agents) a.attentionSlot = shown[a.id] || 0;
+  const due = Object.values(leaveAt);
+  return { state: { memory, shown, leaveAt, joined }, wake: due.length ? Math.min(...due) : null };
 }

@@ -24,11 +24,7 @@ void main() {
     }
   });
 
-  Future<void> pumpBoard(
-    WidgetTester tester,
-    FakeAgentsSource source, {
-    AttentionSpots? attention,
-  }) async {
+  Future<void> pumpBoard(WidgetTester tester, FakeAgentsSource source) async {
     tester.view.physicalSize = const Size(720, 720);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -36,9 +32,7 @@ void main() {
       MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: DeckHud.bg),
-        home: Scaffold(
-          body: AgentsApp(source: source, animate: false, attention: attention),
-        ),
+        home: Scaffold(body: AgentsApp(source: source, animate: false)),
       ),
     );
     await tester.pump();
@@ -84,9 +78,10 @@ void main() {
               ...base[i % base.length],
               'id': 'a${i.toString().padLeft(5, '0')}',
               'slot': i,
+              'attentionSlot': 0, // given again, as the service would
             },
         ],
-      }),
+      }, attention: true),
     );
     await expectLater(
       find.byType(AgentsApp),
@@ -152,19 +147,13 @@ void main() {
   testWidgets('agents attention golden', skip: !autoUpdateGoldenFiles, (
     tester,
   ) async {
-    var now = DateTime.utc(2026, 10, 8, 12);
     final source = FakeAgentsSource.demo();
-    await pumpBoard(
-      tester,
-      source,
-      attention: AttentionSpots(capacity: 16, now: () => now),
-    );
+    await pumpBoard(tester, source);
     final json = source.toJson();
     for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
       if (a['id'] == 't3st5a') a['status'] = 'idle';
     }
-    source.load(json);
-    now = now.add(const Duration(seconds: 5));
+    source.load(json); // the demo, like the service, frees its spot
     await tester.pump(const Duration(seconds: 5));
     await expectLater(
       find.byType(AgentsApp),
@@ -181,14 +170,13 @@ void main() {
   testWidgets('agents attention empty golden', skip: !autoUpdateGoldenFiles, (
     tester,
   ) async {
-    final source = FakeAgentsSource.demo();
-    final json = source.toJson();
+    final json = FakeAgentsSource.demo().toJson();
     for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
       if (a['status'] != 'error') a['status'] = 'idle';
       a['waiting'] = null;
+      a['attentionSlot'] = 0; // given again, as the service would
     }
-    source.load(json);
-    await pumpBoard(tester, source);
+    await pumpBoard(tester, FakeAgentsSource.fromState(json, attention: true));
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pumpAndSettle();
     await expectLater(
@@ -216,9 +204,10 @@ void main() {
               ...busy[i % busy.length],
               'id': 'a${i.toString().padLeft(5, '0')}',
               'slot': i,
+              'attentionSlot': 0, // given again, as the service would
             },
         ],
-      }),
+      }, attention: true),
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pumpAndSettle();

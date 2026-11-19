@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -25,8 +24,8 @@ import 'live_picker.dart';
 /// Pages hold 16 slots each (page = slot ~/ 16), with bars underneath.
 ///
 /// One step to the left of the first page is the "Needs you" screen
-/// ([AttentionScreen]): only the agents that are working or asking, each in
-/// a spot of its own ([AttentionSpots]). The deck always opens on its first
+/// ([AttentionScreen]): only the agents that need you, each in the spot the
+/// service gave it ([NeedsYou]). The deck always opens on its first
 /// page; swipe right, scroll, press the left arrow or tap the mark at the
 /// far left of the bars to get there.
 class AgentsApp extends StatefulWidget {
@@ -39,7 +38,6 @@ class AgentsApp extends StatefulWidget {
     this.pairingCard,
     this.visible,
     this.backButton = false,
-    this.attention,
   }) : assert(
          (openCard == null) == (cardHost == null),
          'openCard and cardHost come together',
@@ -67,19 +65,9 @@ class AgentsApp extends StatefulWidget {
   /// False freezes every critter on its first frame (goldens, tests).
   final bool animate;
 
-  /// Who sits where on the "Needs you" screen. Null keeps one per [source]
-  /// for as long as the app runs, so spots survive the board being rebuilt.
-  /// Tests pass their own with a fake clock.
-  final AttentionSpots? attention;
-
   @override
   State<AgentsApp> createState() => _AgentsAppState();
 }
-
-/// One [AttentionSpots] per source, for hosts that don't keep their own: it
-/// lives as long as the source does, so a board that is rebuilt (the menu bar
-/// app's deck makes way for a "not running" card) keeps everyone's spot.
-final _spotsBySource = Expando<AttentionSpots>('attention spots');
 
 class _AgentsAppState extends State<AgentsApp> {
   late final _gridClock = CritterClock(animate: widget.animate);
@@ -92,14 +80,9 @@ class _AgentsAppState extends State<AgentsApp> {
 
   static const _cells = DeckGrid.columns * DeckGrid.rows;
 
-  late AttentionSpots _spots;
-  Timer? _leaveTimer;
-
   @override
   void dispose() {
     widget.visible?.removeListener(_syncClocks);
-    widget.source.snapshot.removeListener(_syncAttention);
-    _leaveTimer?.cancel();
     _pager.dispose();
     _gridClock.dispose();
     _cardClock.dispose();
@@ -113,7 +96,6 @@ class _AgentsAppState extends State<AgentsApp> {
     super.initState();
     widget.visible?.addListener(_syncClocks);
     _syncClocks();
-    _attachAttention();
   }
 
   @override
@@ -124,41 +106,6 @@ class _AgentsAppState extends State<AgentsApp> {
       widget.visible?.addListener(_syncClocks);
       _syncClocks();
     }
-    if (old.source != widget.source || old.attention != widget.attention) {
-      old.source.snapshot.removeListener(_syncAttention);
-      _attachAttention();
-    }
-  }
-
-  void _attachAttention() {
-    _spots =
-        widget.attention ??
-        (_spotsBySource[widget.source] ??= AttentionSpots(capacity: _cells));
-    _spots.resize(_cells);
-    widget.source.snapshot.addListener(_syncAttention);
-    _syncAttention();
-  }
-
-  /// A new fleet: the board rebuilds for it anyway, so only the leave timer
-  /// needs care here.
-  void _syncAttention() {
-    final state = widget.source.snapshot.value.state;
-    if (state != null) _spots.updateFrom(state);
-    _armLeave();
-  }
-
-  /// One timer, for whoever leaves the "Needs you" screen next.
-  void _armLeave() {
-    _leaveTimer?.cancel();
-    _leaveTimer = null;
-    final wait = _spots.untilNextLeave;
-    if (wait == null) return;
-    _leaveTimer = Timer(wait, () {
-      _leaveTimer = null;
-      if (!mounted) return;
-      if (_spots.tick()) setState(() {});
-      _armLeave();
-    });
   }
 
   /// The card covers the grid: only one set of critters runs at a time, and
@@ -326,6 +273,7 @@ class _AgentsAppState extends State<AgentsApp> {
       for (final a in state.agents)
         if (a.needsYou) a.slot ~/ _cells,
     };
+    final needsYou = NeedsYou.of(state);
     return Focus(
       autofocus: true,
       onKeyEvent: (_, e) {
@@ -351,8 +299,7 @@ class _AgentsAppState extends State<AgentsApp> {
                 onPageChanged: (v) => setState(() => _view = v),
                 itemBuilder: (context, v) => v == 0
                     ? AttentionScreen(
-                        spots: _spots,
-                        state: state,
+                        needsYou: needsYou,
                         tile: (a) => AgentTile(
                           key: ValueKey('attention-tile-${a.id}'),
                           agent: a,
@@ -369,7 +316,7 @@ class _AgentsAppState extends State<AgentsApp> {
                 pages: pages,
                 current: _view - 1,
                 hot: hot,
-                attention: _spots.count,
+                attention: needsYou.count,
                 onTap: (p) => _goTo(p + 1),
                 onAttention: () => _goTo(0),
               ),

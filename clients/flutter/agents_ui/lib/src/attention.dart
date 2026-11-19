@@ -1,10 +1,8 @@
-/// Who sits where on the "Needs you" screen: the agents that are working or
-/// asking, each in a spot of its own that never moves while it stays. Plain
-/// Dart, no widgets: the clock and the random source come in from outside so
-/// tests can drive both.
+/// Who sits where on the "Needs you" screen. The service decides it (see
+/// docs/protocol.md, "The Needs you grid"): each agent carries its spot in
+/// [Agent.attentionSlot], so the panel, the menu bar app, the browser and the
+/// boards all show the same agents in the same spots. Plain Dart, no widgets.
 library;
-
-import 'dart:math' as math;
 
 import 'agents_model.dart';
 
@@ -15,196 +13,59 @@ bool wantsAttention(AgentStatus s) =>
     s == AgentStatus.running ||
     s == AgentStatus.waiting;
 
-/// Who is on the "Needs you" screen: an agent that is working or asking,
-/// and one that finished a turn you haven't looked at yet (hungry). It
-/// stays until you check it.
+/// The service's rule for the "Needs you" screen: an agent that is working
+/// or asking, and one that finished a turn you haven't looked at yet
+/// (hungry). It stays until you check it.
 bool onNeedsYou(Agent a) => wantsAttention(a.status) || a.hungry;
 
-/// The spots of the "Needs you" screen.
-///
-/// - An agent joins while [wantsAttention]; once it stops, it stays for
-///   [linger], then leaves. Back to working or asking inside [linger] and it
-///   never leaves.
-/// - Each agent owns a spot (an index); leaving empties the spot and nobody
-///   else moves.
-/// - New agents take the lowest free spot. An agent that was here before
-///   goes back to its last spot when that is free, otherwise to a random free
-///   spot, which becomes its spot.
-/// - With every spot taken, newcomers wait ([waiting]) and get spots oldest
-///   first as spots free up.
-/// - [resize] re-places only the agents whose spot no longer exists.
-class AttentionSpots {
-  AttentionSpots({
-    required int capacity,
-    math.Random? random,
-    DateTime Function()? now,
-    this.linger = const Duration(seconds: 5),
-  }) : assert(capacity > 0),
-       _random = random ?? math.Random(),
-       _now = now ?? DateTime.now,
-       _spots = List<String?>.filled(capacity, null);
+/// The spots of the "Needs you" grid: 4 x 4.
+const needsYouSpots = 16;
 
-  final math.Random _random;
-  final DateTime Function() _now;
+/// The "Needs you" screen of one state.
+class NeedsYou {
+  const NeedsYou._(this.spots, this.count, this.fromService);
 
-  /// How long an agent stays after it stops working or asking.
-  final Duration linger;
-
-  List<String?> _spots;
-
-  /// Agent id to the spot it had last, kept after it leaves (forgotten once
-  /// the agent is gone from the fleet).
-  final _remembered = <String, int>{};
-
-  /// Agents on the screen or waiting for a spot.
-  final _members = <String>{};
-
-  /// Members without a spot, oldest first.
-  final _queue = <String>[];
-
-  /// Members that stopped working or asking: when they leave.
-  final _leaveAt = <String, DateTime>{};
-
-  /// Spot index to agent id (null = empty). Never longer than [capacity].
-  List<String?> get spots => List.unmodifiable(_spots);
-
-  int get capacity => _spots.length;
-
-  /// Agents that belong on the screen but have no spot (it is full).
-  int get waiting => _queue.length;
-
-  /// Every agent on the screen, plus [waiting].
-  int get count => _members.length;
-
-  /// The spot [id] is in now, or null.
-  int? spotOf(String id) {
-    final i = _spots.indexOf(id);
-    return i < 0 ? null : i;
-  }
-
-  /// The spot [id] goes back to (its last one), or null if it has none.
-  int? rememberedSpotOf(String id) => _remembered[id];
-
-  /// Whether [id] stopped and is about to leave.
-  bool isLeaving(String id) => _leaveAt.containsKey(id);
-
-  /// When the next lingering agent leaves; null when none is lingering. The
-  /// caller sets one timer for it and calls [tick].
-  DateTime? get nextLeave {
-    DateTime? first;
-    for (final t in _leaveAt.values) {
-      if (first == null || t.isBefore(first)) first = t;
-    }
-    return first;
-  }
-
-  /// How long until [nextLeave] on this object's clock (never negative);
-  /// null when nobody is lingering.
-  Duration? get untilNextLeave {
-    final t = nextLeave;
-    if (t == null) return null;
-    final d = t.difference(_now());
-    return d.isNegative ? Duration.zero : d;
-  }
-
-  /// Applies a fleet: every agent's id and whether it wants attention, in
-  /// the order newcomers should be placed. Ids not listed are gone: they
-  /// leave at once and are forgotten. True when [spots] or [waiting] changed.
-  bool update(Iterable<(String id, bool active)> fleet) {
-    final before = _signature();
-    final now = _now();
-    final seen = <String>{};
-    for (final (id, active) in fleet) {
-      if (!seen.add(id)) continue;
-      if (active) {
-        _leaveAt.remove(id);
-        if (_members.add(id)) _queue.add(id);
-      } else if (_members.contains(id)) {
-        _leaveAt.putIfAbsent(id, () => now.add(linger));
+  /// Reads the spots from [state]. Spot n is `spots[n - 1]`.
+  ///
+  /// An older service sends no spots (every [Agent.attentionSlot] is 0).
+  /// When no agent has one but some need you, they fill the spots in deck
+  /// order instead ([fromService] false): no 5 s stay, no remembered spots.
+  factory NeedsYou.of(AgentsState state) {
+    final spots = List<Agent?>.filled(needsYouSpots, null);
+    var placed = 0;
+    for (final a in state.agents) {
+      final s = a.attentionSlot;
+      if (s >= 1 && s <= needsYouSpots && spots[s - 1] == null) {
+        spots[s - 1] = a;
+        placed++;
       }
     }
-    for (final id in [..._members]) {
-      if (!seen.contains(id)) _drop(id);
-    }
-    _remembered.removeWhere((id, _) => !seen.contains(id));
-    _expire(now);
-    _fill();
-    return _signature() != before;
-  }
-
-  /// [update] from a fleet state, in slot order.
-  bool updateFrom(AgentsState state) =>
-      update([for (final a in state.agents) (a.id, onNeedsYou(a))]);
-
-  /// Lets lingering agents whose time is up leave. True when anything
-  /// changed.
-  bool tick() {
-    final before = _signature();
-    _expire(_now());
-    _fill();
-    return _signature() != before;
-  }
-
-  /// A new grid size. Agents whose spot still exists keep it; the others are
-  /// placed again by the usual rules (before anyone already waiting).
-  bool resize(int capacity) {
-    assert(capacity > 0);
-    if (capacity == _spots.length) return false;
-    final before = _signature();
-    final old = _spots;
-    _spots = List<String?>.filled(capacity, null);
-    final displaced = <String>[];
-    for (final (i, id) in old.indexed) {
-      if (id == null) continue;
-      if (i < capacity) {
-        _spots[i] = id;
-      } else {
-        displaced.add(id);
-      }
-    }
-    _queue.insertAll(0, displaced);
-    _fill();
-    return _signature() != before;
-  }
-
-  void _drop(String id) {
-    _members.remove(id);
-    _queue.remove(id);
-    _leaveAt.remove(id);
-    final i = _spots.indexOf(id);
-    if (i >= 0) _spots[i] = null;
-  }
-
-  void _expire(DateTime now) {
-    final due = [
-      for (final MapEntry(:key, :value) in _leaveAt.entries)
-        if (!value.isAfter(now)) key,
+    final wanting = [
+      for (final a in state.agents)
+        if (onNeedsYou(a)) a,
     ];
-    due.forEach(_drop);
-  }
-
-  /// Gives waiting members spots, oldest first, while any are free.
-  void _fill() {
-    while (_queue.isNotEmpty) {
-      final free = [
-        for (var i = 0; i < _spots.length; i++)
-          if (_spots[i] == null) i,
-      ];
-      if (free.isEmpty) return;
-      final id = _queue.removeAt(0);
-      final last = _remembered[id];
-      final int spot;
-      if (last == null) {
-        spot = free.first;
-      } else if (last < _spots.length && _spots[last] == null) {
-        spot = last;
-      } else {
-        spot = free[_random.nextInt(free.length)];
+    if (placed == 0 && wanting.isNotEmpty) {
+      for (final (i, a) in wanting.take(needsYouSpots).indexed) {
+        spots[i] = a; // state.agents is in slot order
       }
-      _spots[spot] = id;
-      _remembered[id] = spot;
+      return NeedsYou._(List.unmodifiable(spots), wanting.length, false);
     }
+    // The ones waiting for a spot (the grid is full) count too.
+    final waiting = wanting.where((a) => a.attentionSlot == 0).length;
+    return NeedsYou._(List.unmodifiable(spots), placed + waiting, true);
   }
 
-  String _signature() => '${_spots.join(',')}|${_queue.length}';
+  /// The agent in each spot, or null for a free one; always 16 long.
+  final List<Agent?> spots;
+
+  /// Every agent on the screen, with the ones waiting for a spot.
+  final int count;
+
+  /// False when the spots were filled here because the service sent none.
+  final bool fromService;
+
+  /// The agents in order of their spot, lowest first, at most [cells]: for
+  /// a screen with fewer cells than 16.
+  List<Agent> packed(int cells) =>
+      [for (final a in spots) ?a].take(cells).toList();
 }
