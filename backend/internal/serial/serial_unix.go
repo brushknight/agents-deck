@@ -4,6 +4,7 @@ package serial
 
 import (
 	"errors"
+	"io"
 	"os"
 	"sync"
 	"syscall"
@@ -15,7 +16,9 @@ import (
 // (the Deck Link session). The descriptor is close-on-exec: programs the
 // daemon starts (tmux, CLIs) must not inherit the port, or they hold it open
 // and look like another user of it.
-func OpenFile(path string, baud int) (*os.File, error) {
+//
+// It is an *os.File.
+func OpenFile(path string, baud int) (io.ReadWriteCloser, error) {
 	fd, err := openFD(path, baud, true)
 	if err != nil {
 		return nil, err

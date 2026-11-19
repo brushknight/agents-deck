@@ -2,6 +2,7 @@ package serial
 
 import (
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -70,12 +71,17 @@ func comPath(path string) string {
 	return `\\.\` + path
 }
 
+// openHandle opens the port for overlapped (asynchronous) I/O. On a handle
+// opened without it, Windows runs one I/O call at a time: a write would wait
+// behind the Deck Link reader, which is always blocked in a read, and
+// closing the handle wouldn't end that read.
 func openHandle(path string, baud int) (syscall.Handle, error) {
 	p, err := syscall.UTF16PtrFromString(comPath(path))
 	if err != nil {
 		return syscall.InvalidHandle, err
 	}
-	h, err := syscall.CreateFile(p, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING, 0, 0)
+	h, err := syscall.CreateFile(p, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING,
+		syscall.FILE_FLAG_OVERLAPPED, 0)
 	if err != nil {
 		return syscall.InvalidHandle, err
 	}
@@ -103,7 +109,9 @@ func openHandle(path string, baud int) (syscall.Handle, error) {
 }
 
 // setTimeouts: a read returns as soon as any byte is there, or empty after d
-// (zero: wait as long as Windows allows, about 49 days).
+// (zero: wait as long as Windows allows, about 49 days). Writes have no
+// timeout. They apply to overlapped reads too: the read completes with
+// zero bytes when the time is up.
 func setTimeouts(h syscall.Handle, d time.Duration) error {
 	ms := uint32(maxDWORD - 1)
 	if d > 0 {
@@ -117,86 +125,189 @@ func setTimeouts(h syscall.Handle, d time.Duration) error {
 }
 
 // OpenFile opens the port for a reader that blocks until bytes come (the Deck
-// Link session).
-func OpenFile(path string, baud int) (*os.File, error) {
-	h, err := openHandle(path, baud)
-	if err != nil {
-		return nil, err
-	}
-	return os.NewFile(uintptr(h), path), nil
-}
+// Link session). Close ends a pending read. Windows handles aren't
+// inherited by programs the service starts (they are opened
+// non-inheritable).
+func OpenFile(path string, baud int) (io.ReadWriteCloser, error) { return open(path, baud) }
 
 func open(path string, baud int) (Port, error) {
 	h, err := openHandle(path, baud)
 	if err != nil {
 		return nil, err
 	}
-	return &winPort{h: h}, nil
+	p := &winPort{h: h, rbuf: make([]byte, ioChunk), wbuf: make([]byte, ioChunk)}
+	if p.rev, err = newEvent(); err == nil {
+		p.wev, err = newEvent()
+	}
+	if err != nil {
+		p.closeHandles()
+		return nil, err
+	}
+	return p, nil
 }
 
+// ioChunk is the most one ReadFile or WriteFile moves.
+const ioChunk = 4096
+
+// winPort is a COM port opened for overlapped I/O. One read and one write
+// can be in flight at once (readMu, writeMu), each with its own OVERLAPPED
+// and event: with both pending, the handle itself is signalled by either,
+// so it can't tell which finished.
+//
+// The OVERLAPPED structures and the buffers the kernel reads and writes
+// live in this heap object, never on a goroutine stack (Go moves stacks),
+// and every operation is waited for before it returns.
 type winPort struct {
-	mu      sync.Mutex
+	readMu, writeMu sync.Mutex // held for a whole Read, a whole Write
+	rov, wov        syscall.Overlapped
+	rev, wev        syscall.Handle // manual-reset events for rov and wov
+	rbuf, wbuf      []byte
+
+	mu      sync.Mutex // guards the fields below
 	h       syscall.Handle
 	timeout time.Duration
 	closed  bool
+}
+
+var (
+	procCreateEvent         = kernel32.NewProc("CreateEventW")
+	procGetOverlappedResult = kernel32.NewProc("GetOverlappedResult")
+)
+
+func newEvent() (syscall.Handle, error) {
+	// Manual reset, not signalled: ReadFile and WriteFile reset it when they
+	// start an operation and the driver signals it when it is done.
+	r, _, e := procCreateEvent.Call(0, 1, 0, 0)
+	if r == 0 {
+		return 0, e
+	}
+	return syscall.Handle(r), nil
+}
+
+// do runs one ReadFile or WriteFile and waits until it is done, however it
+// started: done at once, or pending (ERROR_IO_PENDING).
+func (p *winPort) do(write bool, buf []byte, ov *syscall.Overlapped, ev syscall.Handle) (int, error) {
+	*ov = syscall.Overlapped{HEvent: ev}
+	var n uint32
+	var err error
+	if write {
+		err = syscall.WriteFile(p.h, buf, &n, ov)
+	} else {
+		err = syscall.ReadFile(p.h, buf, &n, ov)
+	}
+	if err != nil && err != syscall.ERROR_IO_PENDING {
+		return 0, err
+	}
+	// bWait = TRUE: block until the operation is done, or cancelled by
+	// CancelIoEx in Close (then it fails with ERROR_OPERATION_ABORTED).
+	r, _, e := procGetOverlappedResult.Call(uintptr(p.h), uintptr(unsafe.Pointer(ov)), uintptr(unsafe.Pointer(&n)), 1)
+	if r == 0 {
+		return int(n), e
+	}
+	return int(n), nil
+}
+
+func (p *winPort) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
 }
 
 func (p *winPort) Read(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	p.mu.Lock()
-	h, timeout, closed := p.h, p.timeout, p.closed
-	p.mu.Unlock()
-	if closed {
-		return 0, os.ErrClosed
+	p.readMu.Lock()
+	defer p.readMu.Unlock()
+	buf := p.rbuf
+	if len(b) < len(buf) {
+		buf = buf[:len(b)]
 	}
 	for {
-		var n uint32
-		if err := syscall.ReadFile(h, b, &n, nil); err != nil {
+		if p.isClosed() {
+			return 0, os.ErrClosed
+		}
+		p.mu.Lock()
+		timeout := p.timeout
+		p.mu.Unlock()
+		n, err := p.do(false, buf, &p.rov, p.rev)
+		if err != nil {
+			if p.isClosed() {
+				return 0, os.ErrClosed
+			}
 			return 0, err
 		}
 		if n > 0 {
-			return int(n), nil
+			return copy(b, buf[:n]), nil
 		}
 		if timeout > 0 {
 			return 0, ErrTimeout
 		}
+		// No timeout: the comm timeout (49 days) ran out. Read again.
 	}
 }
 
 func (p *winPort) Write(b []byte) (int, error) {
-	p.mu.Lock()
-	h, closed := p.h, p.closed
-	p.mu.Unlock()
-	if closed {
-		return 0, os.ErrClosed
-	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	done := 0
 	for done < len(b) {
-		var n uint32
-		if err := syscall.WriteFile(h, b[done:], &n, nil); err != nil {
+		if p.isClosed() {
+			return done, os.ErrClosed
+		}
+		chunk := copy(p.wbuf, b[done:])
+		n, err := p.do(true, p.wbuf[:chunk], &p.wov, p.wev)
+		done += n
+		if err != nil {
+			if p.isClosed() {
+				return done, os.ErrClosed
+			}
 			return done, err
 		}
 		if n == 0 {
 			return done, errors.New("serial: write made no progress")
 		}
-		done += int(n)
 	}
 	return done, nil
 }
 
+// Close ends a pending read or write (CancelIoEx), waits until they have
+// returned, then closes the port. It may be called while a Read with no
+// timeout is pending.
 func (p *winPort) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return nil
 	}
 	p.closed = true
+	p.mu.Unlock()
+	// An operation can start between the check in Read or Write and the
+	// cancel, so cancel until both have let go.
+	for _, m := range []*sync.Mutex{&p.readMu, &p.writeMu} {
+		for !m.TryLock() {
+			_ = syscall.CancelIoEx(p.h, nil) // every pending operation on the handle
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	defer p.readMu.Unlock()
+	defer p.writeMu.Unlock()
+	return p.closeHandles()
+}
+
+func (p *winPort) closeHandles() error {
+	for _, ev := range []syscall.Handle{p.rev, p.wev} {
+		if ev != 0 {
+			syscall.CloseHandle(ev)
+		}
+	}
 	return syscall.CloseHandle(p.h)
 }
 
 func (p *winPort) escape(fn uintptr) error {
+	if p.isClosed() {
+		return os.ErrClosed
+	}
 	if r, _, e := procEscapeCommFunction.Call(uintptr(p.h), fn); r == 0 {
 		return e
 	}
@@ -218,6 +329,9 @@ func (p *winPort) SetRTS(on bool) error {
 }
 
 func (p *winPort) SetBaud(baud int) error {
+	if p.isClosed() {
+		return os.ErrClosed
+	}
 	var d dcb
 	d.DCBlength = uint32(unsafe.Sizeof(d))
 	if r, _, e := procGetCommState.Call(uintptr(p.h), uintptr(unsafe.Pointer(&d))); r == 0 {
@@ -230,9 +344,14 @@ func (p *winPort) SetBaud(baud int) error {
 	return nil
 }
 
+// SetReadTimeout applies to the next Read (a pending one keeps the timeout
+// it started with).
 func (p *winPort) SetReadTimeout(d time.Duration) error {
 	if d < 0 {
 		d = 0
+	}
+	if p.isClosed() {
+		return os.ErrClosed
 	}
 	if err := setTimeouts(p.h, d); err != nil {
 		return err
