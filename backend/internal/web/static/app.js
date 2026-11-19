@@ -738,7 +738,7 @@ function goView(v) {
   if (view === v) return;
   view = v;
   renderGrid();
-  if (v === 'attn') $('attn-title').focus({ preventScroll: true });
+  if (v === 'attn') $('attn-grid').focus({ preventScroll: true });
   else $('grid').focus({ preventScroll: true });
 }
 
@@ -784,7 +784,6 @@ function stepView(dir) {
     if (e.key === 'ArrowRight') { e.preventDefault(); stepView(1); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); stepView(-1); }
   });
-  $('attn-back').addEventListener('click', () => goPage(0));
   // A new window size can change how many spots the "needs you" screen has.
   let raf = 0;
   addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => state && renderGrid()); });
@@ -795,15 +794,14 @@ function stepView(dir) {
 // size. Who sits where is worked out in attention.js; here it is only drawn.
 // The spots are remembered across reloads.
 const ATTN_KEY = 'agents.attentionSpots';
-const ATTN_PAD = 12;  // .attn padding
-const ATTN_HEAD = 64; // .attn-head height + its margin
+const ATTN_BAR = 38; // .pagebar height + its margin-top, under the grid
 let attn = { memory: {} };
 try { attn.memory = JSON.parse(localStorage.getItem(ATTN_KEY) || '{}') || {}; } catch { /* storage unavailable */ }
 let attnSaved = JSON.stringify(attn.memory);
-let attnOut = { spots: [], more: 0, count: 0, asking: 0, cols: 4, rows: 4 };
+let attnOut = { spots: [], count: 0, asking: 0, cols: 4, rows: 4 };
 let attnTimer = 0;
 const attnTiles = new Map(); // id -> tile, like tiles, for the "needs you" screen
-const attnSpots = [];        // the free-spot placeholders, by index
+const attnFree = [];         // free spots, drawn as the deck's free cells, by index
 
 // Columns x rows of one page of the deck: the panel's 4×4, or as many tiles as
 // fit the window (one column of rows on a phone). The detail panel beside the
@@ -816,11 +814,10 @@ function attnSize() {
   const gap = parseFloat(css.getPropertyValue('--gap')) || 8;
   const det = $('detail');
   const beside = !det.hidden && getComputedStyle(det).position !== 'fixed' ? det.offsetWidth : 0;
-  // The same numbers whether the screen is showing or not (app.css .attn,
-  // .attn-head, .pagebar), so going there never changes its size.
-  const frame = 2 * ATTN_PAD;
-  const width = Math.min(main.offsetWidth + beside - 2 * gutter - frame, 9 * 212);
-  const height = main.offsetHeight - 2 * gutter - frame - ATTN_HEAD - 38;
+  // The deck's own grid (app.css .grid, .pagebar), so a tile here is the size
+  // of a tile on the deck, and going there never changes the screen's size.
+  const width = Math.min(main.offsetWidth + beside - 2 * gutter, 9 * 212);
+  const height = main.offsetHeight - 2 * gutter - ATTN_BAR;
   if (onPhone()) return { cols: 1, rows: Math.max(1, Math.floor((height + gap) / (78 + gap))) };
   const min = parseFloat(css.getPropertyValue('--tile-min')) || 176;
   const cols = Math.max(1, Math.floor((width + gap) / (min + gap)));
@@ -835,7 +832,7 @@ function stepAttention() {
   attn = r.state;
   const byId = new Map(agents.map((a) => [a.id, a]));
   const asking = Object.keys(attn.joined).filter((id) => byId.get(id)?.status === 'waiting').length;
-  attnOut = { spots: r.spots, more: r.more, count: r.count, asking, cols, rows };
+  attnOut = { spots: r.spots, count: r.count, asking, cols, rows };
   const mem = JSON.stringify(attn.memory);
   if (mem !== attnSaved) {
     attnSaved = mem;
@@ -846,9 +843,10 @@ function stepAttention() {
   if (r.wake != null) attnTimer = setTimeout(() => state && renderGrid(), Math.max(0, r.wake - Date.now()) + 30);
 }
 
+// A free spot: the deck's free cell, but it does nothing when clicked.
 function attnSpot(i) {
-  if (!attnSpots[i]) attnSpots[i] = h('div', { class: 'attn-spot', 'aria-hidden': 'true' });
-  return attnSpots[i];
+  if (!attnFree[i]) attnFree[i] = h('div', { class: 'tile-empty inert', 'aria-hidden': 'true' });
+  return attnFree[i];
 }
 
 function renderAttention() {
@@ -856,15 +854,17 @@ function renderAttention() {
   stepAttention();
   const sec = $('attn');
   sec.hidden = view !== 'attn';
-  document.body.classList.toggle('on-attn', view === 'attn');
   if (sec.hidden) return;
-  const { spots, more, count, cols, rows } = attnOut;
+  const { spots, cols } = attnOut;
   const grid = $('attn-grid');
   grid.style.setProperty('--cols', String(cols));
-  grid.style.setProperty('--rows', String(rows));
   const byId = new Map(state.agents.map((a) => [a.id, a]));
   const seen = new Set();
-  const want = spots.map((id, i) => {
+  // Like the deck's board: cells up to the last agent, its row filled out. The
+  // panel always draws all 16.
+  const last = spots.reduce((m, id, i) => (id && byId.has(id) ? i : m), -1);
+  const n = panelOn() ? spots.length : Math.ceil((last + 1) / cols) * cols;
+  const want = spots.slice(0, n).map((id, i) => {
     const a = id && byId.get(id);
     if (!a) return attnSpot(i);
     seen.add(id);
@@ -875,9 +875,6 @@ function renderAttention() {
   });
   for (const [id, t] of attnTiles) if (!seen.has(id)) { t.el.remove(); attnTiles.delete(id); }
   reconcile(grid, want);
-  $('attn-empty').hidden = count > 0;
-  $('attn-more').hidden = more === 0;
-  if (more) setText($('attn-more'), `+${more} more · no free spot yet`);
 }
 
 function makeEmptyCell(slot) {
