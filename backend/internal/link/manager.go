@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -153,7 +154,7 @@ func (m *Manager) check(ctx context.Context, p PortConfig, retry map[string]time
 	if time.Now().Before(retry[p.Path]) {
 		return
 	}
-	if _, err := os.Stat(p.Path); err != nil {
+	if !portPresent(runtime.GOOS, p.Path, os.Stat, serial.List) {
 		m.set(p, "not plugged in", "")
 		return
 	}
@@ -208,12 +209,59 @@ func (m *Manager) Status() []PortStatus {
 // otherUsers names another program holding the port open ("" if none), so the
 // deck steps aside while you flash or monitor a board. The daemon's own
 // children don't count: between fork and exec they hold every descriptor.
+//
+// It needs lsof (macOS has it; on Linux it may not be installed). Windows has
+// nothing like it: a port another program holds fails to open, and the port
+// shows that error.
 func otherUsers(path string) string {
-	out, err := exec.Command("/usr/sbin/lsof", "-F", "pcR", path).Output()
+	lsof := lsofPath(runtime.GOOS, exec.LookPath, os.Stat)
+	if lsof == "" {
+		return ""
+	}
+	out, err := exec.Command(lsof, "-F", "pcR", path).Output()
 	if err != nil && len(out) == 0 {
 		return ""
 	}
 	return otherUser(string(out), os.Getpid())
+}
+
+// lsofPath finds lsof: on the PATH, else where macOS (/usr/sbin) and Linux
+// distributions (/usr/bin, /usr/sbin) put it; "" on Windows or when it isn't
+// installed.
+func lsofPath(goos string, look func(string) (string, error), stat func(string) (os.FileInfo, error)) string {
+	if goos == "windows" {
+		return ""
+	}
+	if p, err := look("lsof"); err == nil {
+		return p
+	}
+	for _, p := range []string{"/usr/sbin/lsof", "/usr/bin/lsof"} {
+		if _, err := stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// portPresent: the port is there to open. On Windows a COM port is a device
+// name, not a file (os.Stat fails on it, or on one another program holds), so
+// the ports Windows lists right now decide.
+func portPresent(goos, path string, stat func(string) (os.FileInfo, error), list func() ([]serial.Info, error)) bool {
+	if goos != "windows" {
+		_, err := stat(path)
+		return err == nil
+	}
+	ports, err := list()
+	if err != nil {
+		return true // can't tell: try to open it, and show what fails
+	}
+	name := strings.TrimPrefix(path, `\\.\`)
+	for _, p := range ports {
+		if strings.EqualFold(p.Path, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // otherUser reads `lsof -F pcR` output: the first holder that is neither
