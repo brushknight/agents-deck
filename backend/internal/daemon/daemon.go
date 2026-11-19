@@ -132,8 +132,15 @@ func (d *Daemon) Run() {
 				e.A.Lost = false
 				changed = true
 			}
-			if n%2 == 0 && alive && e.A.Tool == "claude" && d.subagents(e) {
-				changed = true
+			if n%2 == 0 && alive && e.A.Tool == "claude" {
+				if d.subagents(e) {
+					changed = true
+				}
+				// A turn that ended without its hook (Esc, a restart) ends here;
+				// while subagents work, they keep it running (see subagents).
+				if !e.Sim && len(e.A.Subagents) == 0 && claude.Settle(e, time.Now()) {
+					changed = true
+				}
 			} else if !alive && e.A.Subagents != nil {
 				e.A.Subagents = nil
 				changed = true
