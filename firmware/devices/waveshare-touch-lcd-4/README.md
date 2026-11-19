@@ -47,7 +47,8 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
 
 > For now, flash the 2.0.17 build (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload`):
 > USB only, and the steadiest picture. The `idf5` build adds Wi-Fi but is experimental on this board:
-> an early test of it showed horizontal lines across the picture (see [Build and flash](#build-and-flash)).
+> its picture at times jumped sideways while it connected to the deck; it now has the round boards'
+> display settings, not yet confirmed on a board (see [Build and flash](#build-and-flash)).
 
 ```sh
 pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload --upload-port /dev/cu.usbmodem<…>   # or idf5 (experimental) for Wi-Fi
@@ -72,13 +73,30 @@ PSRAM. The Hello says: display 480×480 colour, inputs TOUCH and BUTTON.
 pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload --upload-port /dev/cu.usbmodem<…>
 ```
 
-The RGB panel scans straight from PSRAM on both builds. `idf5/platformio.ini` has `LCD4_BOUNCE_PX`
-for a bounce buffer in internal RAM (as the round boards use); with 4800 px (10 lines) the first
-test showed horizontal lines across the picture, so it is 0.
+### The picture on `idf5`
+
+On the 2.0.17 build the RGB panel scans its framebuffer straight from PSRAM. On `idf5` it did too, and
+at times the picture jumped sideways while the board connected to the deck: most likely the panel ran
+short of data while Wi-Fi, the TLS handshake and the drawing all used PSRAM, or while flash was
+written. An earlier try with a bounce buffer showed horizontal lines across the picture instead.
+
+`idf5` now does what the round boards do:
+
+| setting | what it does |
+|---|---|
+| `LCD4_BOUNCE_PX=4800` | the panel scans two buffers of 10 lines in internal RAM, refilled from the framebuffer by the LCD interrupt (19.2 KB of internal RAM) |
+| `CONFIG_SPIRAM_XIP_FROM_PSRAM` | the code runs from PSRAM, so writing flash (Wi-Fi settings, the certificate) no longer pauses those refills |
+| `CONFIG_LCD_RGB_ISR_IRAM_SAFE` | the LCD interrupt runs from internal RAM |
+| `CONFIG_LCD_RGB_RESTART_IN_VSYNC` off | with it on, one late refill made every later one land in the buffer on screen: the likely cause of the earlier horizontal lines. Off, the driver counts each frame's refills and starts the next frame afresh when one was missed |
+| `CONFIG_ESP32S3_DATA_CACHE_LINE_64B` | PSRAM is read in 64-byte cache lines |
+
+With the bounce buffer the frame is no longer written back from the cache after each push (the
+interrupt reads it through the cache). `LCD4_BOUNCE_PX=0` goes back to scanning PSRAM. This still has
+to be confirmed on a real board: watch the picture while it joins Wi-Fi and connects to the deck.
 
 The `idf5` project keeps its platform in `~/.platformio-pioarduino` (pioarduino and PlatformIO's own
 ESP32 platform clash in one home) and rebuilds arduino-esp32's libraries with
-`CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y`: about five minutes the first time, and again after another
+`CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y` and the settings above: about five minutes the first time, and again after another
 pioarduino project was built in between. If it fails with `No module named
 'SCons.Tool.FortranCommon'`, see the fix in [the 2.1″ board's README](../waveshare-touch-lcd-21/README.md#wi-fi).
 

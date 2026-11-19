@@ -12,7 +12,8 @@
 //
 // Two builds: arduino-esp32 2.0.17 (../platformio.ini, USB only) and 3.x
 // (idf5/platformio.ini: Wi-Fi with TLS 1.3, and an RGB bounce buffer so the
-// picture stays still while Wi-Fi and the CPU share the PSRAM).
+// panel's DMA reads internal RAM rather than the PSRAM that Wi-Fi, TLS and
+// the CPU share).
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
@@ -36,16 +37,22 @@ constexpr uint8_t CH32_TP_RST = 1 << 1, CH32_LCD_RST = 1 << 3, CH32_SYS_EN = 1 <
 
 // ---------------------------------------------------------------- display
 // ST7701 init over 3-wire SPI (CS 42, SCK 2, SDA 1), then RGB565 on the
-// parallel bus. Timing as in Waveshare's Arduino demo. On arduino-esp32 3.x
-// the panel can scan out of a bounce buffer in internal RAM (LCD4_BOUNCE_PX
-// pixels; 0, the default, scans straight from PSRAM as 2.0.17 does: with
-// 4800 the first test showed horizontal lines across the picture).
+// parallel bus. Timing as in Waveshare's Arduino demo; the pixel clock is
+// Arduino_GFX's default with octal PSRAM, 12 MHz. On arduino-esp32 3.x the
+// panel can scan out of two bounce buffers in internal RAM (LCD4_BOUNCE_PX
+// pixels each, a whole number of lines that divides the frame; 0 scans
+// straight from PSRAM as 2.0.17 does). The bounce buffer needs the display
+// settings in idf5/platformio.ini's custom_sdkconfig (see there).
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
 #ifndef LCD4_BOUNCE_PX
 #define LCD4_BOUNCE_PX 0
 #endif
+static_assert(LCD4_BOUNCE_PX % 480 == 0 && (LCD4_BOUNCE_PX == 0 || (480 * 480) % LCD4_BOUNCE_PX == 0),
+              "LCD4_BOUNCE_PX: whole lines that divide the frame");
 #define LCD4_RGB_EXTRA , 0 /* pclk on the rising edge */, GFX_NOT_DEFINED, false, 0, 0, LCD4_BOUNCE_PX
 #else
+#undef LCD4_BOUNCE_PX
+#define LCD4_BOUNCE_PX 0
 #define LCD4_RGB_EXTRA
 #endif
 static Arduino_DataBus* spiBus = new Arduino_SWSPI(GFX_NOT_DEFINED, 42 /* CS */, 2 /* SCK */, 1 /* MOSI */, GFX_NOT_DEFINED);
@@ -186,7 +193,11 @@ static bool boardBegin() {
 // The panel is mounted upside down relative to its scan order: the board
 // is upright with the image turned 180 degrees, i.e. the frame reversed.
 // The touch reports in the panel's own orientation, so it turns the same way.
-// One frame into the panel's own framebuffer (PSRAM), turned, then out of the cache.
+// One frame into the panel's own framebuffer (PSRAM), turned. Without a
+// bounce buffer the panel's DMA reads PSRAM itself, so the frame goes out of
+// the CPU's cache; with one, the LCD interrupt copies the framebuffer through
+// that same cache, so there is nothing to write back, and a write-back of the
+// whole frame would only hold those copies up (as on the round boards).
 static void push(const uint16_t* src) {
   if (!panelFb) return;
   const uint32_t* in = (const uint32_t*)src;
@@ -195,7 +206,9 @@ static void push(const uint16_t* src) {
     const uint32_t two = in[i];
     *out = two >> 16 | two << 16;                // two pixels at a time, swapped
   }
+#if LCD4_BOUNCE_PX == 0
   Cache_WriteBack_Addr((uint32_t)panelFb, kW * kH * 2);
+#endif
 }
 
 // Backlight: the CH32V003's PWM, inverted (0 is brightest, as in the BSP);

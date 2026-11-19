@@ -115,7 +115,9 @@ looks like the desk panel and the web board.
   press BOOT to go back. On the card, stop arms on the first tap ("tap again to stop").
 - **Build:** for now flash the **2.0.17 build** (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t
   upload`): USB only, and the steadiest picture. The `idf5` build adds Wi-Fi, but on this board it is
-  **experimental**: an early test of it showed horizontal lines across the picture.
+  **experimental**: without a bounce buffer its picture at times jumped sideways while it connected to
+  the deck, and an early test with one showed horizontal lines. It now uses the round boards' bounce
+  buffer and display settings, which still has to be confirmed on a real board.
 - **Known issues:** Wi-Fi (the `idf5` build) isn't settled yet, as above. Older revisions of the board
   (V1–V3) can only switch the backlight on and off, not dim it.
 - **Get one:** [Waveshare ESP32-S3-Touch-LCD-4](https://www.waveshare.com/esp32-s3-touch-lcd-4.htm)
