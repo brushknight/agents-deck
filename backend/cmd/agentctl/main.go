@@ -1086,6 +1086,13 @@ func serve(args []string) error {
 	if err := serviceLog(*logFile); err != nil {
 		return err
 	}
+	// A service that answers on the socket is already running. A second one
+	// would take its socket away (ServeUnix replaces the file) and then stop
+	// on the busy web port, leaving the first one unreachable.
+	if c, err := net.DialTimeout("unix", paths.Socket(), time.Second); err == nil {
+		c.Close()
+		return errors.New("the service is already running (agentctl status)")
+	}
 	defer servicePID()()
 	cfg := loadConfig()
 	if cfg.LocalAddr == "" || !strings.HasPrefix(cfg.LocalAddr, "127.0.0.1:") {
