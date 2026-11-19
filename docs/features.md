@@ -219,7 +219,7 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 |---|---|---|
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
 | Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
-| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl bluetooth` |
+| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB, each board's network, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
 | Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |
@@ -233,7 +233,10 @@ harm: install again with the right one.
 
 **Board updates** are never automatic. A board on USB is written by the flasher (it keeps its name,
 pairing and Wi-Fi); a board on Wi-Fi downloads the update from the service over its encrypted link
-and goes back to its old firmware if the new one doesn't reach the deck.
+and goes back to its old firmware if the new one doesn't reach the deck. Each board says which
+firmware it runs and whether it is up to date, has an update, or runs something newer than the latest
+release. **Install a firmware file...** installs a build of your own from this computer, over Wi-Fi
+or USB ([flashing.md](flashing.md#from-the-app-settings-boards)).
 
 **App updates.** The service looks for a new release two minutes after it starts and then daily.
 "Tell me" downloads and checks it and waits for you; "automatic" also installs it; "never check"

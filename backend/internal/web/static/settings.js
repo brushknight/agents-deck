@@ -47,6 +47,7 @@ const S = {
   errors: {},
   bt: null, btBoards: null, // Bluetooth on this computer, and the boards nearby
   btAdd: {}, // Bluetooth identifier -> the job adding that board
+  file: {}, // device id -> installing a firmware file: {stage, name, size, up, error, version}
   btScope: {}, // Bluetooth identifier -> the scope picked before Add
 };
 
@@ -273,7 +274,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards',
+    live: '/v1/live', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
   };
   try {
     S[what] = await api('GET', paths[what]);
@@ -297,7 +298,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth calls).
 function extras(page) {
-  return { boards: ['bt', 'btBoards'], network: ['bt'] }[page] || [];
+  return { boards: ['bt', 'btBoards', 'jobList'], network: ['bt'] }[page] || [];
 }
 
 function firstError(page) {
@@ -517,8 +518,6 @@ function morePanel(d) {
   if (d.connection === 'usb' && d.port) {
     fw.push(btn('Install firmware again', () => { location.hash = `#new-board/${encodeURIComponent(d.port)}`; }));
   }
-  if (d.update && d.update.ready) fw.push(btn(`Update to ${d.update.version}`, (e) => updateDevice(d, e.currentTarget), 'a'));
-  else if (d.update) fw.push(h('span', { class: 'note' }, `${d.update.version} is out: ${d.update.note}`));
   if (d.kind === 'serial') lines.push(h('div', { class: 'line' }, ...fw));
   const acts = [];
   if (d.state === 'waiting') acts.push(btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'p'));
@@ -569,7 +568,6 @@ function uplinkLine(d) {
     }
   }
   if (d.uplinkNote) line.append(h('p', { class: 'note err' }, d.uplinkNote));
-  if (d.update && d.update.how === 'bluetooth') line.append(h('p', { class: 'note', id: `upn-${d.id}` }, `${d.update.version} is out: ${d.update.note}`));
   return line;
 }
 
@@ -577,22 +575,175 @@ function deviceRow(d) {
   const shape = d.kind === 'network' ? 'phone' : shapeOf(d.board || d.type || d.model);
   const right = [];
   if (d.online) {
-    if (d.update && d.update.ready) right.push(btn(`Update to ${d.update.version}`, (e) => updateDevice(d, e.currentTarget), 'a'));
-    else if (d.update && d.update.how === 'bluetooth') {
-      right.push(btn(`Update to ${d.update.version}`, null, '', { disabled: true, title: d.update.note, 'aria-describedby': `upn-${d.id}` }));
-    }
     if ((d.connection === 'usb' || d.connection === 'bluetooth') && d.canWifi && !(d.wifi && d.wifi.ssid) && S.open.wifi !== d.id) {
       right.push(btn('Give it Wi-Fi', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
     }
   } else {
     right.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
   }
-  if (d.job) right.push(h('a', { class: 'b', href: `#flash/${d.job}` }, 'Installing…'));
   right.push(moreButton(d));
-  const extra = [uplinkLine(d)];
+  const extra = [fwLine(d), uplinkLine(d)];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
   return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra, name: true });
+}
+
+// ---- a board's firmware: one line about updates, Update, and a file of your own -------------
+
+// fwText: the status line in the page's words. The reason the release list
+// couldn't be read, and that this build has no release key, are said once
+// above the list.
+function fwText(st) {
+  switch (st.state) {
+    case 'update': return st.ready ? `${st.text} · ${st.note}` : st.text;
+    case 'current': return `Up to date · ${st.latest} is the latest release`;
+    case 'nokey': return `${st.latest} is out · this build can't install it (no release key)`;
+    case 'error': return 'Couldn\'t check for updates';
+    default: return st.text;
+  }
+}
+const FW_MARK = { update: 'go', newer: 'ok', current: 'ok', own: 'ok', error: 'bad', nokey: 'off' };
+
+// The stages an update over Wi-Fi reports, in words.
+const OTA_WORDS = { offered: 'offered, waiting for the board', downloading: 'downloading', verifying: 'checking the firmware', restarting: 'restarting into it' };
+
+function jobLine(d, j) {
+  if (!j) return [h('span', { class: 'fw-t', role: 'status' }, 'An update is running'), h('a', { class: 'b', href: `#flash/${d.job}` }, 'Show progress')];
+  const what = j.port ? ({ download: 'downloading', connect: 'waiting for the board', erase: 'erasing', write: 'writing', verify: 'checking', reset: 'restarting' }[j.stage] || 'installing')
+    : (OTA_WORDS[j.stage] || 'updating');
+  const bar = h('div', {});
+  bar.style.width = `${j.percent}%`;
+  return [
+    h('span', { class: 'fw-t', role: 'status' }, `${j.file ? `Installing ${j.file}` : `Updating to ${j.version}`} · ${what} · ${j.percent}%`),
+    h('div', { class: 'bar mini', role: 'progressbar', 'aria-label': `${d.name}: ${what}`, 'aria-valuenow': j.percent, 'aria-valuemin': '0', 'aria-valuemax': '100' }, bar),
+    h('a', { class: 'b', href: `#flash/${j.id}` }, 'Show progress'),
+  ];
+}
+
+// fwLine: under a board, what its firmware is against the latest release
+// and what you can do about it; a running update shows its progress.
+function fwLine(d) {
+  if (d.kind !== 'serial' || d.state !== 'active') return null;
+  const line = h('div', { class: 'fw', id: `fw-${d.id}` });
+  if (d.job) {
+    line.append(...jobLine(d, S.jobs[d.job]));
+    return line;
+  }
+  const st = d.status;
+  if (st) line.append(h('span', { class: `fw-t fw-${FW_MARK[st.state] || 'off'}` }, h('i', { 'aria-hidden': 'true' }), fwText(st)));
+  const acts = h('div', { class: 'r' });
+  if (st && st.state === 'update' && st.ready) {
+    acts.append(btn(`Update to ${st.latest}`, (e) => updateDevice(d, e.currentTarget), 'a', { 'data-k': `upd-${d.id}` }));
+  }
+  const canFile = (d.fileVia || []).length > 0;
+  const input = h('input', {
+    type: 'file', accept: '.bin,application/octet-stream', class: 'sr', id: `file-${d.id}`, tabindex: '-1', 'aria-hidden': 'true',
+    onchange: (e) => { const f = e.currentTarget.files[0]; if (f) uploadFile(d, f); },
+  });
+  acts.append(input, btn('Install a firmware file…', () => input.click(), '', {
+    disabled: !canFile || !!S.file[d.id], 'data-k': `pick-${d.id}`, title: canFile ? 'Install a .bin you built or downloaded' : d.fileNote,
+    'aria-describedby': canFile ? null : `fwn-${d.id}`,
+  }));
+  line.append(acts);
+  const upNote = st && st.state === 'update' && !st.ready ? st.note : '';
+  if (upNote && upNote === d.fileNote) { // one reason for both (only on Bluetooth)
+    line.append(h('p', { class: 'note', id: `fwn-${d.id}` }, `To update or install a file: ${upNote}.`));
+    if (S.file[d.id]) line.append(filePanel(d, S.file[d.id]));
+    return line;
+  }
+  if (upNote) line.append(h('p', { class: 'note' }, `To update: ${upNote}.`));
+  if (!canFile && d.fileNote && d.online) line.append(h('p', { class: 'note', id: `fwn-${d.id}` }, `A firmware file: ${d.fileNote}.`));
+  else if (!canFile && d.fileNote) line.append(h('span', { class: 'sr', id: `fwn-${d.id}` }, d.fileNote));
+  if (S.file[d.id]) line.append(filePanel(d, S.file[d.id]));
+  return line;
+}
+
+const MAX_FILE = 32 * 1048576;
+
+async function uploadFile(d, f) {
+  const st = { stage: 'reading', name: f.name, size: f.size };
+  S.file[d.id] = st;
+  draw(true);
+  if (f.size > MAX_FILE) { st.stage = 'error'; st.error = 'The file is bigger than 32 MB, more than any board\'s flash.'; draw(true); return; }
+  try {
+    const r = await fetch(`/admin/v1/devices/${encodeURIComponent(d.id)}/firmware-file`, {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(f.name) }, body: f,
+    });
+    if (r.status === 401) { showExpired(); delete S.file[d.id]; return; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    Object.assign(st, { stage: 'confirm', up: data, version: data.version || '' });
+  } catch (e) {
+    st.stage = 'error';
+    st.error = e instanceof TypeError ? 'The service isn\'t answering. It may be restarting.' : e.message;
+  }
+  if (S.file[d.id] === st) draw(true);
+}
+
+async function installFile(d, st, btnEl) {
+  const input = $(`#fv-${CSS.escape(d.id)}`);
+  const version = input ? input.value.trim() : st.version;
+  if (st.up.via === 'wifi' && !version) { st.error = 'Give the version the firmware reports.'; draw(true); input?.focus(); return; }
+  st.error = '';
+  const job = await busy(btnEl, async () => {
+    try {
+      return await api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/install-file`, { file: st.up.file, version });
+    } catch (e) {
+      if (e.status === 409 && e.data.job) return api('GET', `/admin/v1/jobs/${encodeURIComponent(e.data.job)}`);
+      st.error = e.message;
+      draw(true);
+      return undefined;
+    }
+  });
+  if (job && job.id) {
+    delete S.file[d.id];
+    putJob(job);
+    location.hash = `#flash/${job.id}`;
+  }
+}
+
+// filePanel: picking a file, what was read from it, and the confirmation.
+function filePanel(d, st) {
+  const close = () => { delete S.file[d.id]; draw(true); };
+  const box = h('div', { class: `box filebox${st.stage === 'error' ? ' err' : ''}`, 'data-row': `file-${d.id}` });
+  if (st.stage === 'reading') {
+    box.append(h('p', { role: 'status' }, `Reading ${st.name} (${mb(st.size)} MB)…`), h('p', { class: 'note' }, 'Nothing is sent to the board until you confirm.'));
+    return box;
+  }
+  if (st.stage === 'error') {
+    box.append(h('div', { class: 't' }, `${st.name} can't go on ${d.name}`), h('p', { role: 'alert' }, st.error),
+      h('p', { class: 'note' }, 'Nothing was sent to the board.'),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Close', close, '', { 'data-k': `fx-${d.id}` }),
+        btn('Pick another file', () => { delete S.file[d.id]; draw(true); $(`#file-${CSS.escape(d.id)}`)?.click(); }, 'p', { 'data-k': `fa-${d.id}` }))));
+    return box;
+  }
+  const up = st.up;
+  const wifi = up.via === 'wifi';
+  const vId = `fv-${d.id}`;
+  const facts = h('dl', { class: 'facts' },
+    h('dt', {}, 'board'), h('dd', {}, `${d.name}${d.model ? ` · ${d.model}` : ''} · runs ${d.firmware || 'unknown firmware'}`),
+    h('dt', {}, 'file'), h('dd', {}, `${up.name} · ${mb(up.size)} MB · ${up.kind === 'app' ? 'app image' : 'full image'}`),
+    h('dt', {}, 'chip'), h('dd', {}, up.chipChecked ? `${up.chip}, the same as the board's` : `${up.chip} (the board's chip isn't known here, so it isn't compared)`),
+    h('dt', {}, 'version'), h('dd', {}, up.version ? `${up.version}, read from the file`
+      : wifi ? h('span', { class: 'vin' }, h('label', { for: vId, class: 'sr' }, 'Version the firmware reports'),
+        h('input', { id: vId, type: 'text', value: st.version, placeholder: 'like 0.2.0-dev.5', maxlength: '23', autocomplete: 'off', spellcheck: 'false', 'data-k': vId,
+          oninput: (e) => { st.version = e.currentTarget.value; } }))
+        : 'not in the file'),
+    h('dt', {}, 'how'), h('dd', {}, wifi
+      ? 'Over Wi-Fi. The board downloads it over its encrypted connection, checks it and restarts into it. If it can\'t reach the deck afterwards, it goes back to the firmware it runs now.'
+      : 'Over USB, written at 0x0 through the cable. Keep it plugged in; the screen stays dark until it restarts.'));
+  box.append(h('div', { class: 't' }, `Install ${up.name} on ${d.name}?`), facts);
+  if (wifi && !up.version) {
+    box.append(h('p', { class: 'note' }, 'The file doesn\'t say its version. Type the one the firmware reports (AGENTS_DECK_VERSION when it was built), so the deck can tell when the board is back on it.'));
+  }
+  box.append(h('p', { class: 'note warn' }, 'This file isn\'t checked against a release. Install it only if you built it or trust where it came from. The board still checks that the firmware is for it and arrived whole.'));
+  if (st.error) box.append(h('p', { class: 'note err', role: 'alert' }, st.error));
+  box.append(h('div', { class: 'actions' }, h('div', { class: 'r' },
+    btn('Cancel', close, '', { 'data-k': `fc-${d.id}` }),
+    btn(wifi ? 'Install over Wi-Fi' : 'Install over USB', (e) => installFile(d, st, e.currentTarget), 'p', { 'data-k': `fi-${d.id}` }))));
+  return box;
 }
 
 function portWords(p) {
@@ -625,8 +776,15 @@ function drawBoards() {
       btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'k'),
     ], { hot: true, pic: pic(shapeOf(d.board || d.type), false, boardOf(`${d.board} ${d.type}`)) }));
   }
-  if (S.devices.catalogError && !S.devices.latest) {
-    out.push(h('p', { class: 'note' }, `Couldn't read the latest firmware list, so updates aren't shown: ${S.devices.catalogError}`));
+  for (const j of S.jobList?.jobs || []) putJob(j);
+  const boards = devs.some((d) => d.kind === 'serial' && d.state === 'active');
+  if (boards && S.devices.releaseKey === false) {
+    out.push(h('div', { class: 'box notice', 'data-k': 'nokey' },
+      h('p', {}, 'Updates are switched off in this build (no release key).'),
+      h('p', { class: 'note' }, 'It can\'t check that firmware from a release is genuine, so it never installs one. Your boards keep working, and Install a firmware file… on a board still installs a build you made or downloaded.')));
+  }
+  if (boards && S.devices.catalogError && !S.devices.latest) {
+    out.push(h('p', { class: 'note err' }, `Couldn't check for updates: ${S.devices.catalogError}`));
   }
   const on = devs.filter((d) => d.online && d.state !== 'waiting');
   const off = devs.filter((d) => !d.online && d.state !== 'waiting');
@@ -926,6 +1084,27 @@ function timeLeft(j) {
   return s < 60 ? ` · about ${Math.max(5, Math.round(s / 5) * 5)} seconds left` : ` · about ${Math.round(s / 60)} minutes left`;
 }
 
+// otaSteps: the stages a board reports while it updates over Wi-Fi.
+const OTA_STEPS = ['offered', 'downloading', 'verifying', 'restarting', 'done'];
+function otaSteps(j) {
+  const at = OTA_STEPS.indexOf(j.stage);
+  const text = {
+    offered: 'Offered to the board', downloading: 'The board downloads it', verifying: 'The board checks it',
+    restarting: 'The board restarts into it', done: `Back online with ${j.version}`,
+  };
+  const list = h('ol', { class: 'list', 'aria-label': 'Steps' });
+  OTA_STEPS.forEach((k, i) => {
+    let st = 'todo';
+    if (j.state === 'done' || i < at) st = 'done';
+    else if (i === at && j.state === 'running') st = 'cur';
+    else if (i === at) st = 'bad';
+    list.append(h('li', { class: st === 'done' ? '' : st }, h('i', { 'aria-hidden': 'true' }), text[k],
+      k === 'downloading' && (st === 'cur' || st === 'bad') && j.stage === 'downloading' ? h('span', {}, `${Math.max(0, Math.round((j.percent - 5) * 100 / 80))}%`) : null,
+      st === 'cur' ? h('span', { class: 'sr' }, '(now)') : null));
+  });
+  return list;
+}
+
 function drawFlash() {
   const j = S.jobs[S.arg];
   if (!j) {
@@ -935,7 +1114,8 @@ function drawFlash() {
   const dev = (S.devices?.devices || []).find((d) => d.id === j.device);
   const fromSetup = S.nb && S.nb.job === j.id;
   const boardName = (S.nb?.identity?.candidates || []).find((b) => b.board === j.board)?.name || dev?.model || j.board;
-  $('#h-newboard').textContent = j.kind === 'board-update' ? `${j.state === 'done' ? 'Updated' : 'Updating'} ${dev?.name || j.device}` : `${j.state === 'done' ? 'Installed on' : 'Installing on'} ${boardName}`;
+  $('#h-newboard').textContent = j.file ? `${j.state === 'done' ? 'Installed' : 'Installing'} ${j.file} on ${dev?.name || j.device}`
+    : j.kind === 'board-update' ? `${j.state === 'done' ? 'Updated' : 'Updating'} ${dev?.name || j.device}` : `${j.state === 'done' ? 'Installed on' : 'Installing on'} ${boardName}`;
   const ended = j.state !== 'running';
   stepsAt(ended && j.state === 'done' ? 4 : 3, fromSetup);
   const out = [];
@@ -944,16 +1124,19 @@ function drawFlash() {
       const bar = h('div', {});
       bar.style.width = `${j.percent}%`;
       out.push(h('div', { class: 'progress' },
-        h('div', { class: 'big' }, h('div', { class: 'pct' }, `${j.percent}%`), h('div', { class: 'what' }, `over Wi-Fi · ${j.version}`)),
+        h('div', { class: 'big' }, h('div', { class: 'pct' }, `${j.percent}%`), h('div', { class: 'what' }, `over Wi-Fi · ${j.file ? `${j.file} as ` : ''}${j.version}`)),
         h('div', { class: 'bar', role: 'progressbar', 'aria-label': j.message || 'Updating over Wi-Fi', 'aria-valuenow': j.percent, 'aria-valuemin': '0', 'aria-valuemax': '100' }, bar),
         h('div', { role: 'status' }, j.message),
         h('div', { class: 'note' }, 'The board keeps showing your agents while it downloads. If the new firmware doesn\'t reach the deck, it goes back to the old one by itself.')));
+      out.push(otaSteps(j));
       out.push(h('div', { class: 'actions' }, h('div', { class: 'r' },
         btn('Stop following', (e) => busy(e.currentTarget, () => api('POST', `/admin/v1/jobs/${encodeURIComponent(j.id)}/cancel`, {}))))));
     } else if (j.state === 'done') {
+      out.push(otaSteps(j));
       out.push(h('div', { class: 'box', role: 'status' }, h('h2', {}, 'Done'), h('p', {}, j.message),
         h('div', { class: 'actions' }, h('div', { class: 'r' }, h('a', { class: 'b p', href: '#boards' }, 'Back to Boards')))));
     } else {
+      out.push(otaSteps(j));
       out.push(errorBox(j.state === 'cancelled' ? 'Stopped following the board. It may still finish the update by itself.' : j.error));
       out.push(h('a', { class: 'b', href: '#boards' }, 'Back to Boards'));
     }
@@ -974,11 +1157,14 @@ function drawFlash() {
   }
   const cur = STAGE_ORDER.indexOf(j.stage);
   const list = h('ol', { class: 'list', 'aria-label': 'Steps' });
-  FLASH_STEPS.forEach((s, i) => {
+  // A file picked on this computer: no download and no signature to check.
+  const pre = j.file ? 1 : 2;
+  const steps = j.file ? [{ at: ['download'], todo: () => `Use ${j.file}`, done: () => `Used ${j.file}`, side: () => 'not checked against a release' }, ...FLASH_STEPS.slice(2)] : FLASH_STEPS;
+  steps.forEach((s, i) => {
     const at = Math.min(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
     const last = Math.max(...s.at.map((x) => STAGE_ORDER.indexOf(x)));
     let state = 'todo';
-    if (j.state === 'done' || cur > last || (i < 2 && cur > 0)) state = 'done';
+    if (j.state === 'done' || cur > last || (i < pre && cur > 0)) state = 'done';
     else if (cur >= at && cur <= last && !ended) state = 'cur';
     const text = state === 'done' ? s.done(j) : s.todo(j);
     list.append(h('li', { class: state === 'done' ? '' : state }, h('i', { 'aria-hidden': 'true' }), text,
@@ -990,7 +1176,7 @@ function drawFlash() {
     const b = (S.nb?.identity?.candidates || []).find((x) => x.board === j.board);
     out.push(h('div', { class: 'box', role: 'status' },
       h('h2', {}, 'Done'),
-      h('p', {}, `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
+      h('p', {}, j.file ? `${dev?.name || boardName} restarts into ${j.file}, pairs and shows your agents in a few seconds.` : `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
       h('div', { class: 'actions' }, h('div', { class: 'r' },
         b && b.wifi ? h('a', { class: 'b', href: '#network' }, 'Give it Wi-Fi') : null,
         h('a', { class: 'b p', href: '#boards' }, 'Back to Boards')))));
@@ -1354,6 +1540,7 @@ function listen() {
     try { j = JSON.parse(e.data); } catch (x) { return; }
     putJob(j);
     if (S.page === 'flash' && S.arg === j.id) draw();
+    if (S.page === 'boards' && j.device && j.state === 'running') draw(false);
     if (j.kind === 'bluetooth-add' && S.page === 'boards' && Object.values(S.btAdd).includes(j.id)) draw(true);
     if (j.kind === 'app-update' && j.state === 'failed') toast(`The update didn't install: ${j.error}`, true);
     if (S.page === 'updates' && j.kind === 'app-update') draw(true);

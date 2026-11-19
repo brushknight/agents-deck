@@ -62,8 +62,11 @@ func (a *Admin) loadCatalog(ctx context.Context) (firmware.Catalog, error) {
 
 // releaseKey: whether this build can check downloads (and so install them).
 func (a *Admin) releaseKey() bool {
-	if c, ok := a.Firmware.(*firmware.Client); ok {
+	switch c := a.Firmware.(type) {
+	case *firmware.Client:
 		return c.Releases != nil && c.Releases.Key != nil
+	case interface{ HasReleaseKey() bool }: // the demo's
+		return c.HasReleaseKey()
 	}
 	return a.Firmware != nil
 }

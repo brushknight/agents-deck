@@ -71,7 +71,7 @@ func wireAdmin(a *admin.Admin, srv *server.Server, hub *link.Hub, links *link.Ma
 	if c, ok := a.Firmware.(*firmware.Client); ok {
 		hub.SetFirmwareSource(admin.OTASource{Client: c})
 	}
-	a.OTA = hub
+	a.OTA, a.Local = hub, hub
 
 	if demo {
 		if err := admin.UseDemo(a); err != nil {

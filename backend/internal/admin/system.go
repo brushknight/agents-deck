@@ -55,7 +55,7 @@ func (a *Admin) SystemNow() System {
 		if d.Online {
 			s.Boards.Online++
 		}
-		if d.Update != nil {
+		if d.Update != nil && d.Status != nil && d.Status.State == FwUpdate { // not when this build can't install it
 			s.FirmwareUpdates++
 		}
 	}

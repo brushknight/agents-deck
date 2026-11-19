@@ -34,6 +34,7 @@ type Job struct {
 	Device   string    `json:"device,omitempty"`
 	Board    string    `json:"board,omitempty"` // catalog board id
 	Version  string    `json:"version,omitempty"`
+	File     string    `json:"file,omitempty"`  // a firmware file picked on this computer, by name
 	Done     int64     `json:"done,omitempty"`  // bytes of the current stage
 	Total    int64     `json:"total,omitempty"` // its size
 	Chip     string    `json:"chip,omitempty"`  // what answered in install mode

@@ -56,25 +56,50 @@ func (h *Hub) UpdateFromFile(device, board, version, file string) (int, string) 
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}
+	size, err := h.AddLocalImage(board, version, path)
+	if err != nil {
+		if errors.Is(err, errLocalImage) {
+			return http.StatusBadRequest, err.Error()
+		}
+		return http.StatusInternalServerError, err.Error()
+	}
+	if err := h.OfferFirmware(device, board, version); err != nil {
+		return firmwareErrCode(err), err.Error()
+	}
+	return http.StatusAccepted, fmt.Sprintf("offered %s %s (%d bytes) to %s", board, version, size, device)
+}
+
+var errLocalImage = errors.New("not an app image")
+
+type localImageErr struct{ msg string }
+
+func (e localImageErr) Error() string        { return e.msg }
+func (e localImageErr) Is(target error) bool { return target == errLocalImage }
+
+// AddLocalImage puts the app image at path (absolute) among the local
+// images as board's firmware version, before the release catalog, so the
+// next offer of that version serves it. It checks that the file starts like
+// an ESP32 app image and fits an app slot, and answers its size.
+func (h *Hub) AddLocalImage(board, version, path string) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return http.StatusBadRequest, err.Error()
+		return 0, localImageErr{err.Error()}
 	}
 	defer f.Close()
 	head := make([]byte, 1)
 	if _, err := io.ReadFull(f, head); err != nil || head[0] != 0xE9 {
-		return http.StatusBadRequest, path + " isn't an ESP32 app image (the .app.bin, not the full image flashed at 0x0)"
+		return 0, localImageErr{path + " isn't an ESP32 app image (the .app.bin, not the full image flashed at 0x0)"}
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return http.StatusInternalServerError, err.Error()
+		return 0, err
 	}
 	hash := sha256.New()
 	size, err := io.Copy(hash, f)
 	if err != nil {
-		return http.StatusInternalServerError, err.Error()
+		return 0, err
 	}
 	if size > MaxAppImage {
-		return http.StatusBadRequest, fmt.Sprintf("%s is %d bytes: an app slot holds %d", path, size, MaxAppImage)
+		return 0, localImageErr{fmt.Sprintf("%s is %d bytes: an app slot holds %d", path, size, MaxAppImage)}
 	}
 	h.mu.Lock()
 	if h.local == nil {
@@ -82,10 +107,21 @@ func (h *Hub) UpdateFromFile(device, board, version, file string) (int, string) 
 	}
 	h.local[board+"/"+version] = localImage{path: path, size: size, sha: hex.EncodeToString(hash.Sum(nil))}
 	h.mu.Unlock()
-	if err := h.OfferFirmware(device, board, version); err != nil {
-		return firmwareErrCode(err), err.Error()
+	return size, nil
+}
+
+// BoardOfType is the firmware/devices folder whose firmware says Hello as
+// typ, when the release catalog can't say: the boards that kept an older
+// type (knownTypes), else the type itself.
+func BoardOfType(typ string) string {
+	for board, types := range knownTypes {
+		for _, t := range types {
+			if t == typ {
+				return board
+			}
+		}
 	}
-	return http.StatusAccepted, fmt.Sprintf("offered %s %s (%d bytes) to %s", board, version, size, device)
+	return typ
 }
 
 func firmwareErrCode(err error) int {

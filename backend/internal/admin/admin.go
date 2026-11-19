@@ -107,6 +107,9 @@ type Admin struct {
 	// log in (nil elsewhere).
 	Tray *TrayAutostart
 	OTA  OTA
+	// Local takes firmware files picked on this computer for boards on
+	// Wi-Fi (link.Hub). nil: files go over USB only.
+	Local LocalFirmware
 	// Bluetooth: boards over Bluetooth (ble.go; *ble.Uplinks, or the demo's).
 	// nil: this computer has none.
 	Bluetooth Bluetooth
@@ -135,6 +138,7 @@ type Admin struct {
 	checked time.Time
 	labels  labelBook
 	ota     otaWatch
+	files   fileBook
 }
 
 // Handler serves /admin/v1/… . The caller has already decided who may reach
@@ -154,6 +158,8 @@ func (a *Admin) Handler() http.Handler {
 
 	mux.HandleFunc("GET /admin/v1/devices", a.listDevices)
 	mux.HandleFunc("POST /admin/v1/devices/{id}/{action}", a.deviceAction)
+	mux.HandleFunc("POST /admin/v1/devices/{id}/firmware-file", a.firmwareFile)
+	mux.HandleFunc("POST /admin/v1/devices/{id}/install-file", a.installFile)
 	mux.HandleFunc("POST /admin/v1/pair", a.pair)
 
 	mux.HandleFunc("GET /admin/v1/ports", a.listPorts)
