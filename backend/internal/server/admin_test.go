@@ -26,7 +26,7 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 	paths := []string{"/admin/v1/system", "/admin/v1/settings", "/admin/v1/ports/cu.x/flash", "/admin/v1/devices/panel/scope",
 		"/admin/v1/update/apply", "/admin/v1/events", "/admin/v1/diagnostics", "/v1/../admin/v1/system", "/v1/admin/v1/system",
 		"/admin/v1/bluetooth", "/admin/v1/bluetooth/scan", "/admin/v1/bluetooth/boards", "/admin/v1/bluetooth/boards/6B1F2C3D-0000-4000-8000-0000000000A1/add",
-		"/admin/v1/devices/panel/uplink"}
+		"/admin/v1/devices/panel/uplink", "/admin/v1/devices/panel/firmware-file", "/admin/v1/devices/panel/install-file"}
 	for _, dev := range []string{"", "viewer", "panel", "boss", "gone"} {
 		hdr := map[string]string{}
 		ps := paths
@@ -50,6 +50,43 @@ func TestAdminNeverOnNetwork(t *testing.T) {
 	}
 	if len(probe.calls) != 0 {
 		t.Fatalf("the management API answered on the network listener: %v", probe.calls)
+	}
+}
+
+// A firmware file sent to the network listener never reaches the management
+// API, not even from a device with the admin scope: installing a file is for
+// this computer only (the unix socket, the loopback dashboard).
+func TestFirmwareFileNotOnNetwork(t *testing.T) {
+	s, _ := newTestServer()
+	probe := &adminProbe{}
+	s.Admin = probe
+	img := "\xe9\x01" + strings.Repeat("\x00", 4094)
+	for _, dev := range []string{"panel", "boss"} {
+		for _, p := range []string{"/admin/v1/devices/panel/firmware-file", "/admin/v1/devices/panel/install-file"} {
+			w := do(s.DeviceHandler(), "POST", p, img, map[string]string{"Device": dev, "Content-Type": "application/octet-stream", "X-File-Name": "firmware.bin"})
+			if w.Code < 400 {
+				t.Errorf("POST %s as %s: %d", p, dev, w.Code)
+			}
+		}
+	}
+	if len(probe.calls) != 0 {
+		t.Fatalf("a firmware file reached the management API on the network listener: %v", probe.calls)
+	}
+	// On this computer it does, behind the dashboard's session and Origin.
+	web := s.LocalHandler()
+	hdr := map[string]string{"Cookie": sessionCookie + "=websession", "Content-Type": "application/octet-stream"}
+	if c := do(web, "POST", "/admin/v1/devices/panel/firmware-file", img, hdr).Code; c != 403 {
+		t.Errorf("without the dashboard's Origin: %d", c)
+	}
+	hdr["Origin"] = "http://127.0.0.1:7340"
+	if c := do(web, "POST", "/admin/v1/devices/panel/firmware-file", img, hdr).Code; c != 200 {
+		t.Errorf("from the dashboard: %d", c)
+	}
+	if c := do(web, "POST", "/admin/v1/devices/panel/firmware-file", img, map[string]string{"Origin": "http://127.0.0.1:7340"}).Code; c != 401 {
+		t.Errorf("without the session: %d", c)
+	}
+	if len(probe.calls) != 1 {
+		t.Errorf("calls: %v", probe.calls)
 	}
 }
 

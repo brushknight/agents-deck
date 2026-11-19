@@ -51,6 +51,32 @@ yet, so they update on the cable.
 
 Updating keeps the board's name, its certificate and its Wi-Fi network.
 
+Each board in Settings, Boards says which firmware it runs, how it is connected and one line about
+updates: **Update to X available** (with an **Update** button), **Up to date**, **Newer than the
+latest release** (a build of your own, such as `0.2.0-dev.4`), **Couldn't check for updates** with
+the reason, or that updates are switched off because this build has no release key. `agentctl
+firmware ls` lists your boards the same way under the release's firmware.
+
+**A firmware file of your own.** **Install a firmware file...**, on each connected board, installs a
+`.bin` you built or downloaded, without a release: the same as `agentctl link update --image` and
+`agentctl flash <port> <image.bin>`. Pick the file; Settings reads it before anything goes to the
+board and refuses a file that isn't an ESP32 image, that is for another chip than the board's, or that
+can't go the way the board is connected. Then it shows the board, the file's name, size and version
+(it asks for the version when the file doesn't say one) and installs after you confirm:
+
+- an app image (`.pio/build/<env>/firmware.bin`, or a release's `.app.bin`) goes over Wi-Fi: the
+  board downloads it over its encrypted connection, checks it and restarts into it. The version must be
+  the one the firmware reports (`AGENTS_DECK_VERSION` when it was built), so the deck can tell when
+  it's back;
+- a full image (a release's `agents-deck-<board>-<version>.bin`, or a merged image) is written at
+  `0x0` over USB.
+
+A file picked this way isn't checked against a release signature: it's your choice on your own
+computer, and it works in a build without a release key. The board still checks what it always
+checks: that the update is for its own board, the image's SHA-256 and the bootloader's checks.
+Settings uploads the file only to the service on this computer (`127.0.0.1`); it is never accepted
+from the network.
+
 ## From the web flasher
 
 For a board when you haven't installed agents deck, or on a computer that isn't yours. The **web
@@ -244,7 +270,7 @@ Unplug and replug the board once it's done, so it starts the new firmware.
 | no new port when you plug the board in (`agentctl link ports`, or nothing new in Settings, Boards) | Use a USB cable that carries data (charge-only cables are a common trap), and plug straight into the computer rather than a hub. On Linux, see [the board's port can't be opened](install.md#linux-the-boards-port-cant-be-opened). |
 | flashing can't connect, or times out | [BOOT and RST](#if-the-board-doesnt-answer-boot-and-rst), then flash again. |
 | the port is busy | Close any serial monitor (`pio device monitor`, Arduino IDE, a web flasher tab). The deck itself lets go of the port while flashing. |
-| "no release key" from `agentctl firmware ls`, or Settings won't download firmware | That `agentctl` was built without the release signing key (a build from source), so it never installs anything it downloaded. Download the image and use [`agentctl flash`](#from-a-release-image), or install a release ([install.md](install.md)). |
+| "no release key" from `agentctl firmware ls`, or Settings won't download firmware | That `agentctl` was built without the release signing key (a build from source), so it never installs anything it downloaded. Download the image and use **Install a firmware file...** in Settings, Boards or [`agentctl flash`](#from-a-release-image), or install a release ([install.md](install.md)). |
 | `pio: command not found` | Install PlatformIO ([step 1](#1-install-platformio)), then open a new terminal. |
 | an `idf5` build fails with `No module named 'SCons.Tool.FortranCommon'` | pioarduino and PlatformIO Core disagree about their SCons package. Once, give the pioarduino home PlatformIO's own (the commands are below this table). |
 | the board stays on "connecting" ("plugged into the Mac?", or "waiting for the deck · on USB" on the round boards) | The deck isn't talking to it on USB: confirm the board in Settings, Boards (or `agentctl link ports` and `agentctl link add <port>`; the port name can change when you use another USB socket), and check the service runs (`agentctl status`). |

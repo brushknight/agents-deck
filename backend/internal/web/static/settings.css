@@ -264,6 +264,28 @@ input[type="text"]:focus-visible, input[type="password"]:focus-visible { border-
 .box.add { gap: 12px; }
 .box.add .passkey { font-family: var(--f-head); font-weight: 700; font-size: 20px; line-height: 1.35; color: var(--accent); }
 .box.add .list { padding: 2px 0; }
+/* ---------- a board's firmware line, and installing a file ---------- */
+.fw { flex-basis: 100%; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 0 0 54px; border-top: 1px solid var(--line); margin-top: 2px; }
+.fw .fw-t { font-size: 13px; color: var(--ink); display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.fw .fw-t > i { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--dim); }
+.fw .fw-go > i { background: var(--accent); }
+.fw .fw-ok > i { background: var(--ink); }
+.fw .fw-bad { color: var(--accent); }
+.fw .fw-bad > i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.fw .fw-off { color: var(--meta); }
+.fw .r button { height: 30px; font-size: 12.5px; }
+.fw > .note { flex-basis: 100%; }
+.bar.mini { height: 6px; flex: 1 1 120px; min-width: 80px; max-width: 220px; }
+.box.notice { gap: 6px; box-shadow: inset 3px 0 0 var(--meta); }
+.box.filebox { flex-basis: 100%; gap: 12px; background: var(--bg); border: 1px solid var(--edge); margin-top: 4px; }
+.box.filebox.err { border-color: var(--accent); }
+.facts { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13px; line-height: 1.45; }
+.facts dt { color: var(--meta); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.facts input[type="text"] { width: 200px; max-width: 100%; height: 32px; }
+.note.warn { color: var(--ink); }
+.list .bad i { background: var(--accent); }
+.list .bad { color: var(--accent); }
 details.quiet summary { color: var(--meta); font-size: 12px; cursor: pointer; }
 details.quiet[open] summary { margin-bottom: 10px; }
 
@@ -333,7 +355,10 @@ pre.report { background: var(--panel); border-radius: 12px; padding: 14px 16px; 
   .foot { display: none; }
   .mn { overflow: visible; padding: 18px 16px 32px; }
   .grid2 { grid-template-columns: 1fr; }
-  .more-panel, .uplinks { padding-left: 0; }
+  .more-panel, .uplinks, .fw { padding-left: 0; }
+  .fw .r { margin-left: 0; justify-content: flex-start; }
+  .facts { grid-template-columns: 1fr; gap: 2px; }
+  .facts dd { margin-bottom: 6px; }
   .uplinks .pref { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { button.tg::after { transition: none; } }

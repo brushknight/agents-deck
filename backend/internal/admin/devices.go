@@ -13,7 +13,6 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/firmware"
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/server"
-	"github.com/brushknight/agents-deck/backend/internal/update"
 )
 
 // DeviceRow is one paired board or device in GET /admin/v1/devices.
@@ -51,6 +50,13 @@ type DeviceRow struct {
 	// HasBluetooth: its firmware has Bluetooth (it said so, or it was added
 	// over Bluetooth), so its uplink preference means something.
 	HasBluetooth bool `json:"hasBluetooth,omitempty"`
+	// Chip is the catalog board's chip ("ESP32-S3"); Status the one line
+	// about its firmware updates. FileVia: how a firmware file picked on this
+	// computer would reach it now (usb, wifi), FileNote why it can't.
+	Chip     string          `json:"chip,omitempty"`
+	Status   *FirmwareStatus `json:"status,omitempty"`
+	FileVia  []string        `json:"fileVia,omitempty"`
+	FileNote string          `json:"fileNote,omitempty"`
 }
 
 // WifiRow is a board's Wi-Fi as it reports it.
@@ -84,7 +90,8 @@ func (a *Admin) deviceRows() []DeviceRow {
 		return nil
 	}
 	a.refreshCatalog()
-	cat, _ := a.cachedCatalog()
+	cat, catErr := a.cachedCatalog()
+	key := a.releaseKey()
 	labels := a.Labels()
 	links := map[string][]link.LinkInfo{}
 	for _, l := range a.linksNow() {
@@ -157,13 +164,30 @@ func (a *Admin) deviceRows() []DeviceRow {
 		if d.Kind == devices.Serial {
 			a.uplinkRows(&row, d, links[d.Name])
 		}
+		var board *firmware.Board
 		if cat != nil && d.Type != "" {
 			if b, ok := cat.BoardForType(d.Type); ok {
-				row.Board, row.Model, row.CanWifi = b.Board, b.Name, b.Wifi
-				if d.Firmware != "" && update.Newer(b.Version, d.Firmware) && !d.Revoked {
-					row.Update = a.pendingFor(row, b, usbPath, registered[usbPath])
+				row.Board, row.Model, row.CanWifi, row.Chip = b.Board, b.Name, b.Wifi, b.Chip
+				board = &b
+			}
+		}
+		if d.Kind == devices.Serial && d.Type != "" && !d.Revoked {
+			in := fwInput{Running: d.Firmware, Catalog: cat, CatalogErr: catErr, Board: board, ReleaseKey: key,
+				Registered: registered[usbPath], OTA: a.OTA != nil}
+			if row.Online {
+				in.Connection = row.Connection
+			}
+			st := firmwareStatus(in)
+			row.Status = &st
+			if st.State == FwUpdate || st.State == FwNoKey {
+				in.ReleaseKey = true
+				u := firmwareStatus(in)
+				row.Update = &Pending{Version: u.Latest, How: u.How, Ready: u.Ready, Note: u.Note}
+				if st.State == FwNoKey {
+					row.Update.Ready, row.Update.Note = false, "this build has no release key, so it can't install firmware from a release"
 				}
 			}
+			row.FileVia, row.FileNote = a.fileWays(row)
 		}
 		if j, ok := a.jobs.running(func(j Job) bool { return j.Device == d.Name || (row.Port != "" && j.Port == row.Port) }); ok {
 			row.Job = j.ID
@@ -177,32 +201,6 @@ func (a *Admin) deviceRows() []DeviceRow {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out
-}
-
-func (a *Admin) pendingFor(row DeviceRow, b firmware.Board, usbPath string, registered bool) *Pending {
-	p := &Pending{Version: b.Version}
-	switch row.Connection {
-	case "usb":
-		p.How, p.Ready = "usb", registered
-		if !registered {
-			p.Note = "its port isn't registered"
-		}
-	case "wifi":
-		p.How = "wifi"
-		switch {
-		case a.OTA == nil:
-			p.Note = ErrNoOTA.Error()
-		case b.OTA == nil:
-			p.Note = "this board's firmware has no over-the-air image: plug it in to update"
-		default:
-			p.Ready = true
-		}
-	case "bluetooth":
-		p.How, p.Note = "bluetooth", link.ErrOnBluetooth.Error()
-	default:
-		p.How, p.Note = "unplugged", "not connected: plug it in to update"
-	}
-	return p
 }
 
 func (a *Admin) listDevices(w http.ResponseWriter, r *http.Request) {

@@ -484,17 +484,40 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 	if !a.releaseKey() {
 		return Job{}, http.StatusConflict, errors.New("this build has no release key, so it can't check that firmware is genuine and never installs it: flash it with agentctl flash <port> <image.bin>")
 	}
-	id := portID(port.Path)
-	if j, ok := a.jobs.running(func(j Job) bool { return j.Port == id }); ok {
+	if j, ok := a.jobs.running(func(j Job) bool { return j.Port == portID(port.Path) }); ok {
 		return j, http.StatusConflict, errors.New("this board is being written already")
 	}
 	if version == "" {
 		version = board.Version
 	}
-	job := a.jobs.start(Job{Kind: kind, Port: id, Device: device, Board: board.Board, Version: version,
-		Stage: "download", Message: "Downloading firmware " + version},
-		func(ctx context.Context, up func(func(*Job))) error {
+	job := a.flashJob(port, Job{Kind: kind, Device: device, Board: board.Board, Version: version,
+		Stage: "download", Message: "Downloading firmware " + version}, board.Offset,
+		func(ctx context.Context) (string, []string, error) {
 			img, err := a.Firmware.Image(ctx, board.Board, version)
+			if err != nil {
+				return "", nil, err
+			}
+			fi, err := os.Stat(img)
+			if err != nil {
+				return "", nil, err
+			}
+			return img, []string{fmt.Sprintf("Downloaded firmware %s (%s)", version, megabytes(fi.Size())),
+				"Checked its signature and checksum"}, nil
+		})
+	return job, http.StatusAccepted, nil
+}
+
+// flashJob runs a flash of the image that image gives (a path, and the
+// steps that took in words), borrowing the port and writing at offset, as
+// a job. The caller checked that nothing else writes to the port.
+func (a *Admin) flashJob(port serial.Info, base Job, offset uint32, image func(ctx context.Context) (string, []string, error)) Job {
+	base.Port = portID(port.Path)
+	if base.Stage == "" {
+		base.Stage, base.Message = "connect", "Waiting for the board to answer in install mode"
+	}
+	return a.jobs.start(base,
+		func(ctx context.Context, up func(func(*Job))) error {
+			img, steps, err := image(ctx)
 			if err != nil {
 				return err
 			}
@@ -510,8 +533,7 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 			size := fi.Size()
 			up(func(j *Job) {
 				j.Percent = 5
-				j.Steps = append(j.Steps, fmt.Sprintf("Downloaded firmware %s (%s)", version, megabytes(size)),
-					"Checked its signature and checksum")
+				j.Steps = append(j.Steps, steps...)
 				j.Stage, j.Message = "connect", "Waiting for the board to answer in install mode"
 			})
 			if err := a.release(ctx, port.Path); err != nil {
@@ -519,7 +541,7 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 			}
 			defer a.handBack(port.Path)
 			answered := false
-			err = a.Flasher.Write(ctx, port, f, size, board.Offset, func(stage string, done, total int64) {
+			err = a.Flasher.Write(ctx, port, f, size, offset, func(stage string, done, total int64) {
 				up(func(j *Job) {
 					if stage != "connect" && !answered {
 						answered = true
@@ -554,7 +576,6 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 			})
 			return nil
 		})
-	return job, http.StatusAccepted, nil
 }
 
 func contains(l []string, s string) bool {

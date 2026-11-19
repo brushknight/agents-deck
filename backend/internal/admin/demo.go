@@ -40,11 +40,13 @@ func UseDemo(a *Admin) error {
 		{Name: "t4s3-panel-d4e5f6", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-9 * 24 * time.Hour), LastSeen: now,
 			BoardID: "d4e5f6", Type: "t4s3-panel", Firmware: "0.2.0", Approved: true},
 		{Name: "strip-147-0a0b0c", Kind: devices.Serial, Scope: devices.View, Created: now.Add(-4 * 24 * time.Hour), LastSeen: now,
-			BoardID: "0a0b0c", Type: "strip-147", Firmware: "0.2.0", Approved: true},
+			BoardID: "0a0b0c", Type: "strip-147", Firmware: "0.1.1", Approved: true},
 		{Name: "square-40-123456", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-60 * 24 * time.Hour), LastSeen: now.Add(-26 * time.Hour),
 			BoardID: "123456", Type: "square-40", Firmware: "0.1.1", Approved: true, BLE: demoBleSquare},
 		{Name: "amoled-18-5e6f70", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-2 * 24 * time.Hour), LastSeen: now,
 			BoardID: "5e6f70", Type: "amoled-18", Firmware: "0.1.1", Approved: true, BLE: demoBleAmoled, Uplink: "ble"},
+		{Name: "square-40-9a8b7c", Kind: devices.Serial, Scope: devices.Act, Created: now.Add(-24 * time.Hour), LastSeen: now,
+			BoardID: "9a8b7c", Type: "square-40", Firmware: "0.3.0-dev.4", Approved: true, CertSerial: "03"},
 		{Name: "phone", Kind: devices.Network, Scope: devices.View, Created: now.Add(-7 * 24 * time.Hour), LastSeen: now.Add(-50 * time.Hour), CertSerial: "02"},
 	}
 	b, _ := json.MarshalIndent(devs, "", "  ")
@@ -53,7 +55,7 @@ func UseDemo(a *Admin) error {
 	}
 	a.Devices = &devices.Registry{Path: filepath.Join(dir, "devices.json")}
 	for id, name := range map[string]string{"round-28-a1b2c3": "Desk round", "t4s3-panel-d4e5f6": "Tall one",
-		"strip-147-0a0b0c": "Strip", "square-40-123456": "Wall panel", "amoled-18-5e6f70": "Pocket", "phone": "Phone"} {
+		"strip-147-0a0b0c": "Strip", "square-40-123456": "Wall panel", "amoled-18-5e6f70": "Pocket", "square-40-9a8b7c": "Desk 4 inch", "phone": "Phone"} {
 		_ = a.setLabel(id, name)
 	}
 	cfg := map[string]any{"link": map[string]any{"ports": []link.PortConfig{
@@ -88,24 +90,41 @@ func UseDemo(a *Admin) error {
 			{Board: "t4s3-panel-d4e5f6", Transport: link.OverSerial, Where: "/dev/cu.demo-tall", Since: now.Add(-time.Hour), Approved: true,
 				Net: &link.NetInfo{Wifi: "off", BLE: "in setup", Uplink: "auto"}},
 			{Board: "strip-147-0a0b0c", Transport: link.OverSerial, Where: "/dev/cu.demo-strip", Since: now.Add(-2 * time.Hour), Approved: true},
+			{Board: "square-40-9a8b7c", Transport: link.OverWifi, Where: "192.0.2.41", Since: now.Add(-20 * time.Minute), Approved: true,
+				Net: &link.NetInfo{Wifi: "connected", SSID: "Home 2.4", IP: "192.0.2.41", RSSI: -60, HasCert: true}},
 			{Board: "amoled-18-5e6f70", Transport: link.OverBLE, Where: "bluetooth deck-5e6f70", Since: now.Add(-40 * time.Minute), Approved: true,
 				Net: &link.NetInfo{Wifi: "not set", BLE: "connected", Uplink: "ble"}},
 		}, bt.links(now)...)
 	}
 	a.PortStatus = func() []link.PortStatus { return nil }
 	a.Flasher = &demoFlasher{}
-	a.Firmware = &demoFirmware{dir: dir}
+	// AGENTS_DECK_DEMO_FIRMWARE: "nokey" plays a build without a release key,
+	// "offline" a release list that can't be read.
+	a.Firmware = &demoFirmware{dir: dir, mode: os.Getenv("AGENTS_DECK_DEMO_FIRMWARE")}
 	a.Updater = &demoUpdater{current: a.Version}
-	a.OTA = demoOTA{a}
+	a.OTA, a.Local = demoOTA{a}, demoOTA{a}
 	return nil
 }
 
 // demoOTA pretends a board on Wi-Fi takes an update in about twenty seconds.
 type demoOTA struct{ a *Admin }
 
+// AddLocalImage takes any file: the demo's boards download nothing.
+func (o demoOTA) AddLocalImage(board, version, path string) (int64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
 func (o demoOTA) OfferFirmware(device, board, version string) error {
+	d, ok := o.a.Devices.Get(device)
+	if !ok {
+		return link.ErrNotConnected
+	}
 	go func() {
-		j := link.FirmwareJob{Device: device, Board: board, Version: version, From: "0.1.1", State: link.FirmwareOffered}
+		j := link.FirmwareJob{Device: device, Board: board, Version: version, From: d.Firmware, State: link.FirmwareOffered}
 		o.a.FirmwareChanged(j)
 		time.Sleep(time.Second)
 		for p := 0; p <= 100; p += 10 {
@@ -114,6 +133,9 @@ func (o demoOTA) OfferFirmware(device, board, version string) error {
 			time.Sleep(1200 * time.Millisecond)
 		}
 		for _, st := range []string{link.FirmwareVerifying, link.FirmwareRestarting, link.FirmwareDone} {
+			if st == link.FirmwareDone { // back with the new version, as its Hello says
+				_, _ = o.a.Devices.Board(d.BoardID, d.Type, version)
+			}
 			j.State = st
 			o.a.FirmwareChanged(j)
 			time.Sleep(2 * time.Second)
@@ -196,19 +218,27 @@ func (demoFlasher) Write(ctx context.Context, port serial.Info, image io.Reader,
 
 // demoFirmware is a made-up release 0.2.0 with today's boards.
 type demoFirmware struct {
-	dir string
+	dir  string
+	mode string // "", nokey, offline
 }
+
+func (f *demoFirmware) HasReleaseKey() bool { return f.mode != "nokey" }
 
 var demoCatalog = firmware.Catalog{Version: "0.2.0", Boards: []firmware.Board{
 	{Board: "t4s3-panel", Name: "LilyGO T4-S3", Chip: "ESP32-S3", Types: []string{"t4s3-panel"}, Wifi: true, FlashSize: 16 << 20, Size: 1887436, Version: "0.2.0", OTA: &firmware.OTA{File: "t4s3.app.bin"}},
 	{Board: "round-28", Name: "Waveshare 2.8″ round", Chip: "ESP32-S3", Types: []string{"round-28"}, Wifi: true, FlashSize: 16 << 20, Size: 1700000, Version: "0.2.0", OTA: &firmware.OTA{File: "round-28.app.bin"}},
 	{Board: "round-21", Name: "Waveshare 2.1″ round", Chip: "ESP32-S3", Types: []string{"round-21"}, Wifi: true, FlashSize: 16 << 20, Size: 1700000, Version: "0.2.0"},
-	{Board: "square-40", Name: "Waveshare 4″ square", Chip: "ESP32-S3", Types: []string{"square-40"}, Wifi: false, FlashSize: 16 << 20, Size: 1600000, Version: "0.2.0"},
+	{Board: "square-40", Name: "Waveshare 4″ square", Chip: "ESP32-S3", Types: []string{"square-40"}, Wifi: true, FlashSize: 16 << 20, Size: 1600000, Version: "0.2.0", OTA: &firmware.OTA{File: "square-40.app.bin"}},
 	{Board: "amoled-18", Name: "Waveshare 1.8″ AMOLED", Chip: "ESP32-S3", Types: []string{"amoled-18"}, Wifi: true, FlashSize: 16 << 20, Size: 1650000, Version: "0.2.0"},
 	{Board: "strip-147", Name: "Waveshare 1.47″ strip", Chip: "ESP32-S3", Types: []string{"strip-147"}, Wifi: false, FlashSize: 16 << 20, Size: 1200000, Version: "0.2.0"},
 }}
 
-func (f *demoFirmware) Latest(ctx context.Context) (firmware.Catalog, error) { return demoCatalog, nil }
+func (f *demoFirmware) Latest(ctx context.Context) (firmware.Catalog, error) {
+	if f.mode == "offline" {
+		return firmware.Catalog{}, errors.New("Get \"https://github.com/brushknight/agents-deck/releases/latest\": dial tcp: lookup github.com: no such host")
+	}
+	return demoCatalog, nil
+}
 
 func (f *demoFirmware) Image(ctx context.Context, board, version string) (string, error) {
 	b, ok := demoCatalog.Board(board)

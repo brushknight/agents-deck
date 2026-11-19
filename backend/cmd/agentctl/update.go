@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/admin"
 	"github.com/brushknight/agents-deck/backend/internal/firmware"
 	"github.com/brushknight/agents-deck/backend/internal/update"
 )
@@ -207,10 +208,54 @@ func firmwareCmd(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d KB\n", b.Board, b.Name, b.Chip, yesNo(b.Wifi), yesNo(b.OTA != nil), (b.Size+1023)/1024)
 	}
 	tw.Flush()
+	printYourBoards()
 	if c.Releases.Key == nil {
 		fmt.Println("\nThis build has no release key: it lists the firmware but never downloads or flashes it.")
+		fmt.Println("A file of your own still installs: agentctl link update --image (Wi-Fi), agentctl flash (USB).")
 	}
 	return nil
+}
+
+// printYourBoards: under the release's firmware, what each of your boards
+// runs against it, as the running service sees it (nothing when it doesn't run).
+func printYourBoards() {
+	var res struct {
+		Devices []admin.DeviceRow `json:"devices"`
+	}
+	if err := adminCall("GET", "/admin/v1/devices", nil, &res); err != nil {
+		return
+	}
+	for _, d := range res.Devices {
+		if d.Status != nil && d.Status.State == admin.FwChecking {
+			// The service hasn't read the release list yet: have it read it now.
+			_ = adminCall("GET", "/admin/v1/firmware", nil, nil) // its error shows in the rows
+			_ = adminCall("GET", "/admin/v1/devices", nil, &res)
+			break
+		}
+	}
+	var rows []admin.DeviceRow
+	for _, d := range res.Devices {
+		if d.Status != nil {
+			rows = append(rows, d)
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Println("\nyour boards")
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	why := ""
+	for _, d := range rows {
+		text := d.Status.Text
+		if d.Status.State == admin.FwError { // the reason once, below
+			text, why = "Couldn't check for updates", strings.TrimPrefix(d.Status.Text, "Couldn't check for updates: ")
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\n", d.Name, orDash(d.Firmware), text)
+	}
+	tw.Flush()
+	if why != "" {
+		fmt.Println("the service couldn't read the release list: " + why)
+	}
 }
 
 func yesNo(b bool) string {
