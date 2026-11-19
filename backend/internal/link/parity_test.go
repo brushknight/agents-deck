@@ -148,7 +148,7 @@ func TestAgentParity(t *testing.T) {
 	}
 
 	now := time.Now()
-	full := model.Agent{ID: "a1", Slot: 3, Title: "t", AITitle: "ai", Tool: "claude", Status: model.Waiting, StatusSince: now,
+	full := model.Agent{ID: "a1", Slot: 3, AttentionSlot: 2, Title: "t", AITitle: "ai", Tool: "claude", Status: model.Waiting, StatusSince: now,
 		Cwd: "/x/y", Folder: "y", Branch: "main", Model: "m", ModelLabel: "M", Effort: "high",
 		Activity: &model.Activity{Tool: "Edit", Detail: "f.go"}, LastPrompt: "do it",
 		Waiting: &model.Prompt{ID: "p", Kind: "question", Title: "?", Detail: "d", Context: "c", Options: []model.Option{{Key: "1", Label: "yes"}}},
@@ -175,7 +175,7 @@ func TestAgentParity(t *testing.T) {
 	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
-	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 {
+	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
 		t.Errorf("tile fields: %+v", tile)
 	}
 }

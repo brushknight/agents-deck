@@ -454,6 +454,14 @@ uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot)
 	return send_cmd(ctx, agentsdeck_link_v1_Frame_move_tag, agentsdeck_link_v1_Move_fields, &m);
 }
 
+uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot)
+{
+	agentsdeck_link_v1_MoveAttention m;
+	copy_str(m.agent_id, sizeof m.agent_id, agent_id);
+	m.slot = slot;
+	return send_cmd(ctx, agentsdeck_link_v1_Frame_move_attention_tag, agentsdeck_link_v1_MoveAttention_fields, &m);
+}
+
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n)
 {
 	agentsdeck_link_v1_Order m;

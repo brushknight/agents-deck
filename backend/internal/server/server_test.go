@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -267,6 +268,49 @@ func TestMoveToFreeSlot(t *testing.T) {
 	}
 	if c := do(h, "POST", "/v1/agents/zz/move", `{"slot":3}`, auth).Code; c != 404 {
 		t.Errorf("unknown: %d", c)
+	}
+}
+
+func TestMoveAttention(t *testing.T) {
+	s, _ := newTestServer()
+	for _, id := range []string{"r1", "r2"} {
+		s.Store.Add(&store.Entry{A: model.Agent{ID: id, Status: model.Running}})
+	}
+	s.Store.Add(&store.Entry{A: model.Agent{ID: "i1", Status: model.Idle}})
+	h := s.DeviceHandler()
+	auth := map[string]string{"Device": "panel"}
+	spot := func(id string) int { e, _ := s.Store.Get(id); return e.A.AttentionSlot }
+	if spot("r1") != 1 || spot("r2") != 2 || spot("i1") != 0 {
+		t.Fatalf("spots: %d %d %d", spot("r1"), spot("r2"), spot("i1"))
+	}
+	if c := do(h, "POST", "/v1/agents/r1/attention", `{"slot":12}`, auth).Code; c != 204 {
+		t.Fatalf("move: %d", c)
+	}
+	if c := do(h, "POST", "/v1/agents/r2/attention", `{"slot":12}`, auth).Code; c != 204 {
+		t.Fatalf("move: %d", c)
+	}
+	if spot("r2") != 12 || spot("r1") != 2 {
+		t.Fatalf("taken spot should swap: r1 %d r2 %d", spot("r1"), spot("r2"))
+	}
+	var st model.State
+	if err := json.Unmarshal(do(h, "GET", "/v1/state", "", auth).Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range st.Agents {
+		if a.ID == "r2" && a.AttentionSlot != 12 {
+			t.Fatalf("/v1/state attentionSlot %d", a.AttentionSlot)
+		}
+	}
+	for _, body := range []string{`{}`, `{"slot":0}`, `{"slot":17}`} {
+		if c := do(h, "POST", "/v1/agents/r1/attention", body, auth).Code; c != 400 {
+			t.Errorf("%s: %d", body, c)
+		}
+	}
+	if c := do(h, "POST", "/v1/agents/zz/attention", `{"slot":3}`, auth).Code; c != 404 {
+		t.Errorf("unknown: %d", c)
+	}
+	if c := do(h, "POST", "/v1/agents/i1/attention", `{"slot":3}`, auth).Code; c != 409 {
+		t.Errorf("not on the grid: %d", c)
 	}
 }
 

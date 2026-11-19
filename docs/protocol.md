@@ -32,6 +32,7 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
 | POST | `/v1/agents/{id}/move` | `{"slot": 9}` | `204` — puts the agent at board position 0..255; free positions are fine (the board can have gaps), and an agent already there swaps into the mover's old position. Used by drag-and-drop on the web and the panel |
+| POST | `/v1/agents/{id}/attention` | `{"slot": 3}` | `204`: moves the agent to spot 1..16 of the ["Needs you" grid](#the-needs-you-grid); an agent already there swaps into the mover's old spot (or waits for a spot, when the mover had none). The new spot is also the one it gets back when it returns. `409` when the agent isn't on the grid. Used by drag-and-drop on the web's "Needs you" screen |
 | GET | `/v1/live` | – | `200` `{"sessions": [{"sessionId", "title", "cwd", "folder", "started", "onBoard", "background"}]}` — active Claude sessions on this machine that agentctl didn't start: in terminals, or in the background (`claude --bg`, the Claude desktop app) |
 | POST | `/v1/agents/{id}/hat` | `{"shape": "cap", "color": "teal"}` (`color` optional), `{"shape": "none"}`, or `{"auto": true}` | `204` — picks the hat of the agent's working folder (every agent working there wears it), or back to the automatic one; stored in `config.json` `"hats"` |
 | GET | `/v1/hats` | – | `200` `{"shapes": […], "colors": […], "overrides": {"<folder>": {"shape", "color"}}}` |
@@ -73,6 +74,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
 {
   "id": "k3f9a2",                 // stable, [a-z0-9]{6}
   "slot": 0,                      // 0-based board position, stable for the agent's life; gaps allowed
+  "attentionSlot": 3,             // its spot on the "Needs you" grid, 1..16 (4×4, by rows); 0 when it isn't there
   "title": "checkout-api",          // user-facing name (folder name by default)
   "aiTitle": "Fix refresh token race", // Claude's own session title, may be ""
   "tool": "claude",               // claude | codex | gemini | shell
@@ -167,6 +169,29 @@ Status meanings (what the tiles show):
 | `idle` | turn finished, waiting for a new prompt | dim critter asleep |
 | `error` | API error or crashed | accent outline, X eyes, "!" |
 | `exited` | process gone; stays 10 min (resumable), then moves to the CLI history (`agentctl resume`) | dim, hollow |
+
+### The "Needs you" grid
+
+The service keeps one "Needs you" grid of 16 spots (4×4, numbered 1 to 16 by rows) and puts each
+agent's spot in `attentionSlot`, so every screen shows the same agents in the same spots.
+
+- **Who is on it:** an agent that is `starting`, `running` or `waiting`, or `idle` with `unseen`
+  (finished a turn you haven't looked at yet). It stays 5 seconds after it stops; back within those 5
+  seconds and it never left. The service sends the change when the 5 seconds run out.
+- **Where:** nobody moves when another agent leaves. A newcomer takes the lowest free spot. An agent
+  that was on the grid before gets its old spot back when that is free, otherwise a random free spot,
+  which becomes its old spot. `POST /v1/agents/{id}/attention` moves an agent by hand.
+- **More than 16:** the others wait with `attentionSlot: 0` and get spots as they free up, the one that
+  came first first (then the lowest `slot`).
+- **Restarts:** the old spots of agentctl's own agents are kept across a service restart, so they come
+  back to the same spots. The 5 seconds after an agent stops are not kept, nor are the old spots of
+  agents mirrored from other apps.
+- **Smaller screens** (fewer than 16 cells) show the agents in order of their spot, lowest first, in
+  the cells they have; the rest aren't shown, but the count on the "Needs you" mark includes them.
+  Newcomers take the lowest free spot, so the first spots fill first. Two screens of the same size
+  always show the same agents.
+- **An older service** sends no `attentionSlot` (always `0`). When no agent has a spot but some need
+  you, clients show those agents in deck order, without the 5 seconds and without remembered spots.
 
 ## Devices and security
 

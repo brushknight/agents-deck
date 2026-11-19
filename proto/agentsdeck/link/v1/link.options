@@ -51,6 +51,7 @@ agentsdeck.link.v1.Interrupt.agent_id    max_size:12
 agentsdeck.link.v1.Dismiss.agent_id      max_size:12
 agentsdeck.link.v1.Resume.agent_id       max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12
+agentsdeck.link.v1.MoveAttention.agent_id max_size:12
 agentsdeck.link.v1.Order.agent_ids       max_count:32 max_size:12
 agentsdeck.link.v1.SetHat.agent_id       max_size:12
 agentsdeck.link.v1.SetHat.folder         max_size:128

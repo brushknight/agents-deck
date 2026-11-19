@@ -43,6 +43,10 @@ Name the folder after what the device is (`desk-strip`, `eink-badge`), lowercase
   `agentctl devices approve <name>`; on a registered USB port this is rare, as new boards are approved
   at once unless the owner turned that off), *deck offline* (`on_offline`), and *needs you*
   (`status == WAITING`), which is the point of most devices.
+- A "Needs you" screen draws the deck's spots (`attention_slot`, in `FIELDS_TILE`; `deck_tiles` keeps
+  it too): spot n in cell n on a 4×4 grid, or the lowest spots first on a smaller one. Don't arrange
+  it yourself, or the device shows something different from every other screen
+  ([protocol.md](protocol.md), "The Needs you grid").
 - Keep the serial port for Deck Link. Text prints are ignored by the deck but waste bandwidth; never
   print from an interrupt while a frame may be going out.
 - Stay inside the limits in `link.options`: the deck never sends longer strings or lists, so size your

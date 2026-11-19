@@ -26,40 +26,43 @@ type Server struct {
 }
 
 type Agent struct {
-	ID          string     `json:"id"`
-	Slot        int        `json:"slot"`
-	Title       string     `json:"title"`
-	AITitle     string     `json:"aiTitle"`
-	Tool        string     `json:"tool"`
-	Status      Status     `json:"status"`
-	StatusSince time.Time  `json:"statusSince"`
-	Cwd         string     `json:"cwd"`
-	Folder      string     `json:"folder"`
-	Branch      string     `json:"branch"`
-	Model       string     `json:"model"`
-	ModelLabel  string     `json:"modelLabel"`
-	Effort      string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
-	Activity    *Activity  `json:"activity"`
-	LastPrompt  string     `json:"lastPrompt"`
-	Waiting     *Prompt    `json:"waiting"`
-	Error       *ErrInfo   `json:"error"`
-	Tokens      Tokens     `json:"tokens"`
-	Context     Context    `json:"context"`
-	CostUSD     float64    `json:"costUsd"`
-	Turns       int        `json:"turns"`
-	Focused     bool       `json:"focused"`
-	Attached    bool       `json:"attached"`
-	Resumable   bool       `json:"resumable"`           // exited Claude agent that POST /resume can bring back
-	Lost        bool       `json:"lost,omitempty"`      // ended with the tmux server, not by itself: POST /v1/restore brings it back
-	Unseen      bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
-	External    bool       `json:"external"`            // owned by another app (Codex): view and focus only
-	App         string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
-	Subagents   []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
-	Hat         *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
-	Account     *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
-	StartedAt   time.Time  `json:"startedAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	LastActive  time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
+	ID   string `json:"id"`
+	Slot int    `json:"slot"`
+	// AttentionSlot is its spot on the "Needs you" grid, 1..16 (4 x 4, by
+	// rows), or 0 while it isn't there. The service decides it (store/attention.go).
+	AttentionSlot int        `json:"attentionSlot"`
+	Title         string     `json:"title"`
+	AITitle       string     `json:"aiTitle"`
+	Tool          string     `json:"tool"`
+	Status        Status     `json:"status"`
+	StatusSince   time.Time  `json:"statusSince"`
+	Cwd           string     `json:"cwd"`
+	Folder        string     `json:"folder"`
+	Branch        string     `json:"branch"`
+	Model         string     `json:"model"`
+	ModelLabel    string     `json:"modelLabel"`
+	Effort        string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
+	Activity      *Activity  `json:"activity"`
+	LastPrompt    string     `json:"lastPrompt"`
+	Waiting       *Prompt    `json:"waiting"`
+	Error         *ErrInfo   `json:"error"`
+	Tokens        Tokens     `json:"tokens"`
+	Context       Context    `json:"context"`
+	CostUSD       float64    `json:"costUsd"`
+	Turns         int        `json:"turns"`
+	Focused       bool       `json:"focused"`
+	Attached      bool       `json:"attached"`
+	Resumable     bool       `json:"resumable"`           // exited Claude agent that POST /resume can bring back
+	Lost          bool       `json:"lost,omitempty"`      // ended with the tmux server, not by itself: POST /v1/restore brings it back
+	Unseen        bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
+	External      bool       `json:"external"`            // owned by another app (Codex): view and focus only
+	App           string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
+	Subagents     []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
+	Hat           *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
+	Account       *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
+	StartedAt     time.Time  `json:"startedAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	LastActive    time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
 }
 
 // Hat is the pixel hat an agent wears, picked by its working folder: shape

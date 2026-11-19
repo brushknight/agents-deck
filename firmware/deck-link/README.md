@@ -101,7 +101,8 @@ may send commands.
 
 Commands return the seq the deck echoes in its reply (0 if nothing was sent):
 `deck_get_state`, `deck_answer(agent_id, prompt_id, key)`, `deck_focus`, `deck_interrupt`, `deck_dismiss`,
-`deck_resume`, `deck_move(agent_id, slot)`, `deck_order(ids, n)`,
+`deck_resume`, `deck_move(agent_id, slot)`, `deck_move_attention(agent_id, slot)` (the "Needs you"
+grid, 1 to 16), `deck_order(ids, n)`,
 `deck_set_hat(agent_id, folder, shape, color, auto_hat)`, `deck_list_hats`, `deck_list_live`,
 `deck_add_live(session_id, slot)`, `deck_restore`, `deck_subscribe(first_slot, slot_count, fields)` and
 `deck_ping`. Strings are cut to the `link.options` limits on a UTF-8 boundary.

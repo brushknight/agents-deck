@@ -660,20 +660,21 @@ func (s *Session) result(seq uint32, code int, msg string) error {
 // Routes: the web API endpoint behind each command (Frame field name). The
 // parity test checks this against docs/protocol.md and link.proto.
 var Routes = map[string]string{
-	"get_state": "GET /v1/state",
-	"list_hats": "GET /v1/hats",
-	"list_live": "GET /v1/live",
-	"answer":    "POST /v1/agents/{id}/answer",
-	"focus":     "POST /v1/agents/{id}/focus",
-	"interrupt": "POST /v1/agents/{id}/interrupt",
-	"dismiss":   "POST /v1/agents/{id}/dismiss",
-	"resume":    "POST /v1/agents/{id}/resume",
-	"move":      "POST /v1/agents/{id}/move",
-	"order":     "POST /v1/order",
-	"restore":   "POST /v1/restore",
-	"set_hat":   "POST /v1/agents/{id}/hat | POST /v1/hats",
-	"add_live":  "POST /v1/live/{session}/add",
-	"handoff":   "POST /v1/agents/{id}/handoff",
+	"get_state":      "GET /v1/state",
+	"list_hats":      "GET /v1/hats",
+	"list_live":      "GET /v1/live",
+	"answer":         "POST /v1/agents/{id}/answer",
+	"focus":          "POST /v1/agents/{id}/focus",
+	"interrupt":      "POST /v1/agents/{id}/interrupt",
+	"dismiss":        "POST /v1/agents/{id}/dismiss",
+	"resume":         "POST /v1/agents/{id}/resume",
+	"move":           "POST /v1/agents/{id}/move",
+	"move_attention": "POST /v1/agents/{id}/attention",
+	"order":          "POST /v1/order",
+	"restore":        "POST /v1/restore",
+	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
+	"add_live":       "POST /v1/live/{session}/add",
+	"handoff":        "POST /v1/agents/{id}/handoff",
 
 	"list_accounts": "GET /v1/accounts",
 }
@@ -776,6 +777,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, agentPath(b.Handoff.AgentId, "handoff"), map[string]string{"account": b.Handoff.Account}
 	case *linkpb.Frame_Move:
 		method, path, body = http.MethodPost, agentPath(b.Move.AgentId, "move"), map[string]int{"slot": int(b.Move.Slot)}
+	case *linkpb.Frame_MoveAttention:
+		method, path, body = http.MethodPost, agentPath(b.MoveAttention.AgentId, "attention"), map[string]int{"slot": int(b.MoveAttention.Slot)}
 	case *linkpb.Frame_Order:
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
 	case *linkpb.Frame_SetHat:

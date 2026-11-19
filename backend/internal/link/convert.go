@@ -53,6 +53,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 			p.Activity = &linkpb.Activity{Tool: a.Activity.Tool}
 		}
 		p.SubagentCount = uint32(len(a.Subagents))
+		p.AttentionSlot = uint32(a.AttentionSlot)
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
 		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch

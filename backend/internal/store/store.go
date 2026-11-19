@@ -5,6 +5,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/json"
+	mrand "math/rand/v2"
 	"os"
 	"sort"
 	"sync"
@@ -39,6 +40,13 @@ type Entry struct {
 	HerdrTurn      int64       `json:"-"`                  // …state_change_seq of the state its prompt was built for
 	CmuxSurface    string      `json:"-"`                  // an agent in cmux: its terminal (surface id)
 	CmuxTurn       float64     `json:"-"`                  // …updatedAt of the hook report its prompt was built for
+
+	// The "Needs you" grid (attention.go). AttnHome is the spot it had last
+	// (1..16, 0 = none), kept while it is away and across restarts.
+	AttnHome    int       `json:"attnHome,omitempty"`
+	attnOn      bool      // on the grid now (in a spot, or waiting for one)
+	attnJoined  time.Time // when it came on the grid
+	attnLeaveAt time.Time // stopped needing you: leaves then (zero: not leaving)
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`
@@ -171,11 +179,20 @@ type Store struct {
 	// Account gives each agent its Claude account, from the account it was
 	// started in or its transcript's folder (nil: accounts aren't shown).
 	Account func(name, transcript string) *model.Account
+
+	// The "Needs you" grid (attention.go): the clock and the random free
+	// spot (tests set both), how long an agent stays after it stops needing
+	// you, and the timer for the next one to leave.
+	now       func() time.Time
+	randn     func(n int) int
+	linger    time.Duration
+	attnTimer *time.Timer
 }
 
 func New(path, name, version string) *Store {
 	s := &Store{entries: map[string]*Entry{}, subs: map[chan struct{}]struct{}{}, path: path,
-		saveReq: make(chan struct{}, 1), Name: name, Version: version}
+		saveReq: make(chan struct{}, 1), Name: name, Version: version,
+		now: time.Now, randn: mrand.IntN, linger: AttentionLinger}
 	if path != "" {
 		go s.saver()
 	}
@@ -197,8 +214,10 @@ func (s *Store) Load() {
 	}
 	s.mu.Lock()
 	for _, e := range list {
+		e.A.AttentionSlot = 0 // placed again below, at its old spot (AttnHome) when it still needs you
 		s.entries[e.A.ID] = e
 	}
+	s.arrange()
 	s.mu.Unlock()
 }
 
@@ -242,7 +261,15 @@ func (s *Store) Touch() {
 	s.changed()
 }
 
+// changed runs after every change, under the lock: the "Needs you" grid is
+// worked out again (every source of status passes here), then subscribers
+// hear of it and the registry is saved.
 func (s *Store) changed() {
+	s.arrange()
+	s.notify()
+}
+
+func (s *Store) notify() {
 	for c := range s.subs {
 		select {
 		case c <- struct{}{}:
@@ -283,6 +310,7 @@ func (s *Store) Add(e *Entry) {
 		slot++
 	}
 	e.A.Slot = slot
+	e.A.AttentionSlot, e.attnOn = 0, false // arrange places it, at AttnHome when the caller kept one
 	now := time.Now().UTC()
 	e.A.StartedAt, e.A.UpdatedAt, e.A.StatusSince = now, now, now
 	s.entries[e.A.ID] = e

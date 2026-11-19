@@ -27,3 +27,18 @@ func TestHoldStill(t *testing.T) {
 		}
 	}
 }
+
+// The demo fleet has the "Needs you" grid too: the agents that need you, in
+// the order the fixture lists them.
+func TestDemoNeedsYouGrid(t *testing.T) {
+	st := store.New("", "test host", "0.0.0")
+	if _, err := Load(st); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"k3f9a2": 1, "h0m3l4": 2, "d0cs1t": 3, "t3st5a": 4, "k8sn0d": 5, "4uthfl": 6, "plug1n": 7, "fw0t4x": 8}
+	for _, a := range st.Snapshot().Agents {
+		if a.AttentionSlot != want[a.ID] {
+			t.Errorf("%s (%s): attentionSlot %d, want %d", a.ID, a.Status, a.AttentionSlot, want[a.ID])
+		}
+	}
+}

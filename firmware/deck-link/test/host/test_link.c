@@ -505,8 +505,9 @@ static void test_handshake(void)
 	uint32_t q4 = deck_set_hat(&link, NULL, "/x/y", "crown", "red", false);
 	uint32_t q5 = deck_add_live(&link, "sess-1", -1);
 	uint32_t q6 = deck_get_state(&link);
-	CHECK(q1 && q2 == q1 + 1 && q3 == q2 + 1 && q4 == q3 + 1 && q5 == q4 + 1 && q6 == q5 + 1);
-	CHECK(sent_frames(s, 16) == 6);
+	uint32_t q7 = deck_move_attention(&link, "k3f9a2", 7);
+	CHECK(q1 && q2 == q1 + 1 && q3 == q2 + 1 && q4 == q3 + 1 && q5 == q4 + 1 && q6 == q5 + 1 && q7 == q6 + 1);
+	CHECK(sent_frames(s, 16) == 7);
 	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_answer_tag && s[0].seq == q1);
 	CHECK(strcmp(s[0].body.answer.prompt_id, "p17") == 0 && strcmp(s[0].body.answer.key, "1") == 0);
 	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_focus_tag && strcmp(s[1].body.focus.agent_id, "k3f9a2") == 0);
@@ -514,6 +515,8 @@ static void test_handshake(void)
 	CHECK(s[3].which_body == agentsdeck_link_v1_Frame_set_hat_tag && strcmp(s[3].body.set_hat.folder, "/x/y") == 0);
 	CHECK(s[4].body.add_live.slot == -1);
 	CHECK(s[5].which_body == agentsdeck_link_v1_Frame_get_state_tag);
+	CHECK(s[6].which_body == agentsdeck_link_v1_Frame_move_attention_tag && s[6].body.move_attention.slot == 7 &&
+	      strcmp(s[6].body.move_attention.agent_id, "k3f9a2") == 0);
 
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;
@@ -946,6 +949,7 @@ static void test_tiles(void)
 	f.body.agent_changed.agent.has_context = true;
 	f.body.agent_changed.agent.context.used = 50000;
 	f.body.agent_changed.agent.context.window = 200000;
+	f.body.agent_changed.agent.attention_slot = 4;
 	deck_tiles_handle(&t, &f);
 	f = mk(0, agentsdeck_link_v1_Frame_snapshot_end_tag);
 	deck_tiles_handle(&t, &f);
@@ -955,6 +959,7 @@ static void test_tiles(void)
 	const deck_tile_t *wt = deck_tiles_first_waiting(&t);
 	CHECK(wt && strcmp(wt->id, "c") == 0 && deck_tile_primary(wt) == 1 && wt->context_permille == 250);
 	CHECK(wt->options[1].selected && !wt->options[0].selected);
+	CHECK(wt->attention_slot == 4 && t.tiles[0].attention_slot == 0);
 	CHECK(deck_tiles_count_status(&t, agentsdeck_link_v1_Status_STATUS_RUNNING) == 1);
 
 	/* Move b to slot 0, remove a. */

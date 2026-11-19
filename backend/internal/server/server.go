@@ -198,6 +198,26 @@ func (s *Server) api() *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/agents/{id}/attention", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Slot *int `json:"slot"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body); err != nil || body.Slot == nil ||
+			*body.Slot < 1 || *body.Slot > store.AttentionSpots {
+			writeErr(w, http.StatusBadRequest, "body must be {\"slot\": 1..16}")
+			return
+		}
+		switch err := s.Store.PlaceAttention(r.PathValue("id"), *body.Slot); {
+		case errors.Is(err, store.ErrNoAgent):
+			writeErr(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, store.ErrNotNeedsYou):
+			writeErr(w, http.StatusConflict, err.Error())
+		case err != nil:
+			writeErr(w, http.StatusBadRequest, err.Error())
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
 	mux.HandleFunc("GET /v1/hats", func(w http.ResponseWriter, r *http.Request) {
 		over := map[string]hats.Override{}
 		if s.Hats != nil {

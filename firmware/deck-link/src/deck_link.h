@@ -35,7 +35,7 @@ extern "C" {
 
 /* The largest frame (before COBS) this build accepts. The protocol allows
  * 4096; with link.options the deck never sends more than
- * agentsdeck_link_v1_Frame_size + 5 (3387). Lower it (>= 512) to save RAM;
+ * agentsdeck_link_v1_Frame_size + 5 (3406). Lower it (>= 512) to save RAM;
  * the deck then clips what it sends (Hello.max_frame). */
 #ifndef DECK_LINK_MAX_FRAME
 #define DECK_LINK_MAX_FRAME 4096
@@ -194,6 +194,8 @@ uint32_t deck_interrupt(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_dismiss(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_resume(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot);
+/* Moves an agent on the deck's "Needs you" grid to spot 1..16 (Agent.attention_slot). */
+uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot);
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n);
 /* folder is used when agent_id is NULL or empty; color may be NULL. */
 uint32_t deck_set_hat(deck_link_t *ctx, const char *agent_id, const char *folder, const char *shape,

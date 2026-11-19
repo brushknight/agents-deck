@@ -203,6 +203,56 @@ func TestSessionApprovalSnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+// The "Needs you" spot comes with TILE, and MoveAttention moves it like the
+// web API does, with the same scope as Move.
+func TestSessionAttentionSlot(t *testing.T) {
+	srv, _ := testDeck(t)
+	b := start(t, srv, Binary)
+	b.send(hi("board-3"))
+	b.next() // welcome (pending)
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Subscribe{Subscribe: &linkpb.Subscribe{}}})
+	_ = srv.Devices.Approve("oled-tile-board3")
+	b.next() // welcome (approved, view)
+	b.next() // snapshot begin
+	got := map[string]uint32{}
+	for {
+		f := b.next()
+		if f.GetSnapshotEnd() != nil {
+			break
+		}
+		a := f.GetAgentChanged().GetAgent()
+		got[a.GetId()] = a.GetAttentionSlot()
+	}
+	if got["a1"] != 1 || got["b2"] != 2 || got["c3"] != 0 {
+		t.Fatalf("attention slots in the snapshot: %v", got)
+	}
+	move := &linkpb.Frame{Seq: 3, Body: &linkpb.Frame_MoveAttention{MoveAttention: &linkpb.MoveAttention{AgentId: "a1", Slot: 7}}}
+	b.send(move)
+	if r := b.next().GetResult(); r.GetCode() != 403 {
+		t.Fatalf("move with view scope: %+v", r)
+	}
+	_ = srv.Devices.SetScope("oled-tile-board3", devices.Act)
+	b.next() // welcome (act)
+	b.send(move)
+	var moved, done bool
+	for !moved || !done {
+		f := b.next()
+		if r := f.GetResult(); r != nil {
+			if f.Seq != 3 || r.Code != 204 {
+				t.Fatalf("move: %+v", f)
+			}
+			done = true
+		}
+		if a := f.GetAgentChanged().GetAgent(); a != nil && a.Id == "a1" && a.AttentionSlot == 7 {
+			moved = true
+		}
+	}
+	b.send(&linkpb.Frame{Seq: 4, Body: &linkpb.Frame_MoveAttention{MoveAttention: &linkpb.MoveAttention{AgentId: "c3", Slot: 2}}})
+	if r := b.next().GetResult(); r.GetCode() != 409 {
+		t.Fatalf("move of an agent not on the grid: %+v", r)
+	}
+}
+
 func TestSessionTypedReplies(t *testing.T) {
 	srv, _ := testDeck(t)
 	b := start(t, srv, Binary)
