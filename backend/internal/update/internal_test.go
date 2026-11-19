@@ -140,7 +140,11 @@ func TestDetectKind(t *testing.T) {
 		{"linux", "/home/someone/.local/bin/agentctl", "0.2.0", KindArchive},
 		{"linux", "/home/someone/.local/bin/agentctl", "v0.2.0-1-gabcdef0", KindSource},
 		{"windows", `C:\Users\someone\AppData\Local\Programs\agents deck\agentctl.exe`, "0.2.0", KindWindows},
+		{"windows", `C:\Users\someone\Downloads\agentctl.exe`, "0.2.0", KindZip},
 	}
+	old := hasUninstaller
+	hasUninstaller = func(dir string) bool { return dir == `C:\Users\someone\AppData\Local\Programs\agents deck\` }
+	defer func() { hasUninstaller = old }()
 	for _, c := range cases {
 		if got := detectKind(c.goos, c.exe, c.version); got != c.want {
 			t.Errorf("%s %s %s: %s, want %s", c.goos, c.exe, c.version, got, c.want)
@@ -196,5 +200,18 @@ func writeTarGz(t *testing.T, p string, h *tar.Header, body []byte) {
 	gz.Close()
 	if err := os.WriteFile(p, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHasUninstaller(t *testing.T) {
+	dir := t.TempDir() + string(filepath.Separator)
+	if hasUninstaller(dir) {
+		t.Fatal("empty folder")
+	}
+	if err := os.WriteFile(dir+"unins000.exe", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasUninstaller(dir) {
+		t.Fatal("unins000.exe not seen")
 	}
 }

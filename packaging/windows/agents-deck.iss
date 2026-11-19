@@ -73,7 +73,9 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 #if HaveApp
 Name: "{userprograms}\agents deck"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"
 #else
-Name: "{userprograms}\agents deck"; Filename: "{app}\agentctl.exe"; Parameters: "web"; WorkingDir: "{app}"; Comment: "Open the agents deck dashboard in your browser"
+; Through cmd.exe, so that when agentctl web fails (the service isn't running) its
+; console window stays open with the reason until a key is pressed.
+Name: "{userprograms}\agents deck"; Filename: "{cmd}"; Parameters: "/c """"{app}\agentctl.exe"" web || pause"""; WorkingDir: "{app}"; IconFilename: "{app}\agentctl.exe"; Comment: "Open the agents deck dashboard in your browser"
 #endif
 Name: "{userprograms}\Uninstall agents deck"; Filename: "{uninstallexe}"
 

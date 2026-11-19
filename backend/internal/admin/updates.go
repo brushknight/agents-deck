@@ -135,7 +135,7 @@ func (a *Admin) check(ctx context.Context, install bool) error {
 	if err != nil {
 		return err
 	}
-	if st.State == update.StateAvailable && st.Install != update.KindDeb && st.Message == "" {
+	if st.State == update.StateAvailable && !update.NotifyOnly(st.Install) && st.Message == "" {
 		if st, err = a.Updater.Download(ctx); err != nil {
 			return err
 		}
@@ -219,7 +219,7 @@ func (a *Admin) updateApply(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, http.StatusConflict, msg)
 		return
-	case st.Install == update.KindDeb:
+	case update.NotifyOnly(st.Install):
 		writeErr(w, http.StatusConflict, st.Message)
 		return
 	case st.State == update.StateNone && st.Version != "":

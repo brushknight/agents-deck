@@ -310,10 +310,16 @@ var errUnreachable = errors.New("couldn't reach the service")
 // callErr says why a request to the service didn't get an answer: it isn't
 // running (no socket, or nobody listening), it took longer than timeout (it
 // may still be doing it), or something else broke on the way.
+// wsaeConnRefused is WSAECONNREFUSED: on Windows, nothing listens on the
+// socket (syscall.ECONNREFUSED there is a made-up number that never matches).
+const wsaeConnRefused = 10061
+
 func callErr(err error, timeout time.Duration) error {
 	var ne net.Error
+	var errno syscall.Errno
 	switch {
-	case errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) || errors.Is(err, os.ErrNotExist):
+	case errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) || errors.Is(err, os.ErrNotExist),
+		errors.As(err, &errno) && errno == wsaeConnRefused:
 		return errNotRunning
 	case errors.As(err, &ne) && ne.Timeout() || errors.Is(err, context.DeadlineExceeded):
 		return fmt.Errorf("the service didn't answer within %s; it may still be doing it: check with agentctl ls", timeout.Round(time.Second))

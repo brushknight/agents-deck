@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -176,5 +177,14 @@ func TestCallErrors(t *testing.T) {
 	err = callTimeout("POST", "/v1/restore", nil, nil, 200*time.Millisecond)
 	if err == nil || errors.Is(err, errNotRunning) || !strings.Contains(err.Error(), "didn't answer within") {
 		t.Fatalf("slow service: %v", err)
+	}
+}
+
+// Windows refuses a connection to a socket nobody listens on with
+// WSAECONNREFUSED, which syscall.ECONNREFUSED doesn't match there.
+func TestCallErrWindowsRefused(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connectex", syscall.Errno(wsaeConnRefused))}
+	if got := callErr(err, time.Second); !errors.Is(got, errNotRunning) {
+		t.Fatalf("got %v", got)
 	}
 }

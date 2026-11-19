@@ -332,6 +332,17 @@ func TestNotSelfUpdating(t *testing.T) {
 	if err := u.Apply(ctx); !errors.Is(err, update.ErrNotSelfUpdating) {
 		t.Fatalf("deb apply: %v", err)
 	}
+	u, _ = newUpdater(t, s, "0.1.0", update.KindZip)
+	st, err = u.Check(ctx)
+	if err != nil || st.State != update.StateAvailable || !strings.Contains(st.Message, "unzipped by hand") {
+		t.Fatalf("zip: %+v %v", st, err)
+	}
+	if _, err := u.Download(ctx); !errors.Is(err, update.ErrNotSelfUpdating) {
+		t.Fatalf("zip download: %v", err)
+	}
+	if err := u.Apply(ctx); !errors.Is(err, update.ErrNotSelfUpdating) {
+		t.Fatalf("zip apply: %v", err)
+	}
 	u, _ = newUpdater(t, s, "dev", update.KindSource)
 	st, _ = u.Check(ctx)
 	if st.State != update.StateDisabled || !strings.Contains(st.Message, "development build") {

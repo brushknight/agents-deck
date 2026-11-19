@@ -1252,7 +1252,7 @@ function drawTroubleshoot() {
 function drawAbout() {
   const sys = S.system || {};
   const u = S.update || {};
-  const kinds = { app: 'the app', windows: 'the Windows installer', deb: 'a .deb package', archive: 'install.sh', source: 'built from source' };
+  const kinds = { app: 'the app', windows: 'the Windows installer', deb: 'a .deb package', zip: 'agentctl.exe from the .zip', archive: 'install.sh', source: 'built from source' };
   return [
     row(`agents deck ${sys.version || ''}`, `${sys.platform || ''} · installed with ${kinds[sys.install] || sys.install || 'unknown'}${u.version && u.version !== sys.version ? ` · ${u.version} is the latest` : ''}`, []),
     row('Source, licence and issues', 'github.com/brushknight/agents-deck', [h('a', { class: 'b', href: 'https://github.com/brushknight/agents-deck', rel: 'noreferrer' }, 'Open')]),

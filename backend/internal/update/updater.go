@@ -132,6 +132,10 @@ func (u *Updater) Check(ctx context.Context) (State, error) {
 		s.State = StateAvailable
 		s.Message = "Installed with the system's package manager, so it doesn't update itself. " +
 			"Download the new .deb from " + s.Page + " and install it (sudo apt install ./<file>.deb)."
+	case u.Kind == KindZip:
+		s.State = StateAvailable
+		s.Message = "This agentctl.exe was unzipped by hand, so it doesn't update itself. " +
+			"Download the new installer or .zip from " + s.Page + "."
 	default:
 		s.State = StateAvailable
 		if names, err := u.assets(rel); err != nil {
@@ -164,7 +168,7 @@ func (u *Updater) Download(ctx context.Context) (State, error) {
 		return s, fmt.Errorf("%w: %s", ErrNotSelfUpdating, s.Message)
 	case s.State == StateDisabled:
 		return s, ErrNoReleaseKey
-	case u.Kind == KindDeb:
+	case NotifyOnly(u.Kind):
 		return s, fmt.Errorf("%w: %s", ErrNotSelfUpdating, s.Message)
 	case s.State == StateNone, s.State == StateReady, s.State == StateInstalling:
 		return s, nil
@@ -201,7 +205,7 @@ func (u *Updater) Apply(ctx context.Context) error {
 		switch {
 		case s.State == StateDisabled && u.Kind != KindSource:
 			return ErrNoReleaseKey
-		case s.State == StateDisabled, u.Kind == KindDeb:
+		case s.State == StateDisabled, NotifyOnly(u.Kind):
 			return fmt.Errorf("%w: %s", ErrNotSelfUpdating, s.Message)
 		case s.State == StateInstalling:
 			return errors.New("already installing")
