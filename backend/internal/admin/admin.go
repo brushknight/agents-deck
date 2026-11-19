@@ -139,6 +139,7 @@ type Admin struct {
 	labels  labelBook
 	ota     otaWatch
 	files   fileBook
+	probes  probeBook
 }
 
 // Handler serves /admin/v1/… . The caller has already decided who may reach
@@ -164,6 +165,8 @@ func (a *Admin) Handler() http.Handler {
 
 	mux.HandleFunc("GET /admin/v1/ports", a.listPorts)
 	mux.HandleFunc("POST /admin/v1/ports/{id}/{action}", a.portAction)
+	mux.HandleFunc("POST /admin/v1/ports/{id}/firmware-file", a.portFirmwareFile)
+	mux.HandleFunc("POST /admin/v1/ports/{id}/install-file", a.portInstallFile)
 
 	mux.HandleFunc("GET /admin/v1/bluetooth", a.bluetoothStatus)
 	mux.HandleFunc("POST /admin/v1/bluetooth/scan", a.bluetoothScan)

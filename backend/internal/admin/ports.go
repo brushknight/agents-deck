@@ -374,7 +374,7 @@ func (a *Admin) portAction(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusAccepted, job)
 	default:
-		writeErr(w, http.StatusNotFound, "unknown action: register, identify, flash or forget")
+		writeErr(w, http.StatusNotFound, "unknown action: register, identify, flash, forget, firmware-file or install-file")
 	}
 }
 
@@ -422,6 +422,7 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 		id.Note = "couldn't read the firmware list: " + catErr.Error()
 	}
 	if p.Device != "" {
+		a.probes.forget(p.Path)
 		id.Source = "session"
 		for _, d := range a.deviceRows() {
 			if d.ID == p.Device {
@@ -444,6 +445,7 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	a.probes.forget(p.Path)
 	chip, err := a.Flasher.Probe(ctx, p.info())
 	a.handBack(p.Path)
 	if err != nil {
@@ -455,6 +457,7 @@ func (a *Admin) identify(w http.ResponseWriter, r *http.Request, p PortRow) {
 		return
 	}
 	id.Source, id.Chip, id.FlashSize, id.MAC = "probe", chip.Name, chip.FlashSize, chip.MAC
+	a.probes.put(p.Path, probed{chip: chip, vid: p.VID, pid: p.PID, serialNum: p.Serial, at: time.Now()})
 	if catErr == nil {
 		id.Candidates = append(id.Candidates, cat.Candidates(chip.Name, chip.FlashSize)...)
 		if len(id.Candidates) == 0 {
@@ -482,7 +485,7 @@ func (a *Admin) startFlash(port serial.Info, board firmware.Board, version, devi
 		return Job{}, http.StatusNotImplemented, errors.New("this service can't flash boards")
 	}
 	if !a.releaseKey() {
-		return Job{}, http.StatusConflict, errors.New("this build has no release key, so it can't check that firmware is genuine and never installs it: flash it with agentctl flash <port> <image.bin>")
+		return Job{}, http.StatusConflict, errors.New("this copy of agents deck was built from source, so it can't check firmware downloaded from a release and won't install it. You can still install a firmware file from this computer (Install a firmware file… in Settings, Boards, or agentctl flash <port> <image.bin>)")
 	}
 	if j, ok := a.jobs.running(func(j Job) bool { return j.Port == portID(port.Path) }); ok {
 		return j, http.StatusConflict, errors.New("this board is being written already")

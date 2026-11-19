@@ -522,7 +522,7 @@ func TestNoReleaseKeyNoFlash(t *testing.T) {
 	r.a.Firmware = &firmware.Client{Releases: rel}
 	r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/register", "")
 	code, out := r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/flash", `{"board":"t4s3"}`)
-	if code != 409 || !strings.Contains(out["error"].(string), "release key") {
+	if code != 409 || !strings.Contains(out["error"].(string), "built from source") || !strings.Contains(out["error"].(string), "firmware file") {
 		t.Errorf("no key: %d %v", code, out)
 	}
 	_, fw := r.do(t, "GET", "/admin/v1/firmware", "")

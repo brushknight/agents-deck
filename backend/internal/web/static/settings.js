@@ -47,7 +47,7 @@ const S = {
   errors: {},
   bt: null, btBoards: null, // Bluetooth on this computer, and the boards nearby
   btAdd: {}, // Bluetooth identifier -> the job adding that board
-  file: {}, // device id -> installing a firmware file: {stage, name, size, up, error, version}
+  file: {}, // fileTarget key -> installing a firmware file: {stage, name, size, up, error, version}
   btScope: {}, // Bluetooth identifier -> the scope picked before Add
 };
 
@@ -635,42 +635,70 @@ function fwLine(d) {
   if (st && st.state === 'update' && st.ready) {
     acts.append(btn(`Update to ${st.latest}`, (e) => updateDevice(d, e.currentTarget), 'a', { 'data-k': `upd-${d.id}` }));
   }
+  const t = deviceFileTarget(d);
   const canFile = (d.fileVia || []).length > 0;
-  const input = h('input', {
-    type: 'file', accept: '.bin,application/octet-stream', class: 'sr', id: `file-${d.id}`, tabindex: '-1', 'aria-hidden': 'true',
-    onchange: (e) => { const f = e.currentTarget.files[0]; if (f) uploadFile(d, f); },
-  });
-  acts.append(input, btn('Install a firmware file…', () => input.click(), '', {
-    disabled: !canFile || !!S.file[d.id], 'data-k': `pick-${d.id}`, title: canFile ? 'Install a .bin you built or downloaded' : d.fileNote,
-    'aria-describedby': canFile ? null : `fwn-${d.id}`,
-  }));
+  acts.append(...fileButton(t, canFile, d.fileNote));
   line.append(acts);
   const upNote = st && st.state === 'update' && !st.ready ? st.note : '';
   if (upNote && upNote === d.fileNote) { // one reason for both (only on Bluetooth)
-    line.append(h('p', { class: 'note', id: `fwn-${d.id}` }, `To update or install a file: ${upNote}.`));
-    if (S.file[d.id]) line.append(filePanel(d, S.file[d.id]));
+    line.append(h('p', { class: 'note', id: `fwn-${t.key}` }, `To update or install a file: ${upNote}.`));
+    if (S.file[t.key]) line.append(filePanel(t, S.file[t.key]));
     return line;
   }
   if (upNote) line.append(h('p', { class: 'note' }, `To update: ${upNote}.`));
-  if (!canFile && d.fileNote && d.online) line.append(h('p', { class: 'note', id: `fwn-${d.id}` }, `A firmware file: ${d.fileNote}.`));
-  else if (!canFile && d.fileNote) line.append(h('span', { class: 'sr', id: `fwn-${d.id}` }, d.fileNote));
-  if (S.file[d.id]) line.append(filePanel(d, S.file[d.id]));
+  if (!canFile && d.fileNote && d.online) line.append(h('p', { class: 'note', id: `fwn-${t.key}` }, `A firmware file: ${d.fileNote}.`));
+  else if (!canFile && d.fileNote) line.append(h('span', { class: 'sr', id: `fwn-${t.key}` }, d.fileNote));
+  if (S.file[t.key]) line.append(filePanel(t, S.file[t.key]));
   return line;
+}
+
+// A firmware file picked on this computer goes to a target: a board of
+// yours (the device calls, over USB or Wi-Fi), or in "Set up a new board"
+// the board on a USB port that has no agents deck firmware yet (the port
+// calls, a full image over USB). key names its state in S.file and its
+// elements; about is the board's line in the confirmation.
+function deviceFileTarget(d) {
+  return {
+    key: d.id, name: d.name, base: `/admin/v1/devices/${encodeURIComponent(d.id)}`,
+    about: `${d.name}${d.model ? ` · ${d.model}` : ''} · runs ${d.firmware || 'unknown firmware'}`,
+  };
+}
+
+function portFileTarget(p, id) {
+  const fs = id.flashSize ? ` · ${Math.round(id.flashSize / 1048576)} MB flash` : '';
+  return {
+    key: `port-${p.id}`, name: 'the board', base: `/admin/v1/ports/${encodeURIComponent(p.id)}`, port: true,
+    about: `${id.chip}${fs} on USB port ${p.id} · no agents deck firmware yet`,
+    onJob: (job) => { if (S.nb && S.nb.port === p.id) S.nb.job = job.id; },
+  };
+}
+
+// fileButton: the hidden file input and the button that opens it. note
+// says why it can't be used now.
+function fileButton(t, canFile, note, kind = '') {
+  const input = h('input', {
+    type: 'file', accept: '.bin,application/octet-stream', class: 'sr', id: `file-${t.key}`, tabindex: '-1', 'aria-hidden': 'true',
+    onchange: (e) => { const f = e.currentTarget.files[0]; if (f) uploadFile(t, f); },
+  });
+  return [input, btn('Install a firmware file…', () => input.click(), kind, {
+    disabled: !canFile || !!S.file[t.key], 'data-k': `pick-${t.key}`, title: canFile ? 'Install a .bin you built or downloaded' : note,
+    'aria-describedby': canFile ? null : `fwn-${t.key}`,
+  })];
 }
 
 const MAX_FILE = 32 * 1048576;
 
-async function uploadFile(d, f) {
+async function uploadFile(t, f) {
   const st = { stage: 'reading', name: f.name, size: f.size };
-  S.file[d.id] = st;
+  S.file[t.key] = st;
   draw(true);
   if (f.size > MAX_FILE) { st.stage = 'error'; st.error = 'The file is bigger than 32 MB, more than any board\'s flash.'; draw(true); return; }
   try {
-    const r = await fetch(`/admin/v1/devices/${encodeURIComponent(d.id)}/firmware-file`, {
+    const r = await fetch(`${t.base}/firmware-file`, {
       method: 'POST', credentials: 'same-origin', cache: 'no-store',
       headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(f.name) }, body: f,
     });
-    if (r.status === 401) { showExpired(); delete S.file[d.id]; return; }
+    if (r.status === 401) { showExpired(); delete S.file[t.key]; return; }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || r.statusText);
     Object.assign(st, { stage: 'confirm', up: data, version: data.version || '' });
@@ -678,17 +706,17 @@ async function uploadFile(d, f) {
     st.stage = 'error';
     st.error = e instanceof TypeError ? 'The service isn\'t answering. It may be restarting.' : e.message;
   }
-  if (S.file[d.id] === st) draw(true);
+  if (S.file[t.key] === st) draw(true);
 }
 
-async function installFile(d, st, btnEl) {
-  const input = $(`#fv-${CSS.escape(d.id)}`);
+async function installFile(t, st, btnEl) {
+  const input = $(`#fv-${CSS.escape(t.key)}`);
   const version = input ? input.value.trim() : st.version;
   if (st.up.via === 'wifi' && !version) { st.error = 'Give the version the firmware reports.'; draw(true); input?.focus(); return; }
   st.error = '';
   const job = await busy(btnEl, async () => {
     try {
-      return await api('POST', `/admin/v1/devices/${encodeURIComponent(d.id)}/install-file`, { file: st.up.file, version });
+      return await api('POST', `${t.base}/install-file`, t.port ? { file: st.up.file } : { file: st.up.file, version });
     } catch (e) {
       if (e.status === 409 && e.data.job) return api('GET', `/admin/v1/jobs/${encodeURIComponent(e.data.job)}`);
       st.error = e.message;
@@ -697,33 +725,34 @@ async function installFile(d, st, btnEl) {
     }
   });
   if (job && job.id) {
-    delete S.file[d.id];
+    delete S.file[t.key];
     putJob(job);
+    t.onJob?.(job);
     location.hash = `#flash/${job.id}`;
   }
 }
 
 // filePanel: picking a file, what was read from it, and the confirmation.
-function filePanel(d, st) {
-  const close = () => { delete S.file[d.id]; draw(true); };
-  const box = h('div', { class: `box filebox${st.stage === 'error' ? ' err' : ''}`, 'data-row': `file-${d.id}` });
+function filePanel(t, st) {
+  const close = () => { delete S.file[t.key]; draw(true); };
+  const box = h('div', { class: `box filebox${st.stage === 'error' ? ' err' : ''}`, 'data-row': `file-${t.key}` });
   if (st.stage === 'reading') {
     box.append(h('p', { role: 'status' }, `Reading ${st.name} (${mb(st.size)} MB)…`), h('p', { class: 'note' }, 'Nothing is sent to the board until you confirm.'));
     return box;
   }
   if (st.stage === 'error') {
-    box.append(h('div', { class: 't' }, `${st.name} can't go on ${d.name}`), h('p', { role: 'alert' }, st.error),
+    box.append(h('div', { class: 't' }, `${st.name} can't go on ${t.name}`), h('p', { role: 'alert' }, st.error),
       h('p', { class: 'note' }, 'Nothing was sent to the board.'),
       h('div', { class: 'actions' }, h('div', { class: 'r' },
-        btn('Close', close, '', { 'data-k': `fx-${d.id}` }),
-        btn('Pick another file', () => { delete S.file[d.id]; draw(true); $(`#file-${CSS.escape(d.id)}`)?.click(); }, 'p', { 'data-k': `fa-${d.id}` }))));
+        btn('Close', close, '', { 'data-k': `fx-${t.key}` }),
+        btn('Pick another file', () => { delete S.file[t.key]; draw(true); $(`#file-${CSS.escape(t.key)}`)?.click(); }, 'p', { 'data-k': `fa-${t.key}` }))));
     return box;
   }
   const up = st.up;
   const wifi = up.via === 'wifi';
-  const vId = `fv-${d.id}`;
+  const vId = `fv-${t.key}`;
   const facts = h('dl', { class: 'facts' },
-    h('dt', {}, 'board'), h('dd', {}, `${d.name}${d.model ? ` · ${d.model}` : ''} · runs ${d.firmware || 'unknown firmware'}`),
+    h('dt', {}, 'board'), h('dd', {}, t.about),
     h('dt', {}, 'file'), h('dd', {}, `${up.name} · ${mb(up.size)} MB · ${up.kind === 'app' ? 'app image' : 'full image'}`),
     h('dt', {}, 'chip'), h('dd', {}, up.chipChecked ? `${up.chip}, the same as the board's` : `${up.chip} (the board's chip isn't known here, so it isn't compared)`),
     h('dt', {}, 'version'), h('dd', {}, up.version ? `${up.version}, read from the file`
@@ -733,16 +762,17 @@ function filePanel(d, st) {
         : 'not in the file'),
     h('dt', {}, 'how'), h('dd', {}, wifi
       ? 'Over Wi-Fi. The board downloads it over its encrypted connection, checks it and restarts into it. If it can\'t reach the deck afterwards, it goes back to the firmware it runs now.'
-      : 'Over USB, written at 0x0 through the cable. Keep it plugged in; the screen stays dark until it restarts.'));
-  box.append(h('div', { class: 't' }, `Install ${up.name} on ${d.name}?`), facts);
+      : t.port ? 'Over USB, written at 0x0 through the cable: bootloader, partition table and app. Keep it plugged in; the screen stays dark until it restarts, then it pairs.'
+        : 'Over USB, written at 0x0 through the cable. Keep it plugged in; the screen stays dark until it restarts.'));
+  box.append(h('div', { class: 't' }, `Install ${up.name} on ${t.name}?`), facts);
   if (wifi && !up.version) {
     box.append(h('p', { class: 'note' }, 'The file doesn\'t say its version. Type the one the firmware reports (AGENTS_DECK_VERSION when it was built), so the deck can tell when the board is back on it.'));
   }
   box.append(h('p', { class: 'note warn' }, 'This file isn\'t checked against a release. Install it only if you built it or trust where it came from. The board still checks that the firmware is for it and arrived whole.'));
   if (st.error) box.append(h('p', { class: 'note err', role: 'alert' }, st.error));
   box.append(h('div', { class: 'actions' }, h('div', { class: 'r' },
-    btn('Cancel', close, '', { 'data-k': `fc-${d.id}` }),
-    btn(wifi ? 'Install over Wi-Fi' : 'Install over USB', (e) => installFile(d, st, e.currentTarget), 'p', { 'data-k': `fi-${d.id}` }))));
+    btn('Cancel', close, '', { 'data-k': `fc-${t.key}` }),
+    btn(wifi ? 'Install over Wi-Fi' : 'Install over USB', (e) => installFile(t, st, e.currentTarget), 'p', { 'data-k': `fi-${t.key}` }))));
   return box;
 }
 
@@ -1050,16 +1080,31 @@ function drawNewBoard() {
     out.push(row(`${id.chip}${fs}`, `No agents deck firmware on it yet. ${n === 0 ? 'No board in the latest release uses this chip.' : n === 1 ? 'One board matches this chip.' : `${n} boards match this chip.`}`, []));
   }
   if (id.note) out.push(h('p', { class: 'note' }, id.note));
-  if (id.candidates.length) out.push(boardCards(id.candidates, nb.choice, (v) => { nb.choice = v; draw(); }));
+  // A file from this computer: through the board's own calls when it runs
+  // agents deck, else through the port's (a full image for a blank chip).
+  const dev = id.source === 'session' ? id.device : null;
+  const ft = dev ? { ...deviceFileTarget(dev), onJob: (job) => { if (S.nb === nb) nb.job = job.id; } }
+    : id.source === 'probe' ? portFileTarget(p, id) : null;
+  const canFile = dev ? (dev.fileVia || []).length > 0 : !!ft;
+  const fileNote = dev ? (dev.fileNote || 'approve the board first') : '';
+  if (id.releaseKey && id.candidates.length) out.push(boardCards(id.candidates, nb.choice, (v) => { nb.choice = v; draw(); }));
   if (!id.releaseKey) {
-    out.push(h('p', { class: 'note err' }, 'This build has no release key, so it can\'t check that firmware from the network is genuine and never installs it. Flash the board by hand with agentctl flash <port> <image.bin>.'));
+    out.push(h('p', { class: 'note' }, 'This copy of agents deck was built from source, so it can\'t check firmware downloaded from a release and won\'t install it. You can still install a firmware file from this computer: a .bin you built or downloaded, with the Install a firmware file button below.'));
+    if (!dev && id.candidates.length) {
+      out.push(h('p', { class: 'note' }, `Pick the full image, the one written at 0x0: from a release, ${id.candidates.map((b) => `agents-deck-${b.board}-<version>.bin`).join(' or ')}.`));
+    }
+    out.push(h('p', { class: 'note' }, 'By hand in a terminal, agentctl flash <port> <image.bin> does the same.'));
   }
+  if (ft && !canFile && fileNote) out.push(h('p', { class: 'note', id: `fwn-${ft.key}` }, `To install a firmware file: ${fileNote}.`));
   const chosen = id.candidates.find((b) => b.board === nb.choice);
   const label = chosen ? `Install firmware ${chosen.version || id.latest}` : 'Pick the board first';
+  const right = [h('a', { class: 'b', href: '#boards' }, 'Cancel')];
+  if (ft) right.push(...fileButton(ft, canFile, fileNote, id.releaseKey ? '' : 'p'));
+  if (id.releaseKey) right.push(btn(label, (e) => nbInstall(e.currentTarget), 'p', { disabled: !chosen, 'data-k': 'nb-install' }));
   out.push(h('div', { class: 'actions' },
-    h('p', { class: 'note' }, 'Picked the wrong one? Nothing breaks: install again with the right board.'),
-    h('div', { class: 'r' }, h('a', { class: 'b', href: '#boards' }, 'Cancel'),
-      btn(label, (e) => nbInstall(e.currentTarget), 'p', { disabled: !chosen || !id.releaseKey, 'data-k': 'nb-install' }))));
+    id.releaseKey ? h('p', { class: 'note' }, 'Picked the wrong one? Nothing breaks: install again with the right board.') : null,
+    h('div', { class: 'r' }, ...right)));
+  if (ft && S.file[ft.key]) out.push(filePanel(ft, S.file[ft.key]));
   return out;
 }
 
@@ -1113,8 +1158,8 @@ function drawFlash() {
   }
   const dev = (S.devices?.devices || []).find((d) => d.id === j.device);
   const fromSetup = S.nb && S.nb.job === j.id;
-  const boardName = (S.nb?.identity?.candidates || []).find((b) => b.board === j.board)?.name || dev?.model || j.board;
-  $('#h-newboard').textContent = j.file ? `${j.state === 'done' ? 'Installed' : 'Installing'} ${j.file} on ${dev?.name || j.device}`
+  const boardName = (S.nb?.identity?.candidates || []).find((b) => b.board === j.board)?.name || dev?.model || j.board || 'the board';
+  $('#h-newboard').textContent = j.file ? `${j.state === 'done' ? 'Installed' : 'Installing'} ${j.file} on ${dev?.name || j.device || boardName}`
     : j.kind === 'board-update' ? `${j.state === 'done' ? 'Updated' : 'Updating'} ${dev?.name || j.device}` : `${j.state === 'done' ? 'Installed on' : 'Installing on'} ${boardName}`;
   const ended = j.state !== 'running';
   stepsAt(ended && j.state === 'done' ? 4 : 3, fromSetup);
@@ -1176,7 +1221,7 @@ function drawFlash() {
     const b = (S.nb?.identity?.candidates || []).find((x) => x.board === j.board);
     out.push(h('div', { class: 'box', role: 'status' },
       h('h2', {}, 'Done'),
-      h('p', {}, j.file ? `${dev?.name || boardName} restarts into ${j.file}, pairs and shows your agents in a few seconds.` : `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
+      h('p', {}, j.file ? `${dev?.name || j.device || (j.board ? boardName : 'The board')} restarts into ${j.file}, pairs and shows your agents in a few seconds.` : `${boardName} runs agents deck ${j.version || ''}. It restarts, pairs and shows your agents in a few seconds.`),
       h('div', { class: 'actions' }, h('div', { class: 'r' },
         b && b.wifi ? h('a', { class: 'b', href: '#network' }, 'Give it Wi-Fi') : null,
         h('a', { class: 'b p', href: '#boards' }, 'Back to Boards')))));
@@ -1184,7 +1229,7 @@ function drawFlash() {
     out.push(h('div', { class: 'box err', role: 'alert' }, h('p', {}, j.state === 'cancelled' ? j.message : `It didn't work: ${j.error}`)));
     out.push(bootHelp([
       h('a', { class: 'b', href: '#boards' }, 'Back to Boards'),
-      j.port && j.kind === 'flash' ? btn('Try again', async (e) => {
+      j.port && j.kind === 'flash' && !j.file ? btn('Try again', async (e) => {
         const job = await busy(e.currentTarget, () => api('POST', `/admin/v1/ports/${encodeURIComponent(j.port)}/flash`, { board: j.board, version: j.version }));
         if (job?.id) { putJob(job); if (S.nb) S.nb.job = job.id; location.hash = `#flash/${job.id}`; }
       }, 'p') : null,

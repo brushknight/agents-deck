@@ -229,7 +229,9 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 Then the service asks the board: a board running agents deck says what it is; anything else is asked
 through the ESP32's bootloader, and you pick from the boards that fit its chip and flash. If it
 doesn't answer: hold BOOT, press RST, let go of BOOT, and try again. Picking the wrong board does no
-harm: install again with the right one.
+harm: install again with the right one. In a copy built from source, which won't install firmware
+downloaded from a release, **Install a firmware file...** sets the board up from a full image on
+this computer instead ([flashing.md](flashing.md#from-the-app-settings-boards)).
 
 **Board updates** are never automatic. A board on USB is written by the flasher (it keeps its name,
 pairing and Wi-Fi); a board on Wi-Fi downloads the update from the service over its encrypted link

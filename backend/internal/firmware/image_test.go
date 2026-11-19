@@ -93,3 +93,32 @@ func TestSameChip(t *testing.T) {
 		t.Error("SameChip")
 	}
 }
+
+// The ESP32 and ESP32-S2 start their bootloader at 0x1000: their full image
+// is blank before it. A bootloader elsewhere would never start.
+func TestInspectImageBootloaderOffset(t *testing.T) {
+	app := appImage(0x0000, "0.2.0", "agents-deck", 4096)
+	full := fullImage(0x0000, app)
+	shifted := append(bytes.Repeat([]byte{0xFF}, 0x1000), full[:0x1000]...) // the bootloader at 0x1000
+	shifted = append(shifted, full[0x2000:]...)                             // the table still at 0x8000, the app at 0x10000
+	shifted[0x1000+3] = 0x20                                                // 4 MB
+	info, err := InspectImage(bytes.NewReader(shifted), int64(len(shifted)))
+	if err != nil || info.Kind != ImageFull || info.Chip != "ESP32" || info.FlashSize != 4<<20 || info.Version != "0.2.0" {
+		t.Errorf("ESP32 full image: %+v %v", info, err)
+	}
+	if _, err := InspectImage(bytes.NewReader(full), int64(len(full))); err == nil || !strings.Contains(err.Error(), "starts it from 0x1000") {
+		t.Errorf("an ESP32 bootloader at 0x0: %v", err)
+	}
+	// An S3 starts it from 0x0: blank flash before a bootloader is refused.
+	s3 := fullImage(0x0009, appImage(0x0009, "0.2.0", "x", 4096))
+	moved := append(bytes.Repeat([]byte{0xFF}, 0x1000), s3[:0x1000]...)
+	moved = append(moved, s3[0x2000:]...)
+	if _, err := InspectImage(bytes.NewReader(moved), int64(len(moved))); !errors.Is(err, ErrNotESPImage) {
+		t.Errorf("an S3 bootloader at 0x1000: %v", err)
+	}
+	// The header's flash size is read from the bootloader.
+	s3[3] = 0x40
+	if info, _ := InspectImage(bytes.NewReader(s3), int64(len(s3))); info.FlashSize != 16<<20 {
+		t.Errorf("flash size: %d", info.FlashSize)
+	}
+}

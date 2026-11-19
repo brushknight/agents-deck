@@ -42,6 +42,24 @@ With agents deck installed ([install.md](install.md)):
 Picked the wrong board? Nothing breaks: install again with the right one. If the board doesn't
 answer, Settings shows the [BOOT and RST](#if-the-board-doesnt-answer-boot-and-rst) rescue.
 
+**A copy of agents deck built from source** has no release key, so it can't check firmware
+downloaded from a release and won't install it: Settings says so in step 4 instead of offering
+**Install firmware**. You can still set the board up over its USB cable with a file from this
+computer: click **Install a firmware file...** and pick a full image, either one you built (a merged
+image written at `0x0`) or a release's `agents-deck-<board>-<version>.bin` you downloaded yourself.
+Settings reads the file first and refuses it, with the reason, before anything is written:
+
+- an app image (`.pio/build/<env>/firmware.bin`, a release's `.app.bin`) is the firmware alone. It
+  only starts on a board that already has a bootloader and a partition table, and a board with
+  nothing of ours on it may have neither, so pick the full image;
+- a file for another chip than the one the board's bootloader reported;
+- a file bigger than the board's flash, or built for more flash than the board has, which wouldn't
+  start.
+
+A full image is written at `0x0`: bootloader, partition table and app in one go, as the release
+images are. Then the board restarts and pairs as in step 5. For a board that already runs agents
+deck, the same button installs the file through the board, as described just below.
+
 **Updates.** When a new release has newer firmware, Settings, Boards and Settings, Updates list each
 board that can update, with an **Update** button; nothing updates by itself. A board on USB is flashed
 again the same way. A board on Wi-Fi updates over the air: it downloads the new version from agents
@@ -57,7 +75,8 @@ latest release** (a build of your own, such as `0.2.0-dev.4`), **Couldn't check 
 the reason, or that updates are switched off because this build has no release key. `agentctl
 firmware ls` lists your boards the same way under the release's firmware.
 
-**A firmware file of your own.** **Install a firmware file...**, on each connected board, installs a
+**A firmware file of your own.** **Install a firmware file...**, on each connected board (and in **Set
+it up** for a board on a USB port), installs a
 `.bin` you built or downloaded, without a release: the same as `agentctl link update --image` and
 `agentctl flash <port> <image.bin>`. Pick the file; Settings reads it before anything goes to the
 board and refuses a file that isn't an ESP32 image, that is for another chip than the board's, or that

@@ -22,6 +22,14 @@ const (
 	ImageFull = "full" // bootloader, partition table and app, written at 0x0 over USB
 )
 
+// An app image is the firmware alone: it starts with an app header and its
+// app description, and only runs where a bootloader and a partition table
+// already are (the board's app slot). A full image is what the releases
+// ship, merged from the build at 0x0: the bootloader at the chip's
+// bootloader offset (0x1000 on the ESP32 and ESP32-S2, 0x0 on the others,
+// blank flash before it), the partition table at 0x8000 and the app at its
+// partition. Only a full image brings a blank chip up.
+
 // MaxFileImage is the biggest file accepted: the biggest flash on a supported board.
 const MaxFileImage = 32 << 20
 
@@ -32,6 +40,9 @@ type ImageInfo struct {
 	Version string `json:"version,omitempty"` // the app's version, when it reads as one (semver)
 	Project string `json:"project,omitempty"` // the app's project name
 	Size    int64  `json:"size"`
+	// FlashSize is the flash size a full image's bootloader was built for
+	// (0 when its header doesn't say one agents deck knows).
+	FlashSize int64 `json:"flashSize,omitempty"`
 }
 
 const (
@@ -68,20 +79,33 @@ func InspectImage(r io.ReaderAt, size int64) (ImageInfo, error) {
 	if size < appDescAt+256 {
 		return ImageInfo{}, ErrNotESPImage
 	}
+	bootAt := int64(0)
 	chip, err := headerChip(r, 0)
 	if err != nil {
-		return ImageInfo{}, err
+		// The ESP32 and ESP32-S2 start their bootloader at 0x1000: their
+		// full image is blank up to it.
+		c, err2 := headerChip(r, 0x1000)
+		if err2 != nil || BootloaderOffset(c) != 0x1000 || !blank(r, 0, 0x1000) {
+			return ImageInfo{}, err
+		}
+		chip, bootAt = c, 0x1000
 	}
 	info := ImageInfo{Chip: chip, Size: size}
-	if ver, project, ok := appDesc(r, 0); ok {
-		info.Kind, info.Version, info.Project = ImageApp, ver, project
-		return info, nil
+	if bootAt == 0 {
+		if ver, project, ok := appDesc(r, 0); ok {
+			info.Kind, info.Version, info.Project = ImageApp, ver, project
+			return info, nil
+		}
 	}
 	// Not an app: a full image starts with the bootloader, has the partition
 	// table at 0x8000 and an app for the same chip in its first app partition.
 	if size < minFullImage {
 		return ImageInfo{}, errors.New("this ESP32 image is neither an app nor a full image (no app description, too small for a partition table)")
 	}
+	if want := BootloaderOffset(chip); bootAt != want {
+		return ImageInfo{}, fmt.Errorf("this image has its bootloader at %#x, and an %s starts it from %#x: written at 0x0 it wouldn't start", bootAt, chip, want)
+	}
+	info.FlashSize = headerFlashSize(r, bootAt)
 	off, err := firstApp(r, size)
 	if err != nil {
 		return ImageInfo{}, err
@@ -116,6 +140,41 @@ func headerChip(r io.ReaderAt, off int64) (string, error) {
 		return "", fmt.Errorf("this image is for a chip agents deck doesn't know (chip id %d)", id)
 	}
 	return name, nil
+}
+
+// BootloaderOffset is where chip's ROM looks for the bootloader.
+func BootloaderOffset(chip string) int64 {
+	if SameChip(chip, "ESP32") || SameChip(chip, "ESP32-S2") {
+		return 0x1000
+	}
+	return 0
+}
+
+// blank: the n bytes at off are erased flash (0xFF).
+func blank(r io.ReaderAt, off, n int64) bool {
+	b := make([]byte, n)
+	if _, err := r.ReadAt(b, off); err != nil {
+		return false
+	}
+	for _, c := range b {
+		if c != 0xFF {
+			return false
+		}
+	}
+	return true
+}
+
+// headerFlashSize: the flash size in the image header at off (the high
+// nibble of its fourth byte, as esptool writes it), 0 when unknown.
+func headerFlashSize(r io.ReaderAt, off int64) int64 {
+	b := make([]byte, 1)
+	if _, err := r.ReadAt(b, off+3); err != nil {
+		return 0
+	}
+	if n := b[0] >> 4; n <= 7 {
+		return (1 << 20) << n // 0: 1 MB, 1: 2 MB … 4: 16 MB … 7: 128 MB
+	}
+	return 0
 }
 
 // appDesc reads esp_app_desc_t after the first segment header of the image

@@ -249,7 +249,8 @@ func printIdentity(id admin.Identity, port string) {
 		fmt.Printf("install with: agentctl flash --board <board> %s\n", port)
 	}
 	if !id.ReleaseKey {
-		fmt.Println("this build has no release key: it never installs firmware from the network (agentctl flash <port> <image.bin> does)")
+		fmt.Println("this copy of agents deck was built from source, so it can't check firmware downloaded from a release and won't install it.\n" +
+			"you can still install a firmware file from this computer: Install a firmware file… in Settings, Boards, or agentctl flash " + port + " <image.bin>")
 	}
 }
 

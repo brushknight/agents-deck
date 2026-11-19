@@ -62,8 +62,11 @@ type FileUpload struct {
 	// ChipChecked: the board's chip is known and matched the image's.
 	ChipChecked bool   `json:"chipChecked"`
 	Device      string `json:"device"`
-	path        string
-	at          time.Time
+	// Port: the USB port of a board with no agents deck firmware yet, which
+	// the file was picked for (POST /admin/v1/ports/{id}/firmware-file).
+	Port string `json:"port,omitempty"`
+	path string
+	at   time.Time
 }
 
 type fileBook struct {
@@ -128,50 +131,12 @@ func (a *Admin) firmwareFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, row.Name+": "+row.FileNote)
 		return
 	}
-	if r.ContentLength > firmware.MaxFileImage {
-		writeErr(w, http.StatusRequestEntityTooLarge, firmware.ErrTooBig.Error())
+	up, info, ok := a.receiveFile(w, r)
+	if !ok {
 		return
 	}
-	name := cleanFileName(r.Header.Get("X-File-Name"))
-	dir := filepath.Join(a.DataDir, "firmware-files")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	a.pruneFiles(dir)
-	tmp, err := os.CreateTemp(dir, "upload-*.bin")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	keep := false
-	defer func() {
-		tmp.Close()
-		if !keep {
-			os.Remove(tmp.Name())
-		}
-	}()
-	hash := sha256.New()
-	size, err := io.Copy(io.MultiWriter(tmp, hash), http.MaxBytesReader(w, r.Body, firmware.MaxFileImage))
-	var tooBig *http.MaxBytesError
-	switch {
-	case errors.As(err, &tooBig):
-		writeErr(w, http.StatusRequestEntityTooLarge, firmware.ErrTooBig.Error())
-		return
-	case err != nil:
-		writeErr(w, http.StatusBadRequest, "couldn't read the file: "+err.Error())
-		return
-	case size == 0:
-		writeErr(w, http.StatusBadRequest, "the file is empty")
-		return
-	}
-	info, err := firmware.InspectImage(tmp, size)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	up := FileUpload{Name: name, Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), Kind: info.Kind, Chip: info.Chip,
-		Version: info.Version, Project: info.Project, Device: d.Name}
+	defer os.Remove(up.path) // the upload, unless it was kept under its id
+	up.Device = d.Name
 	if row.Chip != "" {
 		if !firmware.SameChip(row.Chip, info.Chip) {
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("this file is for an %s, and %s is an %s: pick the firmware built for this board", info.Chip, row.Name, row.Chip))
@@ -188,15 +153,65 @@ func (a *Admin) firmwareFile(w http.ResponseWriter, r *http.Request) {
 	if via == "wifi" {
 		up.Board = otaBoard(row, d)
 	}
+	a.keepFile(w, up)
+}
+
+// receiveFile reads the uploaded file into the files folder and reads its
+// headers. It answers the upload so far, its file at up.path (a temporary
+// name the caller removes unless keepFile kept it), or writes the refusal.
+func (a *Admin) receiveFile(w http.ResponseWriter, r *http.Request) (FileUpload, firmware.ImageInfo, bool) {
+	if r.ContentLength > firmware.MaxFileImage {
+		writeErr(w, http.StatusRequestEntityTooLarge, firmware.ErrTooBig.Error())
+		return FileUpload{}, firmware.ImageInfo{}, false
+	}
+	name := cleanFileName(r.Header.Get("X-File-Name"))
+	dir := filepath.Join(a.DataDir, "firmware-files")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return FileUpload{}, firmware.ImageInfo{}, false
+	}
+	a.pruneFiles(dir)
+	tmp, err := os.CreateTemp(dir, "upload-*.bin")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return FileUpload{}, firmware.ImageInfo{}, false
+	}
+	defer tmp.Close()
+	fail := func(code int, msg string) (FileUpload, firmware.ImageInfo, bool) {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		writeErr(w, code, msg)
+		return FileUpload{}, firmware.ImageInfo{}, false
+	}
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(tmp, hash), http.MaxBytesReader(w, r.Body, firmware.MaxFileImage))
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig):
+		return fail(http.StatusRequestEntityTooLarge, firmware.ErrTooBig.Error())
+	case err != nil:
+		return fail(http.StatusBadRequest, "couldn't read the file: "+err.Error())
+	case size == 0:
+		return fail(http.StatusBadRequest, "the file is empty")
+	}
+	info, err := firmware.InspectImage(tmp, size)
+	if err != nil {
+		return fail(http.StatusBadRequest, err.Error())
+	}
+	return FileUpload{Name: name, Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), Kind: info.Kind, Chip: info.Chip,
+		Version: info.Version, Project: info.Project, path: tmp.Name()}, info, true
+}
+
+// keepFile files an upload that passed its checks under its id, for the
+// install, and answers it.
+func (a *Admin) keepFile(w http.ResponseWriter, up FileUpload) {
 	up.File = up.SHA256[:16]
-	up.path = filepath.Join(dir, up.File+".bin")
-	up.at = time.Now()
-	tmp.Close()
-	if err := os.Rename(tmp.Name(), up.path); err != nil {
+	dst := filepath.Join(filepath.Dir(up.path), up.File+".bin")
+	if err := os.Rename(up.path, dst); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	keep = true
+	up.path, up.at = dst, time.Now()
 	a.files.mu.Lock()
 	if a.files.files == nil {
 		a.files.files = map[string]FileUpload{}
@@ -204,6 +219,21 @@ func (a *Admin) firmwareFile(w http.ResponseWriter, r *http.Request) {
 	a.files.files[up.File] = up
 	a.files.mu.Unlock()
 	writeJSON(w, http.StatusOK, up)
+}
+
+// upload is a kept file while it is still here, when ok says it is the
+// one (picked for this device or port).
+func (a *Admin) upload(id string, ok func(FileUpload) bool) (FileUpload, bool) {
+	a.files.mu.Lock()
+	up, found := a.files.files[id]
+	a.files.mu.Unlock()
+	if !found || !ok(up) || time.Since(up.at) > fileTTL {
+		return FileUpload{}, false
+	}
+	if _, err := os.Stat(up.path); err != nil {
+		return FileUpload{}, false
+	}
+	return up, true
 }
 
 // fileVia picks how a file reaches the board: an app image over Wi-Fi, a
@@ -251,14 +281,8 @@ func (a *Admin) installFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.files.mu.Lock()
-	up, ok := a.files.files[b.File]
-	a.files.mu.Unlock()
-	if !ok || up.Device != d.Name || time.Since(up.at) > fileTTL {
-		writeErr(w, http.StatusNotFound, "that file isn't here any more: pick it again")
-		return
-	}
-	if _, err := os.Stat(up.path); err != nil {
+	up, ok := a.upload(b.File, func(up FileUpload) bool { return up.Device == d.Name })
+	if !ok {
 		writeErr(w, http.StatusNotFound, "that file isn't here any more: pick it again")
 		return
 	}
