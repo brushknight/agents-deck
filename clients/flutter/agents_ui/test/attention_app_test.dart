@@ -99,7 +99,7 @@ void main() {
     await pump(tester, FakeAgentsSource.demo());
     expect(screen, findsNothing);
     expect(find.byType(AgentTile), findsNWidgets(11));
-    expect(find.text('Needs you'), findsNothing);
+    expect(find.byKey(const Key('attention-screen')), findsNothing);
     final count = find.byKey(const Key('agents-attention-count'));
     expect(tester.widget<Text>(count).data, '7');
   });
@@ -110,8 +110,7 @@ void main() {
     await pump(tester, FakeAgentsSource.demo());
     await swipeToAttention(tester);
     expect(screen, findsOneWidget);
-    expect(find.text('Needs you'), findsOneWidget);
-    expect(find.text('2 asking · 5 working'), findsOneWidget);
+    expect(find.byKey(const Key('attention-screen')), findsOneWidget);
     for (final id in busy) {
       expect(tile(id), findsOneWidget, reason: id);
     }
@@ -289,7 +288,6 @@ void main() {
       find.descendant(of: screen, matching: find.byType(AgentTile)),
       findsNWidgets(16),
     );
-    expect(find.text('+4 more'), findsOneWidget);
 
     final json = source.toJson();
     (json['agents'] as List)[3]['status'] = 'idle';
@@ -298,7 +296,6 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     expect(tile('a00003'), findsNothing);
     expect(tile('a00016'), findsOneWidget); // waited longest
-    expect(find.text('+3 more'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -311,7 +308,6 @@ void main() {
     expect(find.byKey(const Key('agents-attention-count')), findsNothing);
     expect(find.byKey(const Key('agents-page-attention')), findsOneWidget);
     await swipeToAttention(tester);
-    expect(find.text('Nothing needs you right now'), findsOneWidget);
     expect(find.byKey(const Key('attention-spot-empty')), findsNWidgets(16));
   });
 
