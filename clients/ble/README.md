@@ -8,7 +8,7 @@ on each connected board as it would on a serial port (`backend/internal/ble`).
 
 | platform | helper | state |
 |---|---|---|
-| macOS 12 and later | `macos/`: Swift package, executable `deck-ble`, CoreBluetooth | built and unit-tested; not yet tried with a real board |
+| macOS 12 and later | `macos/`: Swift package, executable `deck-ble`, CoreBluetooth | built, unit-tested, and tried with a real board and Mac |
 | Linux | BlueZ over D-Bus | not written: Bluetooth says "Bluetooth isn't available on this computer yet" |
 | Windows | WinRT `Windows.Devices.Bluetooth` | not written: same |
 

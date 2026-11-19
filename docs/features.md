@@ -31,7 +31,7 @@ Tap a tile for its card:
   crash or a restart. `agentctl ls` shows it as ACTIVE, and `agentctl ls --sort active` puts the most
   recently active first.
 
-<p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>
+<p align="center"><img src="images/web-permission-v3.png" alt="answering a permission prompt from the web" width="80%"></p>
 
 ## Where it shows up
 
@@ -169,7 +169,8 @@ by hand (`agentctl devices scope <name> admin`); `agentctl devices auto-approve 
 boards wait for `agentctl devices approve <name>` instead. A revoked board stays revoked until you
 approve it again, and nothing is ever approved over Wi-Fi.
 
-**Wi-Fi.** The round boards (on their `idf5` firmware) also work without the Mac's cable. Plugged in
+**Wi-Fi.** The touch boards on their `idf5` firmware (the round ones, the 1.8″ AMOLED and the
+T4-S3; on the 4″ it is experimental) also work without the Mac's cable. Plugged in
 and approved, a board pairs by itself: it gets its own certificate from the deck. Tell the deck your
 network once, and every board plugged in after that gets it by itself:
 
@@ -193,7 +194,10 @@ the network, `agentctl devices revoke` cuts a board off on both. See
 [link/protocol.md](link/protocol.md#pairing-and-wi-fi).
 
 **Bluetooth.** The touch boards' `idf5` firmware also speaks Deck Link over Bluetooth LE, through a
-small helper in the macOS app (`deck-ble`). Nothing is approved on sight: you add a board yourself,
+small helper in the macOS app (`deck-ble`): for a board next to a laptop with no Wi-Fi and no cable,
+or to set up a board without plugging it in. Only the macOS app has the helper so far; Linux and
+Windows say Bluetooth isn't available. Firmware updates never go over Bluetooth: they need Wi-Fi or
+the cable. Nothing is approved on sight: you add a board yourself,
 and the computer pairs with it while you type the 6-digit code the board shows. Over that link it
 pairs for Wi-Fi and takes the default network, as on USB. Each board has an uplink preference (`auto`:
 USB, else Wi-Fi, else Bluetooth; `wifi`; `ble`), which the deck also sends to the board:
@@ -213,7 +217,7 @@ device, see [link/new-device.md](link/new-device.md).
 
 ## The Settings page
 
-`http://127.0.0.1:7340/settings` on the dashboard (a **settings** link at the top of the deck), and
+`http://127.0.0.1:7340/settings` on the dashboard (the **Settings** button at the top of the deck), and
 the tray app's Settings window, which shows the same page. Everything on it is also a command.
 
 | page | what you can do | in a terminal |
@@ -221,7 +225,7 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
 | Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
 | Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
-| Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB, each board's network, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
+| Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
 | Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |
 | About | version, how it was installed, links | `agentctl version` |
@@ -257,7 +261,7 @@ firmware ls` lists the builds, `agentctl firmware rm` removes them.
 doesn't look. A build without a release key lists versions but never installs anything from the
 network.
 
-The calls behind the page are the management API, `/admin/v1` ([protocol.md](protocol.md#management-api-admin-v1)):
+The calls behind the page are the management API, `/admin/v1` ([protocol.md](protocol.md#management-api-adminv1)):
 on this computer only, never on the network.
 
 ## Settings

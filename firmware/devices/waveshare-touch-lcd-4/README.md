@@ -4,9 +4,9 @@ The deck's 4×4 board on a [Waveshare ESP32-S3-Touch-LCD-4](https://www.waveshar
 (480×480 ST7701 LCD, GT911 touch), over USB or Wi-Fi with [Deck Link](../../../docs/link/protocol.md). It looks
 like the desk panel and the web board.
 
-| grid | card | permission | question | approval |
-|---|---|---|---|---|
-| <img src="docs/home.png" width="180" alt="the 4x4 grid"> | <img src="docs/card.png" width="180" alt="an agent's card"> | <img src="docs/permission.png" width="180" alt="a permission prompt"> | <img src="docs/question.png" width="180" alt="a question with its options"> | <img src="docs/not-approved.png" width="180" alt="waiting for approval"> |
+| grid | card | permission | question | approval | needs you | Bluetooth code |
+|---|---|---|---|---|---|---|
+| <img src="docs/home.png" width="180" alt="the 4x4 grid"> | <img src="docs/card.png" width="180" alt="an agent's card"> | <img src="docs/permission.png" width="180" alt="a permission prompt"> | <img src="docs/question.png" width="180" alt="a question with its options"> | <img src="docs/not-approved.png" width="180" alt="waiting for approval"> | <img src="docs/needs-you.png" width="180" alt="the Needs you screen"> | <img src="docs/ble-passkey.png" width="180" alt="the code to type on the computer when it pairs over Bluetooth"> |
 
 (Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`.
 Every screen is in `docs/`.)
@@ -137,6 +137,15 @@ Home on Wi-Fi with its mark, joining, a wrong password, a refused certificate. A
 On Wi-Fi a small Wi-Fi mark sits at the right of the row under the grid (the page bars' row, which then stays with one page too); on USB there is none. The key, the certificate and the
 Wi-Fi password are kept in the board's flash (NVS), not encrypted unless you turn on flash encryption:
 revoke a board you lose (`agentctl devices revoke waveshare-touch-lcd-4-<id>`).
+
+## Bluetooth
+
+Only the experimental `idf5` build has Bluetooth (the released 2.0.17 build doesn't). It also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
+now). In Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name (`deck-`
+and six characters, shown on its screen) and type the 6-digit code the board shows into the window
+macOS opens. Over Bluetooth the board shows your agents and can get your Wi-Fi network; firmware
+updates still need Wi-Fi or the cable. To make the board forget the computer, hold BOOT for 5 s and
+press it again when it asks "forget Bluetooth?". Details: [Deck Link, Bluetooth](../../../docs/link/protocol.md#bluetooth).
 
 ## Hardware
 

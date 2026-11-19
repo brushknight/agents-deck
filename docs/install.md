@@ -10,6 +10,7 @@ page, under **Assets**. `<version>` in a file name is the release's number, for 
 - [Windows (preview)](#windows-preview)
 - [Linux](#linux)
 - [Only the command line](#only-the-command-line)
+- [Upgrading from 0.1.1](#upgrading-from-011)
 - [Troubleshooting](#troubleshooting)
 
 The app always comes with the service inside it. The service (`agentctl`) is the part that watches
@@ -239,7 +240,48 @@ agentctl version
 agentctl update --check
 ```
 
+## Upgrading from 0.1.1
+
+Install 0.2.0 over 0.1.1: you don't need to remove anything first. The new service uses the same data
+folder, the same file names and ports, and the same key in the macOS Keychain, so your boards, panels
+and phones stay paired. You don't need to plug anything in again. Updating a board's firmware later
+doesn't remove its pairing either.
+
+If the service doesn't start after the update, run `agentctl status`: it says whether the service
+runs and where its log is, and the end of the log (`agentd.log` in your data folder; Settings,
+Troubleshoot shows it too) says why it stopped. The service never makes a new certificate authority
+while the old key or `ca.pem` is still there: it stops and says what is missing. If the Keychain is
+locked, it stops and writes nothing: unlock it (log in to the Mac), then start the service with the
+app's **Start** button or `agentctl install`. Only run `agentctl devices reset` if the message says
+the key is gone. A reset means every device paired over the network has to pair again
+([below](#a-board-stopped-connecting-after-an-update)).
+
 ## Troubleshooting
+
+### A board stopped connecting after an update
+
+The board shows "deck not reachable" over Wi-Fi and keeps retrying, or a panel says the TLS handshake
+failed. This usually means the deck's certificate authority changed, so the board's certificate no
+longer matches the deck. For now nothing on the screen or in Settings says so: Settings, Boards only
+shows when the board was last seen.
+
+1. Run `agentctl status`, and read the end of the log it names. If the service isn't running and
+   says a CA key or `ca.pem` is missing, put back the missing piece if you have it (`ca.pem` from a
+   `certificates-<date>` folder in the data folder's `backups` folder, for example), then start the
+   service again with `agentctl install`.
+2. If the key is gone for good, run `agentctl devices reset`. It asks first, stops the service, keeps a
+   copy of the old files in the data folder's `backups` folder, removes the old certificate authority,
+   and lists what each device needs next. The service makes a new certificate authority when it
+   starts: the reset starts it again if it was running, else start it with `agentctl install`.
+   (A key in the macOS Keychain is never copied out; on Linux and Windows the key file is kept in the
+   backup too.)
+3. Boards: plug each one into this computer by USB once. An approved board gets a new certificate on
+   its own, then goes back to Wi-Fi.
+4. Panels and phones paired over the network: pair them again, a phone in Settings, Network, **Pair a
+   phone**, a panel with `agentctl pair <name>`.
+5. Boards that only use USB carry on as before.
+
+Updating a board's firmware does not remove its pairing.
 
 ### macOS: Background Items Added
 

@@ -16,7 +16,7 @@ scope, audit and revocation model: a board on it is a device you approved, never
 sight ([Boards over Bluetooth](#devices-and-security)).
 
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
-The management API (`/admin/v1`, [below](#management-api-admin-v1)) is served only on the unix socket and the
+The management API (`/admin/v1`, [below](#management-api-adminv1)) is served only on the unix socket and the
 loopback dashboard, never on the network.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
 mutating request whose `Origin` is not that host.
@@ -438,3 +438,5 @@ its own, so Settings can be tried without touching a serial port, `config.json` 
 Bluetooth pretends as well: boards appear one by one while it looks, adding one walks through the
 passkey step, and one weak board fails; `AGENTS_DECK_DEMO_BLUETOOTH=off`, `unauthorized` or `none`
 shows Bluetooth unavailable instead.
+The browser pictures in `docs/images` are taken from the demo by `node docs/tools/web-shots.mjs`, in
+a data folder of its own with the network listener off ([devices.md](devices.md#pictures)).

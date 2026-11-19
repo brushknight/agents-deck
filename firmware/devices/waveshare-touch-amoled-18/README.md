@@ -3,9 +3,9 @@
 The deck on a [Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/esp32-s3-touch-amoled-1.8.htm)
 (368×448 AMOLED, touch), over USB or Wi-Fi with [Deck Link](../../../docs/link/protocol.md).
 
-| home | scrolling | card | permission | question | approval |
-|---|---|---|---|---|---|
-| <img src="docs/home.png" width="150" alt="2x2 tiles"> | <img src="docs/home-scrolling.png" width="150" alt="mid-scroll with the position bar"> | <img src="docs/card.png" width="150" alt="an agent's card"> | <img src="docs/permission.png" width="150" alt="a permission prompt"> | <img src="docs/question.png" width="150" alt="a question"> | <img src="docs/not-approved.png" width="150" alt="waiting for approval"> |
+| home | scrolling | card | permission | question | approval | needs you | Bluetooth code |
+|---|---|---|---|---|---|---|---|
+| <img src="docs/home.png" width="150" alt="2x2 tiles"> | <img src="docs/home-scrolling.png" width="150" alt="mid-scroll with the position bar"> | <img src="docs/card.png" width="150" alt="an agent's card"> | <img src="docs/permission.png" width="150" alt="a permission prompt"> | <img src="docs/question.png" width="150" alt="a question"> | <img src="docs/not-approved.png" width="150" alt="waiting for approval"> | <img src="docs/needs-you.png" width="150" alt="the Needs you screen"> | <img src="docs/ble-passkey.png" width="150" alt="the code to type on the computer when it pairs over Bluetooth"> |
 
 (Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`,
 with the glass's rounded corners masked. Every screen is in `docs/`.)
@@ -102,6 +102,15 @@ Home on Wi-Fi with its mark, joining, a wrong password, a refused certificate. T
 On Wi-Fi a small Wi-Fi mark sits after "agents" in the home header; on USB there is none. The key, the certificate and the
 Wi-Fi password are kept in the board's flash (NVS), not encrypted unless you turn on flash encryption:
 revoke a board you lose (`agentctl devices revoke waveshare-touch-amoled-18-<id>`).
+
+## Bluetooth
+
+The `idf5` build also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
+now). In Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name (`deck-`
+and six characters, shown on its screen) and type the 6-digit code the board shows into the window
+macOS opens. Over Bluetooth the board shows your agents and can get your Wi-Fi network; firmware
+updates still need Wi-Fi or the cable. To make the board forget the computer, hold BOOT for 5 s and
+press it again when it asks "forget Bluetooth?". Details: [Deck Link, Bluetooth](../../../docs/link/protocol.md#bluetooth).
 
 ## Hardware
 

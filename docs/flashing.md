@@ -29,7 +29,7 @@ With agents deck installed ([install.md](install.md)):
 1. **Plug the board in.** The line under the deck says **new board on USB**, and a notification says
    the same.
 2. **Say it's yours.** Click that (or open Settings, Boards). Settings asks whether this USB port is
-   one of your boards; click **Yes**. Until you do, agents deck never opens the port: it only knows the
+   one of your boards; click **Yes, it's mine**. Until you do, agents deck never opens the port: it only knows the
    port is there and that it looks like an ESP32.
 3. **Pick the board.** If the board already runs our firmware, it's known and you skip this. Otherwise
    pick it from the pictures; the list only shows boards that match the chip and flash size the board
@@ -359,6 +359,7 @@ Unplug and replug the board once it's done, so it starts the new firmware.
 | "waiting for approval" | Auto-approval is off: approve the board in Settings, Boards, or run the `agentctl devices approve …` command shown on the screen. |
 | "Wi-Fi failed · wrong password" or "network not found" | Plug it into the computer and set the network again (Settings, Network, or `agentctl link wifi --default --ssid "…"`). Boards use 2.4 GHz Wi-Fi only. |
 | "deck not reachable · over Wi-Fi" | The computer is asleep, the service isn't running, the computer is on another network, or a firewall blocks `agentctl`. On a Mac, allow it in System Settings, Network, Firewall, Options. |
+| "deck not reachable" over Wi-Fi after you updated agents deck, while the service runs (or a panel says the TLS handshake failed) | The deck's certificate authority may have changed, so the board's certificate no longer matches: see [a board stopped connecting after an update](install.md#a-board-stopped-connecting-after-an-update). |
 | "certificate rejected · pair again over USB" | The board was revoked or re-paired: plug it into the computer and it pairs again by itself. |
 | an update over Wi-Fi failed, or the board came back on its old version | Plug it in and update it on the cable. A board always takes a full image over USB. |
 | `agentctl link wifi` or `agentctl flash` is an unknown command | Your `agentctl` is older: update it ([install.md](install.md)), or install from the clone with `./install.sh --source`. |

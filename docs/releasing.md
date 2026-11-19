@@ -165,7 +165,10 @@ variables, then Actions), and the run says in a warning which ones were missing.
 `SHA256SUMS.sig` is our Ed25519 signature on `SHA256SUMS`. agentctl has the public key built in
 (`backend/internal/update/release.pub`) and installs updates and flashes firmware only from a release
 whose signature matches. Without it, agentctl still says when there's a new version but installs
-nothing from the network.
+nothing from the network. Firmware from this computer still installs: a file picked with **Install a
+firmware file...**, and builds added with `agentctl firmware add`
+([flashing.md](flashing.md#firmware-built-on-this-computer)). Until the first key is made,
+`release.pub` is empty, so every build, released or not, behaves this way.
 
 Making the key, once:
 
@@ -224,7 +227,7 @@ script at the same two places in the `windows` job.
 |---|---|
 | macOS arm64 and amd64 | released: agentctl, and the menu bar app as one universal app. Building it universal on your own Mac is blocked by Xcode 27's `lipo`; CI's Xcode is fine |
 | Linux amd64 and arm64 | released: `.deb`, the app folder, agentctl (`install.sh` installs from them; `--source` still builds). Terminal focus still needs iTerm |
-| Windows amd64 | preview: agentctl and an installer once the backend builds for Windows; the app joins when the Flutter project has a Windows runner. Agents run in tmux, which Windows lacks |
+| Windows amd64 | preview: agentctl and a per-user installer, not yet tried on a real Windows PC; the app joins when the Flutter project has a Windows runner. Agents run in tmux, which Windows lacks |
 
 Adding a target means a job in `.github/workflows/release.yml` that uploads its files as an artifact,
 and a download of that artifact in `publish`, which puts them in the release and `SHA256SUMS`. Adding
