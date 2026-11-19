@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
@@ -262,5 +263,56 @@ func TestPIDFile(t *testing.T) {
 	}
 	if _, err := WritePID(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Settings in the web dashboard restart or stop the service from inside it:
+// it must start its successor (told to wait for it) and exit, never stop
+// itself first.
+func TestStartupFromInsideTheService(t *testing.T) {
+	reg := fakeReg{}
+	var started [][]string
+	stops, exits := 0, 0
+	s := &Startup{Exe: `C:\agents deck\agentctl.exe`, Log: `C:\data\agentd.log`, SystemRoot: `C:\Windows`, Reg: reg,
+		Start:   func(argv []string) error { started = append(started, argv); return nil },
+		Stop:    func() (bool, error) { stops++; return true, nil },
+		Self:    4242,
+		Running: func() (int, bool) { return 4242, true },
+		Exit:    func() { exits++ }}
+	var out bytes.Buffer
+	if err := s.Install(&out); err != nil {
+		t.Fatal(err)
+	}
+	want := append(s.ServeArgv(), AfterFlag, "4242")
+	if stops != 0 || exits != 1 || len(started) != 1 || !reflect.DeepEqual(started[0], want) || reg[RunValue] != s.Command() {
+		t.Fatalf("restart from inside: stops=%d exits=%d started=%q reg=%q", stops, exits, started, reg)
+	}
+	if err := s.Uninstall(&out); err != nil {
+		t.Fatal(err)
+	}
+	if stops != 0 || exits != 2 || len(reg) != 0 {
+		t.Fatalf("stop from inside: stops=%d exits=%d reg=%q", stops, exits, reg)
+	}
+
+	// From a terminal (another process is the service): stop it, start anew.
+	s.Self = 7
+	if err := s.Install(&out); err != nil || stops != 1 || exits != 2 || !reflect.DeepEqual(started[1], s.ServeArgv()) {
+		t.Fatalf("install from a terminal: %v stops=%d exits=%d %q", err, stops, exits, started)
+	}
+	// Inside, but with no way to exit: an error, not a stopped service.
+	s.Self, s.Exit = 4242, nil
+	if err := s.Install(&out); err == nil || stops != 1 {
+		t.Fatalf("no Exit: %v stops=%d", err, stops)
+	}
+}
+
+func TestWaitGone(t *testing.T) {
+	n := 0
+	alive := func(int) bool { n++; return n < 3 }
+	if !WaitGone(1, time.Second, time.Millisecond, alive) || n != 3 {
+		t.Fatalf("gone after %d checks", n)
+	}
+	if WaitGone(1, 5*time.Millisecond, time.Millisecond, func(int) bool { return true }) {
+		t.Fatal("a process that never exits counted as gone")
 	}
 }

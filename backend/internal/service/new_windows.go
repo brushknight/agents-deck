@@ -14,7 +14,8 @@ import (
 // New is a startup entry in the user's Run key.
 func New(c Config) Manager {
 	return &Startup{Exe: c.Exe, Log: c.Log, SystemRoot: os.Getenv("SystemRoot"), Reg: runKey{},
-		Start: startDetached, Stop: func() (bool, error) { return stopService(c.PIDFile, c.Exe) }}
+		Start: startDetached, Stop: func() (bool, error) { return stopService(c.PIDFile, c.Exe) },
+		Self: os.Getpid(), Running: func() (int, bool) { return ReadPID(c.PIDFile) }, Exit: c.Exit}
 }
 
 const (

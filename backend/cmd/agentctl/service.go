@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
@@ -25,8 +26,17 @@ func serviceManager() (service.Manager, string, error) {
 		return nil, "", err
 	}
 	home, _ := os.UserHomeDir()
-	return service.New(service.Config{Exe: exe, Home: home, Data: paths.Data(), Log: paths.Log(), PIDFile: paths.PID()}), exe, nil
+	return service.New(service.Config{Exe: exe, Home: home, Data: paths.Data(), Log: paths.Log(), PIDFile: paths.PID(), Exit: stopServe}), exe, nil
 }
+
+// serveStop is closed to shut serve down cleanly: the Windows service does
+// it to restart or stop itself from Settings (see service.Startup).
+var (
+	serveStop     = make(chan struct{})
+	serveStopOnce sync.Once
+)
+
+func stopServe() { serveStopOnce.Do(func() { close(serveStop) }) }
 
 // install registers the service to start at login and starts it now.
 func install() error {

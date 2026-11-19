@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -33,6 +34,27 @@ type Startup struct {
 	// console; Stop ends the running service (false when none was running).
 	Start func(argv []string) error
 	Stop  func() (bool, error)
+	// Self is this process's id and Running the running service's (from its
+	// PID file). When they match, Install and Uninstall run inside the
+	// service itself (Settings in the web dashboard): Stop would end this
+	// very process before anything after it ran, so the service asks Exit
+	// to shut it down cleanly instead.
+	Self    int
+	Running func() (pid int, ok bool)
+	Exit    func()
+}
+
+// AfterFlag is serve's flag naming the process id to wait for before it
+// starts: the service that started it and is shutting down.
+const AfterFlag = "--after"
+
+// inService: this process is the running service.
+func (s *Startup) inService() bool {
+	if s.Running == nil || s.Self <= 0 {
+		return false
+	}
+	pid, ok := s.Running()
+	return ok && pid == s.Self
 }
 
 // ServeArgv is the service's command: agentctl serve, logging to Log.
@@ -88,6 +110,20 @@ func (s *Startup) Install(out io.Writer) error {
 	if err := s.Reg.Set(RunValue, s.Command()); err != nil {
 		return fmt.Errorf("startup entry: %w", err)
 	}
+	if s.inService() {
+		// Restart from inside: start the new service first, waiting until
+		// this one has exited (it would find this one still answering and
+		// stop), then shut this one down.
+		if s.Exit == nil {
+			return errors.New("the service can't restart itself here: stop agentctl serve and start it again")
+		}
+		if err := s.Start(append(s.ServeArgv(), AfterFlag, strconv.Itoa(s.Self))); err != nil {
+			return fmt.Errorf("starting the service: %w", err)
+		}
+		fmt.Fprintln(out, "restarting the service; it starts when you sign in:", RunKey+`\`+RunValue)
+		s.Exit()
+		return nil
+	}
 	restarted, err := s.Stop()
 	if err != nil {
 		return fmt.Errorf("stopping the running service: %w", err)
@@ -103,12 +139,9 @@ func (s *Startup) Install(out io.Writer) error {
 	return nil
 }
 
-// Uninstall stops the service and removes the startup entry.
+// Uninstall removes the startup entry and stops the service. The entry goes
+// first: from inside the service, stopping it ends this process.
 func (s *Startup) Uninstall(out io.Writer) error {
-	stopped, err := s.Stop()
-	if err != nil {
-		return fmt.Errorf("stopping the service: %w", err)
-	}
 	_, registered, err := s.Reg.Get(RunValue)
 	if err != nil {
 		return fmt.Errorf("startup entry: %w", err)
@@ -117,6 +150,15 @@ func (s *Startup) Uninstall(out io.Writer) error {
 		if err := s.Reg.Delete(RunValue); err != nil {
 			return fmt.Errorf("startup entry: %w", err)
 		}
+	}
+	if s.inService() && s.Exit != nil {
+		fmt.Fprintln(out, "removed the startup entry", RunKey+`\`+RunValue, "and stopped the service")
+		s.Exit()
+		return nil
+	}
+	stopped, err := s.Stop()
+	if err != nil {
+		return fmt.Errorf("stopping the service: %w", err)
 	}
 	switch {
 	case registered:

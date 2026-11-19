@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
@@ -44,6 +45,9 @@ type Config struct {
 	Data    string // the service's data folder (paths.Data)
 	Log     string // where the service's log goes (paths.Log)
 	PIDFile string // where the running service writes its process id (paths.PID)
+	// Exit shuts the running service down cleanly when it is this process
+	// (Windows only: Settings restarting or stopping the service it runs in).
+	Exit func()
 }
 
 // ErrUnsupported: this platform has no start-at-login support here.
@@ -99,4 +103,16 @@ func ReadPID(path string) (int, bool) {
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	return pid, err == nil && pid > 0
+}
+
+// WaitGone waits until process pid has exited, checking every tick, for at
+// most timeout; it says whether the process is gone. A service started by
+// the one it replaces (AfterFlag) waits like this before it starts.
+func WaitGone(pid int, timeout, tick time.Duration, alive func(int) bool) bool {
+	for end := time.Now().Add(timeout); alive(pid); time.Sleep(tick) {
+		if time.Now().After(end) {
+			return false
+		}
+	}
+	return true
 }

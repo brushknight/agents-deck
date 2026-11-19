@@ -37,6 +37,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/server"
+	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/tmux"
@@ -1079,12 +1080,16 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	demoMode := fs.Bool("demo", false, "serve a simulated fleet instead of real agents")
 	logFile := fs.String("log", "", "append the log to `FILE` instead of printing it")
+	after := fs.Int(strings.TrimPrefix(service.AfterFlag, "--"), 0, "wait until process `PID` (the service this one replaces) has exited")
 	_ = fs.Parse(args)
 	if err := paths.Ensure(); err != nil {
 		return err
 	}
 	if err := serviceLog(*logFile); err != nil {
 		return err
+	}
+	if *after > 0 && !service.WaitGone(*after, 30*time.Second, 100*time.Millisecond, proc.Alive) {
+		log.Printf("the service this one replaces (process %d) is still running after 30s", *after)
 	}
 	// A service that answers on the socket is already running. A second one
 	// would take its socket away (ServeUnix replaces the file) and then stop
@@ -1223,6 +1228,10 @@ func serve(args []string) error {
 	case <-sig:
 		st.Flush()
 		log.Printf("stopping")
+		return nil
+	case <-serveStop:
+		st.Flush()
+		log.Printf("stopping (asked from Settings)")
 		return nil
 	}
 }
