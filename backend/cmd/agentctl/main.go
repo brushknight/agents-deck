@@ -1,4 +1,4 @@
-// agentctl runs and controls the agents-terminal daemon.
+// agentctl runs and controls the agents deck service.
 package main
 
 import (
@@ -47,7 +47,7 @@ import (
 // version is stamped by release builds: -ldflags "-X main.version=<tag>".
 var version = "dev"
 
-const usage = `agentctl — agents-terminal
+const usage = `agentctl: runs and controls agents deck
 
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
@@ -93,10 +93,10 @@ const usage = `agentctl — agents-terminal
                                  Deck Link boards: status (USB or Wi-Fi), find ports, register one
   agentctl link wifi <board> --ssid NAME [--password PW] | --forget
                                  give a board on USB its Wi-Fi network (asks for the password; never
-                                 stored on the Mac); from then on it connects over Wi-Fi when not on USB
+                                 stored on this computer); from then on it connects over Wi-Fi when not on USB
   agentctl link pair <board>     a new Wi-Fi certificate for a board (it pairs again over USB)
   agentctl link update <board> --image FILE --board B --version V
-                                 put an app image from this Mac on a board on Wi-Fi (it goes back
+                                 put an app image from this computer on a board on Wi-Fi (it goes back
                                  to its old firmware if the new one doesn't reach the deck)
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
@@ -1060,7 +1060,7 @@ type fileConfig struct {
 	} `json:"link"`
 }
 
-// lanIPs are this Mac's non-loopback IPv4 addresses.
+// lanIPs are this computer's non-loopback IPv4 addresses.
 func lanIPs() []string {
 	var ips []string
 	addrs, _ := net.InterfaceAddrs()

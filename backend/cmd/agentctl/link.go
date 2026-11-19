@@ -516,7 +516,7 @@ func linkWifi(args []string) error {
 					continue
 				}
 				fmt.Printf("\nit works: %s.\n", netLine(b.Net))
-				fmt.Println("Unplugged from the Mac (on another USB power supply) it now connects over Wi-Fi.")
+				fmt.Println("Unplugged from this computer (on another USB power supply) it now connects over Wi-Fi.")
 				return nil
 			case "wrong password", "network not found", "failed":
 				fmt.Println()
