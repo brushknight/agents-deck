@@ -91,7 +91,7 @@ func TestScriptsParse(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"settings.js", "app.js"} {
+	for _, name := range []string{"settings.js", "app.js", "attention.js"} {
 		b, err := fs.ReadFile(web.Static(), name)
 		if err != nil {
 			t.Fatal(err)
@@ -103,6 +103,18 @@ func TestScriptsParse(t *testing.T) {
 		if out, err := exec.Command(node, "--check", p).CombinedOutput(); err != nil {
 			t.Errorf("%s: %v\n%s", name, err, out)
 		}
+	}
+}
+
+// The "needs you" screen's spots (static/attention.js): attention_test.mjs,
+// with node's own test runner, when node is installed.
+func TestAttentionSpots(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	if out, err := exec.Command(node, "--test", "attention_test.mjs").CombinedOutput(); err != nil {
+		t.Errorf("node --test attention_test.mjs: %v\n%s", err, out)
 	}
 }
 

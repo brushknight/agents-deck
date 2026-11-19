@@ -50,11 +50,25 @@
   <main class="main" aria-label="agents">
     <p id="boot" class="boot" role="status">connecting to agentctl…</p>
     <div id="grid" class="grid" aria-label="agent tiles" tabindex="-1"></div>
-    <nav id="pagebar" class="pagebar" aria-label="pages" hidden></nav>
+    <section id="attn" class="attn" aria-labelledby="attn-title" hidden>
+      <div class="attn-head">
+        <div class="attn-titles">
+          <h2 id="attn-title" tabindex="-1">needs you</h2>
+          <span id="attn-more" class="attn-more" role="status" hidden></span>
+          <p class="attn-sub">agents at work or asking you something · each one leaves 5 s after it stops</p>
+        </div>
+        <button type="button" id="attn-back" class="toggle" title="Back to the deck (→)">deck ›</button>
+      </div>
+      <div class="attn-board">
+        <div id="attn-grid" class="grid attn-grid" aria-label="agents that need you"></div>
+        <p id="attn-empty" class="attn-empty" hidden>nothing needs you right now</p>
+      </div>
+    </section>
     <div id="empty" class="empty" hidden>
       <span class="empty-art" id="empty-art" aria-hidden="true"></span>
       <p>no agents running · start one with <code>agentctl new</code></p>
     </div>
+    <nav id="pagebar" class="pagebar" aria-label="pages" hidden></nav>
   </main>
   <aside id="detail" class="detail" aria-label="agent detail" hidden></aside>
 </div>

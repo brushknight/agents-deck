@@ -2,6 +2,8 @@
 // (no inline handlers, no eval, no style attributes — only CSSOM custom properties).
 // Contract: docs/protocol.md. Live data: GET /v1/state + SSE /v1/events ("state" snapshots).
 
+import { arrange } from './attention.js';
+
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const FIXTURE = location.protocol === 'file:' || params.has('fixture');
@@ -17,6 +19,9 @@ const phoneMQ = matchMedia('(max-width: 640px)');
 const onPhone = () => phoneMQ.matches;
 const panelOn = () => panelMode;
 let panelPage = 0;
+// 'deck', or 'attn': the "needs you" screen, one step left of the deck's first page.
+// The page always opens on the deck.
+let view = 'deck';
 let online = false;
 let expired = false;
 
@@ -647,13 +652,19 @@ function renderGrid() {
     updateTile(t, a);
   }
   for (const [id, t] of tiles) if (!seen.has(id)) { t.el.remove(); tiles.delete(id); }
-  if (!panelOn()) { $('pagebar').hidden = true; document.body.classList.remove('paged'); }
   const want = panelOn() ? panelCells(list) : needsFirst || onPhone() ? list.map((a) => tiles.get(a.id).el) : boardCells(list);
   // Reconcile in place so running animations aren't restarted needlessly.
-  want.forEach((el, i) => { if (grid.children[i] !== el) grid.insertBefore(el, grid.children[i] || null); });
-  while (grid.children.length > want.length) grid.lastElementChild.remove();
-  $('empty').hidden = list.length > 0 || !state || panelOn();
-  grid.hidden = list.length === 0 && !panelOn();
+  reconcile(grid, want);
+  const onAttn = view === 'attn';
+  $('empty').hidden = list.length > 0 || !state || panelOn() || onAttn;
+  grid.hidden = (list.length === 0 && !panelOn()) || onAttn;
+  renderAttention();
+  renderPageBar(panelOn() ? panelPageCount(list) : 1, panelOn() ? new Set(list.filter(needsYou).map((a) => Math.floor(a.slot / 16))) : new Set());
+}
+
+function reconcile(parent, want) {
+  want.forEach((el, i) => { if (parent.children[i] !== el) parent.insertBefore(el, parent.children[i] || null); });
+  while (parent.children.length > want.length) parent.lastElementChild.remove();
 }
 
 // Free cells are pooled by slot so they keep their DOM nodes between renders.
@@ -679,72 +690,195 @@ function boardCells(list) {
 
 // Panel view: 16 cells like the device. While every agent sits in slots 0..15
 // it's one page; beyond that pages hold 15 slots each plus a pager cell.
+const panelPageCount = (list) => (list.length ? Math.floor(Math.max(...list.map((a) => a.slot)) / 16) : 0) + 1;
+
 function panelCells(list) {
   const bySlot = new Map(list.map((a) => [a.slot, a]));
-  const last = list.length ? Math.max(...bySlot.keys()) : 0;
-  const pages = Math.floor(last / 16) + 1;
+  const pages = panelPageCount(list);
   if (panelPage >= pages) panelPage = pages - 1;
   const start = panelPage * 16;
   const cells = [];
   for (let s = start; s < start + 16; s++) cells.push(bySlot.has(s) ? tiles.get(bySlot.get(s).id).el : emptyCell(s));
-  const hot = new Set(list.filter(needsYou).map((a) => Math.floor(a.slot / 16)));
-  renderPageBar(pages, hot);
   return cells;
 }
 
-// Pages of 16 slots (page = slot / 16): one bar per page under the panel view,
-// the current one bright, others orange when an agent there needs you.
-// Swipe (touch), a sideways trackpad scroll, ←/→ or a click changes page.
+// The bar under the deck: the "needs you" mark on the far left (with how many
+// agents are there), then one bar per page of 16 slots in the panel view (the
+// current one bright, others orange when an agent there needs you), or one bar
+// for the whole deck when it fits the window. Swipe (touch), a sideways
+// trackpad scroll, ←/→ or a click changes page.
 let panelPages = 1;
 function renderPageBar(pages, hot) {
   panelPages = pages;
   const bar = $('pagebar');
-  bar.hidden = pages < 2 || !panelOn();
-  document.body.classList.toggle('paged', !bar.hidden);
+  bar.hidden = !state;
+  document.body.classList.toggle('paged', !bar.hidden && panelOn());
   if (bar.hidden) return;
-  const key = `${pages}|${panelPage}|${[...hot].join(',')}`;
+  const onAttn = view === 'attn';
+  const n = attnOut.count;
+  const asking = attnOut.asking;
+  const key = `${pages}|${panelPage}|${[...hot].join(',')}|${onAttn}|${n}|${asking}|${panelOn()}`;
   if (bar.dataset.key === key) return;
   bar.dataset.key = key;
-  bar.replaceChildren(...Array.from({ length: pages }, (_, p) => {
-    const b = h('button', { type: 'button', class: `page${p === panelPage ? ' on' : hot.has(p) ? ' hot' : ''}`, 'aria-label': `page ${p + 1} of ${pages}` });
+  const mark = h('button', {
+    type: 'button', class: `page attn-mark${onAttn ? ' on' : ''}${asking ? ' hot' : ''}`,
+    'aria-label': `needs you: ${n ? `${n} agent${n === 1 ? '' : 's'} at work or asking` : 'nothing right now'}`,
+    title: n ? `${n} agent${n === 1 ? '' : 's'} at work or asking you something (←)` : 'needs you: nothing right now (←)',
+  }, h('span', { class: 'attn-chev', 'aria-hidden': 'true', text: '‹' }), n ? h('span', { class: 'attn-n', text: String(n) }) : null);
+  mark.addEventListener('click', () => goView('attn'));
+  const label = (p) => (panelOn() ? `page ${p + 1} of ${pages}` : 'the deck');
+  bar.replaceChildren(mark, ...Array.from({ length: pages }, (_, p) => {
+    const b = h('button', { type: 'button', class: `page${!onAttn && p === panelPage ? ' on' : hot.has(p) ? ' hot' : ''}`, 'aria-label': label(p) });
     b.addEventListener('click', () => goPage(p));
     return b;
   }));
 }
 
-function goPage(p) {
-  const next = Math.max(0, Math.min(panelPages - 1, p));
-  if (next === panelPage) return;
-  panelPage = next;
+function goView(v) {
+  if (view === v) return;
+  view = v;
   renderGrid();
+  if (v === 'attn') $('attn-title').focus({ preventScroll: true });
+  else $('grid').focus({ preventScroll: true });
+}
+
+// Page p of the deck; -1 is the "needs you" screen left of the first page.
+function goPage(p) {
+  if (p < 0) { goView('attn'); return; }
+  const next = Math.max(0, Math.min(panelPages - 1, p));
+  if (view === 'deck' && next === panelPage) return;
+  panelPage = next;
+  if (view !== 'deck') goView('deck'); else renderGrid();
+}
+
+// One step left (-1) or right (+1).
+function stepView(dir) {
+  if (view === 'attn') { if (dir > 0) goPage(0); return; }
+  if (panelOn()) goPage(panelPage + dir);
+  else if (dir < 0) goView('attn');
 }
 
 (() => {
-  const grid = $('grid');
-  let x0 = null;
-  grid.addEventListener('pointerdown', (e) => { if (panelOn() && e.pointerType !== 'mouse') x0 = e.clientX; });
-  grid.addEventListener('pointerup', (e) => {
+  const main = document.querySelector('.main');
+  let x0 = null, y0 = 0;
+  main.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { x0 = e.clientX; y0 = e.clientY; } });
+  main.addEventListener('pointercancel', () => { x0 = null; });
+  main.addEventListener('pointerup', (e) => {
     if (x0 == null) return;
-    const dx = e.clientX - x0; x0 = null;
-    if (Math.abs(dx) > 60) goPage(panelPage + (dx < 0 ? 1 : -1));
+    const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepView(dx < 0 ? 1 : -1);
   });
   let acc = 0, quietUntil = 0;
-  grid.addEventListener('wheel', (e) => {
-    if (!panelOn() || panelPages < 2 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+  main.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
     e.preventDefault();
     if (Date.now() < quietUntil) return;
     acc += e.deltaX;
-    if (Math.abs(acc) > 80) { goPage(panelPage + (acc > 0 ? 1 : -1)); acc = 0; quietUntil = Date.now() + 450; }
+    if (Math.abs(acc) > 80) { stepView(acc > 0 ? 1 : -1); acc = 0; quietUntil = Date.now() + 450; }
   }, { passive: false });
   document.addEventListener('keydown', (e) => {
-    if (!panelOn() || panelPages < 2 || e.altKey || e.metaKey || e.ctrlKey) return;
+    if (!state || expired || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
     const t = e.target;
     if (t instanceof HTMLElement && (t.classList.contains('tile') || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (!$('picker').hidden || selectedId) return;
-    if (e.key === 'ArrowRight') { e.preventDefault(); goPage(panelPage + 1); }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); goPage(panelPage - 1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); stepView(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); stepView(-1); }
   });
+  $('attn-back').addEventListener('click', () => goPage(0));
+  // A new window size can change how many spots the "needs you" screen has.
+  let raf = 0;
+  addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => state && renderGrid()); });
 })();
+
+// ---------------------------------------------------------------- needs you
+// One screen, never paged, as many spots as one page of the deck at this window
+// size. Who sits where is worked out in attention.js; here it is only drawn.
+// The spots are remembered across reloads.
+const ATTN_KEY = 'agents.attentionSpots';
+const ATTN_PAD = 12;  // .attn padding
+const ATTN_HEAD = 64; // .attn-head height + its margin
+let attn = { memory: {} };
+try { attn.memory = JSON.parse(localStorage.getItem(ATTN_KEY) || '{}') || {}; } catch { /* storage unavailable */ }
+let attnSaved = JSON.stringify(attn.memory);
+let attnOut = { spots: [], more: 0, count: 0, asking: 0, cols: 4, rows: 4 };
+let attnTimer = 0;
+const attnTiles = new Map(); // id -> tile, like tiles, for the "needs you" screen
+const attnSpots = [];        // the free-spot placeholders, by index
+
+// Columns x rows of one page of the deck: the panel's 4×4, or as many tiles as
+// fit the window (one column of rows on a phone). The detail panel beside the
+// deck doesn't count: opening an agent must not reshuffle the screen.
+function attnSize() {
+  if (panelOn()) return { cols: 4, rows: 4 };
+  const main = document.querySelector('.main');
+  const css = getComputedStyle(document.documentElement);
+  const gutter = parseFloat(css.getPropertyValue('--gutter')) || 16;
+  const gap = parseFloat(css.getPropertyValue('--gap')) || 8;
+  const det = $('detail');
+  const beside = !det.hidden && getComputedStyle(det).position !== 'fixed' ? det.offsetWidth : 0;
+  // The same numbers whether the screen is showing or not (app.css .attn,
+  // .attn-head, .pagebar), so going there never changes its size.
+  const frame = 2 * ATTN_PAD;
+  const width = Math.min(main.offsetWidth + beside - 2 * gutter - frame, 9 * 212);
+  const height = main.offsetHeight - 2 * gutter - frame - ATTN_HEAD - 38;
+  if (onPhone()) return { cols: 1, rows: Math.max(1, Math.floor((height + gap) / (78 + gap))) };
+  const min = parseFloat(css.getPropertyValue('--tile-min')) || 176;
+  const cols = Math.max(1, Math.floor((width + gap) / (min + gap)));
+  const tile = (width - (cols - 1) * gap) / cols;
+  return { cols, rows: Math.max(1, Math.floor((height + gap) / (tile + gap))) };
+}
+
+function stepAttention() {
+  const { cols, rows } = attnSize();
+  const agents = [...state.agents].sort((x, y) => x.slot - y.slot);
+  const r = arrange(attn, agents, cols * rows, Date.now());
+  attn = r.state;
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const asking = Object.keys(attn.joined).filter((id) => byId.get(id)?.status === 'waiting').length;
+  attnOut = { spots: r.spots, more: r.more, count: r.count, asking, cols, rows };
+  const mem = JSON.stringify(attn.memory);
+  if (mem !== attnSaved) {
+    attnSaved = mem;
+    try { localStorage.setItem(ATTN_KEY, mem); } catch { /* storage unavailable */ }
+  }
+  // Wake up when a lingering agent is due to leave.
+  clearTimeout(attnTimer);
+  if (r.wake != null) attnTimer = setTimeout(() => state && renderGrid(), Math.max(0, r.wake - Date.now()) + 30);
+}
+
+function attnSpot(i) {
+  if (!attnSpots[i]) attnSpots[i] = h('div', { class: 'attn-spot', 'aria-hidden': 'true' });
+  return attnSpots[i];
+}
+
+function renderAttention() {
+  if (!state) return;
+  stepAttention();
+  const sec = $('attn');
+  sec.hidden = view !== 'attn';
+  document.body.classList.toggle('on-attn', view === 'attn');
+  if (sec.hidden) return;
+  const { spots, more, count, cols, rows } = attnOut;
+  const grid = $('attn-grid');
+  grid.style.setProperty('--cols', String(cols));
+  grid.style.setProperty('--rows', String(rows));
+  const byId = new Map(state.agents.map((a) => [a.id, a]));
+  const seen = new Set();
+  const want = spots.map((id, i) => {
+    const a = id && byId.get(id);
+    if (!a) return attnSpot(i);
+    seen.add(id);
+    let t = attnTiles.get(id);
+    if (!t) { t = makeTile(a); t.el.draggable = false; attnTiles.set(id, t); }
+    updateTile(t, a);
+    return t.el;
+  });
+  for (const [id, t] of attnTiles) if (!seen.has(id)) { t.el.remove(); attnTiles.delete(id); }
+  reconcile(grid, want);
+  $('attn-empty').hidden = count > 0;
+  $('attn-more').hidden = more === 0;
+  if (more) setText($('attn-more'), `+${more} more · no free spot yet`);
+}
 
 function makeEmptyCell(slot) {
   const el = h('div', { class: 'tile-empty', title: 'add a session here' });
@@ -868,7 +1002,7 @@ function closeDetail() {
   selectedId = null; det = null;
   panel.hidden = true; panel.replaceChildren();
   render();
-  tiles.get(id)?.el.focus({ preventScroll: true });
+  (view === 'attn' ? attnTiles : tiles).get(id)?.el.focus({ preventScroll: true });
 }
 
 const closeIcon = () => {
@@ -1278,7 +1412,7 @@ function applyState(s) {
 document.addEventListener('keydown', (e) => {
   const t = e.target;
   // Alt+arrow on a tile moves the agent (left/right by one, up/down by a row).
-  if (e.altKey && !needsFirst && !expired && t instanceof HTMLElement && t.classList.contains('tile') && e.key.startsWith('Arrow')) {
+  if (e.altKey && !needsFirst && !expired && t instanceof HTMLElement && t.classList.contains('tile') && t.parentElement?.id === 'grid' && e.key.startsWith('Arrow')) {
     e.preventDefault();
     const cols = Math.max(1, getComputedStyle($('grid')).gridTemplateColumns.split(' ').length);
     const i = slotOf(t.dataset.id);
@@ -1293,7 +1427,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (t instanceof HTMLElement && t.classList.contains('tile') && e.key.startsWith('Arrow')) {
     e.preventDefault();
-    const els = [...$('grid').children];
+    const els = [...t.parentElement.children];
     const i = els.indexOf(t);
     const top0 = els[0].offsetTop;
     let cols = els.findIndex((el) => el.offsetTop !== top0);
@@ -1461,6 +1595,14 @@ async function startFixture() {
   if (params.has('accounts')) for (const a of data.agents) if (a.tool === 'claude') a.account = { ...fixtureAccounts[a.slot % 3 === 0 ? 1 : 0] };
   if (params.has('lost')) for (const a of data.agents.slice(-2)) Object.assign(a, { status: 'exited', lost: true, resumable: true, activity: null, waiting: null });
   fx = data;
+  // From the console (with &still), to try the "needs you" screen: fxStatus('k3f9a2', 'idle').
+  window.fxStatus = (id, status) => {
+    const a = fx.agents.find((x) => x.id === id);
+    if (!a) return;
+    Object.assign(a, { status, statusSince: iso(Date.now()), activity: null, error: null,
+      waiting: status === 'waiting' ? { ...structuredClone(PERM), id: `p${Date.now()}` } : null });
+    fxEmit();
+  };
   fxEmit();
   setConn('live');
   if (params.has('offline')) setConn('reconnecting');
