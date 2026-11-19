@@ -195,7 +195,8 @@ jobs:
           codesign --verify --deep --strict "$mnt/agents deck.app"
           test "$("$mnt/agents deck.app/Contents/MacOS/agentctl" version)" = 0.0.0-ci
           test -x "$mnt/agents deck.app/Contents/MacOS/deck-ble"
-          codesign -d -r- "$mnt/agents deck.app/Contents/MacOS/deck-ble" 2>&1 | grep -q dev.agents-deck.deck-ble
+          # -dv, not -r-: an ad-hoc signature's designated requirement is a cdhash, without the identifier.
+          codesign -dv "$mnt/agents deck.app/Contents/MacOS/deck-ble" 2>&1 | grep -q '^Identifier=dev.agents-deck.deck-ble$'
           hdiutil detach "$mnt"
 
   firmware:

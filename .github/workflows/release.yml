@@ -529,6 +529,10 @@ jobs:
       - name: release
         run: |
           if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes --title "agents deck $TAG"
+            # A tag with a suffix (v0.2.0-rc.1) is a pre-release: never "latest", so
+            # neither the updater nor install.sh offers it (docs/releasing.md).
+            pre=()
+            case "$TAG" in *-*) pre=(--prerelease) ;; esac
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes --title "agents deck $TAG" "${pre[@]}"
           fi
           gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/*
