@@ -15,7 +15,8 @@ import (
 )
 
 // demoDeck builds agentctl, starts `agentctl serve --demo` in a temp home
-// (its fixture fleet: running agents, one lost, one ended) and gives a fake
+// --still (its fixture fleet, standing still: running agents, one lost, one
+// ended) and gives a fake
 // HOME holding two made-up Claude sessions. It returns the environment for
 // running agentctl against it, with the built binary first on PATH.
 func demoDeck(t *testing.T) []string {
@@ -69,7 +70,10 @@ func demoDeck(t *testing.T) []string {
 		}
 		env = append(env, kv)
 	}
-	srv := exec.Command(filepath.Join(bin, "agentctl"), "serve", "--demo", "--log", filepath.Join(data, "agentd.log"))
+	// --still: the order by last activity is what the fixture says, however
+	// long the test takes (a moving fleet marks every running agent active
+	// every few seconds).
+	srv := exec.Command(filepath.Join(bin, "agentctl"), "serve", "--demo", "--still", "--log", filepath.Join(data, "agentd.log"))
 	srv.Env = env
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)

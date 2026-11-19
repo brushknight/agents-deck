@@ -1085,6 +1085,7 @@ func loadConfig() fileConfig {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	demoMode := fs.Bool("demo", false, "serve a simulated fleet instead of real agents")
+	still := fs.Bool("still", false, "with --demo: a fleet that doesn't change (for tests)")
 	logFile := fs.String("log", "", "append the log to `FILE` instead of printing it")
 	after := fs.Int(strings.TrimPrefix(service.AfterFlag, "--"), 0, "wait until process `PID` (the service this one replaces) has exited")
 	_ = fs.Parse(args)
@@ -1125,6 +1126,7 @@ func serve(args []string) error {
 		if err != nil {
 			return err
 		}
+		d.Still = *still
 		go d.Run()
 		ctl = d
 	} else {

@@ -16,7 +16,13 @@ import (
 //go:embed fixture.json
 var fixture []byte
 
-type Demo struct{ St *store.Store }
+type Demo struct {
+	St *store.Store
+	// Still keeps the fleet as the fixture has it: no activity, no status
+	// changes, and each agent's last activity stays the same time ago (tests
+	// that check the order by activity).
+	Still bool
+}
 
 func Load(st *store.Store) (*Demo, error) {
 	var s model.State
@@ -66,6 +72,10 @@ var activities = []model.Activity{
 func (d *Demo) Run() {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for range time.Tick(3 * time.Second) {
+		if d.Still {
+			d.holdStill(time.Now().UTC())
+			continue
+		}
 		d.St.Each(func(e *store.Entry) bool {
 			if e.A.Status != model.Running {
 				return false
@@ -91,6 +101,19 @@ func (d *Demo) Run() {
 			return true
 		})
 	}
+}
+
+// holdStill sets every agent's last activity to the fixture's time ago,
+// counted from now.
+func (d *Demo) holdStill(now time.Time) {
+	d.St.Each(func(e *store.Entry) bool {
+		ago, ok := lastActive[e.A.ID]
+		if !ok {
+			return false
+		}
+		e.A.LastActive = now.Add(-ago)
+		return true
+	})
 }
 
 func (d *Demo) Answer(id, promptID, key string) error {
