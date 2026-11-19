@@ -69,6 +69,7 @@ func TestDevicesResetStartsOver(t *testing.T) {
 	}
 	oldCA, _ := os.ReadFile(f.CA)
 	oldDevices, _ := os.ReadFile(f.Devices)
+	oldKey, _ := ks.Load(pki.CAKeyName)
 
 	now := time.Date(2026, 11, 11, 9, 30, 0, 0, time.UTC)
 	rep, err := resetCertificates(f, ks, now)
@@ -84,7 +85,11 @@ func TestDevicesResetStartsOver(t *testing.T) {
 			t.Errorf("backup of %s: %v", name, err)
 		}
 	}
-	for _, name := range []string{"server-cert.pem", "server-key.pem"} {
+	// A CA key kept as a file is backed up too, readable by you only.
+	if got, err := os.ReadFile(filepath.Join(rep.Backup, pki.CAKeyName)); err != nil || len(oldKey) == 0 || string(got) != string(oldKey) {
+		t.Errorf("backup of the CA key file: %v", err)
+	}
+	for _, name := range []string{"server-cert.pem", "server-key.pem", pki.CAKeyName} {
 		fi, err := os.Stat(filepath.Join(rep.Backup, name))
 		if err != nil || fi.Mode().Perm() != 0o600 {
 			t.Errorf("backup of %s: %v %v", name, err, fi)

@@ -41,8 +41,8 @@ type resetReport struct {
 	Boards  []string // had a Wi-Fi certificate: plug in by USB once
 }
 
-// resetCertificates backs up the CA certificate, the network listener's
-// certificate and key and devices.json into a dated folder in the data
+// resetCertificates backs up the CA certificate (and its key, when that is
+// a file), the network listener's certificate and key and devices.json into a dated folder in the data
 // folder, then removes the CA (certificate and stored key) and the
 // listener's certificate. Network devices leave devices.json; boards keep
 // their names and approval but lose their Wi-Fi certificate, and ask for a
@@ -64,6 +64,14 @@ func resetCertificates(f resetFiles, ks pki.Keystore, now time.Time) (resetRepor
 	for _, p := range []string{f.CA, f.ServerCert, f.ServerKey, f.Devices} {
 		if err := copyPrivate(p, filepath.Join(dir, filepath.Base(p))); err != nil {
 			return rep, fmt.Errorf("backing up %s: %w", filepath.Base(p), err)
+		}
+	}
+	// Where the CA key is a file (Linux, Windows), it is kept too, 0600 in
+	// the 0700 backup folder: the same protection it had. A Keychain key is
+	// never copied out of the Keychain.
+	if fk, ok := ks.(pki.FileKeystore); ok {
+		if err := copyPrivate(filepath.Join(fk.Dir, pki.CAKeyName), filepath.Join(dir, pki.CAKeyName)); err != nil {
+			return rep, fmt.Errorf("backing up the CA key: %w", err)
 		}
 	}
 
