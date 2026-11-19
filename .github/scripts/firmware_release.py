@@ -242,18 +242,32 @@ def write_outputs(args, images, info):
 def cmd_build(args):
     # The firmware reports this as its version in Hello (when it is built with it).
     env = dict(os.environ, AGENTS_DECK_VERSION=args.version)
-    subprocess.run(["pio", "run", "-d", args.dir, "-e", args.env], check=True, env=env)
-    with tempfile.TemporaryDirectory() as tmp:
-        meta_path = Path(tmp) / "metadata.json"
-        subprocess.run(
-            ["pio", "project", "metadata", "-d", args.dir, "-e", args.env,
-             "--json-output", "--json-output-path", str(meta_path)],
-            check=True, stdout=subprocess.DEVNULL, env=env,
-        )
-        meta = json.loads(meta_path.read_text())[args.env]
-    extra = meta["extra"]
-    images = [(int(i["offset"], 16), i["path"]) for i in extra["flash_images"]]
-    app = Path(meta["prog_path"]).with_suffix(".bin")
+
+    def build():
+        subprocess.run(["pio", "run", "-d", args.dir, "-e", args.env], check=True, env=env)
+
+    def metadata():
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_path = Path(tmp) / "metadata.json"
+            subprocess.run(
+                ["pio", "project", "metadata", "-d", args.dir, "-e", args.env,
+                 "--json-output", "--json-output-path", str(meta_path)],
+                check=True, stdout=subprocess.DEVNULL, env=env,
+            )
+            meta = json.loads(meta_path.read_text())[args.env]
+        extra = meta["extra"]
+        images = [(int(i["offset"], 16), i["path"]) for i in extra["flash_images"]]
+        return extra, images, Path(meta["prog_path"]).with_suffix(".bin")
+
+    build()
+    extra, images, app = metadata()
+    # pioarduino (idf5) empties the build folder the first time it runs after
+    # compiling its Arduino libraries with custom_sdkconfig, as in a clean
+    # PlatformIO home; that first run is the metadata above. Build once more.
+    if not app.is_file() or not all(Path(p).is_file() for _, p in images):
+        print("firmware_release: the build folder was emptied after the first build; building again")
+        build()
+        extra, images, app = metadata()
     images.append((app_offset(extra, images), str(app)))
     write_outputs(args, images, {"env": args.env, "project": args.dir})
 

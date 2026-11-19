@@ -669,8 +669,12 @@ func TestUpdateApplyAndLoop(t *testing.T) {
 	if j := r.waitJob(t, out["id"].(string)); j.State != JobDone {
 		t.Errorf("apply job: %+v", j)
 	}
-	if u.downloads < 1 || u.apply != 1 {
-		t.Errorf("downloads %d, applies %d", u.downloads, u.apply)
+	// The check above may still be downloading in the background: read under the lock.
+	u.mu.Lock()
+	downloads, applies := u.downloads, u.apply
+	u.mu.Unlock()
+	if downloads < 1 || applies != 1 {
+		t.Errorf("downloads %d, applies %d", downloads, applies)
 	}
 
 	// The timer: "off" never checks; "auto" checks, downloads and installs.

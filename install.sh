@@ -230,8 +230,10 @@ base="${AGENTS_DECK_BASE_URL:-https://github.com/$repo/releases/download/$versio
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 fetch() { curl -fsSL -o "$tmp/$1" "$base/$1"; }
+# sha256sum (coreutils) on Linux, where shasum (Perl) is often missing; shasum on macOS.
+if command -v sha256sum >/dev/null 2>&1; then sha256check="sha256sum -c -"; else sha256check="shasum -a 256 -c -"; fi
 verify() { # the file's line from SHA256SUMS must match
-  (cd "$tmp" && grep "  $1\$" SHA256SUMS | shasum -a 256 -c -) >/dev/null ||
+  (cd "$tmp" && grep "  $1\$" SHA256SUMS | $sha256check) >/dev/null ||
     { echo "checksum mismatch for $1: not installing" >&2; exit 1; }
 }
 
