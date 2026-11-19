@@ -67,7 +67,8 @@ type Event struct {
 // Apply folds one hook event into the agent. It returns true when the agent
 // changed and whether the pane should be scanned for prompt options.
 func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
-	e.Background = false // hooks are the real status again
+	working := e.A.Status == model.Running && !e.Background // in a turn, by its hooks
+	e.Background = false                                    // hooks are the real status again
 	// Only the main transcript counts; a subagent's own file would swap the
 	// context ring to the subagent's and force a full re-read on the way back.
 	if ev.TranscriptPath != "" && e.Transcript != ev.TranscriptPath && !strings.Contains(ev.TranscriptPath, "/subagents/") {
@@ -86,13 +87,17 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 	}
 	switch ev.Name {
 	case "PreCompact":
+		// Compacting between turns (a /compact you typed, or Claude Code
+		// compacting an idle session on its own) ends idle again; an
+		// auto-compact in the middle of a turn goes on with the turn. Both
+		// report the trigger "auto" when it isn't a /compact.
+		e.CompactToIdle = ev.Trigger == "manual" || !working
 		e.SetStatus(model.Running)
 		detail := "compacting conversation"
 		if ev.Trigger == "auto" {
 			detail = "auto-compacting · context full"
 		}
 		e.A.Activity = &model.Activity{Tool: CompactTool, Detail: detail}
-		e.CompactManual = ev.Trigger == "manual"
 	case "SessionStart":
 		if ev.Source == "compact" {
 			if !EndCompact(e) {
@@ -167,18 +172,65 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 	return true, false
 }
 
-// EndCompact clears a running compaction: a /compact you typed leaves the
-// agent idle (it was waiting for you before), an auto-compact goes on working.
+// EndCompact clears a running compaction: one that started between turns
+// leaves the agent idle (it was waiting for you before), one in the middle of
+// a turn goes on working.
 func EndCompact(e *store.Entry) bool {
 	if e.A.Activity == nil || e.A.Activity.Tool != CompactTool {
 		return false
 	}
-	if e.CompactManual {
+	if e.CompactToIdle {
 		e.SetStatus(model.Idle)
 	} else {
 		e.A.Activity = nil
 	}
-	e.CompactManual = false
+	e.CompactToIdle = false
+	return true
+}
+
+// SettleAfter is how long an agent whose transcript shows its turn over can
+// still show as working: time for the Stop hook to arrive, and for a prompt
+// the hooks just reported to reach the transcript.
+const SettleAfter = 30 * time.Second
+
+// compactLimit is how long a compaction is left to report its own end.
+const compactLimit = 10 * time.Minute
+
+// Settle ends a turn the hooks never reported as ended, from the transcript:
+// a turn interrupted with Esc (no hook runs for that), a Stop hook lost while
+// the service restarted, a command that ran no turn, a status replayed from
+// old transcript lines. It goes by where the turn stands, not by how long it
+// has been quiet: an agent in a long tool call or a long think has an open
+// turn and stays working. A question or permission prompt ends the same way
+// once the turn is over after it came up (refused or interrupted in the
+// terminal). It reports whether the agent changed.
+func Settle(e *store.Entry, now time.Time) bool {
+	if e.Transcript == "" || e.Background {
+		return false
+	}
+	switch e.A.Status {
+	case model.Running:
+		since := now.Sub(e.A.StatusSince)
+		compacting := e.A.Activity != nil && e.A.Activity.Tool == CompactTool
+		if since < SettleAfter || compacting && since < compactLimit {
+			return false
+		}
+	case model.Waiting:
+	default:
+		return false
+	}
+	t, ok := ReadTurn(e.Transcript)
+	if !ok || !t.Over {
+		return false
+	}
+	if e.A.Status == model.Running && now.Sub(t.At) < SettleAfter {
+		return false // the Stop hook may be on its way
+	}
+	if e.A.Status == model.Waiting && !t.At.After(e.A.StatusSince) {
+		return false // the turn that ended is an older one
+	}
+	e.SetStatus(model.Idle)
+	e.CompactToIdle = false
 	return true
 }
 

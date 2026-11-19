@@ -25,7 +25,7 @@ type Entry struct {
 	CustomTitle   string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
 	External      bool        `json:"-"`                  // mirrored from another app (Codex, Orca, herdr, cmux); never persisted
 	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
-	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
+	CompactToIdle bool        `json:"-"`                  // the running compaction started between turns: idle again after it
 	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
 	LiveAttach    string      `json:"-"`                  // a watched background session: its `claude attach` id
 	OrcaTerminal  string      `json:"-"`                  // an agent in Orca: its terminal handle
