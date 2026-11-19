@@ -19,6 +19,13 @@ Color agentToolColor(String tool) => switch (tool) {
 const agentsEmptyFill = Color(0xFF0B0B0B);
 const agentsEmptyOutline = Color(0xFF262622);
 
+/// The "Needs you" screen: a warm tint behind it, an accent frame round it,
+/// and faint accent outlines where an agent's spot is empty.
+const attentionTint = Color(0xFF1A0F09);
+const attentionFrame = Color(0x99FF4D00);
+const attentionSpotFill = Color(0xFF140C08);
+const attentionSpotOutline = Color(0x3DFF4D00);
+
 /// Focused tile fills: a step lighter than [DeckHud.panel] / [DeckHud.accent].
 const agentsFocusedFill = Color(0xFF24241F);
 const agentsFocusedAccent = Color(0xFFFF6A26);

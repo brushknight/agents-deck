@@ -10,6 +10,8 @@ export 'src/agents_demo_state.dart';
 export 'src/agents_fake.dart';
 export 'src/agents_model.dart';
 export 'src/agents_style.dart';
+export 'src/attention.dart';
+export 'src/attention_screen.dart';
 export 'src/critter.dart';
 export 'src/hats.dart';
 export 'src/live_picker.dart';

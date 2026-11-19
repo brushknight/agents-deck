@@ -831,9 +831,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('16 agents or fewer: one page, no bars', (tester) async {
+  testWidgets('16 agents or fewer: one page bar after the "Needs you" mark', (
+    tester,
+  ) async {
     await _pumpApp(tester, FakeAgentsSource.demo());
-    expect(find.byKey(const Key('agents-pager')), findsNothing);
+    expect(find.byKey(const Key('agents-pager')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-attention')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-0')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-1')), findsNothing);
   });
 
   testWidgets('the tile chip takes the account colour', (tester) async {
