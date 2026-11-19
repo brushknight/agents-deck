@@ -233,7 +233,10 @@ func (d *Daemon) subagents(e *store.Entry) bool {
 	if e.A.Status != model.Running {
 		e.Background = false
 	}
-	subs := claude.Subagents(e.Transcript, 2*time.Minute, 30*time.Minute)
+	// A subagent that wrote anything in the last half hour and hasn't given
+	// its final reply is working: one writing a long reply or waiting on a
+	// long command is quiet for many minutes.
+	subs := claude.Subagents(e.Transcript, 30*time.Minute, 30*time.Minute)
 	changed := !slices.Equal(subs, e.A.Subagents)
 	e.A.Subagents = subs
 	switch {
@@ -243,6 +246,7 @@ func (d *Daemon) subagents(e *store.Entry) bool {
 		changed = true
 	case len(subs) == 0 && e.Background:
 		e.SetStatus(model.Idle)
+		e.A.Unseen = true // its subagents finished: it has something to show
 		e.Background = false
 		changed = true
 	}
