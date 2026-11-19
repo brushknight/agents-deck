@@ -53,6 +53,16 @@ void main() {
     return spots;
   }
 
+  /// The demo fleet with everyone already looked at, so only the agents
+  /// working or asking are on the screen.
+  FakeAgentsSource seenDemo() {
+    final json = FakeAgentsSource.demo().toJson();
+    for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
+      a['unseen'] = false;
+    }
+    return FakeAgentsSource.fromState(json);
+  }
+
   final screen = find.byKey(const Key('attention-screen'));
   Finder tile(String id) => find.byKey(ValueKey('attention-tile-$id'));
 
@@ -96,7 +106,7 @@ void main() {
   testWidgets('opens on the normal deck, with a count of who needs you', (
     tester,
   ) async {
-    await pump(tester, FakeAgentsSource.demo());
+    await pump(tester, seenDemo());
     expect(screen, findsNothing);
     expect(find.byType(AgentTile), findsNWidgets(11));
     expect(find.byKey(const Key('attention-screen')), findsNothing);
@@ -107,7 +117,7 @@ void main() {
   testWidgets('swipe right reaches "Needs you"; swipe left comes back', (
     tester,
   ) async {
-    await pump(tester, FakeAgentsSource.demo());
+    await pump(tester, seenDemo());
     await swipeToAttention(tester);
     expect(screen, findsOneWidget);
     expect(find.byKey(const Key('attention-screen')), findsOneWidget);
@@ -135,7 +145,7 @@ void main() {
   testWidgets('the left arrow, the count and a scroll get there too', (
     tester,
   ) async {
-    await pump(tester, FakeAgentsSource.demo());
+    await pump(tester, seenDemo());
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pumpAndSettle();
     expect(screen, findsOneWidget);
@@ -165,7 +175,7 @@ void main() {
   testWidgets('a card opens from the "Needs you" screen as on the deck', (
     tester,
   ) async {
-    await pump(tester, FakeAgentsSource.demo());
+    await pump(tester, seenDemo());
     await swipeToAttention(tester);
     await tester.tap(tile('k3f9a2'));
     await tester.pump(const Duration(milliseconds: 100));
@@ -177,7 +187,7 @@ void main() {
   testWidgets('a finished agent stays 5 s, then its spot is left empty', (
     tester,
   ) async {
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     await pump(tester, source);
     await swipeToAttention(tester);
     final where = {for (final id in busy) id: tester.getTopLeft(tile(id))};
@@ -211,7 +221,7 @@ void main() {
   testWidgets('back to work inside 5 s: it never leaves its spot', (
     tester,
   ) async {
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     await pump(tester, source);
     await swipeToAttention(tester);
     final at = tester.getTopLeft(tile('t3st5a'));
@@ -228,7 +238,7 @@ void main() {
   testWidgets('sticky spots: back to its own spot, else a free one', (
     tester,
   ) async {
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     final spots = await pump(tester, source);
     await swipeToAttention(tester);
     expect(spots.spotOf('t3st5a'), 2);
@@ -264,7 +274,7 @@ void main() {
   testWidgets('full: 16 spots and "+N more"; a freed spot seats the next', (
     tester,
   ) async {
-    final fixture = FakeAgentsSource.demo().toJson();
+    final fixture = seenDemo().toJson();
     final base = (fixture['agents'] as List).cast<Map<String, dynamic>>();
     final agents = [
       for (var i = 0; i < 20; i++)
@@ -302,7 +312,7 @@ void main() {
   testWidgets('nobody working or asking: a plain empty screen, no count', (
     tester,
   ) async {
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     source.load(withStatus(source, busy, 'idle'));
     await pump(tester, source);
     expect(find.byKey(const Key('agents-attention-count')), findsNothing);
@@ -312,7 +322,7 @@ void main() {
   });
 
   testWidgets('the leave timer stops with the board', (tester) async {
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     await pump(tester, source);
     source.load(withStatus(source, ['t3st5a'], 'idle'));
     await tester.pump();
@@ -326,7 +336,7 @@ void main() {
     tester.view.physicalSize = const Size(720, 720);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    final source = FakeAgentsSource.demo();
+    final source = seenDemo();
     Widget app() => MaterialApp(
       home: Scaffold(body: AgentsApp(source: source, animate: false)),
     );

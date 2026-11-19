@@ -15,6 +15,11 @@ bool wantsAttention(AgentStatus s) =>
     s == AgentStatus.running ||
     s == AgentStatus.waiting;
 
+/// Who is on the "Needs you" screen: an agent that is working or asking,
+/// and one that finished a turn you haven't looked at yet (hungry). It
+/// stays until you check it.
+bool onNeedsYou(Agent a) => wantsAttention(a.status) || a.hungry;
+
 /// The spots of the "Needs you" screen.
 ///
 /// - An agent joins while [wantsAttention]; once it stops, it stays for
@@ -129,7 +134,7 @@ class AttentionSpots {
 
   /// [update] from a fleet state, in slot order.
   bool updateFrom(AgentsState state) =>
-      update([for (final a in state.agents) (a.id, wantsAttention(a.status))]);
+      update([for (final a in state.agents) (a.id, onNeedsYou(a))]);
 
   /// Lets lingering agents whose time is up leave. True when anything
   /// changed.

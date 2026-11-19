@@ -159,3 +159,20 @@ test('no room at all', () => {
   assert.deepEqual(r.spots, []);
   assert.equal(r.more, 1);
 });
+
+test('finished and not looked at yet (hungry): stays until you check it', () => {
+  assert.ok(wantsYou({ status: 'idle', unseen: true }));
+  assert.ok(!wantsYou({ status: 'idle', unseen: false }));
+  const hungry = [{ id: 'a', status: 'idle', unseen: true }, { id: 'b', status: 'running' }];
+  // Long after it finished, it is still in its spot.
+  let r = run([[ag({ a: 'running', b: 'running' }), 16, 0], [hungry, 16, 1000], [hungry, 16, 10 * 60 * 1000]]);
+  assert.deepEqual(r.spots.slice(0, 2), ['a', 'b']);
+  // Checked: it leaves 5 seconds later, and b does not move.
+  const seen = [{ id: 'a', status: 'idle', unseen: false }, { id: 'b', status: 'running' }];
+  const t = 10 * 60 * 1000;
+  let state = r.state;
+  r = arrange(state, seen, 16, t + 1000, never); state = r.state;
+  assert.deepEqual(r.spots.slice(0, 2), ['a', 'b']);
+  r = arrange(state, seen, 16, t + 1000 + LINGER_MS, never);
+  assert.deepEqual(r.spots.slice(0, 2), [null, 'b']);
+});

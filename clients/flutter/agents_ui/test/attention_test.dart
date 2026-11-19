@@ -233,10 +233,23 @@ void main() {
     final s = spots(16)..updateFrom(state);
     final want = [
       for (final a in state.agents)
-        if (wantsAttention(a.status)) a.id,
+        if (onNeedsYou(a)) a.id,
     ];
     expect(s.spots.whereType<String>().toList(), want);
     expect(s.count, want.length);
     source.dispose();
   });
+
+  test(
+    'finished and not looked at yet (hungry): on the screen until checked',
+    () {
+      Agent a(AgentStatus status, {bool unseen = false}) =>
+          Agent(id: 'a', slot: 0, title: 'a', status: status, unseen: unseen);
+      expect(onNeedsYou(a(AgentStatus.running)), isTrue);
+      expect(onNeedsYou(a(AgentStatus.waiting)), isTrue);
+      expect(onNeedsYou(a(AgentStatus.idle, unseen: true)), isTrue);
+      expect(onNeedsYou(a(AgentStatus.idle)), isFalse);
+      expect(onNeedsYou(a(AgentStatus.exited, unseen: true)), isFalse);
+    },
+  );
 }

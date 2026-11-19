@@ -11,7 +11,8 @@
 
 export const LINGER_MS = 5000;
 
-export const wantsYou = (a) => a.status === 'running' || a.status === 'starting' || a.status === 'waiting';
+export const wantsYou = (a) => a.status === 'running' || a.status === 'starting' || a.status === 'waiting'
+  || (a.status === 'idle' && !!a.unseen); // finished, not looked at yet (hungry): stays until you check it
 
 // arrange(prev, agents, capacity, now, rand) -> { state, spots, more, count, wake }
 //   prev      the previous state (or {}); only prev.memory needs to survive a reload
