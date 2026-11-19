@@ -29,7 +29,7 @@ on your desk.
 
 - **A Mac, a Linux PC or a Windows PC.** macOS 13 or later (Apple Silicon or Intel); Linux on x64 or
   arm64 with a desktop that shows tray icons; Windows 10 or 11, 64-bit, as a
-  [preview](#what-works-where).
+  [preview](#what-works-where) that hasn't been tried on a real Windows PC yet.
 - **Claude Code or Codex**, however you like to run them.
 - **Optional: a board.** One of the [displays below](#pick-a-display) and a USB-C cable that carries
   data. No soldering, no wiring: the screen, touch and USB are all on the board.
@@ -48,7 +48,8 @@ on your desk.
 
 The app brings everything with it and starts it when you log in. A critter appears in the menu bar
 (the system tray on Linux); click it and the deck opens. On Windows, for now, **agents deck** in the
-Start menu opens the deck in your browser. Agents you already run in Claude Code, Codex, Orca, herdr
+Start menu opens the deck in your browser: the Windows installer brings the service and `agentctl`,
+with no tray app yet. Agents you already run in Claude Code, Codex, Orca, herdr
 or cmux show up on it right away. The gear under the deck opens **Settings**.
 
 **2. Plug in a board** (optional). Open Settings, **Boards**: a new board on USB shows up there.
@@ -168,7 +169,7 @@ screen) when you first set it up, and removing it in Settings, Boards cuts it of
 | boards over Bluetooth | yes (the app) | not yet | not yet |
 | start agents with `agentctl new`, restore after a restart | yes (needs tmux) | yes (needs tmux) | not yet: needs tmux |
 | jump to the agent's terminal | iTerm2, Orca, cmux, Codex app | where the harness supports it | not yet |
-| updates itself | yes | yes (the `.deb` tells you; your package manager installs) | yes |
+| updates itself | yes | yes (the `.deb` tells you; your package manager installs) | yes, when installed with the installer (the `.zip` tells you) |
 | signed by the platform | notarized by Apple, once the project's certificate is set up | no platform signing | not yet: SmartScreen warns |
 
 Every release, on every platform, also carries our own signature, and agents deck installs no update

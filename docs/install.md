@@ -74,14 +74,24 @@ Anyway**. The release notes say whether a release is notarized.
 
 **You need** Windows 10 or 11, 64-bit (x64).
 
-**This is a preview.** On Windows the service runs, sees your Claude Code and Codex sessions, and
-drives boards on USB and Wi-Fi, including flashing them. What's missing:
+**This is a preview, not yet tried on a real Windows PC.** The Windows build is made and checked
+on other systems only, so expect rough edges, and please
+[report what you find](https://github.com/brushknight/agents-deck/issues). On Windows the service
+runs, sees your Claude Code and Codex sessions, and drives boards on USB and Wi-Fi, including
+flashing them.
+
+**What the installer puts on your PC:** `agentctl.exe` only, which is the service and the command
+line in one file, a Start menu entry that opens the deck in your browser, and (if you leave it
+ticked) a startup entry that starts the service when you log in. It has no tray or desktop app.
+
+What's missing:
 
 - **No tray icon yet.** The deck and Settings open in your browser, from the Start menu. The Windows
   version of the menu bar app comes later.
 - **No starting agents.** `agentctl new` and restoring agents after a restart run agents in tmux,
   which Windows doesn't have. Agents you start yourself, in any terminal, show up on the deck.
 - **No jump to the agent's terminal** from the deck.
+- **No boards over Bluetooth.** Boards on USB and Wi-Fi work.
 - **Answering a prompt** from the deck works where the tool has hooks for it.
 
 **Download** `agents-deck_<version>_windows_amd64_setup.exe`.
@@ -214,7 +224,9 @@ curl -fsSL https://raw.githubusercontent.com/brushknight/agents-deck/main/instal
 It downloads the latest release, checks it against the release's checksums (and its signature, once
 an `agentctl` that can check it is installed), puts `agentctl` in `~/.local/bin`, and starts the
 service at login. Add `--app` for the app as well, `--version v0.2.0` for a given release. On Windows,
-`agentctl_<version>_windows_amd64.zip` holds `agentctl.exe` on its own.
+`agentctl_<version>_windows_amd64.zip` holds `agentctl.exe` on its own. Copied out by hand, it
+doesn't update itself: Settings, Updates says when a new version is out, and you download it again
+(or use the installer, which updates itself).
 
 From a clone, `./install.sh --source` builds the same from the code (Go 1.24+; Flutter 3.44+ for
 `--app`). A build from source never updates itself.
