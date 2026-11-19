@@ -24,7 +24,7 @@
 //   Wi-Fi   on Wi-Fi a small mark at the right of the page bars' row, which
 //           then stays with one page too
 //   attn    the "Needs you" screen (attention.h), one page left of the first:
-//           the same grid, spot by spot; its mark sits at the left of the
+//           the same grid, the deck's spot n in cell n; its mark sits at the left of the
 //           page bars (whose row then stays with one page too)
 //
 // Back: swipe right, or BOOT. Pure C++ (no Arduino).

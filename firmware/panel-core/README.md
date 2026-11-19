@@ -22,7 +22,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/deck_model.h` | Deck Link frames (from the [kit](../deck-link)) into the `Fleet`; Hello and Subscribe |
 | `src/model.h` | `Fleet`, `Agent`, `LinkState` |
 | `src/view.h` | hero choice, button hold, poses, status and activity lines |
-| `src/attention.h` | the "Needs you" screen's spots: who is on it, the 5 s linger, sticky spots (host-tested, no display code) |
+| `src/attention.h` | the "Needs you" screen: the deck's spots in this screen's cells (host-tested, no display code) |
 | `src/canvas.h`, `src/font_data.h` | an RGB565 framebuffer; Roboto Mono in five sizes (`tools/make_font.py`) |
 | `src/font_square.h` | the square boards' 16, 22, 24 and 28 px sizes (`tools/make_font_square.py`) |
 | `src/sprites.h` | the critters (block and onigiri), 16 poses, 13 hats, at any whole-number scale |
@@ -71,23 +71,24 @@ swipes, drags round the rim, the stop hold, the timeout, a new waiting agent). I
 
 ## Needs you
 
-The square boards have the deck's "Needs you" screen (docs/features.md) with the web dashboard's
-rules (`backend/internal/web/static/attention.js`, case for case in `tests/test_attention.cpp`): the
-agents at work (running, starting), asking (waiting) or finished and not looked at (idle and unseen),
-each for 5 s after it stops; sticky spots, a returning agent's old spot or a random free one (the
-chip's RNG), the rest waiting oldest first when it is full. `attention.h` keeps a fixed table of
-`kMaxAgents` entries (24 bytes each; 1.5 KB with 64 agents, in PSRAM on the grid boards) for as long
-as the board runs; agents that leave the fleet are forgotten, nothing goes to NVS. `attSync()` runs
-every frame but arranges only when the fleet's ids, order or "wants you" change, or a 5 s timer runs
-out. A layout gets it through `PanelUi::att` (`grid_app.h` allocates it; `nullptr` means no screen)
-and shows it while `PanelUi::needsYou`; the board starts with it off.
+The square boards have the deck's "Needs you" screen (docs/features.md). The deck decides who is on
+it and in which of its 16 spots (docs/protocol.md, "The Needs you grid"), and sends each agent's
+spot in `attention_slot`, so every board shows the same as the panel and the browser. `attention.h`
+only places them (`tests/test_attention.cpp`): on a 4×4 screen spot n goes in cell n; a screen with
+fewer cells shows the agents in order of their spot, lowest first, and leaves out the ones that
+don't fit (the count on the mark still includes them). An older deck sends no spots: then the agents
+that need you (running, starting, waiting, or idle and unseen) fill the cells in deck order, with no
+5 s stay. `attSync()` works it out every frame (one pass over the fleet). A layout gets it through
+`PanelUi::att` (`grid_app.h` allocates it; `nullptr` means no screen) and shows it while
+`PanelUi::needsYou`; the board starts with it off. The board keeps its `kMaxAgents` lowest slots, so
+an agent beyond those isn't shown or counted there.
 
 | layout | spots | getting there | where you are |
 |---|---|---|---|
-| `layout_big.h` (4″) | 4×4, a page's grid | swipe right (or down) on the first page, tap the mark, BOOT after the last page | a mark at the left of the page bars (`_PageBars`): solid orange there, an orange outline and the count while someone is on it; the bars' row now stays with one page |
-| `layout_square.h`, grid | a page's cells | the same | the same mark among the page bars |
-| `layout_square.h`, list (1.8″, T4-S3) | what the list shows at once: 2×2, 2×3; no scrolling | swipe right on the list, or BOOT; swipe left or BOOT back | two small marks at the top of the header |
-| `layout_147.h` (1.47″) | the mini-board's 8 cells | hold BOOT 0.7 s (a short press still shows the next agent) | a thin orange line over the mini-board |
+| `layout_big.h` (4″) | 4×4, the deck's spots as they are | swipe right (or down) on the first page, tap the mark, BOOT after the last page | a mark at the left of the page bars (`_PageBars`): solid orange there, an orange outline and the count while someone is on it; the bars' row now stays with one page |
+| `layout_square.h`, grid | a page's cells (4×4: as they are; fewer: lowest spots first) | the same | the same mark among the page bars |
+| `layout_square.h`, list (1.8″, T4-S3) | what the list shows at once: 2×2, 2×3, lowest spots first; no scrolling | swipe right on the list, or BOOT; swipe left or BOOT back | two small marks at the top of the header |
+| `layout_147.h` (1.47″) | the mini-board's 8 cells, lowest spots first | hold BOOT 0.7 s (a short press still shows the next agent) | a thin orange line over the mini-board |
 
 A tile there does what it does on any page. The round boards (spring carousel, Orbit, Dial) don't
 have it: their home is a ring with no first page to sit left of.

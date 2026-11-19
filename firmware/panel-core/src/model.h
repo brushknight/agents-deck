@@ -70,6 +70,7 @@ enum class ToolKind : uint8_t { Other, Claude, Codex, Gemini };
 struct Agent {
   char id[12];              // Deck Link ids are at most 11 bytes (link.options)
   uint8_t slot;
+  uint8_t attnSlot;         // its spot on the deck's "Needs you" grid, 1..16; 0 = not there (attention.h)
   char title[40];
   char aiTitle[56];
   Species species;

@@ -295,6 +295,7 @@ int main() {
     att = Attention();
     Fleet f = fleetOf({mk("a", 0, Status::Idle), mk("w", 5, Status::Waiting), mk("r", 9, Status::Running),
                        mk("z", 20, Status::Running)});
+    f.agents[1].attnSlot = 1, f.agents[2].attnSlot = 2, f.agents[3].attnSlot = 3;   // the deck's spots
     PanelUi ui;
     ui.att = &att;
     bigTick(ui, f, 0);
@@ -306,7 +307,7 @@ int main() {
     assert(g1.bars.w == S.w && g1.cell == g1.cellH);
     const BigBars b1 = bigBars(S, g1, ui, 1);
     assert(b1.n == 2 && b1.mark && b1.r[0].x + b1.r[0].w < b1.r[1].x);
-    // Swipe right on the first page: the screen; spots in deck order the first time.
+    // Swipe right on the first page: the screen, spot n in cell n.
     const BigGrid g = bigGridFor(S, ui, 2);
     bigTouch(ui, S, f, true, 100, 200, DeckScope::Act, 100);
     bigTouch(ui, S, f, true, 250, 205, DeckScope::Act, 150);
@@ -324,12 +325,17 @@ int main() {
     assert(ui.screen == Screen::Prompt && !strcmp(ui.openId, "w"));
     bigButton(ui, f);
     assert(ui.screen == Screen::Home && ui.needsYou);
-    // r stops: it keeps its spot 5 s, and nobody moves up after.
+    // r stops and the deck lets it go: its cell is free, nobody moves up.
     f.agents[2].status = Status::Idle;
+    f.agents[2].attnSlot = 0;
     bigTick(ui, f, 1000);
-    assert(attAgent(att, f, 1) == 2);
-    bigTick(ui, f, 1000 + kAttLingerMs);
     assert(attAgent(att, f, 1) == -1 && attAgent(att, f, 2) == 3);
+    // The deck puts z in spot 16: the last cell.
+    f.agents[3].attnSlot = 16;
+    bigTick(ui, f, 1100);
+    assert(attAgent(att, f, 2) == -1 && attAgent(att, f, 15) == 3);
+    f.agents[3].attnSlot = 3;
+    bigTick(ui, f, 1200);
     // The mark: here, the widest; tap a page bar to leave, tap the mark to come back.
     BigBars b = bigBars(S, g, ui, 2);
     assert(b.n == 3 && b.r[0].w == bk(S, 56) && b.r[1].w == bk(S, 30) && b.countX < 0);

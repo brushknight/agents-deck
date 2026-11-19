@@ -71,6 +71,7 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   memset(&a, 0, sizeof a);
   copyLine(a.id, sizeof a.id, in.id);
   a.slot = in.slot > 255 ? 255 : (uint8_t)in.slot;
+  a.attnSlot = in.attention_slot > 16 ? 0 : (uint8_t)in.attention_slot;
   copyLine(a.title, sizeof a.title, in.title);
   copyLine(a.aiTitle, sizeof a.aiTitle, in.ai_title);
   a.species = in.tool == agentsdeck_link_v1_Tool_TOOL_CODEX ? Species::Codex : Species::Claude;

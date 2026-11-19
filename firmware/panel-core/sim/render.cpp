@@ -120,7 +120,15 @@ static void needsYouShots(Shot shot, Tick tick, PanelInput& in, PanelUi& ui, con
   static Attention att;
   att = Attention();
   ui.att = &att;
-  const Fleet& f = deck.fleet;
+  // The deck's spots: the ones that need you, in deck order (as a deck that
+  // just started would give them).
+  static DeckFleet spots;
+  spots = deck;
+  for (int i = 0, n = 0; i < spots.fleet.count; i++)
+    spots.fleet.agents[i].attnSlot = wantsYou(spots.fleet.agents[i]) && n < kAttMaxSpots ? (uint8_t)++n : 0;
+  const Fleet& f = spots.fleet;
+  const PanelInput keep = in;
+  in.fleet = &f;
   tick(f, ms);
   shot("needs-you-home");
   ui.needsYou = true;
@@ -129,17 +137,17 @@ static void needsYouShots(Shot shot, Tick tick, PanelInput& in, PanelUi& ui, con
   shot("needs-you-wifi");
   ui.wifi = false;
   static DeckFleet gap;
-  gap = deck;
+  gap = spots;
   const int i = attAgent(att, f, 1);
-  if (i >= 0) {
+  if (i >= 0) {                                    // it stopped, and the deck let it go: the spot stays free
     gap.fleet.agents[i].status = Status::Idle;
     gap.fleet.agents[i].unseen = false;
+    gap.fleet.agents[i].attnSlot = 0;
     tick(gap.fleet, ms + 1);
-    tick(gap.fleet, ms + 1 + kAttLingerMs);
     in.fleet = &gap.fleet;
     shot("needs-you-gap");
-    in.fleet = &f;
   }
+  in = keep;
   ui.needsYou = false;
   ui.att = nullptr;
 }

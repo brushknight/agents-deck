@@ -58,8 +58,8 @@ struct PanelUi {
   int page = 0;                // grid homes: the page
 
   // The "Needs you" screen (attention.h), one step left of the first page:
-  // its spots, kept by the firmware for as long as the board runs (nullptr:
-  // a board without the screen), and whether home shows it now.
+  // the deck's spots in this screen's cells (nullptr: a board without the
+  // screen), and whether home shows it now.
   Attention* att = nullptr;
   bool needsYou = false;
 

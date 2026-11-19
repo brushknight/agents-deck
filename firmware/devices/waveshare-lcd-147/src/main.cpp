@@ -33,7 +33,7 @@ static Canvas canvas{frame, kScreenW, kScreenH};
 static DeckLink deck;
 static DeckFleet deckFleet;           // the fleet, kept current from Deck Link frames
 static ViewState view;
-static Attention att;                 // the "Needs you" spots (attention.h), for as long as the board runs
+static Attention att;                 // the "Needs you" screen (attention.h): the deck's spots, packed into 2 x 4
 static bool needsYou = false;         // the mini-board shows them (hold the button)
 static char deviceName[40] = "";      // the board's name on the deck, from Welcome
 
@@ -150,7 +150,6 @@ void setup() {
   Serial.setRxBufferSize(16384);
   Serial.begin(115200);                                   // native USB: the rate is ignored
   pinMode(PIN_BOOT, INPUT_PULLUP);
-  att.rand = [] { return esp_random() / 4294967296.0; };   // the chip's hardware RNG
   pinMode(PIN_LCD_BL, OUTPUT);
   analogWrite(PIN_LCD_BL, BL_ACTIVE);
   setLed(0, 0, 0);

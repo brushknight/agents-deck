@@ -53,9 +53,6 @@ static bool moving = false;               // the layout animates: draw at full r
 static uint32_t lastActiveMs = 0;
 static uint32_t lastHeardMs = 0;          // the last frame from the deck
 
-// The "Needs you" screen's random free spot: the chip's hardware RNG.
-static double hwRandom() { return esp_random() / 4294967296.0; }
-
 // The link the screen follows: USB, or Wi-Fi once that is up (net_link.h).
 static deck_link_t* link() { return net_link::active(); }
 
@@ -216,12 +213,11 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   if (!fm) fm = calloc(1, sizeof(DeckFleet));
   fleet = new (fm) DeckFleet();
   frame = (uint16_t*)heap_caps_calloc((size_t)W * H, 2, MALLOC_CAP_SPIRAM);
-  // The "Needs you" spots (attention.h): one fixed table for the board's life, in PSRAM.
+  // The "Needs you" screen (attention.h): the deck's spots as this board draws them, in PSRAM.
   void* am = heap_caps_calloc(1, sizeof(Attention), MALLOC_CAP_SPIRAM);
   if (!am) am = calloc(1, sizeof(Attention));
   if (am) {
     ui.att = new (am) Attention();
-    ui.att->rand = hwRandom;
   }
   canvas = Canvas{frame, W, H};
 

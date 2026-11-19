@@ -3,7 +3,7 @@
 // are on the screen: a hero panel on the left (one agent, with details) and
 // a 2 x 4 mini-board of the fleet on the right. Holding the button swaps the
 // mini-board for the "Needs you" screen (attention.h): the same 2 x 4 cells,
-// spot by spot, under a thin orange line.
+// the deck's lowest spots first, under a thin orange line.
 #include <stdio.h>
 #include <string.h>
 

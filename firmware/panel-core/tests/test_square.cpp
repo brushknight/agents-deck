@@ -260,6 +260,29 @@ int main() {
     assert(orange2 > 0 && orange2 < orange);                     // the outline: someone is there
   }
 
+  // ---- the deck's spots on the list screen: lowest spot first, the rest not
+  // shown but counted (the fleet above had none: an older deck, deck order)
+  {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(6);
+    f.agents[1].status = Status::Running, f.agents[1].attnSlot = 9;
+    f.agents[2].status = Status::Running, f.agents[2].attnSlot = 14;
+    f.agents[3].status = Status::Running, f.agents[3].attnSlot = 5;
+    f.agents[4].status = Status::Waiting, f.agents[4].attnSlot = 2;
+    f.agents[5].unseen = true, f.agents[5].attnSlot = 1;
+    PanelUi ui;
+    ui.att = &att;
+    squareTick(ui, A, f, 0);
+    assert(att.cap == 4 && att.count == 5 && att.fromDeck);
+    ui.needsYou = true;
+    int want[4] = {5, 4, 3, 1};
+    for (int k = 0; k < 4; k++) {
+      const Rect r = listTile(A, k, 0);
+      assert(squareHit(A, ui, f, r.x + 5, r.y + 5, DeckScope::Act).agent == want[k]);
+    }
+  }
+
   // ---- the "Needs you" screen on the grid: left of the first page, the mark at the left of the bars
   {
     static Attention att;
