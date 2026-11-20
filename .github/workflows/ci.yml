@@ -183,7 +183,16 @@ jobs:
             CGO_ENABLED=0 GOOS=darwin GOARCH=$a go build -ldflags "-X main.version=0.0.0-ci" -o "../build/agentctl-$a" ./cmd/agentctl
           done)
           lipo -create -output build/agentctl build/agentctl-arm64 build/agentctl-amd64
-          (cd clients/macos && flutter pub get && flutter build macos --release)
+          # Both architectures, as the release builds it (Release.xcconfig says Apple Silicon only
+          # for Xcode 27 on a developer's Mac); Apple Silicon alone if that fails.
+          cd clients/macos && flutter pub get
+          cfg=macos/Runner/Configs/Release.xcconfig
+          sed -i "" "/^ARCHS = arm64$/d" "$cfg"
+          if ! flutter build macos --release; then
+            echo "::warning::the universal build failed: building for Apple Silicon only"
+            git checkout -- "$cfg"
+            flutter build macos --release
+          fi
       - name: Bluetooth helper (deck-ble), its tests, then the universal release build
         working-directory: clients/ble/macos
         run: |
