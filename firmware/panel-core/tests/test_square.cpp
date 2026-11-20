@@ -579,11 +579,29 @@ int main() {
 
     DeckCommand c = touchAt(L, ui, f, ba.cx[0], ba.cy, 0, DeckScope::Act);
     assert(c.cmd == DeckCmd::Focus && !strcmp(c.agent, "a0"));
+    // The whole band under the rule answers, split left and right: a corner of the glass is focus.
+    c = touchAt(L, ui, f, 2, L.h - 2, 50, DeckScope::Act);
+    assert(c.cmd == DeckCmd::Focus);
+    // Interrupt asks first; cancel sends nothing, interrupt sends it.
     c = touchAt(L, ui, f, ba.cx[1], ba.cy, 100, DeckScope::Act);
-    assert(c.cmd == DeckCmd::Interrupt);
-    // Stop with scope act: not there (a tap where it would be does nothing).
+    assert(c.cmd == DeckCmd::None && ui.confirm);
+    {
+      const ConfirmGeom g = confirmGeom(L);
+      c = touchAt(L, ui, f, 4, g.titleY + 4, 110, DeckScope::Act);           // the sheet itself: nothing
+      assert(c.cmd == DeckCmd::None && ui.confirm);
+      c = touchAt(L, ui, f, g.no.x + g.no.w / 2, g.no.y + g.no.h / 2, 120, DeckScope::Act);
+      assert(c.cmd == DeckCmd::None && !ui.confirm);
+      touchAt(L, ui, f, ba.cx[1], ba.cy, 130, DeckScope::Act);
+      squareButton(ui, L, f);                                             // BOOT cancels too
+      assert(!ui.confirm && ui.screen == Screen::Card);
+      touchAt(L, ui, f, ba.cx[1], ba.cy, 140, DeckScope::Act);
+      c = touchAt(L, ui, f, g.yes.x + g.yes.w / 2, g.yes.y + g.yes.h / 2, 150, DeckScope::Act);
+      assert(c.cmd == DeckCmd::Interrupt && !ui.confirm);
+    }
+    // Stop with scope act: not there (where it would be is interrupt's half, which asks).
     c = touchAt(L, ui, f, b.cx[2], b.cy, 200, DeckScope::Act);
     assert(c.cmd == DeckCmd::None);
+    ui.confirm = false;
     // Admin: a short tap says to hold; holding 1 s sends Dismiss, once.
     c = touchAt(L, ui, f, b.cx[2], b.cy, 300, DeckScope::Admin, 300);
     assert(c.cmd == DeckCmd::None && !strcmp(ui.toast, "hold to stop"));

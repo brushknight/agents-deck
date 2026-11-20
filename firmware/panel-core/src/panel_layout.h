@@ -54,7 +54,8 @@ enum class Screen : uint8_t { Home, Card, Prompt };
 
 // What lies under a point.
 // NeedsYou: the "Needs you" screen's mark among the page bars.
-enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume, NeedsYou };
+// ConfirmYes, ConfirmNo: the two buttons of "interrupt?" over a card.
+enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume, NeedsYou, ConfirmYes, ConfirmNo };
 
 struct PanelHit {
   Hit kind = Hit::None;
@@ -91,9 +92,10 @@ constexpr uint32_t kControlSettleMs = 220, kControlHoldMs = 1000;
 constexpr int kControlSlop = 6;
 // The panel stays under the finger (1: it moves as far as the finger does).
 constexpr float kControlPullGain = 1.0f;
-// Let go past this much of the way and it carries on: opening from shut, or
-// closing from open (a flick decides on its own).
-constexpr float kControlCommit = 0.2f;
+// Let go after the finger moved this far and the panel carries on: opening
+// from shut, or closing from open (a flick decides on its own). A distance on
+// the glass, the same on every board (ControlGeom::commitPx turns it into pixels).
+constexpr float kControlCommitMm = 5.f;
 
 struct ControlUi {
   float open = 0;              // 0 shut .. 1 fully down
@@ -116,6 +118,7 @@ static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || 
 struct PanelUi {
   Screen screen = Screen::Home;
   char openId[12] = "";        // the card's or the prompt's agent
+  bool confirm = false;        // square boards: "interrupt?" over the card, before it is sent
   int page = 0;                // grid homes: the page
 
   // The "Needs you" screen (attention.h), one step left of the first page:

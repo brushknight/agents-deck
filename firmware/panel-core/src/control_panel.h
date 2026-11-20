@@ -22,13 +22,17 @@ struct ControlGeom {
   Rect wifi, ble, link, restart;
   int factsY, factPitch, facts;
   int handleY;
+  int commitPx;                // kControlCommitMm on this glass
   const Font* name;
   const Font* label;
   const Font* small;
 };
 
-static inline ControlGeom controlGeom(int w, int h, int m) {
+// diagIn: the glass's diagonal in inches (0: unknown, then a fifth of the height).
+static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0) {
   ControlGeom g{};
+  const float ppi = diagIn > 0 ? sqrtf((float)(w * w + h * h)) / diagIn : 0;
+  g.commitPx = ppi > 0 ? (int)lroundf(kControlCommitMm / 25.4f * ppi) : h / 5;
   const bool big = h >= 560;   // the T4-S3
   g.w = w; g.h = h; g.m = m;
   g.pad = big ? 14 : 12;
@@ -121,10 +125,11 @@ static inline bool controlTouch(ControlUi& u, const ControlGeom& g, bool touchin
   if (u.pulling) {
     u.pulling = false;
     const bool fromOpen = u.open0 >= 0.5f;
+    const float moved = (u.open - u.open0) * (float)g.h / kControlPullGain;   // finger travel in pixels, down positive
     const bool open = u.velocity > 0.0008f    ? true
                       : u.velocity < -0.0008f ? false
-                      : fromOpen              ? u.open > 1.f - kControlCommit
-                                              : u.open > kControlCommit;
+                      : fromOpen              ? moved > -(float)g.commitPx
+                                              : moved > (float)g.commitPx;
     controlSettle(u, open, ms);
   } else {
     if (u.open < 0.99f) controlSettle(u, false, ms);   // a tap in the top strip: nothing to open

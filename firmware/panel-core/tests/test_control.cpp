@@ -45,7 +45,7 @@ int main() {
 
   // A short, slow pull springs back shut (a quick one is a flick: it opens).
   PanelUi s;
-  drag(L, s, 180, 10, 60, 60, ms);   // 50 px: under a fifth of the way
+  drag(L, s, 180, 10, 50, 60, ms);   // 40 px: under 5 mm (63 px on this glass)
   settle(L, s, ms);
   assert(s.ctl.open == 0.f && !controlShown(s.ctl));
 

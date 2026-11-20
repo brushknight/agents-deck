@@ -62,6 +62,7 @@ enum class HomeKind : uint8_t { Grid, List };
 struct SquareSpec {
   const char* name;
   int w, h, cornerR, m;        // panel, glass corner radius, margin
+  float diagIn;                // the glass's diagonal in inches: physical distances (the drawer's 5 mm)
   bool trueBlack;
   // Type: label / body / question / value / name.
   const Font *label, *body, *question, *value, *title;
@@ -90,7 +91,7 @@ struct SquareSpec {
 static inline SquareSpec specAmoled18() {
   SquareSpec s{};
   s.name = "amoled18";
-  s.w = 368; s.h = 448; s.cornerR = 44; s.m = 16; s.trueBlack = true;
+  s.w = 368; s.h = 448; s.cornerR = 44; s.m = 16; s.trueBlack = true; s.diagIn = 1.8f;
   s.label = &FONT_XL; s.body = &FONT_Q22; s.question = &FONT_Q24B; s.value = &FONT_Q28B; s.title = &FONT_Q28B;
   s.home = HomeKind::List; s.cols = 2; s.rows = 0; s.pad = 8; s.gap = 8; s.barsH = 0;
   s.tileW = 172; s.tileH = 192; s.headerH = 50;
@@ -111,7 +112,7 @@ static inline SquareSpec specAmoled18() {
 static inline SquareSpec specT4S3() {
   SquareSpec s = specAmoled18();
   s.name = "t4s3";
-  s.w = 450; s.h = 600; s.cornerR = 0;
+  s.w = 450; s.h = 600; s.cornerR = 0; s.diagIn = 2.41f;
   s.tileW = 213; s.tileH = 178;           // 2 x 3 on screen: 50 + 3 x 178 + 2 x 8 = 600
   s.tileScale = 6;                        // critters 108 x 78
   s.cardScale = 6; s.promptScale = 3; s.noticeScale = 7;
@@ -126,7 +127,7 @@ static inline SquareSpec specT4S3() {
 static inline SquareSpec specLcd4() {
   SquareSpec s{};
   s.name = "lcd4";
-  s.w = 480; s.h = 480; s.cornerR = 0; s.m = 24; s.trueBlack = false;
+  s.w = 480; s.h = 480; s.cornerR = 0; s.m = 24; s.trueBlack = false; s.diagIn = 4.0f;
   s.label = &FONT_Q16; s.body = &FONT_XL; s.question = &FONT_Q24B; s.value = &FONT_Q28B; s.title = &FONT_R30B;
   s.home = HomeKind::Grid; s.cols = 4; s.rows = 4; s.pad = 8; s.gap = 8; s.barsH = 30;
   s.tileW = 0; s.tileH = 0; s.headerH = 0;
@@ -439,6 +440,27 @@ static inline PromptGeom promptGeom(const SquareSpec& S, const Agent& a) {
 
 // ---------------------------------------------------------------- hit-testing
 
+// "Interrupt?" over a card: a sheet over its lower part with the question and
+// two wide buttons, one above the other (interrupt, orange; cancel under it),
+// so a stray tap can't stop an agent at work.
+struct ConfirmGeom {
+  Rect sheet, yes, no;
+  int titleY, lineY;
+};
+
+static inline ConfirmGeom confirmGeom(const SquareSpec& S) {
+  ConfirmGeom g{};
+  const bool big = S.h >= 560;
+  const int bh = big ? 78 : 64, gap = big ? 14 : 12, m = S.m + (S.cornerR ? S.cornerR / 3 : 8);
+  g.no = Rect{m, S.h - S.m - (S.cornerR ? S.cornerR / 2 : 12) - bh, S.w - 2 * m, bh};
+  g.yes = Rect{m, g.no.y - gap - bh, S.w - 2 * m, bh};
+  g.lineY = g.yes.y - (big ? 24 : 18) - S.body->cellH;
+  g.titleY = g.lineY - 4 - S.question->cellH;
+  g.sheet = Rect{0, g.titleY - (big ? 28 : 22), S.w, 0};
+  g.sheet.h = S.h - g.sheet.y;
+  return g;
+}
+
 static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const Fleet& f, int x, int y, DeckScope scope) {
   PanelHit h;
   if (ui.screen == Screen::Home) {
@@ -475,14 +497,22 @@ static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const F
   if (i < 0) return h;
   const Agent& a = f.agents[i];
   if (ui.screen == Screen::Card) {
+    if (ui.confirm) {                              // only its two buttons answer
+      const ConfirmGeom g = confirmGeom(S);
+      if (g.yes.contains(x, y)) { h.kind = Hit::ConfirmYes; h.agent = i; }
+      else if (g.no.contains(x, y)) { h.kind = Hit::ConfirmNo; h.agent = i; }
+      return h;
+    }
+    // The buttons answer for the whole band under the card's rule, split
+    // evenly between them left to right (a corner of the glass counts): the
+    // round buttons are drawn as they were.
     const CardButtons b = cardButtons(S, a, scope);
-    for (int k = 0; k < b.n; k++) {
-      const int dx = x - b.cx[k], dy = y - b.cy;
-      if (dx * dx + dy * dy <= (S.btnR + 4) * (S.btnR + 4)) {
-        h.kind = b.kind[k] == IconKind::Focus ? Hit::Focus : b.kind[k] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
-        h.agent = i;
-        return h;
-      }
+    if (b.n && y >= b.cy - S.btnR - 10) {
+      int k = x * b.n / S.w;
+      if (k < 0) k = 0;
+      if (k >= b.n) k = b.n - 1;
+      h.kind = b.kind[k] == IconKind::Focus ? Hit::Focus : b.kind[k] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
+      h.agent = i;
     }
     return h;
   }
@@ -506,6 +536,7 @@ static inline void squareOpen(PanelUi& ui, const Fleet& f, int i) {
 
 static inline void squareHome(PanelUi& ui) {
   ui.screen = Screen::Home;
+  ui.confirm = false;
   ui.openId[0] = '\0';
   ui.backAfterToast = false;
 }
@@ -550,9 +581,17 @@ static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Flee
       out = commandFor(DeckCmd::Focus, f.agents[h.agent]);
       uiToast(ui, "focus", ms, 1200);
       break;
-    case Hit::Interrupt:
+    case Hit::Interrupt:                           // asks first: interrupting loses the agent's turn
+      ui.confirm = true;
+      break;
+    case Hit::ConfirmYes:
+      ui.confirm = false;
+      if (f.agents[h.agent].status != Status::Running) { uiToast(ui, "not running any more", ms, 1500); break; }
       out = commandFor(DeckCmd::Interrupt, f.agents[h.agent]);
       uiToast(ui, "interrupted", ms, 1200);
+      break;
+    case Hit::ConfirmNo:
+      ui.confirm = false;
       break;
     case Hit::Stop:
       if (!ui.holdFired) uiToast(ui, "hold to stop", ms, 1500);
@@ -575,6 +614,7 @@ static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Flee
 }
 
 static inline void squareSwipe(PanelUi& ui, const SquareSpec& S, const Fleet& f, Swipe s) {
+  if (ui.confirm) return;                          // answer it first (or BOOT)
   if (ui.screen != Screen::Home) {
     if (s == Swipe::Right) squareHome(ui);
     return;
@@ -753,6 +793,7 @@ static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32
 // "Needs you" screen after the last one, then the first page again; on a
 // list, the "Needs you" screen and back.
 static inline void squareButton(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
+  if (ui.confirm) { ui.confirm = false; return; }   // BOOT is cancel first
   if (ui.screen != Screen::Home) { squareHome(ui); return; }
   if (ui.sliding || ui.slideAnim) {                // pressed while the pages slide: the page changes at once,
     ui.sliding = ui.slideAnim = false;             // and a finger still down does nothing more
@@ -1514,6 +1555,23 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
   }
 }
 
+// The sheet of "interrupt?" (confirmGeom), over the card.
+static inline void confirmSheet(Canvas& c, const SquareSpec& S, const Theme& T, const Agent& a, const PanelUi& ui) {
+  using namespace square_detail;
+  const ConfirmGeom g = confirmGeom(S);
+  c.rect(g.sheet.x, g.sheet.y, g.sheet.w, g.sheet.h, T.bg);
+  c.rect(0, g.sheet.y, S.w, 2, T.ringTrack);
+  // The agent, and what interrupting does; the orange button says the verb.
+  textCentered(c, *S.question, S.w / 2, g.titleY, a.title[0] ? a.title : a.id, T.ink, S.w - 2 * g.yes.x);
+  textCentered(c, *S.body, S.w / 2, g.lineY, "stops and waits for you", T.dim, S.w - 2 * g.yes.x);
+  const bool yesDown = ui.pressed.kind == Hit::ConfirmYes, noDown = ui.pressed.kind == Hit::ConfirmNo;
+  roundRect(c, g.yes.x, g.yes.y, g.yes.w, g.yes.h, g.yes.h / 2, yesDown ? T.focusedAccent : T.accent);
+  textCentered(c, *S.question, S.w / 2, g.yes.y + (g.yes.h - S.question->cellH) / 2 + 1, "interrupt", T.bg, g.yes.w - 24);
+  roundRect(c, g.no.x, g.no.y, g.no.w, g.no.h, g.no.h / 2, noDown ? T.ringTrack : T.panel);
+  roundFrame(c, g.no.x, g.no.y, g.no.w, g.no.h, g.no.h / 2, 2, T.ringTrack);
+  textCentered(c, *S.question, S.w / 2, g.no.y + (g.no.h - S.question->cellH) / 2 + 1, "cancel", T.ink, g.no.w - 24);
+}
+
 static inline void prompt(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, const Agent& a) {
   const bool perm = isPermission(a);
   const uint16_t bg = perm ? T.accent : T.bg;
@@ -1678,7 +1736,10 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   }
   const PanelUi& ui = *in.ui;
   const int open = ui.screen != Screen::Home ? findAgent(*in.fleet, ui.openId) : -1;
-  if (open >= 0 && ui.screen == Screen::Card) card(c, S, T, in, in.fleet->agents[open]);
+  if (open >= 0 && ui.screen == Screen::Card) {
+    card(c, S, T, in, in.fleet->agents[open]);
+    if (ui.confirm) confirmSheet(c, S, T, in.fleet->agents[open], ui);
+  }
   else if (open >= 0) prompt(c, S, T, in, in.fleet->agents[open]);
   else if (S.home == HomeKind::List) listHome(c, S, T, in);
   else gridHome(c, S, T, in);
@@ -1691,7 +1752,7 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
 
 class SquarePanel : public PanelLayout {
  public:
-  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m)) {}
+  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m, s.diagIn)) {}
   ~SquarePanel() override {
     free(homePic);
     free(panelPic);
