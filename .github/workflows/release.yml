@@ -94,7 +94,16 @@ jobs:
         working-directory: clients/macos
         run: |
           flutter pub get
-          flutter build macos --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
+          # The project builds for Apple Silicon only (Release.xcconfig), because Xcode 27 on a
+          # developer's Mac can't verify a universal build. This runner's Xcode can: build both,
+          # and fall back to Apple Silicon alone if that fails.
+          cfg=macos/Runner/Configs/Release.xcconfig
+          sed -i "" "/^ARCHS = arm64$/d" "$cfg"
+          if ! flutter build macos --release --build-name "$VERSION" --build-number "${{ github.run_number }}"; then
+            echo "::warning::the universal build failed: building for Apple Silicon only"
+            git checkout -- "$cfg"
+            flutter build macos --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
+          fi
           archs="$(lipo -archs "build/macos/Build/Products/Release/agents deck.app/Contents/MacOS/agents deck")"
           echo "app: $archs"
           case "$archs" in
