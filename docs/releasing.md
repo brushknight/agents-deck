@@ -166,15 +166,36 @@ variables, then Actions), and the run says in a warning which ones were missing.
 whose signature matches. Without it, agentctl still says when there's a new version but installs
 nothing from the network. Firmware from this computer still installs: a file picked with **Install a
 firmware file...**, and builds added with `agentctl firmware add`
-([flashing.md](flashing.md#firmware-built-on-this-computer)). Until the first key is made,
-`release.pub` is empty, so every build, released or not, behaves this way.
+([flashing.md](flashing.md#firmware-built-on-this-computer)).
 
-Making the key, once:
+A build from source has the same public key in it, so it checks and installs our releases like a
+released build does. It cannot make releases other copies accept: that takes the private key. A fork
+that publishes its own releases makes its own key and puts its public half in `release.pub`; a build
+with an empty `release.pub` installs nothing from the network.
 
-1. `agentctl release-key new` prints a private and a public key.
-2. Store the private key as the secret `AGENTS_DECK_RELEASE_KEY`, and keep a copy outside GitHub.
-3. Put the public key in `backend/internal/update/release.pub` and in `release_pub=""` at the top of
+The key was made on 20 November 2026; its public half is in `release.pub`. Making a new one (a fork,
+or after the private key was lost or seen by someone else):
+
+1. Make the pair without showing the private key on screen. `agentctl release-key new` prints both,
+   so send each to its own file:
+
+   ```sh
+   ( umask 077
+     out="$(agentctl release-key new 2>/dev/null)"
+     printf '%s\n' "$out" | sed -n 's/^private: //p' > ~/.ssh/agents-deck-release-key
+     printf '%s\n' "$out" | sed -n 's/^public:  *//p' > ~/.ssh/agents-deck-release-key.pub )
+   ```
+
+2. Store the private key as the repository secret `AGENTS_DECK_RELEASE_KEY` (Settings, Secrets and
+   variables, Actions), without it passing through the terminal:
+   `gh secret set AGENTS_DECK_RELEASE_KEY < ~/.ssh/agents-deck-release-key`. Keep the file as your copy
+   outside GitHub, and back it up: without it no later release can be signed for the copies already
+   installed.
+3. Put the public key in `backend/internal/update/release.pub` and in `release_pub=` at the top of
    `install.sh`, and merge that before the next release.
+
+Changing the key cuts off updates for every copy built with the old one: those have to be updated by
+hand once.
 
 `publish` signs with `agentctl release-key sign dist/SHA256SUMS` and checks the signature against
 `release.pub`, so a key that doesn't match the code fails the release instead of shipping.

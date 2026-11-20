@@ -253,7 +253,8 @@ Bluetooth), Wi-Fi, or Bluetooth.
 **Where it works today:** the touch boards on their `idf5` firmware, which is what the releases
 install on the 2.8″ and 2.1″ round boards, the 1.8″ AMOLED and the T4-S3 (on the 4″ only its
 experimental `idf5` build has it; the 1.47″ has none). On the computer side, only the macOS app has
-the Bluetooth helper (`deck-ble`); Linux and Windows don't have Bluetooth yet. Firmware updates don't
+the Bluetooth helper (`deck-ble`); Linux and Windows don't have Bluetooth yet
+(help wanted: a helper like `deck-ble` for BlueZ, see [the roadmap](docs/roadmap.md)). Firmware updates don't
 go over Bluetooth: a board updates over Wi-Fi or the cable. More in
 [features](docs/features.md#serial-boards-deck-link) and
 [Deck Link, Bluetooth](docs/link/protocol.md#bluetooth).

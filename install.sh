@@ -22,7 +22,7 @@ repo="brushknight/agents-deck"
 # The release signing key (base64), pinned here once the project has one. With
 # it, an agentctl already installed here checks SHA256SUMS.sig with this key;
 # without it, with the key built into that agentctl.
-release_pub=""
+release_pub="KVPda0daTuGa9G4o6c6A0fkbH8Q+eQ23UmtAEvNRSZ8="
 version=""
 app=0
 autostart=0
