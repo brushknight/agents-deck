@@ -133,6 +133,7 @@ type Server struct {
 	Admin   http.Handler
 	logins  loginCodes
 	apiOnce sync.Once
+	held    stash // agents a screen took from the others (stash.go)
 	apiMux  *http.ServeMux
 }
 
@@ -149,9 +150,10 @@ const sessionCookie = "agentsterm_session"
 func (s *Server) api() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, s.Store.Snapshot())
+		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("POST /v1/stash", s.postStash)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			PromptID string `json:"promptId"`
@@ -393,7 +395,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	rc := http.NewResponseController(w)
 	send := func() bool {
-		b, _ := json.Marshal(s.Store.Snapshot())
+		b, _ := json.Marshal(s.View(s.Store.Snapshot(), callerOf(r)))
 		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b); err != nil {
 			return false

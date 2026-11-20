@@ -90,6 +90,9 @@ PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 PB_BIND(agentsdeck_link_v1_Order, agentsdeck_link_v1_Order, 2)
 
 
+PB_BIND(agentsdeck_link_v1_Stash, agentsdeck_link_v1_Stash, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_MoveAttention, agentsdeck_link_v1_MoveAttention, AUTO)
 
 

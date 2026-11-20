@@ -73,6 +73,19 @@ struct Canvas {
 
   void fill(uint16_t c) { run(px + (size_t)top * w, w * (h - top), enc(c)); }
 
+  // Every pixel at half its brightness (a 50% black layer), two at a time.
+  void dim50() {
+    uint32_t* q = (uint32_t*)(px + (size_t)top * w);
+    const size_t pairs = (size_t)w * (h - top) / 2;
+    for (size_t i = 0; i < pairs; i++) {
+      uint32_t v = q[i];
+      if (be) v = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+      v = (v >> 1) & 0x7BEF7BEFu;            // each channel halved
+      if (be) v = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+      q[i] = v;
+    }
+  }
+
   void rect(int x, int y, int rw, int rh, uint16_t c) {
     c = enc(c);
     int x1 = x + rw, y1 = y + rh;

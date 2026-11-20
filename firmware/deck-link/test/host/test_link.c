@@ -518,6 +518,16 @@ static void test_handshake(void)
 	CHECK(s[6].which_body == agentsdeck_link_v1_Frame_move_attention_tag && s[6].body.move_attention.slot == 7 &&
 	      strcmp(s[6].body.move_attention.agent_id, "k3f9a2") == 0);
 
+	/* Stash: the ids it takes, then none to give them back. */
+	tx_len = 0;
+	const char *two[] = {"a", "b"};
+	uint32_t st1 = deck_stash(&link, two, 2);
+	uint32_t st2 = deck_stash(&link, NULL, 0);
+	CHECK(st1 && st2 == st1 + 1 && sent_frames(s, 16) == 2);
+	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_stash_tag && s[0].body.stash.agent_ids_count == 2 &&
+	      strcmp(s[0].body.stash.agent_ids[1], "b") == 0);
+	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_stash_tag && s[1].body.stash.agent_ids_count == 0);
+
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;
 	clock_ms += 14999;

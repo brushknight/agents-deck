@@ -344,7 +344,7 @@ func (s *Session) recheck() error {
 }
 
 func (s *Session) welcome() error {
-	st := s.Deck.Snapshot()
+	st := s.snapshot()
 	s.sentAs = s.dev
 	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Welcome{Welcome: &linkpb.Welcome{
 		Protocol: 1, ServerName: st.Server.Name, ServerVersion: st.Server.Version,
@@ -556,10 +556,22 @@ func (s *Session) wifiGone() {
 	s.Wifi.gone(s.dev.Name, s)
 }
 
+// snapshot is the state as this board sees it: without the agents another
+// screen took (the deck's View, when it has one).
+func (s *Session) snapshot() model.State {
+	st := s.Deck.Snapshot()
+	if v, ok := s.Deck.(interface {
+		View(model.State, string) model.State
+	}); ok {
+		st = v.View(st, s.dev.Name)
+	}
+	return st
+}
+
 // push sends the subscribed agents: everything (a snapshot) or only what
 // changed since the last push.
 func (s *Session) push(full bool) error {
-	st := s.Deck.Snapshot()
+	st := s.snapshot()
 	sub := s.sub
 	var agents []model.Agent
 	for _, a := range st.Agents {
@@ -670,6 +682,7 @@ var Routes = map[string]string{
 	"resume":         "POST /v1/agents/{id}/resume",
 	"move":           "POST /v1/agents/{id}/move",
 	"move_attention": "POST /v1/agents/{id}/attention",
+	"stash":          "POST /v1/stash",
 	"order":          "POST /v1/order",
 	"restore":        "POST /v1/restore",
 	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
@@ -781,6 +794,12 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, agentPath(b.MoveAttention.AgentId, "attention"), map[string]int{"slot": int(b.MoveAttention.Slot)}
 	case *linkpb.Frame_Order:
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
+	case *linkpb.Frame_Stash:
+		ids := b.Stash.AgentIds
+		if ids == nil {
+			ids = []string{} // none: give them back
+		}
+		method, path, body = http.MethodPost, "/v1/stash", map[string][]string{"ids": ids}
 	case *linkpb.Frame_SetHat:
 		h := b.SetHat
 		hb := map[string]any{"shape": h.Shape, "color": h.Color, "auto": h.Automatic}

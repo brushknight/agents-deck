@@ -46,6 +46,7 @@ message Frame {
     Handoff handoff = 43;          // POST /v1/agents/{id}/handoff
     ListAccounts list_accounts = 44;  // GET /v1/accounts
     MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
+    Stash stash = 46;              // POST /v1/stash
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -305,6 +306,13 @@ message Move {
 
 message Order {
   repeated string agent_ids = 1;
+}
+
+// Stash takes agents from every other screen (the 1.8 inch board's magic
+// trick): they drop out of the state the others get until the same board
+// sends an empty Stash, which gives them back.
+message Stash {
+  repeated string agent_ids = 1;  // at most 16; none: give them back
 }
 
 // MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.

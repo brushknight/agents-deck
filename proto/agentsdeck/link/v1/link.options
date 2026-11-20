@@ -53,6 +53,7 @@ agentsdeck.link.v1.Resume.agent_id       max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12
 agentsdeck.link.v1.MoveAttention.agent_id max_size:12
 agentsdeck.link.v1.Order.agent_ids       max_count:32 max_size:12
+agentsdeck.link.v1.Stash.agent_ids       max_count:16 max_size:12
 agentsdeck.link.v1.SetHat.agent_id       max_size:12
 agentsdeck.link.v1.SetHat.folder         max_size:128
 agentsdeck.link.v1.SetHat.shape          max_size:16

@@ -1790,7 +1790,11 @@ class SquarePanel : public PanelLayout {
   void motion(PanelUi& ui, float ax, float ay, float az, uint32_t ms) const override {
     if (!S.imu) return;
     const Motion m = funDetect(ui.fun, ax, ay, az, ms);
-    if (m == Motion::Knock && ui.fun.magic && ui.screen == Screen::Home && !controlShown(ui.ctl)) funKnock(ui.fun, ms);
+    if (m == Motion::Knock && ui.fun.magic && ui.screen == Screen::Home && !controlShown(ui.ctl)) {
+      funKnock(ui.fun, ms);
+      ui.fun.takeN = squareSpots(S);         // the agents on its screen leave the other screens
+      ui.fun.stashDue = true;
+    }
     else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
       funSickStart(ui.fun, ui.openId, ms);
   }
@@ -1875,7 +1879,8 @@ class SquarePanel : public PanelLayout {
         sc.fill(T.bg);
         tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
         const float scale = kStart + (1.f - kStart) * t;
-        const float sx0 = S.w - tw * kStart - 6, sy0 = 6;   // the top-right corner
+        // Past the top-right corner, off the glass: they come in from there and go out there.
+        const float sx0 = S.w + 8, sy0 = -th * kStart - 8;
         const float dx = sx0 + (r.x - sx0) * t, dy = sy0 + (r.y - sy0) * t;
         const int dw = (int)(tw * scale), dh = (int)(th * scale);
         for (int yy = 0; yy < dh; yy++) {
@@ -1914,6 +1919,7 @@ class SquarePanel : public PanelLayout {
       if (cg.name.x > from.x && right > cg.name.x - 2) right = cg.name.x - 2;
       c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
     }
+    c.dim50();                                 // the card behind it at half brightness
     // Crossed eyes while it is sick (the error pose's), its own colours.
     drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false, a.hat,
                a.hatColor);

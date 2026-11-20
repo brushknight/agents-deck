@@ -218,6 +218,7 @@ static void panelAct() {
     case ControlAct::Restart: restartAt = millis() + 400; break;   // "restarting" shows first
     case ControlAct::Magic:
       if (ui.fun.magic) {                      // off: the agents are back where they were
+        if (ui.fun.taken) ui.fun.stashDue = true;
         ui.fun.magic = ui.fun.taken = false;
         ui.fun.revealAt = ui.fun.returnAt = 0;
       }
@@ -350,6 +351,17 @@ static inline void gridAppLoop() {
       board.layout->motion(ui, ax, ay, az, lastAccel);
       if (ui.fun.revealAt || ui.fun.returnAt || ui.fun.sickAt) dirty = true;
     }
+  }
+  // The magic trick took the agents on this screen, or gave them back: the
+  // deck leaves them out of every other screen's state meanwhile (POST /v1/stash).
+  if (ui.fun.stashDue) {
+    ui.fun.stashDue = false;
+    const char* ids[16];
+    size_t n = 0;
+    if (ui.fun.taken && fleet->have)
+      for (int i = 0; i < fleet->fleet.count && (int)n < ui.fun.takeN && n < 16; i++) ids[n++] = fleet->fleet.agents[i].id;
+    deck_stash(link(), ids, n);
+    PANEL_LOG("magic: %s %u agents", n ? "took" : "gave back", (unsigned)n);
   }
   static uint32_t lastFrame = 0;
 #ifdef PANEL_DEBUG
