@@ -89,9 +89,8 @@ enum class ControlHit : uint8_t { None, Wifi, Ble, Restart };
 
 constexpr uint32_t kControlSettleMs = 220, kControlHoldMs = 1000;
 constexpr int kControlSlop = 6;
-// A pull moves the panel this much faster than the finger: a little over half
-// the screen's height opens it all the way.
-constexpr float kControlPullGain = 1.8f;
+// The panel stays under the finger (1: it moves as far as the finger does).
+constexpr float kControlPullGain = 1.0f;
 // Let go past this much of the way and it carries on: opening from shut, or
 // closing from open (a flick decides on its own).
 constexpr float kControlCommit = 0.2f;
