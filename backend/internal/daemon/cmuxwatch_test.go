@@ -113,12 +113,12 @@ func TestCmuxInterrupted(t *testing.T) {
 	e := &store.Entry{}
 	e.SetStatus(model.Running)
 	// The hooks last said running (at 100 s); the transcript shows an Esc after that.
-	if !cmuxApply(e, cmux.Session{Lifecycle: "running", Updated: 100}, "", "", time.Unix(105, 0)) ||
+	if !cmuxApply(e, cmux.Session{Lifecycle: "running", Updated: 100}, "", "", time.Unix(105, 0), false) ||
 		e.A.Status != model.Idle || e.A.Unseen {
 		t.Fatalf("interrupted: %+v", e.A)
 	}
 	// A new turn: the hooks report again after the interrupt.
-	cmuxApply(e, cmux.Session{Lifecycle: "running", Updated: 110}, "", "", time.Unix(105, 0))
+	cmuxApply(e, cmux.Session{Lifecycle: "running", Updated: 110}, "", "", time.Unix(105, 0), false)
 	if e.A.Status != model.Running {
 		t.Fatalf("new turn: %+v", e.A)
 	}

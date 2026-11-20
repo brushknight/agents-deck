@@ -43,6 +43,10 @@ Name the folder after what the device is (`desk-strip`, `eink-badge`), lowercase
   `agentctl devices approve <name>`; on a registered USB port this is rare, as new boards are approved
   at once unless the owner turned that off), *deck offline* (`on_offline`), and *needs you*
   (`status == WAITING`), which is the point of most devices.
+- A "Needs you" screen draws the deck's spots (`attention_slot`, in `FIELDS_TILE`; `deck_tiles` keeps
+  it too): spot n in cell n on a 4×4 grid, or the lowest spots first on a smaller one. Don't arrange
+  it yourself, or the device shows something different from every other screen
+  ([protocol.md](protocol.md), "The Needs you grid").
 - Keep the serial port for Deck Link. Text prints are ignored by the deck but waste bandwidth; never
   print from an interrupt while a frame may be going out.
 - Stay inside the limits in `link.options`: the deck never sends longer strings or lists, so size your
@@ -56,6 +60,36 @@ Name the folder after what the device is (`desk-strip`, `eink-badge`), lowercase
 
 Fix every warning in your code. CI builds every folder under `firmware/devices` and
 `firmware/deck-link/examples` the same way.
+
+A device on panel-core adds `extra_scripts = pre:<path>/panel-core/tools/build_info.py` to its
+`platformio.ini` (the others do): it tells the firmware its board (the folder's name) and, in a
+release build, the version to report. A board on Wi-Fi then gets firmware updates from the deck
+without more code (`firmware/panel-core/README.md`, "Firmware updates over Wi-Fi"); it needs two app
+slots in its partition table. A device on the kit alone refuses update offers until it handles
+`on_firmware_offer` (`firmware/deck-link/README.md`).
+
+### Bluetooth (optional)
+
+A board can also reach the deck over Bluetooth LE ([protocol.md](protocol.md#bluetooth)). A touch
+board on panel-core's `idf5` build gets it without code of its own. Firmware of your own must:
+
+- serve the GATT service exactly as in the protocol (service, RX, TX, Info UUIDs; RX and TX only on an
+  encrypted, authenticated link with a 16-byte key; Info readable by anyone);
+- pair with LE Secure Connections only, MITM, bonding, IO capability *display only*, and show the
+  6-digit passkey with the name `deck-<last 6 hex of the board id>` (`deck_ble_name()`) on its screen.
+  A board without a screen can't do Bluetooth: there is no passkey to show;
+- keep one bond: refuse new pairings and repeat pairings while bonded, drop a central that doesn't
+  encrypt with the bond's keys within seconds, and undo a pairing that ended without the passkey;
+- offer a way on the board to forget the bond and go back to setup;
+- advertise the service UUID (and the name in the scan response) always while unbonded, and while
+  bonded only when Bluetooth may carry its session;
+- run its Deck Link core on the byte stream with `deck_ble.h` (cut to the MTU, back-pressure on TX,
+  a ring for RX), carry one session at a time (USB first, then the deck's `LinkConfig` preference),
+  and say `TRANSPORT_BLE` and its `ble` state in `NetStatus`;
+- allow `CertRequest` and `WifiConfig` on that link, never on Wi-Fi.
+
+Test the stream with `make -C firmware/deck-link/test/host test` (`test_ble`); the radio itself needs
+a board and a computer (the hardware checks in `firmware/panel-core/README.md`).
 
 ## 5. Test it
 

@@ -10,6 +10,8 @@ idf_component_register(
     "src/deck_store.c"
     "src/deck_pair.c"
     "src/deck_tls.c"
+    "src/deck_fw.c"
+    "src/deck_ble.c"
     "src/proto/link.pb.c"
     "src/proto/pb_common.c"
     "src/proto/pb_encode.c"

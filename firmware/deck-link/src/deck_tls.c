@@ -31,6 +31,8 @@ const char *deck_tls_strerror(deck_tls_err_t e)
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <strings.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -173,12 +175,33 @@ static bool write_all(deck_tls_t *t, const uint8_t *d, size_t n, uint32_t timeou
 	return true;
 }
 
-/* Reads the HTTP answer to the upgrade; keeps what follows it. */
-static deck_tls_err_t read_upgrade(deck_tls_t *t, uint32_t timeout_ms)
+/* A header's value in the HTTP head (case-insensitive name), or NULL. */
+static const char *header(const char *head, const char *name)
+{
+	size_t n = strlen(name);
+	for (const char *l = strstr(head, "\r\n"); l && l[2]; l = strstr(l + 2, "\r\n")) {
+		const char *k = l + 2;
+		if (strncasecmp(k, name, n) == 0 && k[n] == ':') {
+			k += n + 1;
+			while (*k == ' ' || *k == '\t')
+				k++;
+			return k;
+		}
+	}
+	return NULL;
+}
+
+/* Reads an HTTP answer's head; keeps what follows it (the stream, or the
+ * start of the body). code: its status; length: Content-Length (-1 none);
+ * first: where a 206's Content-Range starts (0 otherwise). */
+static deck_tls_err_t read_head(deck_tls_t *t, uint32_t timeout_ms, int *code, long long *length,
+				unsigned long long *first)
 {
 	char buf[1024];
 	size_t len = 0;
 	uint32_t start = now_ms();
+	*length = -1;
+	*first = 0;
 	for (;;) {
 		int r = mbedtls_ssl_read(&t->ssl, (unsigned char *)buf + len, sizeof buf - 1 - len);
 		if (r > 0) {
@@ -186,13 +209,14 @@ static deck_tls_err_t read_upgrade(deck_tls_t *t, uint32_t timeout_ms)
 			buf[len] = '\0';
 			char *end = strstr(buf, "\r\n\r\n");
 			if (end) {
-				int code = 0;
-				if (sscanf(buf, "HTTP/1.%*d %d", &code) != 1)
+				end[2] = '\0'; /* the head, each line ending in \r\n */
+				if (sscanf(buf, "HTTP/1.%*d %d", code) != 1)
 					return DECK_TLS_UPGRADE;
-				if (code == 401 || code == 403)
-					return DECK_TLS_CERT_REJECTED;
-				if (code != 101)
-					return DECK_TLS_UPGRADE;
+				const char *v = header(buf, "Content-Length");
+				if (v)
+					*length = strtoll(v, NULL, 10);
+				if ((v = header(buf, "Content-Range")) != NULL && strncmp(v, "bytes ", 6) == 0)
+					*first = strtoull(v + 6, NULL, 10);
 				size_t rest = len - (size_t)(end + 4 - buf);
 				if (rest > sizeof t->pre)
 					return DECK_TLS_UPGRADE;
@@ -217,8 +241,23 @@ static deck_tls_err_t read_upgrade(deck_tls_t *t, uint32_t timeout_ms)
 	}
 }
 
-deck_tls_err_t deck_tls_open(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr,
-			     uint32_t timeout_ms)
+/* Reads the HTTP answer to the upgrade; keeps what follows it. */
+static deck_tls_err_t read_upgrade(deck_tls_t *t, uint32_t timeout_ms)
+{
+	int code = 0;
+	long long length;
+	unsigned long long first;
+	deck_tls_err_t e = read_head(t, timeout_ms, &code, &length, &first);
+	if (e != DECK_TLS_OK)
+		return e;
+	if (code == 401 || code == 403)
+		return DECK_TLS_CERT_REJECTED;
+	return code == 101 ? DECK_TLS_OK : DECK_TLS_UPGRADE;
+}
+
+/* TLS 1.3 to the deck with the board's certificate, up to the end of the handshake. */
+static deck_tls_err_t tls_connect(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr,
+				  uint32_t timeout_ms)
 {
 	memset(t, 0, sizeof *t);
 	t->fd = -1;
@@ -279,7 +318,15 @@ deck_tls_err_t deck_tls_open(deck_tls_t *t, const deck_cert_t *c, const char *ho
 			return DECK_TLS_HANDSHAKE;
 		wait_fd(t->fd, rc == MBEDTLS_ERR_SSL_WANT_WRITE, 50);
 	}
+	return DECK_TLS_OK;
+}
 
+deck_tls_err_t deck_tls_open(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr,
+			     uint32_t timeout_ms)
+{
+	deck_tls_err_t err = tls_connect(t, c, host, addr, timeout_ms);
+	if (err != DECK_TLS_OK)
+		return err;
 	/* In TLS 1.3 the deck checks our certificate after the handshake: a
 	 * revoked one shows up as an alert on the first read. */
 	char req[160];
@@ -293,6 +340,51 @@ deck_tls_err_t deck_tls_open(deck_tls_t *t, const deck_cert_t *c, const char *ho
 		return err;
 	t->open = true;
 	return DECK_TLS_OK;
+}
+
+deck_tls_err_t deck_tls_get(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr, const char *path,
+			    uint64_t from, uint32_t timeout_ms, int *status, int64_t *length)
+{
+	*status = 0;
+	*length = -1;
+	if (!path || path[0] != '/' || strpbrk(path, " \r\n"))
+		return DECK_TLS_BAD_CONFIG;
+	deck_tls_err_t err = tls_connect(t, c, host, addr, timeout_ms);
+	if (err != DECK_TLS_OK)
+		return err;
+	char req[320];
+	int n = snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=%llu-\r\nConnection: close\r\n\r\n",
+			 path, host, (unsigned long long)from);
+	if (n <= 0 || (size_t)n >= sizeof req || !write_all(t, (const uint8_t *)req, (size_t)n, timeout_ms))
+		return alert_error(t, t->mbedtls_error) == DECK_TLS_CERT_REJECTED ? DECK_TLS_CERT_REJECTED
+										   : DECK_TLS_UPGRADE;
+	long long len;
+	unsigned long long first;
+	err = read_head(t, timeout_ms, status, &len, &first);
+	if (err != DECK_TLS_OK)
+		return err;
+	if (*status == 401)
+		return DECK_TLS_CERT_REJECTED;
+	/* What we asked for: the whole image from 0 (200, or 206 from 0), or the rest from `from` (206). */
+	if ((*status == 200 && from == 0) || (*status == 206 && first == from))
+		*length = len;
+	else if (*status == 200 || *status == 206)
+		return DECK_TLS_UPGRADE;
+	t->open = true;
+	return DECK_TLS_OK;
+}
+
+int deck_tls_read_wait(deck_tls_t *t, uint8_t *buf, size_t cap, uint32_t timeout_ms)
+{
+	uint32_t start = now_ms();
+	for (;;) {
+		int n = deck_tls_read(t, buf, cap);
+		if (n != 0)
+			return n;
+		if ((uint32_t)(now_ms() - start) >= timeout_ms)
+			return 0;
+		wait_fd(t->fd, false, 50);
+	}
 }
 
 int deck_tls_read(deck_tls_t *t, uint8_t *buf, size_t cap)
@@ -380,6 +472,22 @@ size_t deck_tls_write(const uint8_t *data, size_t len, void *user)
 	(void)len;
 	(void)user;
 	return 0;
+}
+
+deck_tls_err_t deck_tls_get(deck_tls_t *t, const deck_cert_t *c, const char *host, const char *addr, const char *path,
+			    uint64_t from, uint32_t timeout_ms, int *status, int64_t *length)
+{
+	(void)c, (void)host, (void)addr, (void)path, (void)from, (void)timeout_ms;
+	memset(t, 0, sizeof *t);
+	*status = 0;
+	*length = -1;
+	return DECK_TLS_UNSUPPORTED;
+}
+
+int deck_tls_read_wait(deck_tls_t *t, uint8_t *buf, size_t cap, uint32_t timeout_ms)
+{
+	(void)timeout_ms;
+	return deck_tls_read(t, buf, cap);
 }
 
 void deck_tls_close(deck_tls_t *t) { t->open = false; }

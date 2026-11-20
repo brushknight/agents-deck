@@ -270,6 +270,7 @@ class Agent {
   const Agent({
     required this.id,
     required this.slot,
+    this.attentionSlot = 0,
     required this.title,
     this.aiTitle = '',
     this.tool = 'claude',
@@ -304,10 +305,15 @@ class Agent {
     this.account,
     this.startedAt,
     this.updatedAt,
+    this.lastActive,
   });
 
   final String id;
   final int slot;
+
+  /// Its spot on the "Needs you" grid, 1..16 (4 x 4, by rows), or 0 when it
+  /// isn't there. The service decides it, so every screen shows the same.
+  final int attentionSlot;
   final String title;
   final String aiTitle;
 
@@ -389,6 +395,9 @@ class Agent {
   final DateTime? startedAt;
   final DateTime? updatedAt;
 
+  /// Its latest message sent or received; null while the deck doesn't know.
+  final DateTime? lastActive;
+
   static Agent fromJson(Map<String, dynamic> j) {
     final act = _map(j['activity']);
     final wait = _map(j['waiting']);
@@ -398,6 +407,7 @@ class Agent {
     return Agent(
       id: _str(j['id']),
       slot: _int(j['slot']),
+      attentionSlot: _int(j['attentionSlot']),
       title: _str(j['title']),
       aiTitle: _str(j['aiTitle']),
       tool: _str(j['tool']),
@@ -438,6 +448,7 @@ class Agent {
       ],
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
+      lastActive: _time(j['lastActive']),
     );
   }
 
@@ -519,6 +530,17 @@ class AgentsState {
     return t.add(now.difference(receivedAt));
   }
 
+  /// "last active 3h ago" for [a], or "" while the deck doesn't know.
+  String lastActiveText(Agent a, [DateTime? localNow]) {
+    final at = a.lastActive;
+    if (at == null) return '';
+    final d = serverNow(localNow).difference(at);
+    if (d.inMinutes < 1) return 'last active just now';
+    if (d.inHours < 1) return 'last active ${d.inMinutes}m ago';
+    if (d.inHours < 48) return 'last active ${d.inHours}h ago';
+    return 'last active ${d.inDays}d ago';
+  }
+
   /// How long [a] has been in its current status (zero when unknown).
   Duration inStatus(Agent a, [DateTime? localNow]) {
     final since = a.statusSince;
@@ -560,7 +582,17 @@ String tildePath(String path) {
 String agentMetaLine(Agent a, AgentsState state, [DateTime? localNow]) {
   switch (a.status) {
     case AgentStatus.running:
-      final verb = a.activity?.verb;
+      // Claude's turn is over and only its subagents work (the service sets
+      // this activity line): "3 subagents", not the main thread at a tool.
+      final n = a.subagents.length;
+      final subsOnly =
+          n > 0 &&
+          RegExp(
+            r'^\d+ subagents? working$',
+          ).hasMatch(a.activity?.detail ?? '');
+      final verb = subsOnly
+          ? '$n subagent${n == 1 ? '' : 's'}'
+          : a.activity?.verb;
       return '${verb == null || verb.isEmpty ? 'working' : verb}'
           ' · ${a.contextPercent}% ctx';
     case AgentStatus.waiting:

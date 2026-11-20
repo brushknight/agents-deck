@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/pricing"
@@ -28,11 +29,17 @@ type line struct {
 	Custom    string `json:"customTitle"`
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
 	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
+	Timestamp string `json:"timestamp"`
+	IsMeta    bool   `json:"isMeta"`                    // text Claude Code adds for itself (command caveats, reminders)
+	Sidechain bool   `json:"isSidechain"`               // a subagent's message
+	Summary   bool   `json:"isCompactSummary"`          // the summary a compaction leaves: not a prompt
+	ShownOnly bool   `json:"isVisibleInTranscriptOnly"` // shown in the transcript, never sent to the model
 	Message   *struct {
-		ID      string          `json:"id"`
-		Model   string          `json:"model"`
-		Content json.RawMessage `json:"content"`
-		Usage   *struct {
+		ID         string          `json:"id"`
+		Model      string          `json:"model"`
+		StopReason string          `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"`
+		Usage      *struct {
 			Input      int64 `json:"input_tokens"`
 			Output     int64 `json:"output_tokens"`
 			CacheRead  int64 `json:"cache_read_input_tokens"`
@@ -65,6 +72,12 @@ func Tail(e *store.Entry) bool {
 	changed := false
 	var lastCtx int64
 	var lastModel, lastEffort string
+	// API errors are judged on the whole read, not line by line: re-reading a
+	// transcript after a restart must not replay an old error and its recovery
+	// into a status ("recovered: running") for a turn that ended long ago.
+	wasErr := e.A.Status == model.Error
+	var lastErr json.RawMessage // the latest API error, nil once a real reply follows it
+	replied, over := false, false
 	for range maxChunks {
 		buf, _ := io.ReadAll(io.LimitReader(f, maxRead))
 		if len(buf) == 0 {
@@ -85,6 +98,12 @@ func Tail(e *store.Entry) bool {
 			var l line
 			if json.Unmarshal(sc.Bytes(), &l) != nil {
 				continue
+			}
+			if t, ok := l.activeAt(); ok && e.MarkActive(t) {
+				changed = true
+			}
+			if decides, ends := l.turnState(); decides {
+				over = ends
 			}
 			if l.GitBranch != "" && l.GitBranch != e.A.Branch {
 				e.A.Branch, changed = l.GitBranch, true
@@ -108,14 +127,13 @@ func Tail(e *store.Entry) bool {
 					continue
 				}
 				if l.IsAPIErr {
-					e.SetStatus(model.Error)
-					e.A.Error = &model.ErrInfo{Message: apiErrorText(l.Message.Content)}
-					changed = true
+					lastErr = l.Message.Content
 					continue
 				}
 				if l.Message.Usage == nil || l.Message.ID == "" || l.Message.Model == "<synthetic>" {
 					continue
 				}
+				lastErr, replied = nil, true
 				u := l.Message.Usage
 				e.SetUsage(l.Message.ID, l.Message.Model, model.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
 				lastCtx = u.Input + u.CacheRead + u.CacheWrite
@@ -123,12 +141,22 @@ func Tail(e *store.Entry) bool {
 				if l.Effort != "" {
 					lastEffort = l.Effort
 				}
-				if e.A.Status == model.Error {
-					e.SetStatus(model.Running) // recovered: a real reply arrived
-				}
 				changed = true
 			}
 		}
+	}
+	switch {
+	case lastErr != nil: // the read ends on an API error
+		e.SetStatus(model.Error)
+		e.A.Error = &model.ErrInfo{Message: apiErrorText(lastErr)}
+		changed = true
+	case wasErr && replied: // recovered: a real reply arrived after the error
+		if over {
+			e.SetStatus(model.Idle) // ...and the turn it belonged to is over
+		} else {
+			e.SetStatus(model.Running)
+		}
+		changed = true
 	}
 	if lastEffort != "" && lastEffort != e.A.Effort {
 		e.A.Effort, changed = lastEffort, true
@@ -146,6 +174,54 @@ func Tail(e *store.Entry) bool {
 		e.A.Title = e.DisplayTitle() // names follow Claude's titles live
 	}
 	return changed
+}
+
+// activeAt is when a line counts as the agent's activity: a message sent to
+// it (your prompt, a tool's result) or received from it (a reply, a tool
+// call). Everything else in a transcript does not count: titles, summaries,
+// snapshots, hook and system notes, text Claude Code adds for itself
+// (isMeta), and subagents' messages.
+func (l line) activeAt() (time.Time, bool) {
+	if l.Type != "user" && l.Type != "assistant" || l.IsMeta || l.Sidechain || l.Message == nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+	return t, err == nil
+}
+
+// turnState is what a line means for the turn in progress: whether it is a
+// message of the main conversation (decides), and whether the turn is over
+// once it is the latest one (ends): Claude's final reply, an API error that
+// stopped the turn, or a turn interrupted with Esc, which runs no hook.
+// Text Claude Code adds for itself, a compaction's summary and subagents'
+// messages decide nothing.
+func (l line) turnState() (decides, ends bool) {
+	if l.Type != "user" && l.Type != "assistant" || l.Message == nil || l.IsMeta || l.Sidechain || l.Summary || l.ShownOnly {
+		return false, false
+	}
+	if l.Type == "assistant" {
+		return true, l.Message.StopReason == "end_turn" || l.IsAPIErr
+	}
+	return true, interruptText(l.Message.Content)
+}
+
+// interruptText reports whether a user message is Claude Code's note that
+// you interrupted the turn ("[Request interrupted by user]", "… for tool use]").
+func interruptText(content json.RawMessage) bool {
+	if !bytes.Contains(content, []byte("[Request interrupted by user")) {
+		return false
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(content, &blocks) // a typed prompt is a plain string: not an interrupt
+	for _, b := range blocks {
+		if b.Type == "text" && strings.HasPrefix(b.Text, "[Request interrupted by user") {
+			return true
+		}
+	}
+	return false
 }
 
 func apiErrorText(content json.RawMessage) string {

@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
   "tray.cc"
+  "settings_window.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
 
@@ -23,5 +24,11 @@ add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
+# The Settings window's web view, when WebKitGTK was there at build time;
+# without it Settings opens in the default browser.
+if(WEBKIT_FOUND)
+  target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::WEBKIT)
+  target_compile_definitions(${BINARY_NAME} PRIVATE HAVE_WEBKIT=1)
+endif()
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")

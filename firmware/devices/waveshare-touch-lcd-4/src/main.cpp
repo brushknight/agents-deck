@@ -12,9 +12,20 @@
 //
 // Two builds: arduino-esp32 2.0.17 (../platformio.ini, USB only) and 3.x
 // (idf5/platformio.ini: Wi-Fi with TLS 1.3, and an RGB bounce buffer so the
-// picture stays still while Wi-Fi and the CPU share the PSRAM).
+// panel's DMA reads internal RAM rather than the PSRAM that Wi-Fi, TLS and
+// the CPU share).
 #include <Arduino.h>
+// The debug build on arduino-esp32 3.x reports the display and the restarts
+// (LCD4_DIAG, below): it reads the panel handle Arduino_GFX keeps private.
+#if defined(PANEL_DEBUG) && defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+#define LCD4_DIAG 1
+#define private public
 #include <Arduino_GFX_Library.h>
+#undef private
+#include <esp_system.h>
+#else
+#include <Arduino_GFX_Library.h>
+#endif
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
 
@@ -36,16 +47,22 @@ constexpr uint8_t CH32_TP_RST = 1 << 1, CH32_LCD_RST = 1 << 3, CH32_SYS_EN = 1 <
 
 // ---------------------------------------------------------------- display
 // ST7701 init over 3-wire SPI (CS 42, SCK 2, SDA 1), then RGB565 on the
-// parallel bus. Timing as in Waveshare's Arduino demo. On arduino-esp32 3.x
-// the panel can scan out of a bounce buffer in internal RAM (LCD4_BOUNCE_PX
-// pixels; 0, the default, scans straight from PSRAM as 2.0.17 does: with
-// 4800 the first test showed horizontal lines across the picture).
+// parallel bus. Timing as in Waveshare's Arduino demo; the pixel clock is
+// Arduino_GFX's default with octal PSRAM, 12 MHz. On arduino-esp32 3.x the
+// panel can scan out of two bounce buffers in internal RAM (LCD4_BOUNCE_PX
+// pixels each, a whole number of lines that divides the frame; 0 scans
+// straight from PSRAM as 2.0.17 does). The bounce buffer needs the display
+// settings in idf5/platformio.ini's custom_sdkconfig (see there).
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
 #ifndef LCD4_BOUNCE_PX
 #define LCD4_BOUNCE_PX 0
 #endif
+static_assert(LCD4_BOUNCE_PX % 480 == 0 && (LCD4_BOUNCE_PX == 0 || (480 * 480) % LCD4_BOUNCE_PX == 0),
+              "LCD4_BOUNCE_PX: whole lines that divide the frame");
 #define LCD4_RGB_EXTRA , 0 /* pclk on the rising edge */, GFX_NOT_DEFINED, false, 0, 0, LCD4_BOUNCE_PX
 #else
+#undef LCD4_BOUNCE_PX
+#define LCD4_BOUNCE_PX 0
 #define LCD4_RGB_EXTRA
 #endif
 static Arduino_DataBus* spiBus = new Arduino_SWSPI(GFX_NOT_DEFINED, 42 /* CS */, 2 /* SCK */, 1 /* MOSI */, GFX_NOT_DEFINED);
@@ -172,6 +189,47 @@ static bool touch(int& x, int& y) {
   return true;
 }
 
+// ---------------------------------------------------------------- diagnostics
+// Every 5 s on the USB port: how often the board has started since power-on
+// and why (esp_reset_reason of the last 8 starts, oldest first: 1 power-on,
+// 3 software, 4 panic, 5 and 6 and 7 watchdogs, 9 brownout, 11 USB), and how
+// many frames the panel took (about 42 a second while it is being fed).
+#ifdef LCD4_DIAG
+RTC_NOINIT_ATTR static uint32_t diagMagic;
+RTC_NOINIT_ATTR static uint32_t diagBoots;
+RTC_NOINIT_ATTR static uint8_t diagWhy[8];
+static volatile uint32_t diagVsyncs = 0;
+static IRAM_ATTR bool diagOnVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*) {
+  diagVsyncs = diagVsyncs + 1;
+  return false;
+}
+static void diagBegin() {
+  if (diagMagic != 0x4C434434) {             // power-on: the RTC memory holds nothing
+    diagMagic = 0x4C434434;
+    diagBoots = 0;
+    memset(diagWhy, 0, sizeof diagWhy);
+  }
+  if (diagBoots >= 8) memmove(diagWhy, diagWhy + 1, 7);
+  diagWhy[diagBoots < 8 ? diagBoots : 7] = (uint8_t)esp_reset_reason();
+  diagBoots++;
+  if (rgbPanel->_panel_handle) {
+    esp_lcd_rgb_panel_event_callbacks_t cbs = {};
+    cbs.on_vsync = diagOnVsync;
+    esp_lcd_rgb_panel_register_event_callbacks(rgbPanel->_panel_handle, &cbs, nullptr);
+  }
+}
+static void diagLoop() {
+  static uint32_t last = 0;
+  if (millis() - last < 5000) return;
+  last = millis();
+  const uint32_t v = diagVsyncs;
+  diagVsyncs = 0;
+  PANEL_LOG("lcd4: starts %u why %u %u %u %u %u %u %u %u, panel frames %u in 5 s, up %u s, expander %s, bounce %d px",
+            (unsigned)diagBoots, diagWhy[0], diagWhy[1], diagWhy[2], diagWhy[3], diagWhy[4], diagWhy[5], diagWhy[6], diagWhy[7],
+            (unsigned)v, (unsigned)(millis() / 1000), haveCh32 ? "ch32v003" : haveTca ? "tca9554" : "NONE", (int)LCD4_BOUNCE_PX);
+}
+#endif
+
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
@@ -180,13 +238,20 @@ static bool boardBegin() {
   gt911 = i2cPresent(ADDR_GT911) ? ADDR_GT911 : i2cPresent(ADDR_GT911_ALT) ? ADDR_GT911_ALT : 0;
   PANEL_LOG("lcd4: expander %s, gt911 0x%02X, framebuffer %p", haveCh32 ? "ch32v003" : haveTca ? "tca9554" : "NONE",
             gt911, panelFb);
+#ifdef LCD4_DIAG
+  diagBegin();
+#endif
   return panelFb != nullptr;
 }
 
 // The panel is mounted upside down relative to its scan order: the board
 // is upright with the image turned 180 degrees, i.e. the frame reversed.
 // The touch reports in the panel's own orientation, so it turns the same way.
-// One frame into the panel's own framebuffer (PSRAM), turned, then out of the cache.
+// One frame into the panel's own framebuffer (PSRAM), turned. Without a
+// bounce buffer the panel's DMA reads PSRAM itself, so the frame goes out of
+// the CPU's cache; with one, the LCD interrupt copies the framebuffer through
+// that same cache, so there is nothing to write back, and a write-back of the
+// whole frame would only hold those copies up (as on the round boards).
 static void push(const uint16_t* src) {
   if (!panelFb) return;
   const uint32_t* in = (const uint32_t*)src;
@@ -195,7 +260,9 @@ static void push(const uint16_t* src) {
     const uint32_t two = in[i];
     *out = two >> 16 | two << 16;                // two pixels at a time, swapped
   }
+#if LCD4_BOUNCE_PX == 0
   Cache_WriteBack_Addr((uint32_t)panelFb, kW * kH * 2);
+#endif
 }
 
 // Backlight: the CH32V003's PWM, inverted (0 is brightest, as in the BSP);
@@ -220,4 +287,9 @@ void setup() {
   gridAppSetup(b, FW_VERSION);
 }
 
-void loop() { gridAppLoop(); }
+void loop() {
+  gridAppLoop();
+#ifdef LCD4_DIAG
+  diagLoop();
+#endif
+}

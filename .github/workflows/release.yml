@@ -1,16 +1,23 @@
 # Release builds. Push a tag (v0.1.0) and this creates the GitHub release; or
-# publish a release from the GitHub UI and this fills it. Either way it
-# builds the executables and the board firmware and attaches them, with
-# SHA256SUMS.
+# publish a release from the GitHub UI and this fills it. Either way it builds
+# everything for that one version and attaches it, with SHA256SUMS and our
+# signature on it (SHA256SUMS.sig). docs/releasing.md lists every file.
 #
-# Today: macOS arm64 (agentctl + the menu bar app), and one firmware image
-# per board (flashed at 0x0) with an ESP Web Tools manifest each and
-# firmware-manifest.json listing them all. Linux amd64/arm64 and Windows
-# join the matrix once those platforms are supported (see docs/releasing.md).
+#   macos     the menu bar app (one universal app: .dmg, and the .zip the
+#             updater swaps in) and agentctl for arm64 and amd64
+#   linux     x64 and arm64: .deb, the app folder as .tar.gz, agentctl
+#   windows   x64: setup.exe (per user) and agentctl.exe
+#   firmware  per board: the full image, the over-the-air image (Wi-Fi boards),
+#             an ESP Web Tools manifest; firmware-index collects them
+#   publish   SHA256SUMS, SHA256SUMS.sig, the GitHub release
 #
-# Signing is optional: with the MACOS_* / APPLE_* secrets set, both are
-# signed with your Developer ID and the app is notarized; without them they
-# are ad-hoc signed (macOS will ask before opening them).
+# Signing is optional and turns on with its secrets: MACOS_* / APPLE_* sign and
+# notarize the macOS files (ad hoc without them), AGENTS_DECK_RELEASE_KEY signs
+# SHA256SUMS, WINDOWS_CERT_* signs the Windows files.
+#
+# The release needs the macOS and firmware jobs. Linux and Windows are newer:
+# when one of them fails, the release still goes out without its files and
+# publish says so in a warning.
 name: release
 
 on:
@@ -42,14 +49,17 @@ jobs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
+        env:
+          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
         run: |
-          tag="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-  macos-arm64:
+  # One universal app (Flutter's release build holds arm64 and x86_64) with a
+  # universal agentctl inside; agentctl on its own per architecture.
+  macos:
     needs: meta
-    runs-on: macos-14 # Apple Silicon
+    runs-on: macos-15 # Apple Silicon
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       HAVE_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
@@ -68,19 +78,38 @@ jobs:
           channel: stable
           cache: true
 
-      - name: agentctl
+      - name: agentctl (arm64, amd64, universal)
         working-directory: backend
         run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-            -ldflags "-s -w -X main.version=$VERSION" -o ../dist/agentctl ./cmd/agentctl
-          ../dist/agentctl version
+          mkdir -p ../dist ../build
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" -o "../build/agentctl-$arch" ./cmd/agentctl
+          done
+          lipo -create -output ../build/agentctl-universal ../build/agentctl-arm64 ../build/agentctl-amd64
+          lipo -archs ../build/agentctl-universal
+          ../build/agentctl-arm64 version
 
       - name: menu bar app
         working-directory: clients/macos
         run: |
           flutter pub get
           flutter build macos --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
-          cp -R "build/macos/Build/Products/Release/agents deck.app" ../../dist/
+          archs="$(lipo -archs "build/macos/Build/Products/Release/agents deck.app/Contents/MacOS/agents deck")"
+          echo "app: $archs"
+          case "$archs" in
+            *x86_64*arm64*|*arm64*x86_64*) echo "APP_ARCH=universal" >> "$GITHUB_ENV" ;;
+            *) echo "::warning::the app is $archs only, not universal: no Intel app in this release"
+               echo "APP_ARCH=arm64" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Bluetooth helper (deck-ble, universal)
+        working-directory: clients/ble/macos
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+          bin="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          lipo -archs "$bin/deck-ble"
+          cp "$bin/deck-ble" ../../../build/deck-ble
 
       - name: signing keychain
         if: env.HAVE_CERT == 'true'
@@ -96,10 +125,11 @@ jobs:
           echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
+          # shellcheck disable=SC2046 # the keychain list is split on purpose
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
 
-      - name: sign
+      - name: sign agentctl
         env:
           IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
@@ -109,41 +139,218 @@ jobs:
             id="-"; opts=()
             echo "::warning::no MACOS_CERT_P12 secret: ad-hoc signing (macOS will warn on first open)"
           fi
-          codesign --force "${opts[@]}" -s "$id" -i dev.agents-deck.agentctl dist/agentctl
-          codesign --force --deep "${opts[@]}" -s "$id" \
-            --entitlements clients/macos/macos/Runner/Release.entitlements "dist/agents deck.app"
-          codesign --verify --strict --verbose=2 "dist/agents deck.app"
+          for f in build/agentctl-arm64 build/agentctl-amd64; do
+            codesign --force "${opts[@]}" -s "$id" -i dev.agents-deck.agentctl "$f"
+          done
 
-      - name: notarize
+      - name: app, .dmg and .zip (signed inside out; notarized with the APPLE_* secrets)
+        env:
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          id=()
+          if [ "$HAVE_CERT" = "true" ]; then id=(--identity "$IDENTITY"); fi
+          if [ "$HAVE_CERT" = "true" ] && [ "$HAVE_NOTARY" != "true" ]; then
+            echo "::warning::no APPLE_ID secret: the app is signed but not notarized"
+          fi
+          agentctl=build/agentctl-universal
+          if [ "$APP_ARCH" != universal ]; then agentctl=build/agentctl-arm64; fi
+          packaging/macos/package.sh --app "clients/macos/build/macos/Build/Products/Release/agents deck.app" \
+            --agentctl "$agentctl" --deck-ble build/deck-ble --version "$VERSION" --arch "$APP_ARCH" --out build/pkg "${id[@]}"
+          # The updater fetches agents-deck_<v>_macos_<goarch>.zip: one universal app under both names.
+          cp "build/pkg/agents-deck_${VERSION}_macos_${APP_ARCH}.zip" "dist/agents-deck_${VERSION}_macos_arm64.zip"
+          if [ "$APP_ARCH" = universal ]; then
+            cp "build/pkg/agents-deck_${VERSION}_macos_universal.zip" "dist/agents-deck_${VERSION}_macos_amd64.zip"
+          fi
+          cp "build/pkg/agents-deck_${VERSION}_macos_${APP_ARCH}.dmg" dist/
+
+      - name: notarize agentctl
         if: env.HAVE_CERT == 'true' && env.HAVE_NOTARY == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          cd dist
-          ditto -c -k --keepParent "agents deck.app" notarize.zip
-          xcrun notarytool submit notarize.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" --wait
-          xcrun stapler staple "agents deck.app"
-          rm notarize.zip
           # A bare binary can't be stapled; notarizing it registers the ticket online.
-          zip -q agentctl.zip agentctl
+          cd build
+          zip -q agentctl.zip agentctl-arm64 agentctl-amd64
           xcrun notarytool submit agentctl.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" --wait
           rm agentctl.zip
 
-      - name: package
+      - name: agentctl archives
         run: |
-          cd dist
-          tar -czf "agentctl_${VERSION}_darwin_arm64.tar.gz" agentctl
-          ditto -c -k --keepParent "agents deck.app" "agents-deck_${VERSION}_macos_arm64.zip"
-          rm -rf agentctl "agents deck.app"
-          ls -la
+          for arch in arm64 amd64; do
+            mkdir -p "build/cli-$arch"
+            cp "build/agentctl-$arch" "build/cli-$arch/agentctl"
+            tar -C "build/cli-$arch" -czf "dist/agentctl_${VERSION}_darwin_${arch}.tar.gz" agentctl
+          done
+          ls -la dist
 
       - uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64
+          name: macos
+          path: dist/*
+
+  # The tray app, packaged: .deb and the app folder (.tar.gz), both with
+  # agentctl in them, then installed on this runner as a check.
+  linux:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            flutter: x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            flutter: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: GTK build tools and packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev \
+            libwebkit2gtk-4.1-dev dpkg-dev desktop-file-utils >/dev/null
+      - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'amd64'
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Flutter (arm64 host, from git)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+
+      - name: agentctl
+        working-directory: backend
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -trimpath \
+            -ldflags "-s -w -X main.version=$VERSION" -o ../build/agentctl ./cmd/agentctl
+          ../build/agentctl version
+          mkdir -p ../dist
+          tar -C ../build -czf "../dist/agentctl_${VERSION}_linux_${{ matrix.arch }}.tar.gz" agentctl
+
+      - name: tray app
+        working-directory: clients/macos
+        run: |
+          flutter pub get
+          flutter build linux --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
+
+      - name: .deb and .tar.gz
+        run: |
+          packaging/linux/package.sh --bundle "clients/macos/build/linux/${{ matrix.flutter }}/release/bundle" \
+            --agentctl build/agentctl --version "$VERSION" --arch ${{ matrix.arch }} --out dist
+
+      - name: install the .deb here and check it
+        run: packaging/linux/check-deb.sh "dist/agents-deck_${VERSION}_linux_${{ matrix.arch }}.deb" "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*
+
+  # agentctl.exe and a per-user installer. Builds the app too once the Flutter
+  # project has a Windows runner (clients/macos/windows); until then the
+  # installer carries agentctl alone. Skipped with a warning while the backend
+  # doesn't build for Windows yet.
+  windows:
+    needs: meta
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: agentctl.exe
+        id: cli
+        working-directory: backend
+        run: |
+          mkdir -p ../build/windows ../dist
+          if ! CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+              -o ../build/windows/agentctl.exe ./cmd/agentctl; then
+            if [ ! -d internal/service ]; then
+              echo "::warning::the backend doesn't build for Windows yet: no Windows files in this release"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit 1
+          fi
+          ../build/windows/agentctl.exe version
+      - uses: subosito/flutter-action@v2
+        if: steps.cli.outputs.skip != 'true' && hashFiles('clients/macos/windows/CMakeLists.txt') != ''
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: app
+        if: steps.cli.outputs.skip != 'true' && hashFiles('clients/macos/windows/CMakeLists.txt') != ''
+        working-directory: clients/macos
+        run: |
+          flutter pub get
+          flutter build windows --release --build-name "$VERSION" --build-number "${{ github.run_number }}"
+          cp -R build/windows/x64/runner/Release/. ../../build/windows/
+          for exe in build/windows/x64/runner/Release/*.exe; do
+            echo "APP_EXE=$(basename "$exe")" >> "$GITHUB_ENV"
+            break
+          done
+      - name: sign the executables (when WINDOWS_CERT_PFX is set)
+        if: steps.cli.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem build/windows -Recurse -Include *.exe,*.dll | ForEach-Object { $_.FullName }
+          ./packaging/windows/sign.ps1 @files
+      - name: agentctl zip
+        if: steps.cli.outputs.skip != 'true'
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/agentctl.exe -DestinationPath "dist/agentctl_${env:VERSION}_windows_amd64.zip"
+      - name: setup.exe
+        if: steps.cli.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $iscc = Get-Item "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" -ErrorAction SilentlyContinue
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress | Out-Null
+            $iscc = Get-Item "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $iscc = if ($iscc.Source) { $iscc.Source } else { $iscc.FullName }
+          $defs = @("/DVersion=$env:VERSION", "/DSourceDir=$PWD\build\windows", "/DOutputDir=$PWD\dist")
+          if ($env:APP_EXE) { $defs += "/DAppExe=$env:APP_EXE" }
+          & $iscc @defs packaging\windows\agents-deck.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed" }
+          ./packaging/windows/sign.ps1 "dist/agents-deck_${env:VERSION}_windows_amd64_setup.exe"
+      - uses: actions/upload-artifact@v7
+        if: steps.cli.outputs.skip != 'true'
+        with:
+          name: windows
           path: dist/*
 
   # One merged image per board, built with the PlatformIO CLI in a pinned
@@ -152,7 +359,9 @@ jobs:
   # idf5 projects keep their tools in a PlatformIO home of their own, as on a
   # Mac, with the SCons fix from docs/flashing.md applied before the build.
   # Each board has its own cache, keyed on the PlatformIO version and its
-  # platformio.ini.
+  # platformio.ini. What the deck knows about a board (types, USB ids, Wi-Fi,
+  # picture) comes from firmware/devices/<board>/board.json; boards with Wi-Fi
+  # also get the app on its own (.app.bin) for over-the-air updates.
   firmware:
     needs: meta
     runs-on: ubuntu-24.04
@@ -181,16 +390,16 @@ jobs:
             project: firmware/devices/lilygo-t4-s3/idf5
             env: idf5
             home: .platformio-pioarduino
-          - board: waveshare-touch-lcd-4 # 2.0.17 until its idf5 build is out of experimental
+          - board: waveshare-touch-lcd-4
             name: Waveshare ESP32-S3-Touch-LCD-4
-            project: firmware/devices/waveshare-touch-lcd-4
-            env: waveshare-touch-lcd-4
-            home: .platformio
-          - board: waveshare-lcd-147 # no Wi-Fi: 2.0.17 is its only firmware
+            project: firmware/devices/waveshare-touch-lcd-4/idf5
+            env: idf5
+            home: .platformio-pioarduino
+          - board: waveshare-lcd-147 # the newer framework too, but its firmware is USB only
             name: Waveshare ESP32-S3-LCD-1.47B
-            project: firmware/devices/waveshare-lcd-147
-            env: waveshare-s3-147b
-            home: .platformio
+            project: firmware/devices/waveshare-lcd-147/idf5
+            env: idf5
+            home: .platformio-pioarduino
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       PLATFORMIO_CORE_DIR: /github/home/${{ matrix.home }}
@@ -222,6 +431,8 @@ jobs:
             --name "${{ matrix.name }}" --dir "${{ matrix.project }}" --env "${{ matrix.env }}" \
             --version "$VERSION" --out dist
           python -m esptool --chip esp32s3 image-info "dist/agents-deck-${{ matrix.board }}-$VERSION.bin"
+          app="dist/agents-deck-${{ matrix.board }}-$VERSION.app.bin"
+          if [ -f "$app" ]; then python -m esptool --chip esp32s3 image-info "$app"; fi
       - uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.board }}
@@ -247,25 +458,81 @@ jobs:
           path: dist/*
 
   publish:
-    needs: [meta, macos-arm64, firmware-index]
+    needs: [meta, macos, linux, windows, firmware-index]
+    # Linux and Windows may fail without holding back the rest (see the top).
+    if: ${{ !cancelled() && needs.macos.result == 'success' && needs.firmware-index.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.meta.outputs.tag }}
     steps:
+      - name: Linux and Windows made it?
+        env:
+          LINUX: ${{ needs.linux.result }}
+          WINDOWS: ${{ needs.windows.result }}
+        run: |
+          [ "$LINUX" = success ] || echo "::warning::linux job: $LINUX; this release has no Linux packages"
+          [ "$WINDOWS" = success ] || echo "::warning::windows job: $WINDOWS; this release has no Windows files"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
       - uses: actions/download-artifact@v8
         with:
-          name: macos-arm64
+          name: macos
           path: dist
       - uses: actions/download-artifact@v8
         with:
           name: firmware
           path: dist
+      # Patterns, not names: a job that failed or skipped leaves nothing to download.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: linux-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: windows*
+          path: dist
+          merge-multiple: true
       - name: checksums
-        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+        run: |
+          cd dist
+          rm -f SHA256SUMS SHA256SUMS.sig
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: sign SHA256SUMS (with AGENTS_DECK_RELEASE_KEY)
+        env:
+          AGENTS_DECK_RELEASE_KEY: ${{ secrets.AGENTS_DECK_RELEASE_KEY }}
+        run: |
+          if [ -z "$AGENTS_DECK_RELEASE_KEY" ]; then
+            echo "::warning::no AGENTS_DECK_RELEASE_KEY secret: SHA256SUMS is not signed (the updater won't install this release)"
+            exit 0
+          fi
+          (cd backend && CGO_ENABLED=0 go build -o "$RUNNER_TEMP/agentctl" ./cmd/agentctl)
+          if "$RUNNER_TEMP/agentctl" release-key 2>&1 | grep -q 'unknown command'; then
+            echo "::warning::this agentctl has no release-key command: SHA256SUMS is not signed"
+            exit 0
+          fi
+          "$RUNNER_TEMP/agentctl" release-key sign dist/SHA256SUMS
+          test -s dist/SHA256SUMS.sig
+          # The key in the code must be the one that signed: else no copy could check it.
+          if [ -s backend/internal/update/release.pub ]; then
+            "$RUNNER_TEMP/agentctl" release-key verify dist/SHA256SUMS
+          else
+            echo "::warning::backend/internal/update/release.pub is empty: agentctl from this release can't check signatures"
+          fi
       - name: release
         run: |
           if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes --title "agents deck $TAG"
+            # A tag with a suffix (v0.2.0-rc.1) is a pre-release: never "latest", so
+            # neither the updater nor install.sh offers it (docs/releasing.md).
+            pre=()
+            case "$TAG" in *-*) pre=(--prerelease) ;; esac
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --generate-notes --title "agents deck $TAG" "${pre[@]}"
           fi
           gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/*

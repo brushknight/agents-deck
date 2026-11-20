@@ -20,6 +20,9 @@ type Board struct {
 	Event  func(f *linkpb.Frame) // every frame from the deck (after bookkeeping)
 	// Wifi answers the deck's WifiConfig (nil: 501, no Wi-Fi on this board).
 	Wifi func(w *linkpb.WifiConfig) (code uint32, err string)
+	// Firmware takes the deck's FirmwareOffer and reports with
+	// FirmwareStatus itself (nil: REFUSED, as firmware without updates).
+	Firmware func(o *linkpb.FirmwareOffer)
 
 	rw     io.ReadWriter
 	wmu    sync.Mutex
@@ -86,6 +89,13 @@ func (b *Board) handle(f *linkpb.Frame) {
 			code, msg = b.Wifi(x.WifiConfig)
 		}
 		b.Send(&linkpb.Frame{Seq: f.Seq, Body: &linkpb.Frame_Result{Result: &linkpb.Result{Code: code, Error: msg}}})
+	case *linkpb.Frame_FirmwareOffer:
+		if b.Firmware != nil {
+			b.Firmware(x.FirmwareOffer)
+		} else {
+			b.Send(&linkpb.Frame{Body: &linkpb.Frame_FirmwareStatus{FirmwareStatus: &linkpb.FirmwareStatus{
+				State: linkpb.FirmwareState_FIRMWARE_REFUSED, Error: "this firmware can't update over Wi-Fi"}}})
+		}
 	case *linkpb.Frame_SnapshotBegin:
 		b.mu.Lock()
 		b.agents = map[string]*linkpb.Agent{}
@@ -169,6 +179,9 @@ func Describe(f *linkpb.Frame) string {
 			return "wifi: forget the network"
 		}
 		return "wifi: join " + x.WifiConfig.Ssid // never the password
+	case *linkpb.Frame_FirmwareOffer:
+		o := x.FirmwareOffer
+		return fmt.Sprintf("firmware offer: %s %s, %d bytes, from %s", o.Board, o.Version, o.Size, o.Path)
 	case *linkpb.Frame_CertIssued:
 		return fmt.Sprintf("paired: certificate %s for %s, deck at %v port %d", x.CertIssued.CertSerial, x.CertIssued.DeviceName, x.CertIssued.Hosts, x.CertIssued.Port)
 	}

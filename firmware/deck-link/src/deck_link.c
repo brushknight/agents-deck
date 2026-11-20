@@ -1,6 +1,7 @@
 /* Deck Link core: see deck_link.h and docs/link/protocol.md. */
 #include "deck_link.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "crc16.h"
@@ -248,6 +249,22 @@ static void dispatch(deck_link_t *ctx)
 		memset(&f->body.wifi_config, 0, sizeof f->body.wifi_config);
 		break;
 	}
+	case agentsdeck_link_v1_Frame_firmware_offer_tag:
+		if (c->on_firmware_offer)
+			c->on_firmware_offer(ctx, &f->body.firmware_offer);
+		else
+			deck_firmware_status(ctx, agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED, 0,
+					     "this firmware can't update over Wi-Fi");
+		break;
+	case agentsdeck_link_v1_Frame_link_config_tag: {
+		agentsdeck_link_v1_Result r;
+		memset(&r, 0, sizeof r);
+		r.code = c->on_link_config ? c->on_link_config(ctx, f->body.link_config.uplink) : 501;
+		if (!c->on_link_config)
+			copy_str(r.error, sizeof r.error, "no Bluetooth on this board");
+		send_frame(ctx, f->seq, agentsdeck_link_v1_Frame_result_tag, agentsdeck_link_v1_Result_fields, &r);
+		break;
+	}
 	default:
 		break; /* a Pong, or something this board doesn't handle */
 	}
@@ -437,6 +454,14 @@ uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot)
 	return send_cmd(ctx, agentsdeck_link_v1_Frame_move_tag, agentsdeck_link_v1_Move_fields, &m);
 }
 
+uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot)
+{
+	agentsdeck_link_v1_MoveAttention m;
+	copy_str(m.agent_id, sizeof m.agent_id, agent_id);
+	m.slot = slot;
+	return send_cmd(ctx, agentsdeck_link_v1_Frame_move_attention_tag, agentsdeck_link_v1_MoveAttention_fields, &m);
+}
+
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n)
 {
 	agentsdeck_link_v1_Order m;
@@ -514,4 +539,37 @@ uint32_t deck_cert_request(deck_link_t *ctx, const uint8_t *csr, size_t len)
 uint32_t deck_net_status(deck_link_t *ctx, const agentsdeck_link_v1_NetStatus *status)
 {
 	return send_cmd(ctx, agentsdeck_link_v1_Frame_net_status_tag, agentsdeck_link_v1_NetStatus_fields, status);
+}
+
+uint32_t deck_firmware_status(deck_link_t *ctx, agentsdeck_link_v1_FirmwareState state, uint32_t percent,
+			      const char *error)
+{
+	agentsdeck_link_v1_FirmwareStatus m;
+	memset(&m, 0, sizeof m);
+	m.state = state;
+	m.percent = percent > 100 ? 100 : percent;
+	copy_str(m.error, sizeof m.error, error);
+	return send_cmd(ctx, agentsdeck_link_v1_Frame_firmware_status_tag, agentsdeck_link_v1_FirmwareStatus_fields, &m);
+}
+
+bool deck_firmware_offer_check(const agentsdeck_link_v1_FirmwareOffer *o, const char *board, uint64_t slot_size,
+			       char *why, size_t why_size)
+{
+	static const char prefix[] = "/v1/firmware/";
+	const char *reason = NULL;
+	char buf[96];
+	if (!board || !board[0])
+		reason = "this build doesn't know its board";
+	else if (strcmp(o->board, board) != 0) {
+		snprintf(buf, sizeof buf, "this is %s, not %s", board, o->board);
+		reason = buf;
+	} else if (o->size == 0 || o->sha256.size != 32 || !o->version[0])
+		reason = "the offer has no size, version or SHA-256";
+	else if (slot_size && o->size > slot_size)
+		reason = "the image is bigger than the firmware slot";
+	else if (strncmp(o->path, prefix, sizeof prefix - 1) != 0 || strstr(o->path, ".."))
+		reason = "the offer's path isn't on /v1/firmware/";
+	if (reason && why && why_size)
+		copy_str(why, why_size, reason);
+	return reason == NULL;
 }

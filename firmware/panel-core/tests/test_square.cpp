@@ -198,6 +198,123 @@ int main() {
     assert(ui.page == 0);
   }
 
+  // ---- the "Needs you" screen on the list boards: what the list shows at
+  // once (2 x 2, 2 x 3 on the T4-S3), to the left of the list, not scrolling
+  {
+    assert(squareSpots(A) == 4 && squareSpots(specT4S3()) == 6 && squareSpots(L) == 16);
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(6);
+    f.agents[1].status = Status::Running;
+    f.agents[4].status = Status::Waiting;
+    f.agents[5].unseen = true;                                   // hungry
+    PanelUi ui;
+    ui.att = &att;
+    uint32_t ms = 0;
+    squareTick(ui, A, f, ms);
+    assert(att.cap == 4 && att.count == 3 && !ui.needsYou);
+    // Swipe right on the list: the screen. Its spots sit where the list's first tiles do.
+    squareTouch(ui, A, f, true, 60, 250, DeckScope::Act, 100);
+    squareTouch(ui, A, f, true, 200, 255, DeckScope::Act, 150);
+    squareTouch(ui, A, f, false, 0, 0, DeckScope::Act, 160);
+    assert(ui.needsYou && !ui.dragging);
+    const Rect s0 = listTile(A, 0, 0), s2 = listTile(A, 2, 0), s3 = listTile(A, 3, 0);
+    assert(squareHit(A, ui, f, s0.x + 5, s0.y + 5, DeckScope::Act).agent == 1);
+    assert(squareHit(A, ui, f, s2.x + 5, s2.y + 5, DeckScope::Act).agent == 5);
+    assert(squareHit(A, ui, f, s3.x + 5, s3.y + 5, DeckScope::Act).kind == Hit::None);
+    // It doesn't scroll.
+    drag(A, ui, f, 100, 400, 100, 1000, 200);
+    settle(A, ui, f, ms);
+    assert(ui.scroll == 0 && ui.needsYou);
+    // A tile opens its card or prompt; back is the screen again.
+    touchAt(A, ui, f, s0.x + 20, s0.y + 20, 2000, DeckScope::Act);
+    assert(ui.screen == Screen::Card && !strcmp(ui.openId, "a1"));
+    squareButton(ui, A, f);
+    assert(ui.screen == Screen::Home && ui.needsYou);
+    // Swipe left: the list, at its top. BOOT goes there and back.
+    squareSwipe(ui, A, f, Swipe::Right);
+    assert(ui.needsYou);
+    squareSwipe(ui, A, f, Swipe::Left);
+    assert(!ui.needsYou);
+    squareButton(ui, A, f);
+    assert(ui.needsYou);
+    squareButton(ui, A, f);
+    assert(!ui.needsYou);
+    // Drawn: free spots as empty tiles, the header's two marks.
+    std::vector<uint16_t> buf(A.w * A.h);
+    Canvas c{buf.data(), A.w, A.h};
+    const Theme T = deckTheme(true);
+    PanelInput in{&f, LinkState::Live, "x", DeckScope::Act, 3000, 0, &ui, 0};
+    ui.needsYou = true;
+    SquarePanel(A).draw(c, in);
+    assert(buf[(s3.y + s3.h / 2) * A.w + s3.x + s3.w / 2] == T.emptyFill);
+    int orange = 0;
+    for (int y = 0; y < 10; y++)
+      for (int x = 0; x < A.w; x++) orange += buf[y * A.w + x] == T.accent;
+    assert(orange > 60);                                         // the solid mark, over the header
+    ui.needsYou = false;
+    SquarePanel(A).draw(c, in);
+    int orange2 = 0;
+    for (int y = 0; y < 10; y++)
+      for (int x = 0; x < A.w; x++) orange2 += buf[y * A.w + x] == T.accent;
+    assert(orange2 > 0 && orange2 < orange);                     // the outline: someone is there
+  }
+
+  // ---- the deck's spots on the list screen: lowest spot first, the rest not
+  // shown but counted (the fleet above had none: an older deck, deck order)
+  {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(6);
+    f.agents[1].status = Status::Running, f.agents[1].attnSlot = 9;
+    f.agents[2].status = Status::Running, f.agents[2].attnSlot = 14;
+    f.agents[3].status = Status::Running, f.agents[3].attnSlot = 5;
+    f.agents[4].status = Status::Waiting, f.agents[4].attnSlot = 2;
+    f.agents[5].unseen = true, f.agents[5].attnSlot = 1;
+    PanelUi ui;
+    ui.att = &att;
+    squareTick(ui, A, f, 0);
+    assert(att.cap == 4 && att.count == 5 && att.fromDeck);
+    ui.needsYou = true;
+    int want[4] = {5, 4, 3, 1};
+    for (int k = 0; k < 4; k++) {
+      const Rect r = listTile(A, k, 0);
+      assert(squareHit(A, ui, f, r.x + 5, r.y + 5, DeckScope::Act).agent == want[k]);
+    }
+  }
+
+  // ---- the "Needs you" screen on the grid: left of the first page, the mark at the left of the bars
+  {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(2);
+    f.agents[1].slot = 17;
+    f.agents[1].status = Status::Running;
+    PanelUi ui;
+    ui.att = &att;
+    squareTick(ui, L, f, 0);
+    const GridGeom g = gridGeomFor(L, ui, 2);
+    squareSwipe(ui, L, f, Swipe::Right);
+    assert(ui.needsYou);
+    const Rect r0 = cellRect(L, g, 0);
+    assert(squareHit(L, ui, f, r0.x + 5, r0.y + 5, DeckScope::Act).agent == 1);
+    squareSwipe(ui, L, f, Swipe::Down);                          // previous: nothing further left
+    assert(ui.needsYou);
+    squareSwipe(ui, L, f, Swipe::Left);
+    assert(!ui.needsYou && ui.page == 0);
+    const SquareBars b = squareBars(L, g, ui, 2);
+    assert(b.n == 3 && b.mark && b.countX >= 0);
+    assert(squareHit(L, ui, f, b.r[0].x + 2, g.bars.y + 2, DeckScope::Act).kind == Hit::NeedsYou);
+    touchAt(L, ui, f, b.r[0].x + 2, g.bars.y + g.bars.h / 2, 100, DeckScope::Act);
+    assert(ui.needsYou);
+    touchAt(L, ui, f, b.r[2].x + 2, g.bars.y + g.bars.h / 2, 300, DeckScope::Act);
+    assert(!ui.needsYou && ui.page == 1);
+    squareButton(ui, L, f);                                      // BOOT after the last page: the screen
+    assert(ui.needsYou);
+    squareButton(ui, L, f);
+    assert(!ui.needsYou && ui.page == 0);
+  }
+
   // ---- a tile's icons never meet its name
   for (const SquareSpec* S : {&A, &L}) {
     const bool list = S->home == HomeKind::List;

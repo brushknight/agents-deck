@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "attention.h"
 #include "canvas.h"
 #include "deck_cmd.h"
 #include "model.h"
@@ -41,7 +42,8 @@ enum class Swipe : uint8_t { Left, Right, Up, Down };
 enum class Screen : uint8_t { Home, Card, Prompt };
 
 // What lies under a point.
-enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume };
+// NeedsYou: the "Needs you" screen's mark among the page bars.
+enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume, NeedsYou };
 
 struct PanelHit {
   Hit kind = Hit::None;
@@ -54,6 +56,12 @@ struct PanelUi {
   Screen screen = Screen::Home;
   char openId[12] = "";        // the card's or the prompt's agent
   int page = 0;                // grid homes: the page
+
+  // The "Needs you" screen (attention.h), one step left of the first page:
+  // the deck's spots in this screen's cells (nullptr: a board without the
+  // screen), and whether home shows it now.
+  Attention* att = nullptr;
+  bool needsYou = false;
 
   // List homes: the scroll offset in pixels, and its settle animation.
   float scroll = 0;
@@ -77,9 +85,11 @@ struct PanelUi {
   int selected = -1;           // big panels: the prompt's chosen option (sent with "send")
   uint32_t stopArmedUntil = 0; // big panels: "tap again to stop" until then
 
-  // On Wi-Fi (the firmware sets it from net_link.h): home shows a small
-  // Wi-Fi mark, and a grid home keeps a row at the bottom for it.
+  // On Wi-Fi or Bluetooth (the firmware sets it from net_link.h): home shows
+  // a small mark, and a grid home keeps a row at the bottom for it. ble: the
+  // mark is Bluetooth's.
   bool wifi = false;
+  bool ble = false;
 
   // Feedback.
   char toast[48] = "";

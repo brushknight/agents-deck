@@ -9,6 +9,7 @@
  * with another key's certificate. */
 #define K_CERT "dl_cert"
 #define K_WIFI "dl_wifi"
+#define K_UPLINK "dl_uplink"
 
 #define CERT_VERSION 1
 
@@ -142,6 +143,24 @@ bool deck_store_save_wifi(const deck_kv_t *kv, const deck_wifi_t *w)
 }
 
 bool deck_store_clear_wifi(const deck_kv_t *kv) { return kv && kv->erase && kv->erase(kv->user, K_WIFI); }
+
+agentsdeck_link_v1_Uplink deck_store_load_uplink(const deck_kv_t *kv)
+{
+	uint8_t v = 0;
+	size_t len = sizeof v;
+	if (!kv || !kv->get || !kv->get(kv->user, K_UPLINK, &v, &len) || len != 1 ||
+	    v > agentsdeck_link_v1_Uplink_UPLINK_BLE)
+		return agentsdeck_link_v1_Uplink_UPLINK_AUTO;
+	return (agentsdeck_link_v1_Uplink)v;
+}
+
+bool deck_store_save_uplink(const deck_kv_t *kv, agentsdeck_link_v1_Uplink uplink)
+{
+	if (!kv || !kv->set || (unsigned)uplink > agentsdeck_link_v1_Uplink_UPLINK_BLE)
+		return false;
+	uint8_t v = (uint8_t)uplink;
+	return kv->set(kv->user, K_UPLINK, &v, 1);
+}
 
 /* ---- NVS (ESP-IDF) ---------------------------------------------------------- */
 

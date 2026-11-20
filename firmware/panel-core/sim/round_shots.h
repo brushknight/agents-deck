@@ -214,6 +214,35 @@ static inline int render(const std::string& dir, const RoundLayout& L, const cha
     in.net = nullptr;
   }
 
+  // Bluetooth: the mark on home, the passkey, the setup and waiting notices, "forget?".
+  {
+    NetView net;
+    net.via = NetVia::Ble;
+    net.ble.capable = true;
+    net.ble.phase = BlePhase::Connected;
+    net.ble.carrying = true;
+    snprintf(net.ble.name, sizeof net.ble.name, "deck-1a2b3c");
+    in.net = &net;
+    fresh(pick(all, {"k3f9a2", "d0cs1t", "t3st5a"}));
+    shot("home-ble");
+    net.ble.carrying = false;
+    net.ble.passkey = 42917;
+    const struct { const char* name; BlePhase phase; } kBle[] = {
+        {"ble-setup", BlePhase::Setup}, {"ble-waiting", BlePhase::Bonded}, {"ble-connecting", BlePhase::Connected},
+        {"ble-passkey", BlePhase::Pairing},
+    };
+    in.link = LinkState::Connecting;
+    for (const auto& b : kBle) {
+      net.ble.phase = b.phase;
+      shot(b.name);
+    }
+    net.ble.phase = BlePhase::Bonded;
+    net.ble.forgetAsk = true;
+    shot("ble-forget");
+    in.link = LinkState::Live;
+    in.net = nullptr;
+  }
+
   // The full-screen states.
   const struct { const char* name; LinkState link; bool empty; } kNotices[] = {
       {"connecting", LinkState::Connecting, false}, {"not-approved", LinkState::Unapproved, false},

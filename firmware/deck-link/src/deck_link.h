@@ -1,7 +1,8 @@
 /* Deck Link: the agents deck over a serial port, for small boards.
  *
  * A transport-agnostic C99 core: no malloc, no Arduino, no OS. You give it a
- * write callback and a millisecond clock, feed it the bytes you receive and
+ * write callback and a millisecond clock (the link: USB serial, TLS with
+ * deck_tls.h, or Bluetooth LE with deck_ble.h), feed it the bytes you receive and
  * call deck_link_poll() often; it handles framing (COBS + magic + CRC), the
  * Hello/Welcome handshake, the subscription, Ping/Pong and offline
  * detection, and calls your event callbacks with decoded messages.
@@ -34,7 +35,7 @@ extern "C" {
 
 /* The largest frame (before COBS) this build accepts. The protocol allows
  * 4096; with link.options the deck never sends more than
- * agentsdeck_link_v1_Frame_size + 5 (3387). Lower it (>= 512) to save RAM;
+ * agentsdeck_link_v1_Frame_size + 5 (3406). Lower it (>= 512) to save RAM;
  * the deck then clips what it sends (Hello.max_frame). */
 #ifndef DECK_LINK_MAX_FRAME
 #define DECK_LINK_MAX_FRAME 4096
@@ -74,7 +75,8 @@ typedef enum {
 
 typedef struct deck_link deck_link_t;
 
-/* Writes bytes to the serial port; returns how many were written. */
+/* Writes bytes to the link (serial, TLS, Bluetooth); returns how many were
+ * written. Anything short of len counts as a failed frame (tx_errors). */
 typedef size_t (*deck_write_fn)(const uint8_t *data, size_t len, void *user);
 /* A free-running millisecond clock (wraps at 2^32). */
 typedef uint32_t (*deck_millis_fn)(void *user);
@@ -122,6 +124,18 @@ typedef struct {
 	/* The deck sends Wi-Fi credentials (forget: drop them). Return the code
 	 * the core answers with: 204 stored, 400 bad, 500 failed. Unset: 501. */
 	uint32_t (*on_wifi_config)(deck_link_t *ctx, const char *ssid, const char *password, bool forget);
+
+	/* Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+	 * over Wi-Fi"). The deck offers a new firmware: check it
+	 * (deck_firmware_offer_check), download it (deck_fw.h) and report with
+	 * deck_firmware_status(). Unset: the core answers REFUSED ("this firmware
+	 * can't update over Wi-Fi"). */
+	void (*on_firmware_offer)(deck_link_t *ctx, const agentsdeck_link_v1_FirmwareOffer *offer);
+
+	/* The deck's uplink preference (docs/link/protocol.md, "Bluetooth"):
+	 * auto, Wi-Fi or Bluetooth. Return the code the core answers with: 204
+	 * kept, 500 failed. Unset: 501 (no Bluetooth in this firmware). */
+	uint32_t (*on_link_config)(deck_link_t *ctx, agentsdeck_link_v1_Uplink uplink);
 } deck_link_config_t;
 
 typedef struct {
@@ -180,6 +194,8 @@ uint32_t deck_interrupt(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_dismiss(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_resume(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot);
+/* Moves an agent on the deck's "Needs you" grid to spot 1..16 (Agent.attention_slot). */
+uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot);
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n);
 /* folder is used when agent_id is NULL or empty; color may be NULL. */
 uint32_t deck_set_hat(deck_link_t *ctx, const char *agent_id, const char *folder, const char *shape,
@@ -204,6 +220,18 @@ uint32_t deck_net_status(deck_link_t *ctx, const agentsdeck_link_v1_NetStatus *s
  * Welcome ("" for none). A board whose stored certificate has another serial
  * asks for a new one. */
 const char *deck_link_cert_serial(const deck_link_t *ctx);
+
+/* Firmware updates over Wi-Fi. deck_firmware_status tells the deck how an
+ * update goes (percent 0..100; error for FAILED and REFUSED, may be NULL).
+ * deck_firmware_offer_check says whether an offer is one this board can take:
+ * its board is `board` (this firmware's, e.g. "lilygo-t4-s3"), it has a size
+ * and a 32-byte SHA-256, the size fits in `slot_size` bytes (0: don't check)
+ * and its path is on the deck's /v1/firmware/. On false, why (if not NULL)
+ * gets the reason for REFUSED. */
+uint32_t deck_firmware_status(deck_link_t *ctx, agentsdeck_link_v1_FirmwareState state, uint32_t percent,
+			      const char *error);
+bool deck_firmware_offer_check(const agentsdeck_link_v1_FirmwareOffer *offer, const char *board, uint64_t slot_size,
+			       char *why, size_t why_size);
 
 /* Low level: encodes one frame (seq + the body field `tag` holding `msg` of
  * type `fields`) into wire bytes, delimiter included. Returns the length, or

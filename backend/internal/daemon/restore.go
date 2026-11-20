@@ -71,14 +71,33 @@ func (d *Daemon) autoRestore() {
 // Restore brings back every agent lost with the tmux server: Claude agents on
 // their own conversation, other tools fresh in their folder, simulated agents
 // dropped. Each keeps its id, title and board position.
-func (d *Daemon) Restore() []RestoreResult {
+func (d *Daemon) Restore(ids ...string) []RestoreResult {
 	var lost []store.Entry
-	for _, e := range d.Store.Entries() {
-		if e.A.Lost {
-			lost = append(lost, e)
+	var out []RestoreResult
+	if len(ids) == 0 {
+		for _, e := range d.Store.Entries() {
+			if e.A.Lost {
+				lost = append(lost, e)
+			}
+		}
+	} else {
+		seen := map[string]bool{}
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			e, ok := d.Store.Get(id)
+			switch {
+			case !ok:
+				out = append(out, RestoreResult{ID: id, Action: "failed", Error: "no such agent"})
+			case !e.A.Lost:
+				out = append(out, RestoreResult{ID: id, Title: e.A.Title, Action: "failed", Error: "not lost with the tmux server"})
+			default:
+				lost = append(lost, e)
+			}
 		}
 	}
-	out := make([]RestoreResult, 0, len(lost))
 	for i, e := range lost {
 		if i > 0 {
 			time.Sleep(300 * time.Millisecond) // don't start a dozen agents in the same instant
@@ -137,4 +156,9 @@ func (d *Daemon) relaunch(e store.Entry) error {
 }
 
 // RestoreJSON is Restore for the HTTP APIs.
-func (d *Daemon) RestoreJSON() any { return d.Restore() }
+func (d *Daemon) RestoreJSON(ids []string) any {
+	if r := d.Restore(ids...); r != nil {
+		return r
+	}
+	return []RestoreResult{}
+}

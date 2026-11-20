@@ -124,7 +124,7 @@ func handoff(args []string) error {
 	if len(args) != 2 {
 		return errors.New("usage: agentctl handoff <id|title> <account>   (continue the session in another Claude account)")
 	}
-	a, err := resolve(args[0])
+	a, err := resolve(args[0], "handoff")
 	if err != nil {
 		return err
 	}

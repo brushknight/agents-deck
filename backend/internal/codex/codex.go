@@ -2,7 +2,9 @@
 // read-only and without any wrapper or login: thread names come from Codex's
 // own state database (~/.codex/state_*.sqlite, opened read-only through the
 // system sqlite3), live status from each thread's rollout log
-// (~/.codex/sessions/…/rollout-*.jsonl).
+// (~/.codex/sessions/…/rollout-*.jsonl). Without a sqlite3 program (Windows
+// has none) the threads come from the rollout logs alone, without the names
+// given in the app.
 package codex
 
 import (
@@ -21,6 +23,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -66,9 +69,15 @@ func RecentThreads(window time.Duration) ([]Thread, error) {
 		"coalesce(git_branch,'') as git_branch, coalesce(model,'') as model, coalesce(updated_at_ms,0) as updated_at_ms " +
 		"from threads where coalesce(archived,0)=0 and coalesce(updated_at_ms,0) >= " + itoa(since) +
 		" order by updated_at_ms desc limit 32"
+	bin := sqlite3()
+	if bin == "" { // no sqlite3 (Windows, a minimal Linux): the rollout logs alone
+		return rolloutThreads(filepath.Join(Home(), "sessions"), window, time.Now())
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "/usr/bin/sqlite3", "-readonly", "-json", db, q).Output()
+	cmd := exec.CommandContext(ctx, bin, "-readonly", "-json", db, q)
+	proc.NoWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +108,29 @@ func (t Thread) DisplayTitle() string {
 const maxRead = 8 << 20
 
 type rolloutLine struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Timestamp string          `json:"timestamp"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+// activeAt is when a rollout line counts as the thread's activity: a
+// message from you or the model, a tool call or its result. Context,
+// token counts and instructions don't count.
+func activeAt(l rolloutLine, p payload) (time.Time, bool) {
+	if l.Type != "response_item" {
+		return time.Time{}, false
+	}
+	switch p.Type {
+	case "message":
+		if p.Role != "user" && p.Role != "assistant" {
+			return time.Time{}, false
+		}
+	case "function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output":
+	default:
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+	return t, err == nil
 }
 
 type payload struct {
@@ -185,6 +215,9 @@ func Tail(e *store.Entry) bool {
 		var p payload
 		if json.Unmarshal(l.Payload, &p) != nil {
 			continue
+		}
+		if t, ok := activeAt(l, p); ok && e.MarkActive(t) {
+			changed = true
 		}
 		changed = apply(e, l.Type, p, first) || changed
 	}

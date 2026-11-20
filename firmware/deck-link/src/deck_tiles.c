@@ -51,6 +51,7 @@ static void fill(deck_tile_t *d, const agentsdeck_link_v1_Agent *a)
 	memset(d, 0, sizeof *d);
 	copy_str(d->id, sizeof d->id, a->id);
 	d->slot = a->slot;
+	d->attention_slot = a->attention_slot > 16 ? 0 : (uint8_t)a->attention_slot;
 	copy_str(d->title, sizeof d->title, a->title);
 	d->status = a->status;
 	d->tool = a->tool;

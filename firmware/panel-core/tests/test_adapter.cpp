@@ -136,10 +136,17 @@ int main() {
     snprintf(in.hat.color, sizeof in.hat.color, "blue");
     in.hat.automatic = true;
     snprintf(in.effort, sizeof in.effort, "xhigh");
+    in.attention_slot = 7;
 
     Agent a;
     agentFromLink(in, a);
     assert(!strcmp(a.effort, "xhigh"));
+    assert(a.attnSlot == 7);                                   // the "Needs you" spot
+    in.attention_slot = 40;                                    // not a spot: none
+    Agent b0;
+    agentFromLink(in, b0);
+    assert(b0.attnSlot == 0);
+    in.attention_slot = 7;
     assert(!strcmp(a.id, "k3f9a2") && a.slot == 3);
     assert(!strcmp(a.title, "checkout api"));                  // one line
     assert(!strcmp(a.aiTitle, "Fix the race"));

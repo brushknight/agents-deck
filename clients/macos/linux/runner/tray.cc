@@ -110,9 +110,11 @@ typedef struct {
   TrayAction action;
 } MenuItem;
 
+// Ids stay put when items move (the smoke test clicks Quit by its id, 4).
 static const MenuItem kMenu[] = {
     {1, "Show the deck", TRAY_SHOW},
-    {2, "Open dashboard in browser", TRAY_DASHBOARD},
+    {5, "Settings…", TRAY_SETTINGS},
+    {2, "Open the dashboard in your browser", TRAY_DASHBOARD},
     {3, nullptr, TRAY_TOGGLE},
     {4, "Quit agents deck", TRAY_QUIT},
 };

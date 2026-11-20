@@ -4,7 +4,9 @@
 # menu and the deck window are checked over D-Bus and X11.
 #
 # Needs a built bundle (flutter build linux --release in clients/macos), and
-# xvfb, xdotool, python3-gi and gdbus. Run from anywhere:
+# xvfb, xdotool, python3-gi and gdbus. Settings is checked either way the app
+# was built: in its own window (WebKitGTK) or handed to the browser (xdg-open,
+# here a stand-in that writes down the address). Run from anywhere:
 #   xvfb-run -a dbus-run-session -- clients/macos/linux/test/smoke.sh
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -14,7 +16,13 @@ app="$(ls -d "$here"/../../build/linux/*/release/bundle/agents-deck 2>/dev/null 
 
 tmp="$(mktemp -d)"
 export HOME="$tmp/home" AGENTSTERM_HOME="$tmp/data"
-mkdir -p "$HOME" "$AGENTSTERM_HOME"
+mkdir -p "$HOME" "$AGENTSTERM_HOME" "$tmp/bin"
+# The pretend dashboard's port, and a browser that only writes down the address.
+web_port=$((20000 + RANDOM % 20000))
+echo "{\"localAddr\": \"127.0.0.1:$web_port\"}" >"$AGENTSTERM_HOME/config.json"
+printf '#!/bin/sh\necho "$1" >>"%s"\n' "$tmp/opened" >"$tmp/bin/xdg-open"
+chmod +x "$tmp/bin/xdg-open"
+export PATH="$tmp/bin:$PATH" BROWSER="$tmp/bin/xdg-open"
 pids=()
 cleanup() { kill "${pids[@]}" 2>/dev/null; pkill -x agents-deck 2>/dev/null; rm -rf "$tmp"; }
 trap cleanup EXIT
@@ -48,7 +56,7 @@ check "still hidden" "! visible"
 kill $p; wait $p 2>/dev/null
 
 echo "-- with a tray and a daemon"
-python3 "$here/fake_daemon.py" "$AGENTSTERM_HOME/agentd.sock" "$repo/docs/fixtures/state.json" >"$tmp/daemon.log" 2>&1 &
+python3 "$here/fake_daemon.py" "$AGENTSTERM_HOME/agentd.sock" "$repo/docs/fixtures/state.json" "$web_port" >"$tmp/daemon.log" 2>&1 &
 pids+=($!)
 python3 "$here/fake_watcher.py" "$tmp/registered" >"$tmp/watcher.log" 2>&1 &
 pids+=($!)
@@ -59,6 +67,7 @@ check "the icon registers with the tray" "wait_for 10 \"grep -qs '^org.kde.Statu
 svc="$(head -1 "$tmp/registered" 2>/dev/null)"
 check "the deck stays hidden" "! visible"
 check "the app reads the daemon" "wait_for 10 \"grep -q 'sent state' '$tmp/daemon.log'\""
+check "the status line asks the service" "wait_for 10 \"grep -q 'sent system' '$tmp/daemon.log'\""
 prop() {
   gdbus call --session -d "$svc" -o /StatusNotifierItem \
     -m org.freedesktop.DBus.Properties.Get org.kde.StatusNotifierItem "$1"
@@ -71,18 +80,40 @@ check "the icon asks for attention" "wait_for 5 \"prop Status | grep -q NeedsAtt
 check "the tooltip counts them" "prop ToolTip | grep -q 'need'"
 check "pixmaps at panel sizes" "prop IconPixmap | grep -q '(22, 22,'"
 check "the menu has Quit" "layout | grep -q 'Quit agents deck'"
-check "the menu has the dashboard" "layout | grep -q 'Open dashboard in browser'"
+check "the menu has the dashboard" "layout | grep -q 'Open the dashboard in your browser'"
+check "the menu has Settings" "layout | grep -q \"'Settings\""
 
 gdbus call --session -d "$svc" -o /StatusNotifierItem -m org.kde.StatusNotifierItem.Activate 100 0 >/dev/null
 check "a click opens the deck" "wait_for 3 visible"
 wid="$(xdotool search --onlyvisible --name '^agents deck$' | head -1)"
-check "the deck is 440×440" "xdotool getwindowgeometry '$wid' | grep -q 'Geometry: 440x440'"
+check "the deck is 440 wide, 472 high with the status line" "xdotool getwindowgeometry '$wid' | grep -q 'Geometry: 440x472'"
 xdotool windowfocus --sync "$wid" key Escape
 check "Esc puts it away" "wait_for 3 '! visible'"
 gdbus call --session -d "$svc" -o /StatusNotifierItem -m org.kde.StatusNotifierItem.Activate 100 0 >/dev/null
 check "a click opens it again" "wait_for 3 visible"
 gdbus call --session -d "$svc" -o /StatusNotifierItem -m org.kde.StatusNotifierItem.Activate 100 0 >/dev/null
 check "another click puts it away" "wait_for 3 '! visible'"
+
+# Settings… in the menu: a login code from the service, then the Settings
+# window (WebKitGTK) or the browser.
+settings_win() { xdotool search --onlyvisible --name '^agents deck Settings$' >/dev/null 2>&1; }
+gdbus call --session -d "$svc" -o /MenuBar -m com.canonical.dbusmenu.Event 5 clicked '<0>' 0 >/dev/null
+check "Settings… asks the service for a login code" "wait_for 5 \"grep -q 'login code' '$tmp/daemon.log'\""
+if wait_for 10 "settings_win || [ -s '$tmp/opened' ]"; then
+  if settings_win; then
+    echo "     (Settings window, WebKitGTK)"
+    check "it logs in with the code" "wait_for 10 \"grep -q 'web: GET /login?code=smoke-code&next=%2Fsettings' '$tmp/daemon.log'\""
+    check "and goes on to Settings" "wait_for 10 \"grep -q 'web: GET /settings' '$tmp/daemon.log'\""
+    sw="$(xdotool search --onlyvisible --name '^agents deck Settings$' | head -1)"
+    xdotool windowfocus --sync "$sw" key ctrl+w
+    check "Ctrl+W closes it" "wait_for 3 '! settings_win'"
+  else
+    echo "     (no WebKitGTK: the browser)"
+    check "the browser gets the login link" "grep -q '^http://127.0.0.1:$web_port/login?code=smoke-code&next=%2Fsettings#general$' '$tmp/opened'"
+  fi
+else
+  check "Settings opened" "false"
+fi
 
 "$app" >"$tmp/app3.log" 2>&1
 check "starting it again opens the running deck" "wait_for 3 visible"

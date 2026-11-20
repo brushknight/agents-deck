@@ -16,7 +16,13 @@ import (
 //go:embed fixture.json
 var fixture []byte
 
-type Demo struct{ St *store.Store }
+type Demo struct {
+	St *store.Store
+	// Still keeps the fleet as the fixture has it: no activity, no status
+	// changes, and each agent's last activity stays the same time ago (tests
+	// that check the order by activity).
+	Still bool
+}
 
 func Load(st *store.Store) (*Demo, error) {
 	var s model.State
@@ -34,10 +40,22 @@ func Load(st *store.Store) (*Demo, error) {
 			e.A.StartedAt = now.Add(-time.Duration(20+i*7) * time.Minute)
 			e.A.StatusSince = now.Add(-time.Duration(1+i*3) * time.Minute)
 			e.PromptN = 100
+			if ago, ok := lastActive[a.ID]; ok {
+				e.A.LastActive = now.Add(-ago)
+			}
 			return true
 		})
 	}
 	return &Demo{St: st}, nil
+}
+
+// lastActive is how long ago each demo agent last sent or got a message
+// (one is left unknown, as a new agent's would be).
+var lastActive = map[string]time.Duration{
+	"k3f9a2": 40 * time.Second, "h0m3l4": 4 * time.Minute, "d0cs1t": 3 * time.Hour, "t3st5a": 2 * time.Minute,
+	"1nfr4t": 50 * time.Minute, "k8sn0d": time.Minute, "4uthfl": 6 * time.Minute, "h4ptic": 26 * time.Hour,
+	"plug1n": 3 * time.Minute, "fw0t4x": 90 * time.Second,
+	"r3l34s": 5 * time.Hour, "cl34nx": 2 * 24 * time.Hour,
 }
 
 var activities = []model.Activity{
@@ -54,12 +72,17 @@ var activities = []model.Activity{
 func (d *Demo) Run() {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for range time.Tick(3 * time.Second) {
+		if d.Still {
+			d.holdStill(time.Now().UTC())
+			continue
+		}
 		d.St.Each(func(e *store.Entry) bool {
 			if e.A.Status != model.Running {
 				return false
 			}
 			act := activities[r.Intn(len(activities))]
 			e.A.Activity = &act
+			e.MarkActive(time.Now().UTC())
 			grow := int64(2000 + r.Intn(9000))
 			e.A.Tokens.Output += grow / 8
 			e.A.Tokens.CacheRead += grow * 4
@@ -78,6 +101,19 @@ func (d *Demo) Run() {
 			return true
 		})
 	}
+}
+
+// holdStill sets every agent's last activity to the fixture's time ago,
+// counted from now.
+func (d *Demo) holdStill(now time.Time) {
+	d.St.Each(func(e *store.Entry) bool {
+		ago, ok := lastActive[e.A.ID]
+		if !ok {
+			return false
+		}
+		e.A.LastActive = now.Add(-ago)
+		return true
+	})
 }
 
 func (d *Demo) Answer(id, promptID, key string) error {
@@ -142,6 +178,46 @@ func (d *Demo) Resume(id string) error {
 		return server.ErrNotFound
 	}
 	return nil
+}
+
+// RestoreJSON brings back the demo agents lost with the tmux server: the
+// ones listed, or all of them (POST /v1/restore).
+func (d *Demo) RestoreJSON(ids []string) any {
+	type result struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Action string `json:"action"`
+		Error  string `json:"error,omitempty"`
+	}
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := []result{}
+	for _, e := range d.St.Entries() {
+		if len(ids) > 0 && !want[e.A.ID] {
+			continue
+		}
+		delete(want, e.A.ID)
+		if !e.A.Lost {
+			if len(ids) > 0 {
+				out = append(out, result{ID: e.A.ID, Title: e.A.Title, Action: "failed", Error: "not lost with the tmux server"})
+			}
+			continue
+		}
+		d.St.Update(e.A.ID, func(x *store.Entry) bool {
+			x.SetStatus(model.Idle)
+			x.A.Lost, x.A.Resumable = false, false
+			return true
+		})
+		out = append(out, result{ID: e.A.ID, Title: e.A.Title, Action: "resumed"})
+	}
+	for _, id := range ids {
+		if want[id] {
+			out = append(out, result{ID: id, Action: "failed", Error: "no such agent"})
+		}
+	}
+	return out
 }
 
 func (d *Demo) Dismiss(id string) error {

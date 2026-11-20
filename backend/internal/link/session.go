@@ -54,6 +54,7 @@ const (
 const (
 	OverSerial = "serial" // USB serial (and `agentctl link sim`)
 	OverWifi   = "wifi"   // TLS 1.3 on the network listener (GET /v1/link)
+	OverBLE    = "ble"    // Bluetooth LE, paired with the passkey on the board's screen (internal/ble)
 )
 
 // Session talks Deck Link with one board over rw until ctx ends or rw fails.
@@ -64,7 +65,7 @@ type Session struct {
 	// Set before Run.
 	PingEvery, RecheckEvery, Debounce time.Duration
 	Hub                               *Hub   // where `agentctl link` and `link wifi` find the session (optional)
-	Transport                         string // OverSerial (default) or OverWifi
+	Transport                         string // OverSerial (default), OverWifi or OverBLE
 	Where                             string // the port, or the board's network address
 	// Peer is the device whose certificate opened a Wi-Fi session: the board
 	// must say Hello with its board id, and the session ends when the device
@@ -78,7 +79,10 @@ type Session struct {
 	// the owner's hands: a new one may be approved at once (AutoApprover),
 	// and an approved, paired one gets the default Wi-Fi network (Wifi).
 	USBPort string
-	Wifi    *WifiDefault
+	// Wifi is the default network, sent to an approved, paired board on a
+	// registered USB port or on Bluetooth (paired with the passkey on its
+	// screen, which counts as in hand), never over Wi-Fi.
+	Wifi *WifiDefault
 
 	rw       io.ReadWriter
 	wmu      sync.Mutex
@@ -94,10 +98,11 @@ type Session struct {
 	sent map[string][]byte // agent id -> the AgentChanged it last got
 	ping uint32
 
-	board atomic.Pointer[string] // the board's device name, for status (any goroutine)
-	live  atomic.Bool            // approved, for Hub (any goroutine)
-	net   atomic.Pointer[linkpb.NetStatus]
-	since time.Time
+	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
+	helloSeen atomic.Pointer[linkpb.Hello] // its Hello, for Hub (any goroutine)
+	live      atomic.Bool                  // approved, for Hub (any goroutine)
+	net       atomic.Pointer[linkpb.NetStatus]
+	since     time.Time
 
 	// Requests from the deck to the board (WifiConfig), from other
 	// goroutines: sent by Run, answered by the board's Result.
@@ -109,6 +114,18 @@ type Session struct {
 	lastRx  time.Time
 
 	wifiTried bool // the default network was offered in this session (once at most)
+
+	uplink         uplinkSync      // sending the board its uplink preference (linkconfig.go)
+	boardBle       linkpb.BleState // what its last NetStatus said (kept when Net is cleared)
+	boardUplink    linkpb.Uplink
+	rxAt           atomic.Int64 // when the board last sent a frame (unix ns), for Hub (any goroutine)
+	wrongTransport atomic.Bool  // its NetStatus named another transport than this link's
+	bleSecureAt    atomic.Int64 // when its NetStatus last said a secure Bluetooth central is connected (unix ns)
+
+	// stop ends Run when the board moves to an uplink the deck prefers
+	// (Hub.arbitrate, uplink.go).
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // Board is the connected board's device name ("" before its Hello).
@@ -130,7 +147,7 @@ func (s *Session) setDevice(d devices.Device) {
 func NewSession(deck Deck, rw io.ReadWriter, name string) *Session {
 	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame, Transport: OverSerial,
 		PingEvery: PingEvery, RecheckEvery: RecheckEvery, Debounce: Debounce,
-		outbox: make(chan *linkpb.Frame, 4), pending: map[uint32]chan *linkpb.Frame{}, done: make(chan struct{})}
+		outbox: make(chan *linkpb.Frame, 4), pending: map[uint32]chan *linkpb.Frame{}, done: make(chan struct{}), stop: make(chan struct{})}
 }
 
 // Net is what the board last said about its network (nil before it did).
@@ -170,6 +187,18 @@ func (s *Session) request(ctx context.Context, f *linkpb.Frame) (*linkpb.Result,
 	}
 }
 
+// post sends a frame to the board from any goroutine (no reply expected).
+func (s *Session) post(ctx context.Context, f *linkpb.Frame) error {
+	select {
+	case s.outbox <- f:
+		return nil
+	case <-s.done:
+		return ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // SendWifi gives the board Wi-Fi credentials (or makes it forget them) and
 // returns its answer: 204 stored, or an error code and text.
 func (s *Session) SendWifi(ctx context.Context, ssid, password string, forget bool) (int, string, error) {
@@ -191,6 +220,7 @@ func (s *Session) active() bool { return s.hello != nil && s.dev.Active() }
 // Run reads frames and pushes state until ctx is done or the stream ends.
 func (s *Session) Run(ctx context.Context) error {
 	s.since, s.lastRx = time.Now(), time.Now()
+	s.heard(s.lastRx)
 	if s.Where == "" {
 		s.Where = s.Name
 	}
@@ -227,10 +257,13 @@ func (s *Session) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-s.stop:
+			return ErrHandedOver
 		case err := <-readErr:
 			return err
 		case f := <-frames:
 			s.lastRx = time.Now()
+			s.heard(s.lastRx)
 			if err := s.handle(f); err != nil {
 				return err
 			}
@@ -287,8 +320,11 @@ func (s *Session) recheck() error {
 			return nil
 		}
 	}
-	was := s.active()
+	was, oldUplink := s.active(), s.dev.Uplink
 	s.setDevice(d)
+	if d.Uplink != oldUplink || (!was && s.active()) {
+		s.syncUplink() // the preference changed, or it may be sent now
+	}
 	if d.Active() == s.sentAs.Active() && d.Scope == s.sentAs.Scope && d.Name == s.sentAs.Name && d.CertSerial == s.sentAs.CertSerial {
 		return nil
 	}
@@ -345,6 +381,11 @@ func (s *Session) handle(in Decoded) error {
 		return nil
 	case *linkpb.Frame_CertRequest:
 		return s.onCertRequest(f.Seq, b.CertRequest)
+	case *linkpb.Frame_FirmwareStatus:
+		if s.Hub != nil && s.dev.Name != "" {
+			s.Hub.firmwareStatus(s.dev.Name, b.FirmwareStatus)
+		}
+		return nil
 	}
 	if sub, ok := f.Body.(*linkpb.Frame_Subscribe); ok {
 		s.sub = sub.Subscribe
@@ -387,18 +428,28 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 	}
 	s.hello, s.mode, s.sub, s.sent = h, mode, nil, nil
 	s.setDevice(d)
+	s.helloSeen.Store(h)
+	if s.Hub != nil {
+		s.Hub.firmwareHello(d.Name, h.Firmware)
+	}
 	s.maxFrame = MaxFrame
 	if m := int(h.MaxFrame); m >= MinFrame && m < MaxFrame {
 		s.maxFrame = m
 	}
+	if s.Hub != nil {
+		if err := s.Hub.arbitrate(s); err != nil { // one session per board (uplink.go)
+			return err
+		}
+	}
 	return s.welcome()
 }
 
-// onCertRequest pairs the board for Wi-Fi: over USB serial only, approved
-// boards only. The certificate goes on the board's own registry entry.
+// onCertRequest pairs the board for Wi-Fi: over USB serial or Bluetooth
+// (paired with the board's passkey), approved boards only. The certificate
+// goes on the board's own registry entry.
 func (s *Session) onCertRequest(seq uint32, req *linkpb.CertRequest) error {
-	if s.Transport != OverSerial {
-		return s.result(seq, http.StatusForbidden, "pair over USB: plug the board into the Mac")
+	if !s.Hands() {
+		return s.result(seq, http.StatusForbidden, "pair over USB or Bluetooth: plug the board into this computer")
 	}
 	if !s.active() {
 		return s.result(seq, http.StatusForbidden, s.dev.Name+" is waiting for approval: agentctl devices approve "+s.dev.Name)
@@ -433,14 +484,31 @@ func (s *Session) onNetStatus(n *linkpb.NetStatus) {
 		}
 		log.Printf("link %s: %s Wi-Fi %s", s.Name, s.dev.Name, line)
 	}
+	s.boardBle, s.boardUplink = n.Ble, n.Uplink
+	if n.Ble == linkpb.BleState_BLE_CONNECTED {
+		s.bleSecureAt.Store(time.Now().UnixNano())
+	}
+	s.checkTransport(n)
+	s.syncUplink()
 	s.defaultWifi(n)
 }
 
-// defaultWifi gives an approved board on a registered USB port the deck's
-// default Wi-Fi network once it is paired (NetStatus.has_cert) and lacks it,
-// at most once per session; and notes how the board's test of it went.
+// getsDefault: the board is where the default network may be sent: a
+// registered USB port, or Bluetooth (paired with the passkey on its screen).
+// Never Wi-Fi, never `agentctl link sim`.
+func (s *Session) getsDefault() bool {
+	if s.Wifi == nil || !s.Hands() {
+		return false
+	}
+	return s.Transport == OverBLE || (s.Transport == OverSerial && s.USBPort != "")
+}
+
+// defaultWifi gives an approved board on a registered USB port or on
+// Bluetooth the deck's default Wi-Fi network once it is paired
+// (NetStatus.has_cert) and lacks it, at most once per session; and notes how
+// the board's test of it went.
 func (s *Session) defaultWifi(n *linkpb.NetStatus) {
-	if s.Wifi == nil || s.USBPort == "" || s.Transport != OverSerial || !s.active() {
+	if !s.getsDefault() || !s.active() {
 		return
 	}
 	name := s.dev.Name
@@ -479,10 +547,10 @@ func (s *Session) defaultWifi(n *linkpb.NetStatus) {
 	}()
 }
 
-// wifiGone: a board unplugged while it tested the default tries it again
-// next time.
+// wifiGone: a board unplugged (or out of Bluetooth range) while it tested the
+// default tries it again next time.
 func (s *Session) wifiGone() {
-	if s.Wifi == nil || s.USBPort == "" || s.dev.Name == "" {
+	if !s.getsDefault() || s.dev.Name == "" {
 		return
 	}
 	s.Wifi.gone(s.dev.Name, s)
@@ -592,20 +660,21 @@ func (s *Session) result(seq uint32, code int, msg string) error {
 // Routes: the web API endpoint behind each command (Frame field name). The
 // parity test checks this against docs/protocol.md and link.proto.
 var Routes = map[string]string{
-	"get_state": "GET /v1/state",
-	"list_hats": "GET /v1/hats",
-	"list_live": "GET /v1/live",
-	"answer":    "POST /v1/agents/{id}/answer",
-	"focus":     "POST /v1/agents/{id}/focus",
-	"interrupt": "POST /v1/agents/{id}/interrupt",
-	"dismiss":   "POST /v1/agents/{id}/dismiss",
-	"resume":    "POST /v1/agents/{id}/resume",
-	"move":      "POST /v1/agents/{id}/move",
-	"order":     "POST /v1/order",
-	"restore":   "POST /v1/restore",
-	"set_hat":   "POST /v1/agents/{id}/hat | POST /v1/hats",
-	"add_live":  "POST /v1/live/{session}/add",
-	"handoff":   "POST /v1/agents/{id}/handoff",
+	"get_state":      "GET /v1/state",
+	"list_hats":      "GET /v1/hats",
+	"list_live":      "GET /v1/live",
+	"answer":         "POST /v1/agents/{id}/answer",
+	"focus":          "POST /v1/agents/{id}/focus",
+	"interrupt":      "POST /v1/agents/{id}/interrupt",
+	"dismiss":        "POST /v1/agents/{id}/dismiss",
+	"resume":         "POST /v1/agents/{id}/resume",
+	"move":           "POST /v1/agents/{id}/move",
+	"move_attention": "POST /v1/agents/{id}/attention",
+	"order":          "POST /v1/order",
+	"restore":        "POST /v1/restore",
+	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
+	"add_live":       "POST /v1/live/{session}/add",
+	"handoff":        "POST /v1/agents/{id}/handoff",
 
 	"list_accounts": "GET /v1/accounts",
 }
@@ -677,7 +746,11 @@ func (s *Session) command(f *linkpb.Frame) error {
 			return &linkpb.Frame{Body: &linkpb.Frame_AccountList{AccountList: l}}
 		})
 	case *linkpb.Frame_Restore:
-		code, out := s.Deck.Do(s.dev, http.MethodPost, "/v1/restore", nil)
+		var in []byte
+		if ids := b.Restore.AgentIds; len(ids) > 0 {
+			in, _ = json.Marshal(map[string][]string{"ids": ids})
+		}
+		code, out := s.Deck.Do(s.dev, http.MethodPost, "/v1/restore", in)
 		if code != http.StatusOK {
 			return s.result(f.Seq, code, errText(out))
 		}
@@ -704,6 +777,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, agentPath(b.Handoff.AgentId, "handoff"), map[string]string{"account": b.Handoff.Account}
 	case *linkpb.Frame_Move:
 		method, path, body = http.MethodPost, agentPath(b.Move.AgentId, "move"), map[string]int{"slot": int(b.Move.Slot)}
+	case *linkpb.Frame_MoveAttention:
+		method, path, body = http.MethodPost, agentPath(b.MoveAttention.AgentId, "attention"), map[string]int{"slot": int(b.MoveAttention.Slot)}
 	case *linkpb.Frame_Order:
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
 	case *linkpb.Frame_SetHat:

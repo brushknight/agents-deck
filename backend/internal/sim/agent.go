@@ -242,6 +242,9 @@ func (a *agent) line(v map[string]any) {
 		return
 	}
 	defer f.Close()
+	if _, ok := v["timestamp"]; !ok {
+		v["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano) // as Claude Code writes it
+	}
 	b, _ := json.Marshal(v)
 	_, _ = f.Write(append(b, '\n'))
 }

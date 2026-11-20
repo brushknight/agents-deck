@@ -59,6 +59,9 @@ func TestOrcaAgentsOnTheDeck(t *testing.T) {
 		e.A.Title != "fix-login" || e.A.Tool != "claude" || e.A.LastPrompt != "fix the login bug" || !e.A.External {
 		t.Fatalf("working agent: %+v", e.A)
 	}
+	if e.A.AttentionSlot != 1 { // a watcher's change reaches the "Needs you" grid like any other
+		t.Fatalf("working agent not on the Needs you grid: %d", e.A.AttentionSlot)
+	}
 
 	// Blocked on a permission: a prompt with the options from its screen.
 	d.syncOrca(orcaSnap("blocked", "Bash", "rm -rf build", 200))

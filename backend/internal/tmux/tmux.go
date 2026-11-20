@@ -3,7 +3,6 @@
 package tmux
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -16,23 +15,6 @@ import (
 )
 
 var Socket = "agentsterm" // a variable only so tests can use their own server
-
-// Bin is the tmux binary; launchd's PATH is minimal, so look in the usual places.
-var Bin = func() string {
-	for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return "tmux"
-}()
-
-func run(args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, Bin, append([]string{"-L", Socket}, args...)...).Output()
-	return strings.TrimRight(string(out), "\n"), err
-}
 
 // NewSession starts a detached session running argv in dir with extra env.
 func NewSession(name, dir string, env []string, argv []string) error {
@@ -192,15 +174,32 @@ func describe(err error) error {
 
 // Sessions returns the names of live sessions (empty when the server is down).
 func Sessions() map[string]bool {
-	out, err := run("list-sessions", "-F", "#{session_name}")
 	live := map[string]bool{}
+	for name := range SessionActivity() {
+		live[name] = true
+	}
+	return live
+}
+
+// SessionActivity maps each live session to the last time its window
+// printed anything (tmux's window_activity; zero if tmux didn't say).
+func SessionActivity() map[string]time.Time {
+	out, err := run("list-sessions", "-F", "#{session_name} #{window_activity}")
+	live := map[string]time.Time{}
 	if err != nil {
 		return live
 	}
 	for _, l := range strings.Split(out, "\n") {
-		if l != "" {
-			live[l] = true
+		i := strings.LastIndexByte(l, ' ')
+		if i <= 0 {
+			continue
 		}
+		name, at := l[:i], l[i+1:]
+		var t time.Time
+		if n, err := strconv.ParseInt(at, 10, 64); err == nil && n > 0 {
+			t = time.Unix(n, 0).UTC()
+		}
+		live[name] = t
 	}
 	return live
 }

@@ -45,6 +45,7 @@ message Frame {
     GetState get_state = 42;       // GET /v1/state: resend the snapshot
     Handoff handoff = 43;          // POST /v1/agents/{id}/handoff
     ListAccounts list_accounts = 44;  // GET /v1/accounts
+    MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -59,6 +60,16 @@ message Frame {
     CertIssued cert_issued = 61;    // deck → board: the reply to CertRequest (or a Result on failure)
     WifiConfig wifi_config = 62;    // deck → board, over USB serial only: join this network; the board answers with a Result
     NetStatus net_status = 63;      // board → deck: how it is connected, after each Welcome and whenever that changes
+
+    // Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+    // over Wi-Fi"). Board management, not web API commands: the board
+    // downloads the image with GET /v1/firmware/{board}/{version}.
+    FirmwareOffer firmware_offer = 64;    // deck → board, over Wi-Fi only: a new firmware to download
+    FirmwareStatus firmware_status = 65;  // board → deck: how the update is going
+
+    // Which way the board should reach the deck (docs/link/protocol.md,
+    // "Bluetooth"). Board management, not a web API command.
+    LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
   }
 }
 
@@ -125,8 +136,8 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
 }
@@ -211,6 +222,8 @@ message Agent {
   int64 updated_at_ms = 32;
   string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
   Account account = 34;  // the Claude account it runs in; unset while only one is set up
+  int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
+  uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
 }
 
 message Activity {
@@ -294,7 +307,17 @@ message Order {
   repeated string agent_ids = 1;
 }
 
-message Restore {}
+// MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.
+message MoveAttention {
+  string agent_id = 1;
+  uint32 slot = 2;  // 1…16
+}
+
+// Restore brings back agents lost with the tmux server: the ones listed, or
+// every lost agent when agent_ids is empty.
+message Restore {
+  repeated string agent_ids = 1;
+}
 
 // A hat for the agent's working folder (agent_id), or for a folder by path.
 message SetHat {
@@ -417,6 +440,7 @@ enum Transport {
   TRANSPORT_UNSPECIFIED = 0;
   TRANSPORT_SERIAL = 1;  // USB serial
   TRANSPORT_WIFI = 2;    // Wi-Fi, TLS 1.3 to the deck's network listener
+  TRANSPORT_BLE = 3;     // Bluetooth LE, an encrypted and bonded link (LE Secure Connections, passkey)
 }
 
 enum WifiState {
@@ -441,4 +465,63 @@ message NetStatus {
   string ip = 4;            // on Wi-Fi
   int32 rssi = 5;           // dBm, 0 = unknown
   bool has_cert = 6;        // it holds a client certificate
+  BleState ble = 7;         // Bluetooth: unset from firmware without it
+  Uplink uplink = 8;        // the preference the board holds (LinkConfig)
+}
+
+enum BleState {
+  BLE_UNSPECIFIED = 0;
+  BLE_UNSUPPORTED = 1;  // this firmware has no Bluetooth
+  BLE_SETUP = 2;        // no bond: it advertises to anyone and pairs with the passkey on its screen
+  BLE_BONDED = 3;       // bonded to a deck, not connected to it now
+  BLE_CONNECTED = 4;    // bonded and connected over an encrypted link (whether or not it carries the session)
+}
+
+// Which way a board reaches the deck when it isn't on USB. USB always wins
+// while a deck answers there.
+enum Uplink {
+  UPLINK_AUTO = 0;  // Wi-Fi when it works, else Bluetooth
+  UPLINK_WIFI = 1;  // Wi-Fi only; Bluetooth only for setup (no Wi-Fi network or certificate yet)
+  UPLINK_BLE = 2;   // Bluetooth only; Wi-Fi stays off
+}
+
+// The deck's uplink preference for this board, kept across restarts. Sent by
+// the deck over any transport; the board answers with a Result (204 kept,
+// 501 the firmware has no Bluetooth) and a NetStatus saying what it uses now.
+message LinkConfig {
+  Uplink uplink = 1;
+}
+
+// ---- firmware updates over Wi-Fi -------------------------------------------
+
+// A new firmware for the board, sent by the deck when you update a board on
+// Wi-Fi. The board checks that board is its own, downloads the app image
+// from path on the deck's network listener (TLS 1.3, its certificate; HTTP
+// Range to resume), writes it to its other firmware slot, checks size and
+// sha256, restarts into it and keeps it only once it reaches the deck again.
+// It answers with FirmwareStatus (REFUSED when it can't take it).
+message FirmwareOffer {
+  string board = 1;    // the board the image is for (firmware/devices/<board>, e.g. "lilygo-t4-s3")
+  string version = 2;  // e.g. "0.2.1": what Hello.firmware says once it runs
+  uint64 size = 3;     // the image's size in bytes
+  bytes sha256 = 4;    // its SHA-256 (32 bytes)
+  string path = 5;     // where to GET it on the network listener: /v1/firmware/{board}/{version}
+}
+
+enum FirmwareState {
+  FIRMWARE_UNSPECIFIED = 0;
+  FIRMWARE_DOWNLOADING = 1;  // percent: how much is written
+  FIRMWARE_VERIFYING = 2;    // the image is in; checking it
+  FIRMWARE_RESTARTING = 3;   // checked: the board restarts into it now
+  FIRMWARE_FAILED = 4;       // error says why; the board keeps its firmware
+  FIRMWARE_REFUSED = 5;      // the board won't take this offer (another board's image, on USB, no second slot, busy)
+}
+
+// How an update is going, board to deck: after the offer, then every few
+// percent while it downloads. The new firmware's Hello (its version) says it
+// started; a Hello with the old version after RESTARTING means it went back.
+message FirmwareStatus {
+  FirmwareState state = 1;
+  uint32 percent = 2;  // 0..100
+  string error = 3;    // for FAILED and REFUSED
 }

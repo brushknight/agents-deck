@@ -90,6 +90,9 @@ PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 PB_BIND(agentsdeck_link_v1_Order, agentsdeck_link_v1_Order, 2)
 
 
+PB_BIND(agentsdeck_link_v1_MoveAttention, agentsdeck_link_v1_MoveAttention, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Restore, agentsdeck_link_v1_Restore, AUTO)
 
 
@@ -151,6 +154,21 @@ PB_BIND(agentsdeck_link_v1_WifiConfig, agentsdeck_link_v1_WifiConfig, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_NetStatus, agentsdeck_link_v1_NetStatus, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_LinkConfig, agentsdeck_link_v1_LinkConfig, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+
+
+
+
 
 
 

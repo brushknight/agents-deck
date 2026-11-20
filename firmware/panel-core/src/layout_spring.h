@@ -255,11 +255,11 @@ static inline void build(const SpringLayout& L, const RoundInput& in, Frame& fr)
   notch.box = rectOf(229, 1, 252, 16);
   push(fr, notch);
 
-  // On Wi-Fi: the mark under the middle, behind the critters that pass it.
-  if (in.net && in.net->via == NetVia::Wifi) {
+  // On Wi-Fi or Bluetooth: its mark under the middle, behind the critters that pass it.
+  if (in.net && (in.net->via == NetVia::Wifi || (in.net->via == NetVia::Ble && in.net->ble.carrying))) {
     Elem e = elem(El::Net);
     e.box = netBox(G);
-    e.sig = 1;
+    e.sig = in.net->via == NetVia::Ble ? 2 : 1;
     push(fr, e);
   }
 
@@ -583,7 +583,8 @@ static inline void drawElem(Canvas& c, const SpringLayout& L, const RoundInput& 
       return;
     }
     case El::Net:
-      drawNetMark(c, kRoundC, (float)netBase(G), T.t.dim);
+      if (e.sig == 2) drawBleMark(c, kRoundC, (float)netBase(G), T.t.dim);
+      else drawNetMark(c, kRoundC, (float)netBase(G), T.t.dim);
       return;
   }
 }

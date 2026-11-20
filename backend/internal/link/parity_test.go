@@ -70,12 +70,32 @@ func TestEndpointParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Endpoints that aren't board commands, and their Deck Link side (a
+	// Frame field; "" for none): the stream is Subscribe + updates; pairing
+	// is for network devices; a board downloads its firmware update after
+	// the deck's FirmwareOffer, which names the path.
+	notCommands := map[string]string{
+		"GET /v1/events":                     "subscribe",
+		"POST /v1/pair":                      "",
+		"GET /v1/firmware/{board}/{version}": "firmware_offer",
+	}
+	frame := (&linkpb.Frame{}).ProtoReflect().Descriptor().Fields()
 	endpoints := map[string]bool{}
 	for _, m := range regexp.MustCompile("(?m)^\\| (GET|POST) \\| `(/v1/[^`]+)`").FindAllStringSubmatch(string(doc), -1) {
-		if m[2] == "/v1/events" || m[2] == "/v1/pair" {
-			continue // the stream is Subscribe + updates; pairing is for network devices
+		e := m[1] + " " + m[2]
+		if side, ok := notCommands[e]; ok {
+			if side != "" && frame.ByName(protoreflect.Name(side)) == nil {
+				t.Errorf("%s: its Deck Link side %s isn't in link.proto", e, side)
+			}
+			delete(notCommands, e)
+			continue
 		}
-		endpoints[m[1]+" "+m[2]] = true
+		endpoints[e] = true
+	}
+	for e, side := range notCommands {
+		if side != "" {
+			t.Errorf("%s isn't in docs/protocol.md", e)
+		}
 	}
 	if len(endpoints) < 12 {
 		t.Fatalf("found only %d endpoints in docs/protocol.md", len(endpoints))
@@ -128,14 +148,14 @@ func TestAgentParity(t *testing.T) {
 	}
 
 	now := time.Now()
-	full := model.Agent{ID: "a1", Slot: 3, Title: "t", AITitle: "ai", Tool: "claude", Status: model.Waiting, StatusSince: now,
+	full := model.Agent{ID: "a1", Slot: 3, AttentionSlot: 2, Title: "t", AITitle: "ai", Tool: "claude", Status: model.Waiting, StatusSince: now,
 		Cwd: "/x/y", Folder: "y", Branch: "main", Model: "m", ModelLabel: "M", Effort: "high",
 		Activity: &model.Activity{Tool: "Edit", Detail: "f.go"}, LastPrompt: "do it",
 		Waiting: &model.Prompt{ID: "p", Kind: "question", Title: "?", Detail: "d", Context: "c", Options: []model.Option{{Key: "1", Label: "yes"}}},
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, StartedAt: now, UpdatedAt: now}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
@@ -147,9 +167,15 @@ func TestAgentParity(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("toPB leaves these Agent fields unset with every group subscribed: %v", missing)
 	}
+	if got := toPB(full, 2).LastActiveMs; got != full.LastActive.UnixMilli() {
+		t.Errorf("last_active_ms = %d, want %d", got, full.LastActive.UnixMilli())
+	}
+	if got := toPB(model.Agent{ID: "a2"}, 2).LastActiveMs; got != 0 {
+		t.Errorf("unknown last activity: last_active_ms = %d, want 0", got)
+	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
-	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 {
+	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
 		t.Errorf("tile fields: %+v", tile)
 	}
 }

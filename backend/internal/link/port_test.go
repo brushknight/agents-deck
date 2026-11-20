@@ -4,6 +4,7 @@ package link
 
 import (
 	"errors"
+	"os"
 	"syscall"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestOpenPortClosesOnExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	flags, _, e := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_GETFD, 0)
+	flags, _, e := syscall.Syscall(syscall.SYS_FCNTL, f.(*os.File).Fd(), syscall.F_GETFD, 0)
 	if e != 0 {
 		t.Fatal(e)
 	}

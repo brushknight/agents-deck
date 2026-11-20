@@ -201,6 +201,15 @@ cp -R ~/.platformio/packages/tool-scons ~/.platformio-pioarduino/packages/tool-s
 python3 -c "import json,os;p=os.path.expanduser('~/.platformio-pioarduino/packages/tool-scons/package.json');d=json.load(open(p));d['version']='4.40801.0';json.dump(d,open(p,'w'))"
 ```
 
+## Bluetooth
+
+The `idf5` build also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
+now). In Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name (`deck-`
+and six characters, shown on its screen) and type the 6-digit code the board shows into the window
+macOS opens. Over Bluetooth the board shows your agents and can get your Wi-Fi network; firmware
+updates still need Wi-Fi or the cable. To make the board forget the computer, hold BOOT for 5 s and
+press it again when it asks "forget Bluetooth?". Details: [Deck Link, Bluetooth](../../../docs/link/protocol.md#bluetooth).
+
 ## The self-test
 
 ![self-test](docs/selftest.png)

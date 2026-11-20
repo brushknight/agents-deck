@@ -77,6 +77,81 @@ static void wifiShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f, ui
   ui.wifi = false;
 }
 
+// Bluetooth: the mark on home, the passkey, the setup and waiting notices, "forget?".
+template <class Shot>
+static void bleShots(Shot shot, PanelInput& in, PanelUi& ui, const Fleet& f) {
+  static NetView net;
+  net = NetView();
+  net.via = NetVia::Ble;
+  net.ble.capable = true;
+  net.ble.phase = BlePhase::Connected;
+  net.ble.carrying = true;
+  snprintf(net.ble.name, sizeof net.ble.name, "deck-1a2b3c");
+  in.net = &net;
+  in.fleet = &f;
+  in.link = LinkState::Live;
+  ui.wifi = ui.ble = true;
+  shot("home-ble");
+  ui.wifi = ui.ble = false;
+  in.link = LinkState::Connecting;
+  in.fleet = nullptr;
+  net.ble.carrying = false;
+  const struct { const char* name; BlePhase phase; } kBle[] = {
+      {"ble-setup", BlePhase::Setup}, {"ble-waiting", BlePhase::Bonded}, {"ble-connecting", BlePhase::Connected},
+      {"ble-passkey", BlePhase::Pairing},
+  };
+  net.ble.passkey = 42917;
+  for (const auto& b : kBle) {
+    net.ble.phase = b.phase;
+    shot(b.name);
+  }
+  net.ble.phase = BlePhase::Bonded;
+  net.ble.forgetAsk = true;
+  shot("ble-forget");
+  in.link = LinkState::Live;
+  in.fleet = &f;
+  in.net = nullptr;
+}
+
+// The "Needs you" screen (attention.h): the first page with its mark, the
+// screen itself, and the screen after one agent left (its spot stays free).
+template <class Shot, class Tick>
+static void needsYouShots(Shot shot, Tick tick, PanelInput& in, PanelUi& ui, const DeckFleet& deck, uint32_t ms) {
+  static Attention att;
+  att = Attention();
+  ui.att = &att;
+  // The deck's spots: the ones that need you, in deck order (as a deck that
+  // just started would give them).
+  static DeckFleet spots;
+  spots = deck;
+  for (int i = 0, n = 0; i < spots.fleet.count; i++)
+    spots.fleet.agents[i].attnSlot = wantsYou(spots.fleet.agents[i]) && n < kAttMaxSpots ? (uint8_t)++n : 0;
+  const Fleet& f = spots.fleet;
+  const PanelInput keep = in;
+  in.fleet = &f;
+  tick(f, ms);
+  shot("needs-you-home");
+  ui.needsYou = true;
+  shot("needs-you");
+  ui.wifi = true;                                  // with the Wi-Fi mark beside it
+  shot("needs-you-wifi");
+  ui.wifi = false;
+  static DeckFleet gap;
+  gap = spots;
+  const int i = attAgent(att, f, 1);
+  if (i >= 0) {                                    // it stopped, and the deck let it go: the spot stays free
+    gap.fleet.agents[i].status = Status::Idle;
+    gap.fleet.agents[i].unseen = false;
+    gap.fleet.agents[i].attnSlot = 0;
+    tick(gap.fleet, ms + 1);
+    in.fleet = &gap.fleet;
+    shot("needs-you-gap");
+  }
+  in = keep;
+  ui.needsYou = false;
+  ui.att = nullptr;
+}
+
 // The square boards: every screen of one spec.
 static int renderSquare(const std::string& dir, const SquareSpec& S, const char* device, DeckFleet& deck, uint32_t ms,
                         int64_t now) {
@@ -91,6 +166,7 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
     writePpm(dir + "/" + name + ".ppm", c);
   };
   shot("home");
+  needsYouShots(shot, [&](const Fleet& fl, uint32_t t) { squareTick(ui, S, fl, t); }, in, ui, deck, ms);
 
   if (S.home == HomeKind::List) {
     // Mid-scroll, the finger down: the position bar shows.
@@ -159,6 +235,7 @@ static int renderSquare(const std::string& dir, const SquareSpec& S, const char*
   shot("toast");
   ui.toast[0] = '\0';
   wifiShots(shot, in, ui, f, ms);
+  bleShots(shot, in, ui, f);
 
   in.link = LinkState::Lost;
   shot("home-offline");
@@ -191,6 +268,7 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
     writePpm(dir + "/" + name + ".ppm", c);
   };
   shot("home");
+  needsYouShots(shot, [&](const Fleet& fl, uint32_t t) { bigTick(ui, fl, t); }, in, ui, deck, ms);
   {
     static DeckFleet more;
     more = deck;
@@ -239,6 +317,7 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   shot("toast");
   ui.toast[0] = '\0';
   wifiShots(shot, in, ui, f, ms);
+  bleShots(shot, in, ui, f);
   {                                                // on Wi-Fi with two pages: the mark beside the bars
     static DeckFleet more;
     more = deck;
@@ -334,6 +413,12 @@ int main(int argc, char** argv) {
   writePpm(dir + "/auto.ppm", c);
   drawScreen(c, {&fleet, 0, LinkState::Lost, kDevice, ms, now, true});
   writePpm(dir + "/held-lost.ppm", c);
+  {                                                // the "Needs you" mini-board (hold the button)
+    static Attention att;
+    attSync(att, fleet, layout::miniCells, ms);
+    drawScreen(c, {&fleet, autoHero(fleet), LinkState::Live, kDevice, ms, now, false, &att, true});
+    writePpm(dir + "/needs-you.ppm", c);
+  }
 
   static Fleet empty;
   snprintf(empty.server, sizeof empty.server, "workstation");

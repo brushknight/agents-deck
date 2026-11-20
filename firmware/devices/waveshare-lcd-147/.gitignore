@@ -2,3 +2,10 @@
 .venv/
 out/
 __pycache__/
+# pioarduino (idf5/) writes these next to the sources
+src/idf_component.yml*
+idf5/.dummy/
+idf5/managed_components/
+idf5/sdkconfig.*
+idf5/dependencies.lock
+idf5/CMakeLists.txt

@@ -12,7 +12,8 @@
 typedef enum {
   TRAY_TOGGLE,     // left or middle click on the icon
   TRAY_SHOW,       // "Show the deck" in the menu
-  TRAY_DASHBOARD,  // "Open dashboard in browser"
+  TRAY_DASHBOARD,  // "Open the dashboard in your browser"
+  TRAY_SETTINGS,   // "Settings…"
   TRAY_QUIT,       // "Quit agents deck"
 } TrayAction;
 

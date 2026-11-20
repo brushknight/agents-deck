@@ -2,12 +2,14 @@ import Cocoa
 import FlutterMacOS
 
 /// agents deck in the menu bar: a critter icon (orange when an agent needs
-/// you) that drops the deck down underneath it. No Dock icon, no main menu.
+/// you) that drops the deck down underneath it. No Dock icon and no main menu,
+/// except while the Settings window is open.
 @main
 class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private var statusItem: NSStatusItem!
   private var channel: FlutterMethodChannel?
   private var attention = 0
+  private var settings: SettingsWindowController?
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     false
@@ -45,6 +47,15 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
       case "hide":
         self?.hideDeck()
         result(nil)
+      case "settings":
+        guard let s = call.arguments as? String,
+          let url = SettingsWindowController.dashboardURL(s)
+        else {
+          result(FlutterError(code: "bad-url", message: "not the dashboard on this computer", details: nil))
+          return
+        }
+        self?.showSettings(url)
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -66,7 +77,13 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   private func showMenu() {
     let menu = NSMenu()
-    let open = NSMenuItem(title: "Open dashboard in browser", action: #selector(openDashboard), keyEquivalent: "")
+    let deck = NSMenuItem(title: "Show the Deck", action: #selector(showDeckFromMenu(_:)), keyEquivalent: "")
+    deck.target = self
+    menu.addItem(deck)
+    let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+    settings.target = self
+    menu.addItem(settings)
+    let open = NSMenuItem(title: "Open the Dashboard in Your Browser", action: #selector(openDashboard), keyEquivalent: "")
     open.target = self
     menu.addItem(open)
     menu.addItem(.separator())
@@ -76,15 +93,63 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     statusItem.menu = nil  // a left click goes back to toggling the deck
   }
 
-  /// `agentctl web`: opens the dashboard with a one-time login link.
+  /// "Show the Deck" in the icon's menu and the Window menu.
+  @objc func showDeckFromMenu(_ sender: Any?) {
+    showDeck()
+  }
+
+  /// `agentctl web`: opens the dashboard with a one-time login link. The
+  /// agentctl that came with the app first, then the usual places.
   @objc private func openDashboard() {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    let candidates = ["\(home)/.local/bin/agentctl", "/opt/homebrew/bin/agentctl", "/usr/local/bin/agentctl"]
+    let bundled = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("agentctl").path
+    let candidates = [bundled, "\(home)/.local/bin/agentctl", "/opt/homebrew/bin/agentctl", "/usr/local/bin/agentctl"].compactMap { $0 }
     guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: path)
     p.arguments = ["web"]
     try? p.run()
+  }
+
+  // MARK: Settings window
+
+  /// "Settings…" in the icon's menu: Dart gets a login link from the service
+  /// and calls `settings(url)` back. When it can't (the service isn't
+  /// running), the deck opens instead and says so.
+  @objc private func openSettings() {
+    channel?.invokeMethod("openSettings", arguments: "general") { [weak self] result in
+      if (result as? Bool) != true { self?.showDeck() }
+    }
+  }
+
+  private func showSettings(_ url: URL) {
+    hideDeck()
+    let controller = settings ?? SettingsWindowController()
+    if settings == nil {
+      controller.onClose = { [weak self] in self?.settingsClosed() }
+      controller.onShowDeck = { [weak self] in self?.showDeck() }
+      controller.onOpenDashboard = { [weak self] in self?.openDashboard() }
+      settings = controller
+    }
+    // A normal app while the window is open: a Dock icon, the app switcher,
+    // and a menu bar for Cmd-W, Cmd-Q, copy and paste.
+    NSApp.mainMenu = AppMenu.make()
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+    controller.open(url)
+  }
+
+  private func settingsClosed() {
+    // Let the web view (and its web content process) go; the next opening
+    // starts fresh with the remembered frame and the saved session cookie.
+    settings = nil
+    NSApp.setActivationPolicy(.accessory)
+  }
+
+  /// Clicking the Dock icon while Settings is open brings it to the front.
+  override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    settings?.showWindow(nil)
+    return true
   }
 
   private func setAttention(_ n: Int) {

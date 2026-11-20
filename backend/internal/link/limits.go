@@ -30,7 +30,7 @@ var limits = map[string]limit{
 	"Subagent.id": {size: 12}, "Subagent.title": {size: 64}, "Subagent.type": {size: 24}, "Subagent.tool": {size: 24},
 	"Answer.agent_id": {size: 12}, "Answer.prompt_id": {size: 16}, "Answer.key": {size: 8},
 	"Focus.agent_id": {size: 12}, "Interrupt.agent_id": {size: 12}, "Dismiss.agent_id": {size: 12}, "Resume.agent_id": {size: 12},
-	"Move.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32},
+	"Move.agent_id": {size: 12}, "MoveAttention.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32},
 	"SetHat.agent_id": {size: 12}, "SetHat.folder": {size: 128}, "SetHat.shape": {size: 16}, "SetHat.color": {size: 12},
 	"AddLive.session_id": {size: 40},
 	"Handoff.agent_id":   {size: 12}, "Handoff.account": {size: 16},
@@ -41,6 +41,7 @@ var limits = map[string]limit{
 	"LiveSession.session_id": {size: 40}, "LiveSession.title": {size: 64}, "LiveSession.cwd": {size: 128}, "LiveSession.folder": {size: 48},
 	"AccountList.accounts": {count: 4},
 	"AccountInfo.name":     {size: 16}, "AccountInfo.color": {size: 12},
+	"Restore.agent_ids":     {size: 12, count: 16},
 	"RestoreResult.results": {count: 16},
 	"Restored.id":           {size: 12}, "Restored.title": {size: 64}, "Restored.action": {size: 12}, "Restored.error": {size: 96},
 	// Pairing and Wi-Fi. For bytes, size is the byte count (no NUL): the deck
@@ -50,6 +51,9 @@ var limits = map[string]limit{
 	"CertIssued.server_fingerprint": {size: 32}, "CertIssued.device_name": {size: 40}, "CertIssued.cert_serial": {size: 40},
 	"WifiConfig.ssid": {size: 33}, "WifiConfig.password": {size: 65},
 	"NetStatus.ssid": {size: 33}, "NetStatus.ip": {size: 40},
+	// Firmware updates over Wi-Fi.
+	"FirmwareOffer.board": {size: 32}, "FirmwareOffer.version": {size: 24}, "FirmwareOffer.sha256": {size: 32},
+	"FirmwareOffer.path": {size: 96}, "FirmwareStatus.error": {size: 96},
 }
 
 // clipMessage cuts every string and list in m (recursively) to its limit.

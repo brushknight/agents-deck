@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,3 +147,120 @@ func TestFileKeystore(t *testing.T) {
 		t.Fatalf("delete twice: %v", err)
 	}
 }
+
+// A key in the store without ca.pem may be the key every paired device
+// trusts: the CA is never made again over it.
+func TestCAKeepsAKeyWithoutItsCertificate(t *testing.T) {
+	ca, dir, ks := newCA(t)
+	certPath := filepath.Join(dir, "ca.pem")
+	key, err := ks.Load(caKeyName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(certPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrCreateCA(certPath, ks, "test"); err == nil || !strings.Contains(err.Error(), "devices reset") {
+		t.Fatalf("a key without ca.pem: %v, want a refusal", err)
+	}
+	if after, _ := ks.Load(caKeyName); string(after) != string(key) {
+		t.Fatal("the stored CA key was replaced")
+	}
+	if _, err := os.Stat(certPath); !os.IsNotExist(err) {
+		t.Fatalf("ca.pem was written: %v", err)
+	}
+	// Put back, the same CA loads again.
+	if err := os.WriteFile(certPath, ca.PEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := LoadOrCreateCA(certPath, ks, "test"); err != nil || !again.Cert.Equal(ca.Cert) {
+		t.Fatalf("restored ca.pem: %v", err)
+	}
+}
+
+// The upgrade from 0.1.1: same ca.pem, same stored key, so the same CA,
+// and the listener keeps its certificate.
+func TestCASurvivesARestartWithTheSameFolder(t *testing.T) {
+	ca, dir, ks := newCA(t)
+	hosts := []string{"deck.local", "192.0.2.10"}
+	srv, err := ca.ServerCert(filepath.Join(dir, "server-cert.pem"), filepath.Join(dir, "server-key.pem"), hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadOrCreateCA(filepath.Join(dir, "ca.pem"), ks, "another name")
+	if err != nil || again.Fingerprint() != ca.Fingerprint() {
+		t.Fatalf("reload: %v", err)
+	}
+	srv2, err := again.ServerCert(filepath.Join(dir, "server-cert.pem"), filepath.Join(dir, "server-key.pem"), hosts)
+	if err != nil || string(srv2.Certificate[0]) != string(srv.Certificate[0]) {
+		t.Fatalf("server certificate reissued on restart: %v", err)
+	}
+}
+
+// A store that can't be read (a locked or denied Keychain) stops the
+// start; it never counts as "no key".
+func TestCARefusesAnUnreadableStore(t *testing.T) {
+	_, dir, _ := newCA(t)
+	if _, err := LoadOrCreateCA(filepath.Join(dir, "ca.pem"), failingStore{}, "test"); err == nil {
+		t.Fatal("an unreadable store was taken for an empty one")
+	}
+	fresh := filepath.Join(t.TempDir(), "ca.pem")
+	if _, err := LoadOrCreateCA(fresh, failingStore{}, "test"); err == nil {
+		t.Fatal("made a CA without being able to read the store")
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Fatalf("ca.pem written: %v", err)
+	}
+}
+
+// A key that can't be saved leaves no ca.pem behind.
+func TestCALeavesNoCertificateWhenTheKeyCantBeSaved(t *testing.T) {
+	fresh := filepath.Join(t.TempDir(), "ca.pem")
+	if _, err := LoadOrCreateCA(fresh, saveFails{}, "test"); err == nil {
+		t.Fatal("no error")
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Fatalf("ca.pem left behind: %v", err)
+	}
+}
+
+// Two services starting together on a new folder: exactly one makes the CA,
+// and the key in the store matches the ca.pem on disk.
+func TestCAMadeOnceByTwoStartsAtOnce(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		dir := t.TempDir()
+		ks := FileKeystore{Dir: filepath.Join(dir, "keys")}
+		certPath := filepath.Join(dir, "ca.pem")
+		errs := make(chan error, 2)
+		start := make(chan struct{})
+		for j := 0; j < 2; j++ {
+			go func() {
+				<-start
+				_, err := LoadOrCreateCA(certPath, ks, "test")
+				errs <- err
+			}()
+		}
+		close(start)
+		<-errs
+		<-errs
+		if _, err := LoadOrCreateCA(certPath, ks, "test"); err != nil {
+			t.Fatalf("round %d: after two starts at once: %v", i, err)
+		}
+	}
+}
+
+type failingStore struct{}
+
+func (failingStore) Load(string) ([]byte, error) {
+	return nil, errors.New("keychain: user interaction is not allowed")
+}
+func (failingStore) Save(string, []byte) error { return errors.New("keychain: denied") }
+func (failingStore) Delete(string) error       { return errors.New("keychain: denied") }
+func (failingStore) Where() string             { return "test store" }
+
+type saveFails struct{}
+
+func (saveFails) Load(string) ([]byte, error) { return nil, ErrNoKey }
+func (saveFails) Save(string, []byte) error   { return errors.New("keychain: denied") }
+func (saveFails) Delete(string) error         { return nil }
+func (saveFails) Where() string               { return "test store" }

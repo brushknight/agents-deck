@@ -62,7 +62,13 @@ Test it against a fake: a socket in a temp folder (`herdr_test.go`, `cmux_test.g
     same while you answer it;
   - idle: `model.Idle`. Set `A.Unseen` when a turn finished while the deck watched (the hungry tile).
 - For a Claude agent, set `SessionID` and `Transcript`, then call `claude.Tail` (model, context, tokens,
-  cost, title) and `d.subagents`. `syncLive` then leaves the session alone, so it doesn't show up twice.
+  cost, title) and `d.subagents` (pass when the session's Claude Code process started, or zero if you
+  don't know). `syncLive` then leaves the session alone, so it doesn't show up twice.
+- Background subagents: while they work and the main thread is between turns, the agent is running
+  with `Background` set and the activity "N subagents working" (`claude.FollowSubagents` does this).
+  If the harness reports "running" for that (its hooks hear subagents too), don't map it onto a turn
+  of the main thread: check the main transcript's turn (`claude.TranscriptTurn`) first, as `syncCmux`
+  and `liveStatus` do. Call `d.subagents` only while the session's process is alive.
 - Keep what the actions need (a socket path, a terminal id) in new `store.Entry` fields tagged
   `json:"-"`: mirrored agents are never saved.
 

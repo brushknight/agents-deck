@@ -92,6 +92,9 @@ code, .code { font-family: var(--f-head); }
 .top-left, .top-right {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-width: 0;
 }
+.top-right { gap: 8px 16px; }
+/* The computer's name only where there is room (it is also the live dot's tooltip). */
+@media (max-width: 1439px) { .server { display: none; } }
 .wordmark {
   font-family: var(--f-head);
   font-weight: 700;
@@ -123,6 +126,17 @@ code, .code { font-family: var(--f-head); }
 .toggle:hover { color: var(--ink); border-color: var(--ink); }
 .toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .toggle:active { background: var(--ink); color: var(--bg); }
+a.toggle { display: inline-block; text-decoration: none; }
+.toggle .k { opacity: 0.7; }
+.toggle[aria-pressed="true"] .k { opacity: 0.8; }
+.deck-ctl { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Settings: the last thing in the header, on every page. */
+.settings-link {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 10px;
+  border: 1px solid var(--ink); border-radius: 8px; color: var(--ink); font-size: 13px; text-decoration: none;
+}
+.settings-link:hover { background: var(--ink); color: var(--bg); }
+.settings-link .gear { width: 13px; height: 13px; flex: none; }
 
 .banner {
   background: var(--panel);
@@ -596,10 +610,14 @@ body.offline .main { opacity: 0.4; }
   #conn-label { display: none; }
   .top-right { flex-wrap: nowrap; }
   .toggle { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+  .toggle .k { display: none; }
   .clock { font-size: 16px; }
+  .top-right { flex-wrap: wrap; }
+  .settings-link { padding: 4px 8px; font-size: 12px; }
 }
 @media (max-width: 480px) {
   .server { display: none; }
+  .settings-link span { display: none; }
   .toggle { padding: 3px 10px; font-size: 12px; }
 }
 @media (max-width: 340px) {
@@ -664,3 +682,30 @@ body.panel-mode.paged .grid { aspect-ratio: auto; height: calc(var(--pv) - 30px)
   background-image: repeating-linear-gradient(135deg, rgba(255, 77, 0, 0.16) 0 12px, transparent 12px 24px);
   background-size: 34px 34px; animation: zebra 0.6s steps(6) infinite; }
 @keyframes zebra { from { background-position: 0 0 } to { background-position: 34px 0 } }
+
+/* ---------- "needs you": one screen left of the deck's first page ----------
+   Drawn as a page of the deck: the same grid, tiles and free cells. Only the
+   mark in the page bar shows you are on it. The columns are set from app.js
+   (attnCols) so spots don't move when the detail panel opens. */
+.main { touch-action: pan-y; } /* sideways swipes change page */
+body:not(.panel-mode) .grid.attn-grid { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+.attn { display: contents; } /* its grid sits in .main just like the deck's */
+.tile-empty.inert { pointer-events: none; } /* a free spot here, not a slot to add a session to */
+.attn-grid.dragging .tile-empty.inert { pointer-events: auto; } /* …but a tile can be dropped on it */
+@media (max-width: 640px) {
+  body:not(.panel-mode) .grid.attn-grid { grid-template-columns: 1fr; } /* packed: no free spots */
+}
+
+/* the bar under the deck: the "needs you" mark on the far left, with its count */
+body:not(.panel-mode) .pagebar { position: sticky; bottom: 0; margin-top: 8px; background: var(--bg); }
+.pagebar .page.attn-mark {
+  width: auto; min-width: 30px; height: 20px; padding: 0 9px; margin-right: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: transparent; border: 1px solid #5A2E18; border-radius: 10px;
+  color: var(--accent); font-size: 12px; line-height: 1;
+}
+.pagebar .page.attn-mark:hover { border-color: var(--accent); }
+.pagebar .page.attn-mark.hot { background: transparent; border-color: var(--accent); }
+.pagebar .page.attn-mark.on { width: auto; background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.attn-chev { font-family: var(--f-head); font-weight: 700; font-size: 14px; margin-top: -2px; }
+.attn-n { font-family: var(--f-head); font-weight: 600; font-variant-numeric: tabular-nums; }

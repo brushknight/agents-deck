@@ -13,7 +13,9 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 - **The border** fills clockwise with the agent's context window.
 - **Hungry.** An agent that finished but whose result you haven't reviewed gets sliding orange stripes and a critter chomping at a cookie, until you focus its terminal or give it a new task.
 - **Subagents.** A small critter in the tile's top-left corner means subagents are at work too, with a count when there are several. The agent's card lists them under "doing now", one to a row: a small critter posed by what it's doing, then its task and its type.
+- **Background subagents keep the agent working.** When Claude finishes its turn but subagents it started in the background (or a workflow run) are still at work, the agent stays working: the tile reads "N subagents working" and the agent stays on the Needs you screen and the boards. A question or permission prompt from a subagent still shows as "needs you", and an error still shows. When the last one is done and Claude starts no turn of its own, the agent is done and hungry ("feed me") until you look at it. A subagent counts as working from its launch until Claude Code reports it finished, failed, killed or stopped, however quiet it is meanwhile. Subagents end with the Claude Code session: once its terminal closes, or a session is restarted or resumed, none of the earlier ones count. As a last resort, one with no sign of life for 6 hours is over. Background shell commands are not subagents and don't keep the agent working.
 - **Pages.** The deck holds 16 agents per page (page = slot ÷ 16). With more, the tiles get a little shorter (they keep their width) and a row of bars appears under the grid, in the same square: the current page bright, another page orange when an agent there needs you. Swipe left and right (touch or trackpad), use ← / →, or tap a bar.
+- **Needs you.** One extra screen to the left of the first page holds only the agents at work or asking you something, and the ones that finished and you haven't checked yet (hungry): those stay until you check them. An agent leaves 5 seconds after it stops needing you. The service keeps this screen as one grid of 16 spots (4×4) and tells every screen who is in which spot, so the panel, the menu bar app, the browser and the boards show the same agents in the same spots. An agent keeps its spot: nobody moves up when another leaves, a newcomer takes the lowest free spot, and an agent that comes back gets its old spot if it is free (else a random free one). The old spots are kept when the service restarts. In the browser you can drag a tile to another spot (or onto another tile to swap them), the same as on the deck; every screen follows. With more than 16, the rest wait for a spot, the one waiting longest first (the count on the mark includes them). It looks like any page of the deck; the mark at the left of the page bars turns solid orange while you are on it. The deck always opens on the normal view; scroll or swipe left, press ←, or tap the mark (it shows how many agents are there) to go to it, and swipe back, press → or tap a page bar to return. The agents stay on the deck too. Screens with fewer than 16 cells (a phone, the smaller boards) show the agents in order of their spot, lowest first, as many as fit; the first spots fill first, so this rarely leaves anyone out. The square boards have it too: on the 4″ it is the page left of the first, with the same 16 spots (swipe right on the first page, tap the mark at the left of the page bars, or press BOOT after the last page), on the 1.8″ AMOLED and the T4-S3 a screen of 2×2 or 2×3 left of the list (swipe right, or press BOOT; two small marks at the top say where you are), and on the 1.47″ the mini-board while you hold BOOT. A board always starts on the normal view. Boards need the new firmware for the shared spots; older firmware keeps placing the agents by itself. The round boards don't have it yet.
 - **Arranging.** Drag a tile onto any free spot to move it there, or onto another tile to swap them (long-press on touch screens). The layout is shared by every view. `agentctl move <agent> <n>` does the same from the terminal.
 
 <p align="center"><img src="images/critters-v2.png" alt="every pose of the Claude critter and the Codex onigiri" width="80%"><br><sub>Every pose, for the Claude critter and the Codex onigiri.</sub></p>
@@ -25,8 +27,11 @@ Tap a tile for its card:
 - **Overview.** What it's doing now, context used, tokens, estimated cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop** (or **resume** / **remove** once it has exited).
 - **Permission prompts** show the exact command with Claude's own options; **questions** show their choices; a question with several parts goes one question at a time (pick-any ones tick, then **next**), then **submit answers**. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
 - **Free-text input** can't be typed on the deck: the card sends you to the terminal.
+- **Last active** says when the agent last sent or got a message ("last active 3h ago"), also after a
+  crash or a restart. `agentctl ls` shows it as ACTIVE, and `agentctl ls --sort active` puts the most
+  recently active first.
 
-<p align="center"><img src="images/web-permission-v2.png" alt="answering a permission prompt from the web" width="80%"></p>
+<p align="center"><img src="images/web-permission-v3.png" alt="answering a permission prompt from the web" width="80%"></p>
 
 ## Where it shows up
 
@@ -130,7 +135,9 @@ Added sessions are **watched**: status (working, idle, hungry when a turn finish
 
 ## Restore after a tmux crash or reboot
 
-If the tmux server dies under live agents (a crash, a reboot), they are marked **lost with tmux** and stay on the board. `agentctl restore` (or **restore all** on the web dashboard) brings them back: Claude agents resume their own conversation, other tools start fresh in their folder, each in its old spot. `agentctl set restore auto` does it as soon as the loss is noticed.
+If the tmux server dies under live agents (a crash, a reboot), they are marked **lost with tmux** and stay on the board. `agentctl restore` (or **restore all** on the web dashboard) brings them back: Claude agents resume their own conversation, other tools start fresh in their folder, each in its old spot. `agentctl set restore auto` does it as soon as the loss is noticed. `agentctl restore <name>` brings back just that one (any part of its name works), and asks before
+restoring more than 5 at once. `resume` and `restore` are the same command: name an agent or a Claude
+session and it comes back (restored, resumed or started) and opens; one still running just opens.
 
 ## Simulated agents
 
@@ -139,7 +146,9 @@ If the tmux server dies under live agents (a crash, a reboot), they are marked *
 ## Serial boards (Deck Link)
 
 Small boards (ESP32 and the like) connect over USB serial with Deck Link, a protobuf protocol with the
-same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The
+same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The same
+frames also travel over Wi-Fi (TLS 1.3) and Bluetooth LE: three transports, one device, scope and
+audit log. The
 [firmware kit](../firmware/deck-link) does the protocol; its examples are a status LED, an OLED tile
 with a button, and a rotary-encoder knob. Ready-made devices are in
 [firmware/devices](../firmware/devices), and [devices.md](devices.md) tours them with screenshots: two
@@ -160,7 +169,8 @@ by hand (`agentctl devices scope <name> admin`); `agentctl devices auto-approve 
 boards wait for `agentctl devices approve <name>` instead. A revoked board stays revoked until you
 approve it again, and nothing is ever approved over Wi-Fi.
 
-**Wi-Fi.** The round boards (on their `idf5` firmware) also work without the Mac's cable. Plugged in
+**Wi-Fi.** The touch boards on their `idf5` firmware (the round ones, the 4″, the 1.8″ AMOLED
+and the T4-S3) also work without the Mac's cable. Plugged in
 and approved, a board pairs by itself: it gets its own certificate from the deck. Tell the deck your
 network once, and every board plugged in after that gets it by itself:
 
@@ -183,10 +193,76 @@ to USB. `agentctl link` shows how each board is connected; `agentctl link wifi <
 the network, `agentctl devices revoke` cuts a board off on both. See
 [link/protocol.md](link/protocol.md#pairing-and-wi-fi).
 
+**Bluetooth.** The touch boards' `idf5` firmware also speaks Deck Link over Bluetooth LE, through a
+small helper in the macOS app (`deck-ble`): for a board next to a laptop with no Wi-Fi and no cable,
+or to set up a board without plugging it in. Only the macOS app has the helper so far; Linux and
+Windows say Bluetooth isn't available. Firmware updates never go over Bluetooth: they need Wi-Fi or
+the cable. Nothing is approved on sight: you add a board yourself,
+and the computer pairs with it while you type the 6-digit code the board shows. Over that link it
+pairs for Wi-Fi and takes the default network, as on USB. Each board has an uplink preference (`auto`:
+USB, else Wi-Fi, else Bluetooth; `wifi`; `ble`), which the deck also sends to the board:
+
+```sh
+agentctl bluetooth scan                  # boards nearby, in setup or not
+agentctl bluetooth add deck-1a2b3c       # type the code on the board into the window macOS opens
+agentctl devices uplink <name> ble       # Bluetooth only; Wi-Fi stays off
+```
+
+See [protocol.md](protocol.md#devices-and-security) for the security rule and its known limits.
+
 With auto-approval off, a new board waits for approval and starts with view-only access. The daemon lets go of a port while
 another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
 device, see [link/new-device.md](link/new-device.md).
+
+## The Settings page
+
+`http://127.0.0.1:7340/settings` on the dashboard (the **Settings** button at the top of the deck), and
+the tray app's Settings window, which shows the same page. Everything on it is also a command.
+
+| page | what you can do | in a terminal |
+|---|---|---|
+| General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
+| Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
+| Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
+| Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
+| Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
+| Troubleshoot | is the service running and since when, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log | `agentctl status`, `agentctl diagnostics` |
+| About | version, how it was installed, links | `agentctl version` |
+
+**New boards.** A port is listed from its USB id alone and never opened until you say it's yours.
+Then the service asks the board: a board running agents deck says what it is; anything else is asked
+through the ESP32's bootloader, and you pick from the boards that fit its chip and flash. If it
+doesn't answer: hold BOOT, press RST, let go of BOOT, and try again. Picking the wrong board does no
+harm: install again with the right one. Firmware built on this computer (`agentctl firmware add`)
+is offered there too, also in a copy built from source, which won't install firmware downloaded from
+a release. Without one, **Install a firmware file...** sets the board up from a full image on this
+computer instead ([flashing.md](flashing.md#from-the-app-settings-boards)).
+
+**Board updates** are never automatic. A board on USB is written by the flasher (it keeps its name,
+pairing and Wi-Fi); a board on Wi-Fi downloads the update from the service over its encrypted link
+and goes back to its old firmware if the new one doesn't reach the deck. Each board says which
+firmware it runs and whether it is up to date, has an update, or runs something newer than the latest
+release. **Install a firmware file...** installs a build of your own from this computer, over Wi-Fi
+or USB ([flashing.md](flashing.md#from-the-app-settings-boards)).
+
+**Firmware built on this computer.** `agentctl firmware add <folder>` keeps the release script's
+files for a board (`agents-deck-<board>-<version>.bin`, `.app.bin`, `.manifest.json`) in the
+service's `firmware-builds` folder, after the same checks as a picked file. A board that runs an
+older version then says **0.2.0-dev.7 built on this computer** with an **Install** button: one click,
+over its USB cable when it's plugged in (the full image), else over Wi-Fi (the app image). When a
+release is newer still, and this copy can install releases, the line offers the release instead.
+It works with or without a release key, every install checks the files again, and nothing of it
+comes from the network ([flashing.md](flashing.md#firmware-built-on-this-computer)). `agentctl
+firmware ls` lists the builds, `agentctl firmware rm` removes them.
+
+**App updates.** The service looks for a new release two minutes after it starts and then daily.
+"Tell me" downloads and checks it and waits for you; "automatic" also installs it; "never check"
+doesn't look. A build without a release key lists versions but never installs anything from the
+network.
+
+The calls behind the page are the management API, `/admin/v1` ([protocol.md](protocol.md#management-api-adminv1)):
+on this computer only, never on the network.
 
 ## Settings
 

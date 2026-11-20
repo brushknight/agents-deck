@@ -1,4 +1,4 @@
-// agentctl runs and controls the agents-terminal daemon.
+// agentctl runs and controls the agents deck service.
 package main
 
 import (
@@ -19,7 +19,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,7 +27,6 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
-	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -37,7 +35,9 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/server"
+	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/tmux"
@@ -47,27 +47,39 @@ import (
 // version is stamped by release builds: -ldflags "-X main.version=<tag>".
 var version = "dev"
 
-const usage = `agentctl — agents-terminal
+const usage = `agentctl: runs and controls agents deck
 
   agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]
                                  start an agent (dir defaults to .) and attach (-d: don't)
-  agentctl restore               bring back agents lost with the tmux server (crash, reboot)
   agentctl hats                  the hats agents wear (one per working folder)
   agentctl accounts              the Claude accounts agents run in (account add|default|rm)
-  agentctl handoff <id|title> <account>
+  agentctl handoff <agent> <account>
                                  continue a Claude session in another account (out of usage)
   agentctl set hat <agent|folder> <shape> [colour] | auto
   agentctl live                  Claude sessions started by hand in other terminals
   agentctl add <session>         put one of them on the deck (watched)
   agentctl reopen                iTerm tabs for every agent no terminal shows (after a crash)
-  agentctl attach <id|title>     show an agent in this terminal (detach: ctrl-q)
-  agentctl ls                    list agents
-  agentctl rm <id|title>         stop and forget an agent
-  agentctl move <id|title> <n>   put an agent at position n (1 = first tile; free spots ok)
+  agentctl resume <agent or session>... [-d] [--force]
+                                 bring an agent back and open it: lost with the tmux server
+                                 (restored), ended (resumed), a Claude session not on the deck
+                                 (started), or still running (just opened). -d: don't open it;
+                                 with several names, none is opened
+  agentctl restore <agent>...    the same as resume
+  agentctl restore [--all|-y]    bring back everything lost with the tmux server (crash, reboot);
+                                 lists it first, asks before more than 5
+  agentctl attach <agent>        show an agent in this terminal (detach: ctrl-q); one that isn't
+                                 running is brought back first (it asks)
+  agentctl ls [--sort active]    list agents (ACTIVE: its latest message sent or received);
+                                 --sort active: most recently active first
+  agentctl rm <agent>            stop and forget an agent
+  agentctl move <agent> <n>      put an agent at position n (1 = first tile; free spots ok)
   agentctl sessions [words] [-n N]
                                  look up Claude sessions (any, not just agentctl's) by id/title/folder/prompt
-  agentctl resume <id> [-d] [--force]
-                                 continue a Claude session by id or id prefix (or an ended agent's id/title)
+
+  <agent> is an id, an id's start, a name (any case), or a part of a name that only one
+  agent has; resume also takes Claude sessions by id or name. When several match, agentctl
+  lists them and asks for the id. Tab completes names and ids (see completion zsh).
+
   agentctl sim start --root DIR --slots N [--speed X] [--patience S]
                                  simulated Claudes working in real projects under DIR (for demos)
   agentctl sim stop              remove all simulated agents
@@ -81,14 +93,48 @@ const usage = `agentctl — agents-terminal
                                  Deck Link boards: status (USB or Wi-Fi), find ports, register one
   agentctl link wifi <board> --ssid NAME [--password PW] | --forget
                                  give a board on USB its Wi-Fi network (asks for the password; never
-                                 stored on the Mac); from then on it connects over Wi-Fi when not on USB
+                                 stored on this computer); from then on it connects over Wi-Fi when not on USB
   agentctl link pair <board>     a new Wi-Fi certificate for a board (it pairs again over USB)
+  agentctl link update <board> --image FILE --board B --version V
+                                 put an app image from this computer on a board on Wi-Fi (it goes back
+                                 to its old firmware if the new one doesn't reach the deck)
   agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
                                  be a board without hardware (type commands: answer, focus, …)
   agentctl link check <port> [--baud N] [--seconds N]
                                  test a board's firmware against a demo deck (stop the daemon's use: link rm)
-  agentctl serve [--demo]        run the daemon (normally via launchd)
-  agentctl install               install + start the launchd agent
+  agentctl flash <port> <image.bin> [--offset 0x0] [--probe]
+                                 write a firmware image to an ESP32-S3 board over USB
+  agentctl flash --board <board> [--version v] [--local] <port>
+                                 the service downloads, checks and writes the board's firmware
+                                 (--local: the build made on this computer)
+  agentctl ports [register|identify|forget <port>]
+                                 USB ports and what is on them (listed without opening them)
+  agentctl devices rename <name> <new name> | update <name> [--local]
+                                 a board's name in Settings; update its firmware (the newest, a
+                                 release's or one built on this computer)
+  agentctl devices reset [--yes]  start the deck's certificates over (a lost CA key): network
+                                 devices pair again, boards get new ones on USB
+  agentctl devices uplink <name> auto|wifi|ble
+                                 how a board reaches this computer when it can do several
+  agentctl bluetooth [scan | ls | add <name>]
+                                 boards over Bluetooth: find one nearby, add it with the code on its screen
+  agentctl system                what the service is doing (boards, new ports, updates)
+  agentctl settings [<key> <value>]
+                                 start-at-login, notifications, sound, restore, updates, network
+  agentctl diagnostics           a report to send when something's wrong (no names or folders)
+  agentctl update [--check]      look for a new release, and install it
+  agentctl firmware ls           the boards and firmware in the latest release, and builds made here
+  agentctl firmware add <folder or files>
+                                 keep firmware built on this computer (the release script's
+                                 agents-deck-<board>-<version>.bin, .app.bin, .manifest.json): a board
+                                 that runs an older version installs it with one click
+  agentctl firmware rm <board> [<version>]
+                                 remove builds made on this computer
+  agentctl serve [--demo] [--log FILE]
+                                 run the service (normally started at login, see install)
+  agentctl install               start the service at login (launchd, systemd, Windows startup) and now
+  agentctl uninstall             stop the service and no longer start it at login
+  agentctl status [--json]       is the service running, does it start at login, where are its files
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -103,6 +149,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	if err := platformSupports(cmd); err != nil {
+		fmt.Fprintln(os.Stderr, "agentctl:", err)
+		os.Exit(1)
+	}
 	var err error
 	switch cmd {
 	case "hook":
@@ -117,7 +167,7 @@ func main() {
 	case "reopen":
 		err = reopen()
 	case "restore":
-		err = restore()
+		err = bringBack("restore", args)
 	case "accounts", "account":
 		err = accountsCmd(args)
 	case "handoff":
@@ -129,13 +179,13 @@ func main() {
 	case "add":
 		err = addCmd(args)
 	case "ls", "list":
-		err = list()
+		err = list(args)
 	case "rm":
 		err = remove(args)
 	case "move", "mv":
 		err = move(args)
 	case "resume", "continue":
-		err = resume(args)
+		err = bringBack("resume", args)
 	case "sessions", "s":
 		err = sessionsCmd(args)
 	case "sim":
@@ -160,10 +210,32 @@ func main() {
 		err = pair(args)
 	case "devices":
 		err = devicesCmd(args)
+	case "bluetooth", "ble":
+		err = bluetoothCmd(args) // bluetooth.go
 	case "link":
 		err = linkCmd(args)
+	case "flash":
+		err = flashCmd(args)
 	case "install":
 		err = install()
+	case "uninstall":
+		err = uninstall()
+	case "status":
+		err = status(args)
+	case "release-key":
+		err = releaseKeyCmd(args)
+	case "update":
+		err = updateCmd(args)
+	case "firmware":
+		err = firmwareCmd(args)
+	case "system":
+		err = systemCmd(args)
+	case "settings":
+		err = settingsCmd(args)
+	case "ports":
+		err = portsCmd(args)
+	case "diagnostics":
+		err = diagnosticsCmd(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -211,6 +283,11 @@ func unixClient(timeout time.Duration) *http.Client {
 }
 
 func call(method, path string, in, out any) error {
+	return callTimeout(method, path, in, out, 10*time.Second)
+}
+
+// callTimeout is call for requests that may take longer than usual.
+func callTimeout(method, path string, in, out any, timeout time.Duration) error {
 	var body io.Reader
 	if in != nil {
 		b, _ := json.Marshal(in)
@@ -218,9 +295,9 @@ func call(method, path string, in, out any) error {
 	}
 	req, _ := http.NewRequest(method, "http://agentd"+path, body)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := unixClient(10 * time.Second).Do(req)
+	resp, err := unixClient(timeout).Do(req)
 	if err != nil {
-		return errors.New("daemon not running — start it with `agentctl install` (or `agentctl serve`)")
+		return callErr(err, timeout)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -234,27 +311,33 @@ func call(method, path string, in, out any) error {
 	return nil
 }
 
+// errUnreachable: the service's socket is there but the request failed on
+// the way (it closed the connection, e.g. while restarting).
+var errUnreachable = errors.New("couldn't reach the service")
+
+// callErr says why a request to the service didn't get an answer: it isn't
+// running (no socket, or nobody listening), it took longer than timeout (it
+// may still be doing it), or something else broke on the way.
+// wsaeConnRefused is WSAECONNREFUSED: on Windows, nothing listens on the
+// socket (syscall.ECONNREFUSED there is a made-up number that never matches).
+const wsaeConnRefused = 10061
+
+func callErr(err error, timeout time.Duration) error {
+	var ne net.Error
+	var errno syscall.Errno
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) || errors.Is(err, os.ErrNotExist),
+		errors.As(err, &errno) && errno == wsaeConnRefused:
+		return errNotRunning
+	case errors.As(err, &ne) && ne.Timeout() || errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("the service didn't answer within %s; it may still be doing it: check with agentctl ls", timeout.Round(time.Second))
+	}
+	return fmt.Errorf("%w: %v", errUnreachable, err)
+}
+
 func state() (model.State, error) {
 	var s model.State
 	return s, call("GET", "/v1/state", nil, &s)
-}
-
-func resolve(ref string) (model.Agent, error) {
-	s, err := state()
-	if err != nil {
-		return model.Agent{}, err
-	}
-	for _, a := range s.Agents {
-		if a.ID == ref {
-			return a, nil
-		}
-	}
-	for _, a := range s.Agents {
-		if a.Title == ref && a.Status != model.Exited {
-			return a, nil
-		}
-	}
-	return model.Agent{}, fmt.Errorf("no agent %q", ref)
 }
 
 // ---- commands ------------------------------------------------------------------
@@ -304,14 +387,34 @@ func reorder(args []string, takesValue map[string]bool) []string {
 
 func attach(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: agentctl attach <id|title>")
+		return errors.New("usage: agentctl attach <agent>   (an id, or its name or part of it)")
 	}
-	a, err := resolve(args[0])
+	a, err := resolve(args[0], "attach")
 	if err != nil {
 		return err
 	}
-	if a.Status == model.Exited {
-		return fmt.Errorf("%s has exited", a.Title)
+	if a.Lost || a.Status == model.Exited {
+		// Not running: offer to bring it back (it starts a process, so ask).
+		t := agentTarget(a)
+		if !stdinIsTerminal() {
+			return fmt.Errorf("%s is %s: bring it back with agentctl resume %s", listName(a.Title), t.stateLong(), a.ID)
+		}
+		if !confirm(fmt.Sprintf("%s is %s. Bring it back and open it? [Y/n] ", listName(a.Title), t.stateLong()), true) {
+			return nil
+		}
+		return bringBackTargets([]target{t}, bringOpts{})
+	}
+	return attachTmux(a)
+}
+
+// attachTmux shows a running agent in this terminal.
+func attachTmux(a model.Agent) error {
+	if a.External {
+		app := a.App
+		if app == "" {
+			app = "the " + a.Tool + " app"
+		}
+		return fmt.Errorf("%s runs in %s: open it there (agentctl can't attach to it)", listName(a.Title), app)
 	}
 	argv := tmux.AttachArgv("a-" + a.ID)
 	if os.Getenv("TMUX") != "" {
@@ -321,7 +424,6 @@ func attach(args []string) error {
 	return syscall.Exec(argv[0], argv, os.Environ())
 }
 
-// hatName accepts "hard hat", hard-hat or hard_hat.
 func hatName(s string) string {
 	return strings.ToLower(strings.NewReplacer("-", " ", "_", " ").Replace(s))
 }
@@ -355,7 +457,7 @@ func setHat(args []string) error {
 		fmt.Printf("%s → %s\n", tildePath(abs), hatLabel(body))
 		return nil
 	}
-	a, err := resolve(target)
+	a, err := resolve(target, "set hat")
 	if err != nil {
 		return fmt.Errorf("%v (give an agent id or title, or a folder)", err)
 	}
@@ -475,35 +577,6 @@ func addCmd(args []string) error {
 	return nil
 }
 
-// restore brings back every agent lost with the tmux server (crash, reboot).
-func restore() error {
-	var res struct {
-		Results []struct {
-			ID, Title, Action, Error string
-		}
-	}
-	if err := call("POST", "/v1/restore", nil, &res); err != nil {
-		return err
-	}
-	if len(res.Results) == 0 {
-		fmt.Println("nothing to restore: no agents were lost with the tmux server")
-		return nil
-	}
-	failed := 0
-	for _, r := range res.Results {
-		line := fmt.Sprintf("%s  %-10s %s", r.ID, r.Action, r.Title)
-		if r.Error != "" {
-			line += "  (" + r.Error + ")"
-			failed++
-		}
-		fmt.Println(line)
-	}
-	if n := len(res.Results) - failed; n > 0 {
-		fmt.Printf("%d agent(s) back · `agentctl reopen` opens their terminals\n", n)
-	}
-	return nil
-}
-
 // reopen opens an iTerm tab for every live agent that no terminal shows, e.g.
 // after iTerm quit or crashed (the agents kept running in tmux).
 func reopen() error {
@@ -541,10 +614,25 @@ func reopen() error {
 	return nil
 }
 
-func list() error {
+func list(args []string) error {
+	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
+	sortBy := fs.String("sort", "position", "order: position (as on the deck) or active (most recently active first)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("agentctl ls takes no names: %q (try agentctl ls --sort active)", fs.Arg(0))
+	}
 	s, err := state()
 	if err != nil {
 		return err
+	}
+	switch *sortBy {
+	case "position", "slot":
+	case "active":
+		sort.SliceStable(s.Agents, func(i, j int) bool { return s.Agents[i].LastActive.After(s.Agents[j].LastActive) })
+	default:
+		return fmt.Errorf("--sort %s: use position or active", *sortBy)
 	}
 	if len(s.Agents) == 0 {
 		fmt.Println("no agents — start one with `agentctl new`")
@@ -559,7 +647,7 @@ func list() error {
 		acctCol = acctCol || a.Account != nil
 		waitCol = waitCol || a.Waiting != nil
 	}
-	head := []string{"ID", "NAME", "STATUS", "CONTEXT", "COST", "FOLDER"}
+	head := []string{"ID", "NAME", "STATUS", "ACTIVE", "CONTEXT", "COST", "FOLDER"}
 	if acctCol {
 		head = append(head, "ACCOUNT")
 	}
@@ -584,7 +672,7 @@ func list() error {
 		if a.External {
 			cost = "—" // Codex reports no prices
 		}
-		row := []string{a.ID, clip(listName(a.Title), 40), st, ctx, cost, clip(a.Folder, 24)}
+		row := []string{a.ID, clip(listName(a.Title), 40), st, activeAgo(a.LastActive), ctx, cost, clip(a.Folder, 24)}
 		if acctCol {
 			acct := ""
 			if a.Account != nil {
@@ -662,7 +750,7 @@ func sessionsCmd(args []string) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "\ncontinue one with: agentctl resume <id>")
+	fmt.Fprintln(os.Stderr, "\ncontinue one with: agentctl resume <id or name>")
 	return nil
 }
 
@@ -689,64 +777,6 @@ func shortHome(p string) string {
 		return "~" + strings.TrimPrefix(p, home)
 	}
 	return p
-}
-
-// resume continues an ended session and attaches to it: an exited agent on the
-// board (id or title), or any Claude session by id / id prefix (see `agentctl sessions`).
-func resume(args []string) error {
-	fs := flag.NewFlagSet("resume", flag.ExitOnError)
-	force := fs.Bool("force", false, "resume even if the session looks open elsewhere")
-	detached := fs.Bool("d", false, "don't attach")
-	_ = fs.Parse(reorder(args, nil))
-	if fs.NArg() == 0 {
-		return sessionsCmd([]string{"-n", "15"})
-	}
-	ref := fs.Arg(0)
-	done := func(id string) error {
-		if *detached {
-			fmt.Println(id)
-			return nil
-		}
-		return attach([]string{id})
-	}
-	s, err := state()
-	if err != nil {
-		return err
-	}
-	for _, a := range s.Agents {
-		if a.Resumable && (a.ID == ref || a.Title == ref) {
-			if err := call("POST", "/v1/agents/"+a.ID+"/resume", nil, nil); err != nil {
-				return err
-			}
-			return done(a.ID)
-		}
-	}
-	all, _, err := allSessions()
-	if err != nil {
-		return err
-	}
-	sess, hits := claude.FindSession(all, ref)
-	switch {
-	case hits == 0:
-		return fmt.Errorf("no session matches %q — look it up with `agentctl sessions <words>`", ref)
-	case hits > 1:
-		return fmt.Errorf("%q matches %d sessions — use more of the id", ref, hits)
-	}
-	if a, ok := boardSessions()[sess.ID]; ok && a.Status != model.Exited {
-		fmt.Fprintf(os.Stderr, "already running as agent %s\n", a.ID)
-		return done(a.ID)
-	}
-	if time.Since(sess.Modified) < liveWindow && !*force {
-		return fmt.Errorf("session %s was written %s ago — it may still be open in another terminal (use --force to resume anyway)", sess.ID[:8], ago(sess.Modified))
-	}
-	if _, err := os.Stat(sess.Cwd); err != nil {
-		return fmt.Errorf("the session's folder is gone: %s", sess.Cwd)
-	}
-	var res struct{ ID string }
-	if err := call("POST", "/local/resume", map[string]string{"sessionId": sess.ID, "cwd": sess.Cwd}, &res); err != nil {
-		return err
-	}
-	return done(res.ID)
 }
 
 func ago(t time.Time) string {
@@ -787,7 +817,7 @@ func move(args []string) error {
 	if len(args) != 2 {
 		return errors.New("usage: agentctl move <id|title> <position>   (1 = first tile; free spots are fine)")
 	}
-	a, err := resolve(args[0])
+	a, err := resolve(args[0], "move")
 	if err != nil {
 		return err
 	}
@@ -807,7 +837,7 @@ func remove(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: agentctl rm <id|title>")
 	}
-	a, err := resolve(args[0])
+	a, err := resolve(args[0], "rm")
 	if err != nil {
 		return err
 	}
@@ -828,16 +858,10 @@ func openWeb(args []string) error {
 	return nil
 }
 
-// openBrowser opens url in the default browser: `open` on macOS, `xdg-open`
-// elsewhere (Linux). The one-time login code expires quickly, so callers
-// should mint it immediately before calling this.
-func openBrowser(url string) error {
-	opener := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		opener = "open"
-	}
-	return exec.Command(opener, url).Run()
-}
+// openBrowser opens url in the default browser (see proc.Open). The
+// one-time login code expires quickly, so callers should mint it
+// immediately before calling this.
+func openBrowser(url string) error { return proc.Open(url) }
 
 func pair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
@@ -882,6 +906,15 @@ func pair(args []string) error {
 }
 
 func devicesCmd(args []string) error {
+	if len(args) > 0 && (args[0] == "rename" || args[0] == "update") {
+		return devicesAdminCmd(args) // admin_cli.go
+	}
+	if len(args) > 0 && args[0] == "reset" {
+		return devicesReset(args[1:]) // devices_reset.go
+	}
+	if len(args) > 0 && args[0] == "uplink" {
+		return devicesUplink(args) // bluetooth.go
+	}
 	if len(args) > 0 {
 		action := args[0]
 		switch {
@@ -896,7 +929,7 @@ func devicesCmd(args []string) error {
 			fmt.Printf("%s: %s\n", args[1], map[string]string{"revoke": "revoked", "approve": "approved", "remove": "removed"}[action])
 			return nil
 		}
-		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin | auto-approve usb on|off [--scope view|act]]")
+		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin | auto-approve usb on|off [--scope view|act] | reset [--yes]]")
 	}
 	var res struct {
 		Devices     []devices.Device
@@ -922,12 +955,19 @@ func devicesCmd(args []string) error {
 		if b.DefaultWifi != "" {
 			defWifi[b.Board] = b.DefaultWifi
 		}
-		v := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
+		v := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi", link.OverBLE: "bluetooth"}[b.Transport]
 		if b.Transport == link.OverWifi && b.Net != nil && b.Net.IP != "" {
 			v += " " + b.Net.IP
 			if b.Net.RSSI != 0 {
 				v += fmt.Sprintf(" %d dBm", b.Net.RSSI)
 			}
+		}
+		if b.Net != nil && b.Net.BLE != "" && b.Net.BLE != "not supported" {
+			v += " (bluetooth " + b.Net.BLE
+			if b.Net.Uplink != "" {
+				v += ", uplink " + b.Net.Uplink
+			}
+			v += ")"
 		}
 		via[b.Board] = append(via[b.Board], v)
 	}
@@ -1028,7 +1068,7 @@ type fileConfig struct {
 	} `json:"link"`
 }
 
-// lanIPs are this Mac's non-loopback IPv4 addresses.
+// lanIPs are this computer's non-loopback IPv4 addresses.
 func lanIPs() []string {
 	var ips []string
 	addrs, _ := net.InterfaceAddrs()
@@ -1053,10 +1093,27 @@ func loadConfig() fileConfig {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	demoMode := fs.Bool("demo", false, "serve a simulated fleet instead of real agents")
+	still := fs.Bool("still", false, "with --demo: a fleet that doesn't change (for tests)")
+	logFile := fs.String("log", "", "append the log to `FILE` instead of printing it")
+	after := fs.Int(strings.TrimPrefix(service.AfterFlag, "--"), 0, "wait until process `PID` (the service this one replaces) has exited")
 	_ = fs.Parse(args)
 	if err := paths.Ensure(); err != nil {
 		return err
 	}
+	if err := serviceLog(*logFile); err != nil {
+		return err
+	}
+	if *after > 0 && !service.WaitGone(*after, 30*time.Second, 100*time.Millisecond, proc.Alive) {
+		log.Printf("the service this one replaces (process %d) is still running after 30s", *after)
+	}
+	// A service that answers on the socket is already running. A second one
+	// would take its socket away (ServeUnix replaces the file) and then stop
+	// on the busy web port, leaving the first one unreachable.
+	if c, err := net.DialTimeout("unix", paths.Socket(), time.Second); err == nil {
+		c.Close()
+		return errors.New("the service is already running (agentctl status)")
+	}
+	defer servicePID()()
 	cfg := loadConfig()
 	if cfg.LocalAddr == "" || !strings.HasPrefix(cfg.LocalAddr, "127.0.0.1:") {
 		return errors.New("localAddr must be 127.0.0.1:<port> (the web UI is loopback-only)")
@@ -1077,6 +1134,7 @@ func serve(args []string) error {
 		if err != nil {
 			return err
 		}
+		d.Still = *still
 		go d.Run()
 		ctl = d
 	} else {
@@ -1109,10 +1167,15 @@ func serve(args []string) error {
 	errc := make(chan error, 4)
 	// The default Wi-Fi network for boards plugged in over USB: its password in
 	// the OS secret store (the login Keychain on macOS), never in a file here.
-	wifiDefault := &link.WifiDefault{Store: pki.DefaultKeystore(paths.Data())}
-	hub := &link.Hub{Wifi: wifiDefault}
+	var wifiStore pki.Keystore = pki.DefaultKeystore(paths.Data())
+	if *demoMode { // a demo never touches the real secret store
+		wifiStore = pki.FileKeystore{Dir: filepath.Join(paths.Data(), "keys")}
+	}
+	wifiDefault := &link.WifiDefault{Store: wifiStore}
+	adm := newAdmin(st, srv, self, *logFile)
+	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
-		Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
+		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}
 	go links.Run(context.Background())
 	srv.LinkUpgrade = link.UpgradeHandler(link.ServerDeck{S: srv}, hub)
 	srv.LinkStatus = func() any {
@@ -1126,6 +1189,7 @@ func serve(args []string) error {
 		return wifiDefault.Set(ssid, password)
 	}
 	srv.LinkWifiUseDefault = hub.SendDefault
+	srv.LinkFirmware, srv.LinkFirmwareStatus = hub.UpdateFromFile, func() any { return hub.Firmware() }
 	var deviceTLS *tls.Config
 	if cfg.DeviceAddr != "" {
 		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))
@@ -1143,12 +1207,16 @@ func serve(args []string) error {
 		srv.DeviceHosts = append([]string{host}, lanIPs()...)
 		srv.DevicePort, _ = strconv.Atoi(port)
 		srv.DeviceLink = link.DeviceUpgradeHandler(link.ServerDeck{S: srv}, hub)
+		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // images from the release catalog (wireAdmin)
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))
 		}
 	}
+
+	adm.Bluetooth = startBluetooth(srv, hub, *demoMode) // bluetooth.go
+	wireAdmin(adm, srv, hub, links, wifiDefault, deviceTLS != nil, *demoMode)
 
 	if lc != nil {
 		go func() { errc <- fmt.Errorf("unix socket: %w", server.ServeUnix(paths.Socket(), srv.UnixHandler(lc))) }()
@@ -1176,6 +1244,10 @@ func serve(args []string) error {
 	case <-sig:
 		st.Flush()
 		log.Printf("stopping")
+		return nil
+	case <-serveStop:
+		st.Flush()
+		log.Printf("stopping (asked from Settings)")
 		return nil
 	}
 }
@@ -1232,7 +1304,7 @@ func getCmd(args []string) error {
 
 // openLink opens the link a click in an agent terminal landed on: the
 // hyperlink under the mouse, else a URL-looking word. Only http, https and
-// file links go to macOS open, like ⌘-click in iTerm.
+// file links are opened (macOS open), like ⌘-click in iTerm.
 func openLink(args []string) {
 	var link, word string
 	for _, a := range args {
@@ -1243,7 +1315,7 @@ func openLink(args []string) {
 		}
 	}
 	if u := linkTarget(link, word); u != "" {
-		_ = exec.Command("/usr/bin/open", u).Run()
+		_ = proc.Open(u)
 	}
 }
 
@@ -1358,61 +1430,4 @@ func simAgent(args []string) error {
 	}
 	return sim.Run(sim.Config{ID: id, Socket: sock, Dir: *dir, Transcript: *transcript,
 		Seed: time.Now().UnixNano() ^ int64(len(id))<<20, Speed: *speed, Patience: pat})
-}
-
-// ---- install ---------------------------------------------------------------------
-
-const plistLabel = "dev.agents-deck.agentctl"
-
-func install() error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	self, _ = filepath.EvalSymlinks(self)
-	if err := paths.Ensure(); err != nil {
-		return err
-	}
-	home, _ := os.UserHomeDir()
-	plist := filepath.Join(home, "Library", "LaunchAgents", plistLabel+".plist")
-	content := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key><string>%s</string>
-	<key>ProgramArguments</key>
-	<array><string>%s</string><string>serve</string></array>
-	<key>EnvironmentVariables</key>
-	<dict><key>PATH</key><string>%s/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
-	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
-	<key>ProcessType</key><string>Interactive</string>
-	<key>StandardOutPath</key><string>%s</string>
-	<key>StandardErrorPath</key><string>%s</string>
-</dict>
-</plist>
-`, plistLabel, self, home, paths.Log(), paths.Log())
-	uid := fmt.Sprint(os.Getuid())
-	job := "gui/" + uid + "/" + plistLabel
-	// Same login item already registered: just restart the daemon (it picks
-	// up a rebuilt binary). Re-registering makes macOS announce a new
-	// background item every time.
-	if cur, err := os.ReadFile(plist); err == nil && string(cur) == content &&
-		exec.Command("launchctl", "print", job).Run() == nil {
-		if out, err := exec.Command("launchctl", "kickstart", "-k", job).CombinedOutput(); err != nil {
-			return fmt.Errorf("launchctl kickstart: %v: %s", err, out)
-		}
-		fmt.Println("restarted", plistLabel)
-		return nil
-	}
-	if err := os.WriteFile(plist, []byte(content), 0o644); err != nil {
-		return err
-	}
-	_ = exec.Command("launchctl", "bootout", job).Run()
-	time.Sleep(500 * time.Millisecond)
-	if out, err := exec.Command("launchctl", "bootstrap", "gui/"+uid, plist).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
-	}
-	fmt.Println("installed", plist)
-	return nil
 }

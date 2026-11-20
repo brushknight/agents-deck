@@ -71,6 +71,7 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   memset(&a, 0, sizeof a);
   copyLine(a.id, sizeof a.id, in.id);
   a.slot = in.slot > 255 ? 255 : (uint8_t)in.slot;
+  a.attnSlot = in.attention_slot > 16 ? 0 : (uint8_t)in.attention_slot;
   copyLine(a.title, sizeof a.title, in.title);
   copyLine(a.aiTitle, sizeof a.aiTitle, in.ai_title);
   a.species = in.tool == agentsdeck_link_v1_Tool_TOOL_CODEX ? Species::Codex : Species::Claude;
@@ -281,11 +282,23 @@ struct PanelSpec {
   bool touch;          // a touch screen besides the BOOT button
 };
 
+// The version a board reports in Hello: AGENTS_DECK_VERSION when the build
+// has it (tools/build_info.py, from the release's environment), otherwise
+// the one the device's main.cpp gives.
+static inline const char* panelFirmware(const char* fallback) {
+#ifdef AGENTS_DECK_VERSION
+  (void)fallback;
+  return AGENTS_DECK_VERSION;
+#else
+  return fallback;
+#endif
+}
+
 static inline void panelConfig(deck_link_config_t& cfg, const char* boardId, const char* firmware,
                                const PanelSpec& spec) {
   cfg.board_id = boardId;
   cfg.type = spec.type;
-  cfg.firmware = firmware;
+  cfg.firmware = panelFirmware(firmware);
   cfg.display_width = spec.width;
   cfg.display_height = spec.height;
   cfg.display_color = true;

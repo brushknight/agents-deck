@@ -1,10 +1,13 @@
 #pragma once
 // The whole 320 x 172 frame. This is the only file that knows where things
 // are on the screen: a hero panel on the left (one agent, with details) and
-// a 2 x 4 mini-board of the fleet on the right.
+// a 2 x 4 mini-board of the fleet on the right. Holding the button swaps the
+// mini-board for the "Needs you" screen (attention.h): the same 2 x 4 cells,
+// the deck's lowest spots first, under a thin orange line.
 #include <stdio.h>
 #include <string.h>
 
+#include "attention.h"
 #include "canvas.h"
 #include "model.h"
 #include "sprites.h"
@@ -28,6 +31,8 @@ struct ScreenInput {
   uint32_t ms;          // animation clock
   int64_t nowEpoch;     // the daemon's time, now
   bool held;            // the button has pinned the hero
+  const Attention* att = nullptr;   // the "Needs you" spots
+  bool needsYou = false;            // the mini-board shows them
 };
 
 namespace layout {
@@ -36,7 +41,7 @@ constexpr int pad = 10;
 constexpr int textX = 90;                  // title column, right of the sprite
 constexpr int miniX = 240, miniY = 6;
 constexpr int cellW = 38, cellH = 40, stepX = 40, stepY = 41;
-constexpr int miniCells = 8;
+constexpr int miniCells = 8;              // also the "Needs you" screen's spots
 }  // namespace layout
 
 namespace screen_detail {
@@ -151,11 +156,18 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
 static inline void miniBoard(Canvas& c, const ScreenInput& in) {
   using namespace layout;
   const Fleet& f = *in.fleet;
+  const bool spots = in.needsYou && in.att;
   c.rect(heroW, 6, 1, kScreenH - 12, col::line);
-  const bool overflow = f.total > miniCells;
-  for (int i = 0; i < miniCells; i++) {
-    const int cx = miniX + (i % 2) * stepX, cy = miniY + (i / 2) * stepY;
-    if (overflow && i == miniCells - 1) {
+  if (spots) c.rect(miniX, 1, stepX + cellW, 3, col::accent);   // the "Needs you" screen: an orange line over it
+  const bool overflow = !spots && f.total > miniCells;
+  for (int k = 0; k < miniCells; k++) {
+    const int cx = miniX + (k % 2) * stepX, cy = miniY + (k / 2) * stepY;
+    const int i = spots ? attAgent(*in.att, f, k) : k;
+    if (spots && i < 0) {
+      dashedFrame(c, cx, cy, cellW, cellH, col::line);
+      continue;
+    }
+    if (overflow && k == miniCells - 1) {
       char more[8];
       snprintf(more, sizeof more, "+%u", (unsigned)(f.total - (miniCells - 1)));
       c.frame(cx, cy, cellW, cellH, col::line);

@@ -51,6 +51,7 @@ agentsdeck.link.v1.Interrupt.agent_id    max_size:12
 agentsdeck.link.v1.Dismiss.agent_id      max_size:12
 agentsdeck.link.v1.Resume.agent_id       max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12
+agentsdeck.link.v1.MoveAttention.agent_id max_size:12
 agentsdeck.link.v1.Order.agent_ids       max_count:32 max_size:12
 agentsdeck.link.v1.SetHat.agent_id       max_size:12
 agentsdeck.link.v1.SetHat.folder         max_size:128
@@ -74,6 +75,7 @@ agentsdeck.link.v1.LiveSession.folder    max_size:48
 agentsdeck.link.v1.AccountList.accounts  max_count:4
 agentsdeck.link.v1.AccountInfo.name      max_size:16
 agentsdeck.link.v1.AccountInfo.color     max_size:12
+agentsdeck.link.v1.Restore.agent_ids     max_size:12 max_count:16
 agentsdeck.link.v1.RestoreResult.results max_count:16
 agentsdeck.link.v1.Restored.id           max_size:12
 agentsdeck.link.v1.Restored.title        max_size:64
@@ -90,3 +92,8 @@ agentsdeck.link.v1.WifiConfig.ssid       max_size:33
 agentsdeck.link.v1.WifiConfig.password   max_size:65
 agentsdeck.link.v1.NetStatus.ssid        max_size:33
 agentsdeck.link.v1.NetStatus.ip          max_size:40
+agentsdeck.link.v1.FirmwareOffer.board  max_size:32
+agentsdeck.link.v1.FirmwareOffer.version max_size:24
+agentsdeck.link.v1.FirmwareOffer.sha256 max_size:32
+agentsdeck.link.v1.FirmwareOffer.path   max_size:96
+agentsdeck.link.v1.FirmwareStatus.error max_size:96

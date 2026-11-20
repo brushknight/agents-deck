@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +15,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/link/linkpb"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/serial"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
@@ -56,6 +56,8 @@ func linkCmd(args []string) error {
 		return linkCheck(args[1:])
 	case "wifi":
 		return linkWifi(args[1:])
+	case "update":
+		return linkUpdate(args[1:])
 	case "pair":
 		if len(args) != 2 {
 			return errors.New("usage: agentctl link pair <board>")
@@ -66,7 +68,7 @@ func linkCmd(args []string) error {
 		fmt.Printf("%s: its certificate no longer works. On USB and approved, it pairs again by itself (a new key and certificate).\n", args[1])
 		return nil
 	}
-	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port> | wifi <board> | pair <board>]")
+	return errors.New("usage: agentctl link [status | ports | add <port> [--baud N] | rm <port> | sim | check <port> | wifi <board> | pair <board> | update <board> --image FILE --board B --version V]")
 }
 
 type linkState struct {
@@ -82,20 +84,20 @@ func linkStatus() error {
 	}
 	if len(res.Boards) > 0 {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI")
+		fmt.Fprintln(tw, "BOARD\tVIA\tFROM\tSINCE\tWI-FI\tBLUETOOTH")
 		for _, b := range res.Boards {
-			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi"}[b.Transport]
+			via := map[string]string{link.OverSerial: "usb", link.OverWifi: "wifi", link.OverBLE: "bluetooth"}[b.Transport]
 			wifi := netLine(b.Net)
 			if b.DefaultWifi != "" {
 				wifi += " · " + b.DefaultWifi
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), wifi)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", b.Board, via, b.Where, link.Ago(b.Since), wifi, bleLine(b))
 		}
 		_ = tw.Flush()
 		fmt.Println()
 	}
 	if res.WifiDefault != "" {
-		fmt.Printf("default Wi-Fi network: %s (sent to approved boards plugged in over USB)\n\n", res.WifiDefault)
+		fmt.Printf("default Wi-Fi network: %s (sent to approved boards on USB or Bluetooth)\n\n", res.WifiDefault)
 	} else {
 		fmt.Println("no default Wi-Fi network (agentctl link wifi --default --ssid NAME)")
 		fmt.Println()
@@ -130,12 +132,18 @@ func linkPorts() error {
 		fmt.Println("no USB serial ports found: plug the board in (and use a data cable)")
 		return nil
 	}
+	infos := map[string]serial.Info{}
+	if all, err := serial.List(); err == nil {
+		for _, i := range all {
+			infos[i.Path] = i
+		}
+	}
 	for _, p := range ports {
 		mark := "  "
 		if registered[p] {
 			mark = "✓ "
 		}
-		fmt.Println(mark + p)
+		fmt.Println(mark + p + portNote(infos[p]))
 	}
 	fmt.Println("\nregister one with: agentctl link add <port>   (only registered ports are ever opened)")
 	return nil
@@ -386,7 +394,23 @@ func netLine(n *link.NetInfo) string {
 	return strings.Join(parts, " · ")
 }
 
-// linkWifi sends Wi-Fi credentials to a board on USB serial. The password is
+// bleLine is a board's Bluetooth as it reports it, and the uplink
+// preference it holds: "connected · uplink auto", "-" without Bluetooth.
+func bleLine(b link.LinkInfo) string {
+	if b.Net == nil || b.Net.BLE == "" {
+		return "-"
+	}
+	parts := []string{b.Net.BLE}
+	if b.Net.Uplink != "" {
+		parts = append(parts, "uplink "+b.Net.Uplink)
+	}
+	if b.UplinkNote != "" {
+		parts = append(parts, b.UplinkNote)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// linkWifi sends Wi-Fi credentials to a board on USB serial or Bluetooth. The password is
 // asked for without echo (so it stays out of the shell's history), goes to
 // the daemon over the unix socket and on to the board; nothing keeps it.
 func linkWifi(args []string) error {
@@ -395,7 +419,7 @@ func linkWifi(args []string) error {
 	password := fs.String("password", "", "the password (leave out to be asked; \"\" with --open)")
 	open := fs.Bool("open", false, "an open network, no password")
 	forget := fs.Bool("forget", false, "make the board forget its Wi-Fi network")
-	def := fs.Bool("default", false, "set the default network: boards plugged in over USB get it by themselves")
+	def := fs.Bool("default", false, "set the default network: boards on USB or Bluetooth get it by themselves")
 	forgetDef := fs.Bool("forget-default", false, "clear the default network (boards keep what they have)")
 	useDef := fs.Bool("use-default", false, "the board follows the default network again (undoes its own --ssid)")
 	var board string
@@ -458,7 +482,7 @@ func linkWifi(args []string) error {
 		if err := call("POST", "/local/link/wifi-default", map[string]any{"ssid": *ssid, "password": pw}, nil); err != nil {
 			return err
 		}
-		fmt.Printf("default network %s set (password in the secret store). Approved boards plugged in over USB and paired\n"+
+		fmt.Printf("default network %s set (password in the secret store). Approved boards on USB or Bluetooth and paired\n"+
 			"for Wi-Fi get it by themselves, unless one has its own (agentctl link wifi <board> --ssid); `agentctl link` shows how it went.\n", *ssid)
 		return nil
 	}
@@ -467,7 +491,7 @@ func linkWifi(args []string) error {
 		return err
 	}
 	if *forget {
-		fmt.Printf("%s forgot its Wi-Fi network: it connects over USB only.\n", board)
+		fmt.Printf("%s forgot its Wi-Fi network: it connects over USB or Bluetooth only.\n", board)
 		return nil
 	}
 	fmt.Printf("%s stored the network. Testing it", board)
@@ -482,7 +506,7 @@ func linkWifi(args []string) error {
 			continue
 		}
 		for _, b := range res.Boards {
-			if b.Board != board || b.Transport != link.OverSerial || b.Net == nil {
+			if b.Board != board || b.Transport == link.OverWifi || b.Net == nil {
 				continue
 			}
 			last = b.Net.Wifi
@@ -492,7 +516,7 @@ func linkWifi(args []string) error {
 					continue
 				}
 				fmt.Printf("\nit works: %s.\n", netLine(b.Net))
-				fmt.Println("Unplugged from the Mac (on another USB power supply) it now connects over Wi-Fi.")
+				fmt.Println("Unplugged from this computer (on another USB power supply) it now connects over Wi-Fi.")
 				return nil
 			case "wrong password", "network not found", "failed":
 				fmt.Println()
@@ -516,15 +540,12 @@ func askPassword(prompt string) (string, error) {
 	tty := fi != nil && fi.Mode()&os.ModeCharDevice != 0
 	if tty {
 		fmt.Fprint(os.Stderr, prompt)
-		off := exec.Command("stty", "-echo")
-		off.Stdin = os.Stdin
-		if err := off.Run(); err != nil {
+		restore, err := echoOff(os.Stdin)
+		if err != nil {
 			return "", fmt.Errorf("can't hide the password as you type (%v): pass --password", err)
 		}
 		defer func() {
-			on := exec.Command("stty", "echo")
-			on.Stdin = os.Stdin
-			_ = on.Run()
+			restore()
 			fmt.Fprintln(os.Stderr)
 		}()
 	}

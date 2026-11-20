@@ -10,6 +10,8 @@ import 'agent_detail.dart';
 import 'agents_client.dart';
 import 'agents_model.dart';
 import 'agents_style.dart';
+import 'attention.dart';
+import 'attention_screen.dart';
 import 'critter.dart';
 import 'live_picker.dart';
 
@@ -19,10 +21,13 @@ import 'live_picker.dart';
 /// open ([openCard] + [cardHost]); by default the built-in [CardMorph].
 ///
 /// Tiles sit at their slot, so the board can have gaps: arrange it freely.
-/// While every agent is in slots 0..15 it's one page; beyond that pages hold
-/// 15 slots each plus a pager tile in the last cell (tap = next page).
-/// Tile-based paging, because edge swipes may belong to the host (the desk
-/// panel's shell uses left = back, top = settings).
+/// Pages hold 16 slots each (page = slot ~/ 16), with bars underneath.
+///
+/// One step to the left of the first page is the "Needs you" screen
+/// ([AttentionScreen]): only the agents that need you, each in the spot the
+/// service gave it ([NeedsYou]). The deck always opens on its first
+/// page; swipe right, scroll, press the left arrow or tap the mark at the
+/// far left of the bars to get there.
 class AgentsApp extends StatefulWidget {
   const AgentsApp({
     super.key,
@@ -68,10 +73,12 @@ class _AgentsAppState extends State<AgentsApp> {
   late final _gridClock = CritterClock(animate: widget.animate);
   late final _cardClock = CritterClock(animate: widget.animate)
     ..running = false;
-  int _page = 0;
-  final _pager = PageController();
 
-  static const _cells = 16;
+  /// The view shown: 0 = "Needs you", 1 + n = page n. Opens on page 0.
+  int _view = 1;
+  final _pager = PageController(initialPage: 1);
+
+  static const _cells = DeckGrid.columns * DeckGrid.rows;
 
   @override
   void dispose() {
@@ -89,6 +96,16 @@ class _AgentsAppState extends State<AgentsApp> {
     super.initState();
     widget.visible?.addListener(_syncClocks);
     _syncClocks();
+  }
+
+  @override
+  void didUpdateWidget(AgentsApp old) {
+    super.didUpdateWidget(old);
+    if (old.visible != widget.visible) {
+      old.visible?.removeListener(_syncClocks);
+      widget.visible?.addListener(_syncClocks);
+      _syncClocks();
+    }
   }
 
   /// The card covers the grid: only one set of critters runs at a time, and
@@ -244,18 +261,19 @@ class _AgentsAppState extends State<AgentsApp> {
     );
   }
 
-  /// Pages of 16 slots (page = slot ~/ 16), side by side: swipe between
-  /// them, use the arrow keys or click a bar. With one page the tiles are
-  /// square; with more, they keep their width and get a little shorter so
-  /// the bar row fits in the same square.
+  /// Pages of 16 slots (page = slot ~/ 16), side by side, with the "Needs
+  /// you" screen before the first: swipe between them, scroll, use the arrow
+  /// keys or click a bar. The tiles keep their width and get a little shorter
+  /// so the bar row fits in the same square.
   Widget _deck(AgentsState state) {
     final last = state.agents.map((a) => a.slot).fold(0, math.max);
     final pages = last ~/ _cells + 1;
-    if (_page >= pages) _page = pages - 1;
+    if (_view > pages) _view = pages;
     final hot = {
       for (final a in state.agents)
         if (a.needsYou) a.slot ~/ _cells,
     };
+    final needsYou = NeedsYou.of(state);
     return Focus(
       autofocus: true,
       onKeyEvent: (_, e) {
@@ -266,33 +284,43 @@ class _AgentsAppState extends State<AgentsApp> {
           _ => 0,
         };
         if (step == 0) return KeyEventResult.ignored;
-        _goTo((_page + step).clamp(0, pages - 1));
+        _goTo((_view + step).clamp(0, pages));
         return KeyEventResult.handled;
       },
       child: Padding(
-        padding: EdgeInsets.fromLTRB(8, 8, 8, pages < 2 ? 8 : 0),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
         child: Column(
           children: [
             Expanded(
               child: PageView.builder(
                 key: const Key('agents-pages'),
                 controller: _pager,
-                itemCount: pages,
-                onPageChanged: (p) => setState(() => _page = p),
-                itemBuilder: (context, p) =>
-                    DeckGrid(cells: _cellsFor(state, p), square: pages < 2),
+                itemCount: pages + 1,
+                onPageChanged: (v) => setState(() => _view = v),
+                itemBuilder: (context, v) => v == 0
+                    ? AttentionScreen(
+                        needsYou: needsYou,
+                        tile: (a) => AgentTile(
+                          key: ValueKey('attention-tile-${a.id}'),
+                          agent: a,
+                          state: state,
+                          onOpen: _open,
+                        ),
+                      )
+                    : DeckGrid(cells: _cellsFor(state, v - 1), square: false),
               ),
             ),
-            if (pages > 1)
-              SizedBox(
-                height: _barsHeight,
-                child: _PageBars(
-                  pages: pages,
-                  current: _page,
-                  hot: hot,
-                  onTap: _goTo,
-                ),
+            SizedBox(
+              height: _barsHeight,
+              child: _PageBars(
+                pages: pages,
+                current: _view - 1,
+                hot: hot,
+                attention: needsYou.count,
+                onTap: (p) => _goTo(p + 1),
+                onAttention: () => _goTo(0),
               ),
+            ),
           ],
         ),
       ),
@@ -301,10 +329,10 @@ class _AgentsAppState extends State<AgentsApp> {
 
   static const _barsHeight = 34.0;
 
-  void _goTo(int page) {
-    if (!_pager.hasClients || page == _page) return;
+  void _goTo(int view) {
+    if (!_pager.hasClients || view == _view) return;
     _pager.animateToPage(
-      page,
+      view,
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
@@ -696,27 +724,76 @@ class AgentsEmptyTile extends StatelessWidget {
 
 /// One rounded bar per page under the deck: the current one wide and bright,
 /// another page's orange when an agent there needs you. Tap one to go there.
+/// At the far left, an outlined mark for the "Needs you" screen, with how
+/// many agents are on it while you are elsewhere.
 class _PageBars extends StatelessWidget {
   const _PageBars({
     required this.pages,
     required this.current,
     required this.hot,
+    required this.attention,
     required this.onTap,
+    required this.onAttention,
   });
 
   final int pages;
+
+  /// The page shown; -1 = the "Needs you" screen.
   final int current;
   final Set<int> hot;
+
+  /// Agents on the "Needs you" screen.
+  final int attention;
   final ValueChanged<int> onTap;
+  final VoidCallback onAttention;
 
   @override
   Widget build(BuildContext context) {
+    final here = current < 0;
+    final lit = here || attention > 0;
     return Semantics(
-      label: 'page ${current + 1} of $pages',
+      label: here ? 'needs you' : 'page ${current + 1} of $pages',
       child: Row(
         key: const Key('agents-pager'),
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          Semantics(
+            button: true,
+            label: attention == 0 ? 'needs you' : '$attention need you',
+            child: GestureDetector(
+              key: const Key('agents-page-attention'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onAttention,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
+                child: Row(
+                  children: [
+                    if (!here && attention > 0) ...[
+                      Text(
+                        '$attention',
+                        key: const Key('agents-attention-count'),
+                        style: DeckHud.rm(15, DeckHud.accent, weight: 600),
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: here ? 56 : 30,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: here ? DeckHud.accent : null,
+                        border: Border.all(
+                          color: lit ? DeckHud.accent : DeckHud.dim,
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           for (var p = 0; p < pages; p++)
             GestureDetector(
               key: Key('agents-page-$p'),
