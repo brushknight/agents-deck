@@ -1760,6 +1760,7 @@ class SquarePanel : public PanelLayout {
     free(panelPic);
     free(rowTable);
     free(edgeRow);
+    free(scratch);
   }
   const uint16_t* const* frameRows() const override { return rowsReady ? rowTable : nullptr; }
   SquarePanel(const SquarePanel&) = delete;
@@ -1810,12 +1811,8 @@ class SquarePanel : public PanelLayout {
   bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override {
     bool fun = false;
     if (S.imu) {
-      if (funSick(ui.fun, ms)) {
-        const SickPose p = sickPose(ui, f, ms);
-        funTokensStep(ui.fun, p, S.w, S.h, ms);
-      } else if (ui.fun.sickAt) {
-        ui.fun.sickAt = 0;
-      }
+      (void)f;
+      if (ui.fun.sickAt && !funSick(ui.fun, ms)) ui.fun.sickAt = 0;
       if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
       fun = funBusy(ui.fun, ms);
     }
@@ -1847,15 +1844,62 @@ class SquarePanel : public PanelLayout {
     return funSickPose(ui.fun, S.w, S.h, from.x, from.y, S.cardScale, ms);
   }
 
+  // The magic trick on a list home: an empty grid while it is armed (no
+  // header, no agents); then the tiles on screen fly in from the top-right
+  // corner one after another, growing from kStart of their size, drawn and
+  // animated as they go (each into a scratch tile, then scaled into place).
+  void drawReveal(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const FunUi& f = in.ui->fun;
+    const PanelUi& ui = *in.ui;
+    c.fill(T.bg);
+    for (int sp = 0; sp < squareSpots(S); sp++) {
+      const Rect r = listTile(S, sp, 0);
+      if (r.y < S.h) listEmpty(c, T, r);
+    }
+    if (!f.magic) {
+      listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+      const int tw = S.tileW, th = S.tileH;
+      if (!scratch) scratch = (uint16_t*)malloc((size_t)tw * th * 2);
+      constexpr float kStart = 0.55f;
+      int k = 0;
+      for (int i = 0; i < in.fleet->count; i++) {
+        const Rect r = listTile(S, i, ui.scroll);
+        if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+        const float t = funRevealT(f, k++, in.ms);
+        if (t <= 0) continue;
+        if (t >= 1 || !scratch) {
+          tile(c, S, T, in.fleet->agents[i], r, in.ms, in.nowEpoch, true, false, S.headerH);
+          continue;
+        }
+        Canvas sc{scratch, tw, th};
+        sc.be = c.be;
+        sc.fill(T.bg);
+        tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
+        const float scale = kStart + (1.f - kStart) * t;
+        const float sx0 = S.w - tw * kStart - 6, sy0 = 6;   // the top-right corner
+        const float dx = sx0 + (r.x - sx0) * t, dy = sy0 + (r.y - sy0) * t;
+        const int dw = (int)(tw * scale), dh = (int)(th * scale);
+        for (int yy = 0; yy < dh; yy++) {
+          const int py = (int)dy + yy;
+          if (py < 0 || py >= c.h) continue;
+          const uint16_t* src = scratch + (size_t)(yy * th / dh) * tw;
+          uint16_t* dst = c.px + (size_t)py * c.w;
+          for (int xx = 0; xx < dw; xx++) {
+            const int px = (int)dx + xx;
+            if (px >= 0 && px < c.w) dst[px] = src[xx * tw / dw];
+          }
+        }
+      }
+    }
+    if (S.cornerR) cornerMask(c, S.cornerR);
+  }
+
   // The tricks over the frame: true when this drew the whole frame.
   bool drawFun(Canvas& c, const PanelInput& in) const {
     const FunUi& f = in.ui->fun;
-    if (f.magic || funRevealing(f, in.ms)) {
-      drawSquare(c, S, T, in);                 // the header stays; the sphere covers the rest
-      const float burst = f.magic ? 0.f : (float)(in.ms - f.revealAt) / kRevealMs;
-      if (f.magic) funSphere(c, f, S.headerH, T.bg, in.ms, 0, true);
-      else funSphere(c, f, S.headerH, T.bg, in.ms, burst, false);
-      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    if (S.home == HomeKind::List && (f.magic || funRevealing(f, in.ms))) {
+      drawReveal(c, in);
       return true;
     }
     if (!funSick(f, in.ms)) return false;
@@ -1863,13 +1907,15 @@ class SquarePanel : public PanelLayout {
     if (i < 0 || in.ui->screen != Screen::Card) return false;
     const Agent& a = in.fleet->agents[i];
     const SickPose p = sickPose(*in.ui, *in.fleet, in.ms);
-    const bool grown = p.scale >= S.w / 22 - 1;
-    if (grown) c.fill(T.bg);                   // the stage: just the critter and its mess
-    else drawSquare(c, S, T, in);
-    const uint16_t green = rgb565(0x8B, 0xC3, 0x4A);
-    const Pose pose = p.spew ? Pose::Hungry : p.green ? Pose::Compact : Pose::Run;
-    drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, pose, p.green ? green : T.accent, T.bg, in.ms, false, a.hat, a.hatColor);
-    funTokensDraw(c, f, T.bg);
+    drawSquare(c, S, T, in);                   // the card stays under it
+    {                                          // its own place on the card is empty while it is out
+      const Rect from = square_detail::cardGeom(S, a, in.scope).critter;
+      c.rect(from.x - S.cardScale, from.y - 6 * S.cardScale, 18 * S.cardScale, 15 * S.cardScale, T.bg);
+    }
+    // Crossed eyes while it is sick (the error pose's), its own colours.
+    drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false, a.hat,
+               a.hatColor);
+    funPour(c, p, T.bg, in.ms);
     if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
     return true;
   }
@@ -1880,6 +1926,7 @@ class SquarePanel : public PanelLayout {
   mutable uint16_t* homePic = nullptr;
   mutable uint16_t* panelPic = nullptr;
   mutable bool cached = false;
+  mutable uint16_t* scratch = nullptr;   // one tile, for the magic trick's flying tiles
   // The moving frame as rows of those pictures, for a board that sends rows.
   mutable const uint16_t** rowTable = nullptr;
   mutable uint16_t* edgeRow = nullptr;

@@ -119,11 +119,6 @@ static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || 
 
 // ---------------------------------------------------------------- motion (fun_motion.h)
 
-struct Token {
-  float x, y, vx, vy;
-  uint8_t color, life;         // life 0: not in use
-};
-
 struct FunUi {
   bool magic = false;          // armed: the sphere, waiting for a knock
   uint32_t revealAt = 0;       // the knock: the dots fly out
@@ -131,14 +126,11 @@ struct FunUi {
   char sickId[12] = "";
   // Detection (funDetect).
   bool seeded = false, wasHigh = false;
-  float base = 1.f, gx = 0, gy = 0, gz = 1.f;   // gravity, smoothed (g)
+  float prevMag = 1.f;
+  float base = 1.f, gx = 0, gy = 0, gz = 1.f;   // gravity, smoothed (g): the sphere leans with it
   uint32_t peaks[8] = {};
   int np = 0;
   uint32_t lastKnock = 0, lastShake = 0;
-  // The tokens.
-  Token tok[90] = {};
-  int nextTok = 0;
-  uint32_t lastStep = 0;
 };
 
 struct PanelUi {

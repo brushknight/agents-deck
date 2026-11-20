@@ -19,8 +19,9 @@
 struct ControlGeom {
   int w, h, m, pad, gap, r;
   int headY, nameH;
-  Rect wifi, ble, magic, link, restart;   // magic: h 0 on a board without a motion sensor
-  int factsY, factPitch, facts;
+  Rect wifi, ble, magic, restart;   // a 2 x 2 grid; magic: h 0 on a board without a motion sensor
+  Rect link;                        // the small line: how it reaches the deck
+  int versionY;                     // the firmware version, at the bottom
   int handleY;
   int commitPx;                // kControlCommitMm on this glass
   const Font* name;
@@ -35,7 +36,7 @@ static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0, boo
   g.commitPx = ppi > 0 ? (int)lroundf(kControlCommitMm / 25.4f * ppi) : h / 5;
   const bool big = h >= 560;   // the T4-S3
   g.w = w; g.h = h; g.m = m;
-  g.pad = big ? 14 : 12;
+  g.pad = big ? 14 : 10;
   g.gap = 8;
   g.r = big ? 12 : 10;
   g.name = big ? &FONT_Q28B : &FONT_Q24B;
@@ -48,20 +49,18 @@ static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0, boo
   g.wifi = Rect{m, y, tileW, tileH};
   g.ble = Rect{m + tileW + g.gap, y, tileW, tileH};
   y += tileH + g.gap;
-  if (imu) {                                // the magic trick, a wide tile of its own
-    g.magic = Rect{m, y, w - 2 * m, big ? 70 : 56};
-    y += g.magic.h + g.gap;
+  // The second row: the magic trick and restart, the same size; restart alone
+  // (at the left) on a board without a motion sensor.
+  if (imu) {
+    g.magic = Rect{m, y, tileW, tileH};
+    g.restart = Rect{m + tileW + g.gap, y, tileW, tileH};
+  } else {
+    g.restart = Rect{m, y, tileW, tileH};
   }
-  g.link = Rect{m, y, w - 2 * m, big ? 62 : 46};
-  y += g.link.h + (big ? 10 : 6);
+  y += tileH + (big ? 16 : 10);
+  g.link = Rect{m, y, w - 2 * m, big ? 40 : 32};
   g.handleY = h - m - (big ? 10 : 8);
-  const int btnH = big ? 68 : 52;
-  g.restart = Rect{m, g.handleY - (big ? 14 : 10) - btnH, w - 2 * m, btnH};
-  g.factsY = y;
-  g.factPitch = g.small->cellH + (big ? 12 : 5);
-  g.facts = (g.restart.y - (big ? 8 : 4) - y) / g.factPitch;
-  if (g.facts > 5) g.facts = 5;
-  if (g.facts < 0) g.facts = 0;
+  g.versionY = g.handleY - (big ? 12 : 8) - g.small->cellH;
   return g;
 }
 
@@ -170,18 +169,14 @@ static const char* const kIconUsb[] = {".....#.....", "....###....", "...#####..
                                        "...#.#..#..", "....###....", ".....#.....", "....###....", "....###...."};
 // A wand with a spark at its tip.
 static const char* const kIconWand[] = {"......#..", "....#.#.#", ".....###.", "....##.##", ".....###.", "....##.#.", "...##....", "..##.....", ".##......", "##......."};
+// A turning arrow: restart.
+static const char* const kIconRestart[] = {"..####.#.", ".#....##.", "#....###.", "#........", "#........", "#.......#", ".#.....#.", "..#####.."};
 static const char* const kIconBle[] = {"...#...", "...##..", "#..#.#.", ".#.##..", "..##...", ".#.##..", "#..#.#.", "...##..", "...#..."};
 
 static inline void pixels(Canvas& c, const char* const* rows, int n, int x, int y, int cell, uint16_t col) {
   for (int r = 0; r < n; r++)
     for (int k = 0; rows[r][k]; k++)
       if (rows[r][k] == '#') c.rect(x + k * cell, y + r * cell, cell, cell, col);
-}
-
-static inline void fmtUp(uint32_t sec, char* out, size_t cap) {
-  if (sec < 60) snprintf(out, cap, "%u s", (unsigned)sec);
-  else if (sec < 3600) snprintf(out, cap, "%u min", (unsigned)(sec / 60));
-  else snprintf(out, cap, "%u h %u min", (unsigned)(sec / 3600), (unsigned)(sec / 60 % 60));
 }
 
 // A switch tile: bright when on, an outline when off; pressed, the other way round.
@@ -239,80 +234,55 @@ static inline void controlDraw(Canvas& c, const ControlGeom& g, const Theme& T, 
   else snprintf(st, sizeof st, "%s", info.bleBonded ? "paired" : "not paired");
   switchTile(c, g, T, g.ble, oy, kIconBle, 9, "Bluetooth", info.bleCapable, info.bleOn, u.pressed == ControlHit::Ble, st);
 
-  // The magic trick (a board with a motion sensor).
-  if (g.magic.h) {
-    const Rect& r = g.magic;
-    const bool lit = info.magicOn != (u.pressed == ControlHit::Magic);
-    const uint16_t ink = lit ? T.bg : T.ink, sub = lit ? T.line : T.dim;
-    if (lit) roundRect(c, r.x, r.y + oy, r.w, r.h, g.r, T.ink);
-    else {
-      roundRect(c, r.x, r.y + oy, r.w, r.h, g.r, T.panel);
-      roundFrame(c, r.x, r.y + oy, r.w, r.h, g.r, 2, T.ringTrack);
-    }
-    const int cell = g.h >= 560 ? 4 : 3;
-    pixels(c, kIconWand, 10, r.x + g.pad, r.y + oy + (r.h - 10 * cell) / 2, cell, lit ? T.accent : ink);
-    const int tx = r.x + g.pad + 9 * cell + 14;
-    c.text(*g.label, tx, r.y + oy + (r.h - g.label->cellH - g.small->cellH) / 2 + 2, "Magic trick", ink, r.w - (tx - r.x) - g.pad);
-    c.text(*g.small, tx, r.y + oy + (r.h - g.label->cellH - g.small->cellH) / 2 + g.label->cellH, info.magicOn ? "armed: knock the board" : "tap to arm", sub, r.w - (tx - r.x) - g.pad);
-  }
+  // The magic trick (a board with a motion sensor): a switch like the radios.
+  if (g.magic.h)
+    switchTile(c, g, T, g.magic, oy, kIconWand, 10, "Magic trick", true, info.magicOn, u.pressed == ControlHit::Magic,
+               info.magicOn ? "knock to reveal" : "tap to arm");
 
-  // How it reaches the deck.
-  {
-    const Rect& r = g.link;
-    roundRect(c, r.x, r.y + oy, r.w, r.h, g.r, T.panel);
-    const char* via = info.via == NetVia::Wifi ? "Wi-Fi" : info.via == NetVia::Ble ? "Bluetooth" : "USB";
-    char line[40];
-    if (info.linked) snprintf(line, sizeof line, "on %s", via);
-    else snprintf(line, sizeof line, "looking for the deck");
-    const int ty = r.y + oy + (r.h - g.label->cellH) / 2 + 1;
-    // The link's own mark, orange while a deck answers on it.
-    const int cell = g.h >= 560 ? 3 : 3;
-    const char* const* icon = info.via == NetVia::Wifi ? kIconWifi : info.via == NetVia::Ble ? kIconBle : kIconUsb;
-    const int rows = info.via == NetVia::Wifi ? 7 : info.via == NetVia::Ble ? 9 : 12;
-    const int iw = (int)strlen(icon[0]) * cell, ih = rows * cell;
-    pixels(c, icon, rows, r.x + g.pad, r.y + oy + (r.h - ih) / 2, cell, info.linked ? T.accent : T.dim);
-    const int dot = iw - 10;
-    const char* pref = info.uplink == NetUplink::Wifi ? "uplink Wi-Fi" : info.uplink == NetUplink::Ble ? "uplink BT" : "uplink auto";
-    const int pw = textW(*g.small, pref);
-    c.text(*g.label, r.x + g.pad + dot + 22, ty, line, T.ink, r.w - 2 * g.pad - dot - 10 - pw - 8);
-    c.text(*g.small, r.x + r.w - g.pad - pw, r.y + oy + (r.h - g.small->cellH) / 2 + 1, pref, T.dim);
-  }
-
-  // Facts, as many as fit.
-  {
-    char up[24];
-    fmtUp(info.upSec, up, sizeof up);
-    const char* keys[5] = {"firmware", "id", "board", "network", "up"};
-    const char* vals[5] = {info.firmware, info.id, info.board, info.ssid[0] ? info.ssid : "none", up};
-    for (int i = 0; i < g.facts; i++) {
-      const int y = g.factsY + i * g.factPitch + oy;
-      c.text(*g.small, x0, y, keys[i], T.dim);
-      const int room = g.w - 2 * x0 - textW(*g.small, keys[i]) - 12;
-      const int vw = textW(*g.small, vals[i]);
-      const int shown = vw > room ? room / g.small->cellW * g.small->cellW : vw;
-      c.text(*g.small, g.w - x0 - shown, y, vals[i], T.ink, room, true);
-      c.rect(x0, y + g.factPitch - 3, g.w - 2 * x0, 1, T.line);
-    }
-  }
-
-  // Restart: the fill grows while it is held.
+  // Restart: a tile held for 1 s; a bar along its bottom fills while it is held.
   {
     const Rect& r = g.restart;
+    const int y = r.y + oy;
     const bool held = u.down && u.pressed == ControlHit::Restart;
     int permille = 0;
     if (held) {
       const uint32_t t = ms - u.downMs;
       permille = t >= kControlHoldMs ? 1000 : (int)(t * 1000 / kControlHoldMs);
     }
-    roundRect(c, r.x, r.y + oy, r.w, r.h, r.h / 2, T.panel);
-    if (permille > 0) {
-      const int fw = r.h + (r.w - r.h) * permille / 1000;
-      roundRect(c, r.x, r.y + oy, fw, r.h, r.h / 2, T.accent);
-    }
-    roundFrame(c, r.x, r.y + oy, r.w, r.h, r.h / 2, 2, held ? T.accent : T.ringTrack);
-    const char* text = u.holdFired ? "restarting" : held ? "keep holding" : "hold to restart";
-    textCentered(c, *g.label, r.x + r.w / 2, r.y + oy + (r.h - g.label->cellH) / 2 + 1, text,
-                 permille > 500 ? T.bg : T.ink, r.w - 2 * g.pad);
+    roundRect(c, r.x, y, r.w, r.h, g.r, T.panel);
+    roundFrame(c, r.x, y, r.w, r.h, g.r, 2, held || u.holdFired ? T.accent : T.ringTrack);
+    const int cell = g.h >= 560 ? 4 : 3;
+    pixels(c, kIconRestart, 8, r.x + g.pad, y + g.pad, cell, held ? T.accent : T.ink);
+    const int ty = y + r.h - g.pad - g.small->cellH - g.label->cellH + 2;
+    c.text(*g.label, r.x + g.pad, ty, "Restart", T.ink, r.w - 2 * g.pad);
+    c.text(*g.small, r.x + g.pad, ty + g.label->cellH - 2, u.holdFired ? "restarting" : held ? "keep holding" : "hold 1 s", T.dim,
+           r.w - 2 * g.pad);
+    if (permille > 0) c.rect(r.x + g.r, y + r.h - 6, (r.w - 2 * g.r) * permille / 1000, 4, T.accent);
+  }
+
+  // How it reaches the deck: a small line, the link's mark orange while a deck answers on it.
+  {
+    const Rect& r = g.link;
+    const int cy = r.y + oy + r.h / 2;
+    const char* const* icon = info.via == NetVia::Wifi ? kIconWifi : info.via == NetVia::Ble ? kIconBle : kIconUsb;
+    const int rows = info.via == NetVia::Wifi ? 7 : info.via == NetVia::Ble ? 9 : 12;
+    const int cell = 2, iw = (int)strlen(icon[0]) * cell;
+    pixels(c, icon, rows, r.x + g.pad, cy - rows * cell / 2, cell, info.linked ? T.accent : T.dim);
+    const char* via = info.via == NetVia::Wifi ? "Wi-Fi" : info.via == NetVia::Ble ? "Bluetooth" : "USB";
+    char line[40];
+    if (info.linked) snprintf(line, sizeof line, "on %s", via);
+    else snprintf(line, sizeof line, "looking for the deck");
+    const char* pref = info.uplink == NetUplink::Wifi ? "uplink Wi-Fi" : info.uplink == NetUplink::Ble ? "uplink BT" : "uplink auto";
+    const int pw = textW(*g.small, pref), tx = r.x + g.pad + iw + 12;
+    c.text(*g.small, tx, cy - g.small->cellH / 2, line, T.ink, r.x + r.w - g.pad - pw - 12 - tx);
+    c.text(*g.small, r.x + r.w - g.pad - pw, cy - g.small->cellH / 2, pref, T.dim);
+  }
+
+  // The firmware version, at the bottom.
+  {
+    char v[48];
+    snprintf(v, sizeof v, "firmware %s", info.firmware[0] ? info.firmware : "?");
+    textCentered(c, *g.small, g.w / 2, g.versionY + oy, v, T.dim, g.w - 2 * g.m);
   }
 
   // The handle.
