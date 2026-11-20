@@ -120,8 +120,10 @@ static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || 
 // ---------------------------------------------------------------- motion (fun_motion.h)
 
 struct FunUi {
-  bool magic = false;          // armed: the sphere, waiting for a knock
-  uint32_t revealAt = 0;       // the knock: the dots fly out
+  bool magic = false;          // the trick is on (from the drawer) until it is switched off there
+  bool taken = false;          // a knock took the agents (the next one gives them back)
+  uint32_t revealAt = 0;       // the knock that took them: the tiles fly in
+  uint32_t returnAt = 0;       // the knock that gave them back: the tiles fly out
   uint32_t sickAt = 0;         // shaken on a card: the critter is sick
   char sickId[12] = "";
   // Detection (funDetect).

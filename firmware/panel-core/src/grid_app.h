@@ -217,9 +217,14 @@ static void panelAct() {
     case ControlAct::Ble:  net_link::setBleSwitch(!net_link::bleSwitch()); break;
     case ControlAct::Restart: restartAt = millis() + 400; break;   // "restarting" shows first
     case ControlAct::Magic:
-      ui.fun.magic = !ui.fun.magic;
-      ui.fun.revealAt = 0;
-      if (ui.fun.magic) ui.ctl = ControlUi();   // armed: the drawer gets out of the way
+      if (ui.fun.magic) {                      // off: the agents are back where they were
+        ui.fun.magic = ui.fun.taken = false;
+        ui.fun.revealAt = ui.fun.returnAt = 0;
+      }
+      else {
+        ui.fun.magic = true;
+        ui.ctl = ControlUi();                  // on: the drawer gets out of the way, the grid is empty
+      }
       break;
     default: break;
   }
@@ -343,7 +348,7 @@ static inline void gridAppLoop() {
     if (millis() - lastAccel >= 5 && board.accel(ax, ay, az)) {
       lastAccel = millis();
       board.layout->motion(ui, ax, ay, az, lastAccel);
-      if (ui.fun.revealAt || ui.fun.sickAt) dirty = true;
+      if (ui.fun.revealAt || ui.fun.returnAt || ui.fun.sickAt) dirty = true;
     }
   }
   static uint32_t lastFrame = 0;

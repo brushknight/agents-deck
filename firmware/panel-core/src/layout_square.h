@@ -1790,7 +1790,7 @@ class SquarePanel : public PanelLayout {
   void motion(PanelUi& ui, float ax, float ay, float az, uint32_t ms) const override {
     if (!S.imu) return;
     const Motion m = funDetect(ui.fun, ax, ay, az, ms);
-    if (m == Motion::Knock && ui.fun.magic) funReveal(ui.fun, ms);
+    if (m == Motion::Knock && ui.fun.magic && ui.screen == Screen::Home && !controlShown(ui.ctl)) funKnock(ui.fun, ms);
     else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
       funSickStart(ui.fun, ui.openId, ms);
   }
@@ -1801,10 +1801,7 @@ class SquarePanel : public PanelLayout {
     return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);
   }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
-    if (S.imu && ui.fun.magic) {               // armed: a tap on the glass reveals too
-      if (!down) funReveal(ui.fun, ms);
-      return DeckCommand{};
-    }
+    if (S.imu && ui.fun.magic && !ui.fun.taken) return DeckCommand{};   // the empty grid: nothing to touch
     if (S.imu && funSick(ui.fun, ms)) return DeckCommand{};
     return squareTouch(ui, S, f, down, x, y, scope, ms);
   }
@@ -1814,16 +1811,14 @@ class SquarePanel : public PanelLayout {
       (void)f;
       if (ui.fun.sickAt && !funSick(ui.fun, ms)) ui.fun.sickAt = 0;
       if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
+      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;
       fun = funBusy(ui.fun, ms);
     }
     const bool panel = (hasPanel() && controlTick(ui.ctl, ms)) || fun;
     return squareTick(ui, S, f, ms) || panel;
   }
   void button(PanelUi& ui, const Fleet& f) const override {
-    if (S.imu && ui.fun.magic) {               // BOOT disarms the trick
-      ui.fun.magic = false;
-      return;
-    }
+    if (S.imu && ui.fun.magic && !ui.fun.taken) return;   // the empty grid: BOOT has nothing to do
     if (hasPanel() && controlShown(ui.ctl)) {   // BOOT closes the panel first
       ui.ctl = ControlUi();
       return;
@@ -1853,12 +1848,14 @@ class SquarePanel : public PanelLayout {
     const FunUi& f = in.ui->fun;
     const PanelUi& ui = *in.ui;
     c.fill(T.bg);
+    const uint16_t spot = rgb565(0x77, 0x74, 0x6C);   // the empty places: light grey
     for (int sp = 0; sp < squareSpots(S); sp++) {
       const Rect r = listTile(S, sp, 0);
-      if (r.y < S.h) listEmpty(c, T, r);
+      if (r.y < S.h) roundRect(c, r.x, r.y, r.w, r.h, 8, spot);
     }
-    if (!f.magic) {
-      listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+    listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+    if (f.revealAt || f.returnAt) {
+      const bool out = f.returnAt != 0;           // giving them back: the same flight, backwards
       const int tw = S.tileW, th = S.tileH;
       if (!scratch) scratch = (uint16_t*)malloc((size_t)tw * th * 2);
       constexpr float kStart = 0.55f;
@@ -1866,7 +1863,8 @@ class SquarePanel : public PanelLayout {
       for (int i = 0; i < in.fleet->count; i++) {
         const Rect r = listTile(S, i, ui.scroll);
         if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
-        const float t = funRevealT(f, k++, in.ms);
+        float t = funRevealT(f, k++, in.ms);
+        if (out) t = 1.f - t;
         if (t <= 0) continue;
         if (t >= 1 || !scratch) {
           tile(c, S, T, in.fleet->agents[i], r, in.ms, in.nowEpoch, true, false, S.headerH);
@@ -1898,7 +1896,7 @@ class SquarePanel : public PanelLayout {
   // The tricks over the frame: true when this drew the whole frame.
   bool drawFun(Canvas& c, const PanelInput& in) const {
     const FunUi& f = in.ui->fun;
-    if (S.home == HomeKind::List && (f.magic || funRevealing(f, in.ms))) {
+    if (S.home == HomeKind::List && in.ui->screen == Screen::Home && f.magic && (!f.taken || funRevealing(f, in.ms))) {
       drawReveal(c, in);
       return true;
     }
@@ -1908,14 +1906,18 @@ class SquarePanel : public PanelLayout {
     const Agent& a = in.fleet->agents[i];
     const SickPose p = sickPose(*in.ui, *in.fleet, in.ms);
     drawSquare(c, S, T, in);                   // the card stays under it
-    {                                          // its own place on the card is empty while it is out
-      const Rect from = square_detail::cardGeom(S, a, in.scope).critter;
-      c.rect(from.x - S.cardScale, from.y - 6 * S.cardScale, 18 * S.cardScale, 15 * S.cardScale, T.bg);
+    {                                          // its own place on the card is empty while it is out: body,
+      const square_detail::CardGeom cg = square_detail::cardGeom(S, a, in.scope);   // legs, hat and its bubble,
+      const Rect from = cg.critter;            // up to the name beside it
+      const int k = S.cardScale;
+      int right = from.x + 20 * k;
+      if (cg.name.x > from.x && right > cg.name.x - 2) right = cg.name.x - 2;
+      c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
     }
     // Crossed eyes while it is sick (the error pose's), its own colours.
     drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false, a.hat,
                a.hatColor);
-    funPour(c, p, T.bg, in.ms);
+    funPour(c, p, f, T.bg, in.ms);
     if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
     return true;
   }
