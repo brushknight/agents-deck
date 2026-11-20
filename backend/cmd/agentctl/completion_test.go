@@ -95,14 +95,16 @@ func demoDeck(t *testing.T) []string {
 
 func run(t *testing.T, env []string, args ...string) (string, error) {
 	t.Helper()
-	c := exec.Command("agentctl", args...)
-	c.Env = env
-	c.Path = ""
+	// The agentctl built for this test, by its full path: exec.Command("agentctl")
+	// looks it up in the test's own PATH and fails where none is installed.
+	bin := "agentctl"
 	for _, kv := range env {
 		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
-			c.Path = filepath.Join(strings.Split(p, string(os.PathListSeparator))[0], "agentctl")
+			bin = filepath.Join(strings.Split(p, string(os.PathListSeparator))[0], "agentctl")
 		}
 	}
+	c := exec.Command(bin, args...)
+	c.Env = env
 	out, err := c.CombinedOutput()
 	return string(out), err
 }
