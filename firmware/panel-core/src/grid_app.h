@@ -52,6 +52,9 @@ static bool dirty = true;
 static bool moving = false;               // the layout animates: draw at full rate
 static uint32_t lastActiveMs = 0;
 static uint32_t lastHeardMs = 0;          // the last frame from the deck
+static const char* firmwareVersion = "";
+static const char* boardId = "";
+static uint32_t restartAt = 0;            // the panel's restart: when to do it (0: never)
 
 // The link the screen follows: USB, or Wi-Fi once that is up (net_link.h).
 static deck_link_t* link() { return net_link::active(); }
@@ -104,6 +107,7 @@ static void onSwitched(NetVia via) {
   fresh.att = ui.att;                      // the "Needs you" spots stay (the agents are the same)
   memcpy(fresh.toast, ui.toast, sizeof fresh.toast);
   fresh.toastUntil = ui.toastUntil;
+  fresh.ctl = ui.ctl;                      // the board's panel stays open (its switches move the link)
   ui = fresh;
   dirty = true;
   PANEL_LOG("panel: now on %s", via == NetVia::Wifi ? "Wi-Fi" : via == NetVia::Ble ? "Bluetooth" : "USB");
@@ -132,7 +136,8 @@ static void render() {
   const uint32_t ms = millis();
   const LinkState ls = linkState();
   const Fleet* f = fleet->have ? &fleet->fleet : nullptr;
-  moving = f && board.layout->tick(ui, *f, ms);
+  // (Before the first snapshot the fleet is empty, and the board's panel can still be pulled down.)
+  moving = board.layout->tick(ui, f ? *f : fleet->fleet, ms);
   // Approved but no snapshot yet: still connecting as far as the screen goes.
   const LinkState shown = ls == LinkState::Live && !f ? LinkState::Connecting : ls;
   static NetView net;
@@ -142,7 +147,25 @@ static void render() {
   ui.ble = net.via == NetVia::Ble;
   // A firmware update, a passkey or "forget Bluetooth?": its notice (net_model.h's words) instead of the agents.
   const bool notice = net.ota.phase != OtaPhase::None || netOverlay(net);
-  PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net};
+  // The board's own panel (control_panel.h), when it is pulled down.
+  static ControlInfo ci;
+  ci.name = deviceName;
+  ci.bleName = net.ble.name;
+  ci.board = board.type;
+  ci.firmware = firmwareVersion;
+  ci.id = boardId;
+  ci.ssid = net.ssid;
+  ci.via = net.via == NetVia::Ble || net.ble.carrying ? NetVia::Ble : net.via;
+  ci.linked = ls == LinkState::Live;
+  ci.uplink = net.uplink;
+  ci.wifiCapable = net.wifiCapable;
+  ci.wifiOn = net_link::wifiSwitch();
+  ci.wifiUp = net.via == NetVia::Wifi && net.phase == NetPhase::Online;
+  ci.bleCapable = net.ble.capable;
+  ci.bleOn = net_link::bleSwitch();
+  ci.bleBonded = net_link::bleBonded();
+  ci.upSec = ms / 1000;
+  PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   board.layout->draw(canvas, in);
   board.push(frame);
 }
@@ -161,14 +184,34 @@ static void updateBrightness() {
   if (level != last && board.brightness) { board.brightness((uint8_t)level); last = level; }
 }
 
+// What a touch on the board's panel asked for.
+static void panelAct() {
+  const ControlAct a = ui.ctl.act;
+  ui.ctl.act = ControlAct::None;
+  switch (a) {
+    case ControlAct::Wifi: net_link::setWifiSwitch(!net_link::wifiSwitch()); break;
+    case ControlAct::Ble:  net_link::setBleSwitch(!net_link::bleSwitch()); break;
+    case ControlAct::Restart: restartAt = millis() + 400; break;   // "restarting" shows first
+    default: break;
+  }
+}
+
 static void touchPump() {
   int x = 0, y = 0;
   const bool down = board.touch && board.touch(x, y);
   const NetView nv = net_link::view();
   const bool onNotice = !fleet->have || linkState() != LinkState::Live || nv.ota.phase != OtaPhase::None || netOverlay(nv);
+  const uint32_t ms = millis();
+  // The board's panel first: pulled down from the top, it works on every screen of home, notices too.
+  if (!netOverlay(nv) && board.layout->panelTouch(ui, down, x, y, ms)) {
+    net_link::touchPressed(false);
+    lastActiveMs = ms;
+    panelAct();
+    dirty = true;
+    return;
+  }
   net_link::touchPressed(down && onNotice);   // a long press on a notice can forget the Bluetooth bond
   if (!down && !ui.down) return;
-  const uint32_t ms = millis();
   lastActiveMs = ms;
   if (onNotice) {
     ui.down = false;
@@ -188,7 +231,11 @@ static void buttonPump() {
   if (level == down || now - changedAt < 30) return;      // debounce
   down = level;
   changedAt = now;
-  if (down && fleet->have) {
+  if (down && controlShown(ui.ctl)) {                   // BOOT closes the board's panel
+    ui.ctl = ControlUi();
+    lastActiveMs = now;
+    dirty = true;
+  } else if (down && fleet->have) {
     board.layout->button(ui, fleet->fleet);
     lastActiveMs = now;
     dirty = true;
@@ -200,6 +247,7 @@ static void buttonPump() {
 static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   using namespace grid_app;
   board = b;
+  firmwareVersion = firmware;
   ota::begin();                             // an update waiting for its confirm? (before anything that could crash)
   const int W = b.layout->width(), H = b.layout->height();
   // The USB serial driver drops what doesn't fit in its RX queue (256 bytes
@@ -227,7 +275,8 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   if (board.brightness) board.brightness(board.brightActive);
 
   DeckLinkConfig cfg = {};
-  panelConfig(cfg, b.boardId ? b.boardId : DeckLink::chipId(), firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
+  boardId = b.boardId ? b.boardId : DeckLink::chipId();
+  panelConfig(cfg, boardId, firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
   cfg.on_frame = onFrame;
   cfg.on_welcome = onWelcome;
   cfg.on_result = onResult;
@@ -251,6 +300,7 @@ static inline void gridAppLoop() {
     if (Serial.available() <= 0) break;
   }
   net_link::loop();                        // Wi-Fi: the plan, the TLS link and its frames
+  if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();   // the board's panel asked
   touchPump();
   buttonPump();
   static uint32_t lastFrame = 0;

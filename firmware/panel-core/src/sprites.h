@@ -8,6 +8,7 @@
 // doing) sits at x 14..18. A still hat can rise to y -5 and a cap's brim
 // reaches x -3; a working hat's frames can rise to y -6. Leave that much
 // room. One unit is `scale` pixels. Animation timing follows app.css.
+#include <initializer_list>
 #include <math.h>
 #include <stdint.h>
 

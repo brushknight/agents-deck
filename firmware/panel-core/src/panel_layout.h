@@ -52,6 +52,51 @@ struct PanelHit {
   bool operator==(const PanelHit& o) const { return kind == o.kind && agent == o.agent && index == o.index; }
 };
 
+// ---------------------------------------------------------------- the board's panel
+// The board's own panel, pulled down from the top of home (control_panel.h).
+// What it shows: the firmware fills it (grid_app.h); nullptr in PanelInput
+// means a board without the panel.
+struct ControlInfo {
+  const char* name = "";       // the board's name on the deck
+  const char* bleName = "";    // "deck-" and six characters; empty without Bluetooth
+  const char* board = "";      // the board type (firmware/devices/<board>)
+  const char* firmware = "";
+  const char* id = "";
+  const char* ssid = "";       // the network it has, empty for none
+  NetVia via = NetVia::Usb;
+  bool linked = false;         // a deck answers
+  NetUplink uplink = NetUplink::Auto;
+  bool wifiCapable = false, wifiOn = false, wifiUp = false;
+  bool bleCapable = false, bleOn = false, bleBonded = false;
+  uint32_t upSec = 0;
+};
+
+// What a touch on the panel asks the firmware to do.
+enum class ControlAct : uint8_t { None, Wifi, Ble, Restart };
+
+enum class ControlHit : uint8_t { None, Wifi, Ble, Restart };
+
+constexpr uint32_t kControlSettleMs = 220, kControlHoldMs = 1000;
+constexpr int kControlSlop = 12;
+
+struct ControlUi {
+  float open = 0;              // 0 shut .. 1 fully down
+  float from = 0, to = 0;
+  uint32_t animStart = 0;
+  bool animating = false;
+  // The finger.
+  bool down = false, pulling = false, moved = false;
+  int y0 = 0, lastY = 0;
+  float open0 = 0;
+  float velocity = 0;          // of `open`, per ms
+  uint32_t downMs = 0, lastMs = 0;
+  ControlHit pressed = ControlHit::None;
+  bool holdFired = false;
+  ControlAct act = ControlAct::None;   // for the firmware: it takes it and clears it
+};
+
+static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || u.animating || u.pulling; }
+
 struct PanelUi {
   Screen screen = Screen::Home;
   char openId[12] = "";        // the card's or the prompt's agent
@@ -96,6 +141,8 @@ struct PanelUi {
   uint32_t toastUntil = 0;
   bool backAfterToast = false; // answered: home when "sent" ends
   uint32_t cmdSeq = 0;         // the command waiting for its Result
+
+  ControlUi ctl;               // the board's panel (list boards)
 };
 
 static inline void uiToast(PanelUi& ui, const char* text, uint32_t ms, uint32_t forMs = kToastMs) {
@@ -113,6 +160,7 @@ struct PanelInput {
   const PanelUi* ui;
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
   const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
+  const ControlInfo* ctl = nullptr;   // the board's panel (nullptr: none)
 };
 
 class PanelLayout {
@@ -130,4 +178,7 @@ class PanelLayout {
   virtual void button(PanelUi& ui, const Fleet& f) const = 0;
   // The deck's Result for ui.cmdSeq.
   virtual void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const = 0;
+  // The board's panel takes this touch sample (pulling it down, or on it); the
+  // firmware then gives it to nothing else. Boards without the panel: never.
+  virtual bool panelTouch(PanelUi&, bool, int, int, uint32_t) const { return false; }
 };

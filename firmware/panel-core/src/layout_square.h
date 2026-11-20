@@ -1474,19 +1474,46 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
 }
 
 // The square boards' PanelLayout.
+#include "control_panel.h"
+
 class SquarePanel : public PanelLayout {
  public:
-  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)) {}
+  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m)) {}
   int width() const override { return S.w; }
   int height() const override { return S.h; }
   bool trueBlack() const override { return S.trueBlack; }
-  void draw(Canvas& c, const PanelInput& in) const override { drawSquare(c, S, T, in); }
+  // The list boards have the board's panel (control_panel.h), pulled down from the header.
+  bool hasPanel() const { return S.home == HomeKind::List; }
+  void draw(Canvas& c, const PanelInput& in) const override {
+    const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
+    const bool covered = u && u->open >= 0.999f && !u->animating && !u->pulling;
+    if (!covered) drawSquare(c, S, T, in);   // all the way down, what is under it doesn't show
+    if (u && controlShown(*u)) {
+      controlDraw(c, G, T, *in.ctl, *u, in.ms);
+      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    }
+  }
+  bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
+    if (!hasPanel()) return false;
+    const bool mayBegin = ui.screen == Screen::Home && !ui.down && y < S.headerH;
+    return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);
+  }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
     return squareTouch(ui, S, f, down, x, y, scope, ms);
   }
-  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override { return squareTick(ui, S, f, ms); }
-  void button(PanelUi& ui, const Fleet& f) const override { squareButton(ui, S, f); }
+  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override {
+    const bool panel = hasPanel() && controlTick(ui.ctl, ms);
+    return squareTick(ui, S, f, ms) || panel;
+  }
+  void button(PanelUi& ui, const Fleet& f) const override {
+    if (hasPanel() && controlShown(ui.ctl)) {   // BOOT closes the panel first
+      ui.ctl = ControlUi();
+      return;
+    }
+    squareButton(ui, S, f);
+  }
   void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const override { squareResult(ui, seq, code, ms); }
   const SquareSpec S;
   const Theme T;
+  const ControlGeom G;
 };
