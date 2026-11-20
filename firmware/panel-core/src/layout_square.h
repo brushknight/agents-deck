@@ -440,9 +440,9 @@ static inline PromptGeom promptGeom(const SquareSpec& S, const Agent& a) {
 
 // ---------------------------------------------------------------- hit-testing
 
-// "Interrupt?" over a card: a sheet over its lower part with the question and
-// two wide buttons, one above the other (interrupt, orange; cancel under it),
-// so a stray tap can't stop an agent at work.
+// "Interrupt?" over a card: the whole screen, the agent's name and what
+// interrupting does, and two wide buttons well apart (interrupt, orange;
+// cancel under it), so a stray tap can't stop an agent at work.
 struct ConfirmGeom {
   Rect sheet, yes, no;
   int titleY, lineY;
@@ -451,13 +451,13 @@ struct ConfirmGeom {
 static inline ConfirmGeom confirmGeom(const SquareSpec& S) {
   ConfirmGeom g{};
   const bool big = S.h >= 560;
-  const int bh = big ? 78 : 64, gap = big ? 14 : 12, m = S.m + (S.cornerR ? S.cornerR / 3 : 8);
+  const int bh = big ? 80 : 68, gap = big ? 52 : 44, m = S.m + (S.cornerR ? S.cornerR / 3 : 8);
   g.no = Rect{m, S.h - S.m - (S.cornerR ? S.cornerR / 2 : 12) - bh, S.w - 2 * m, bh};
   g.yes = Rect{m, g.no.y - gap - bh, S.w - 2 * m, bh};
-  g.lineY = g.yes.y - (big ? 24 : 18) - S.body->cellH;
-  g.titleY = g.lineY - 4 - S.question->cellH;
-  g.sheet = Rect{0, g.titleY - (big ? 28 : 22), S.w, 0};
-  g.sheet.h = S.h - g.sheet.y;
+  const int block = S.question->cellH + 6 + S.body->cellH;   // the name and the line, in the middle of what is above
+  g.titleY = (g.yes.y - block) / 2;
+  g.lineY = g.titleY + S.question->cellH + 6;
+  g.sheet = Rect{0, 0, S.w, S.h};
   return g;
 }
 
@@ -1534,7 +1534,6 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 
   // The last prompt, as many lines as fit above the buttons' rule.
   const CardButtons b = cardButtons(S, a, in.scope);
-  const int ruleY = g.ruleY;
   if (g.lastLines > 0) {
     c.text(lf, m, g.lastY, "last prompt", T.dim, lw);
     const int line = bf.cellH - 2;
@@ -1544,7 +1543,6 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 
   // The buttons.
   if (b.n) {
-    c.rect(m, ruleY, lw, 1, T.line);
     const PanelUi& ui = *in.ui;
     for (int i = 0; i < b.n; i++) {
       const Hit hk = b.kind[i] == IconKind::Focus ? Hit::Focus : b.kind[i] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
@@ -1559,8 +1557,7 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 static inline void confirmSheet(Canvas& c, const SquareSpec& S, const Theme& T, const Agent& a, const PanelUi& ui) {
   using namespace square_detail;
   const ConfirmGeom g = confirmGeom(S);
-  c.rect(g.sheet.x, g.sheet.y, g.sheet.w, g.sheet.h, T.bg);
-  c.rect(0, g.sheet.y, S.w, 2, T.ringTrack);
+  c.fill(T.bg);
   // The agent, and what interrupting does; the orange button says the verb.
   textCentered(c, *S.question, S.w / 2, g.titleY, a.title[0] ? a.title : a.id, T.ink, S.w - 2 * g.yes.x);
   textCentered(c, *S.body, S.w / 2, g.lineY, "stops and waits for you", T.dim, S.w - 2 * g.yes.x);
@@ -1738,7 +1735,10 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   const int open = ui.screen != Screen::Home ? findAgent(*in.fleet, ui.openId) : -1;
   if (open >= 0 && ui.screen == Screen::Card) {
     card(c, S, T, in, in.fleet->agents[open]);
-    if (ui.confirm) confirmSheet(c, S, T, in.fleet->agents[open], ui);
+    if (ui.confirm) {
+      confirmSheet(c, S, T, in.fleet->agents[open], ui);
+      if (S.cornerR) cornerMask(c, S.cornerR);
+    }
   }
   else if (open >= 0) prompt(c, S, T, in, in.fleet->agents[open]);
   else if (S.home == HomeKind::List) listHome(c, S, T, in);
