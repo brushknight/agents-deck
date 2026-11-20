@@ -312,7 +312,9 @@ message Order {
 // trick): they drop out of the state the others get until the same board
 // sends an empty Stash, which gives them back.
 message Stash {
-  repeated string agent_ids = 1;  // at most 16; none: give them back
+  repeated string agent_ids = 1;  // at most 16
+  bool all = 2;                   // every agent, whatever agent_ids says
+  // Neither ids nor all: give them back.
 }
 
 // MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.

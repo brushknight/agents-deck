@@ -20,6 +20,7 @@ type stash struct {
 	mu     sync.Mutex
 	holder string
 	ids    map[string]bool
+	all    bool // every agent
 	at     time.Time
 }
 
@@ -44,11 +45,12 @@ func callerOf(r *http.Request) string {
 	return "local"
 }
 
-// setStash makes holder the one holding ids (none: nothing is held).
-func (s *Server) setStash(holder string, ids []string) {
+// setStash makes holder the one holding ids, or every agent (neither:
+// nothing is held).
+func (s *Server) setStash(holder string, ids []string, all bool) {
 	s.held.mu.Lock()
 	defer s.held.mu.Unlock()
-	s.held.holder, s.held.ids, s.held.at = holder, nil, time.Now()
+	s.held.holder, s.held.ids, s.held.all, s.held.at = holder, nil, all, time.Now()
 	if len(ids) == 0 {
 		return
 	}
@@ -62,36 +64,38 @@ func (s *Server) setStash(holder string, ids []string) {
 // holds.
 func (s *Server) View(st model.State, viewer string) model.State {
 	s.held.mu.Lock()
-	holder, ids, at := s.held.holder, s.held.ids, s.held.at
+	holder, ids, all, at := s.held.holder, s.held.ids, s.held.all, s.held.at
 	s.held.mu.Unlock()
-	if len(ids) == 0 || viewer == holder || time.Since(at) > stashTTL {
+	if len(ids) == 0 && !all || viewer == holder || time.Since(at) > stashTTL {
 		return st
 	}
 	out := st
 	out.Agents = make([]model.Agent, 0, len(st.Agents))
 	for _, a := range st.Agents {
-		if !ids[a.ID] {
+		if !all && !ids[a.ID] {
 			out.Agents = append(out.Agents, a)
 		}
 	}
 	return out
 }
 
-// postStash: POST /v1/stash {"ids": [...]}: the caller takes those agents
-// from every other screen; [] gives them back.
+// postStash: POST /v1/stash {"ids": [...]} or {"all": true}: the caller
+// takes those agents, or all of them, from every other screen; {"ids": []}
+// gives them back.
 func (s *Server) postStash(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		IDs []string `json:"ids"`
+		All bool     `json:"all"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil || body.IDs == nil {
-		writeErr(w, http.StatusBadRequest, "body must be {\"ids\": [...]} ([] gives them back)")
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil || body.IDs == nil && !body.All {
+		writeErr(w, http.StatusBadRequest, "body must be {\"ids\": [...]} or {\"all\": true} ({\"ids\": []} gives them back)")
 		return
 	}
 	if len(body.IDs) > stashMax {
 		writeErr(w, http.StatusBadRequest, "at most 16 agents at once")
 		return
 	}
-	s.setStash(callerOf(r), body.IDs)
+	s.setStash(callerOf(r), body.IDs, body.All)
 	s.Store.Touch() // every screen gets the state again
 	w.WriteHeader(http.StatusNoContent)
 }

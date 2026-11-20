@@ -21,6 +21,8 @@
 #undef private
 #include <Wire.h>
 
+#include <atomic>
+
 #include "qspi_fast.h"   // before grid_app.h: its debug report reads the send's numbers
 #include "grid_app.h"
 #include "layout_square.h"
@@ -59,7 +61,9 @@ static bool tca(uint8_t reg, uint8_t value) {
 
 // ---------------------------------------------------------------- motion sensor
 // The QMI8658 on the same bus (0x6B, or 0x6A): the accelerometer alone, at
-// +-8 g and about 250 samples a second, for the tricks in fun_motion.h.
+// +-8 g and 500 samples a second, read every 2 ms by a task of its own into a
+// ring the loop drains (a knock lasts a few ms: read between frames, it is
+// missed), for the tricks in fun_motion.h.
 constexpr uint8_t ADDR_QMI_A = 0x6B, ADDR_QMI_B = 0x6A;
 static uint8_t qmiAddr = 0;
 
@@ -79,13 +83,13 @@ static bool qmiRead(uint8_t reg, uint8_t* b, uint8_t n) {
 }
 
 // Found (WHO_AM_I 0x05) and set up: CTRL1 address auto-increment, little
-// endian; CTRL2 +-8 g at 250 Hz; CTRL7 accelerometer on.
+// endian; CTRL2 +-8 g at 500 Hz; CTRL7 accelerometer on.
 static bool imuInit() {
   for (uint8_t a : {ADDR_QMI_A, ADDR_QMI_B}) {
     qmiAddr = a;
     uint8_t id = 0;
     if (!qmiRead(0x00, &id, 1) || id != 0x05) continue;
-    const bool ok = qmiWrite(0x02, 0x40) && qmiWrite(0x03, 0x25) && qmiWrite(0x08, 0x01);
+    const bool ok = qmiWrite(0x02, 0x40) && qmiWrite(0x03, 0x24) && qmiWrite(0x08, 0x01);
     PANEL_LOG("amoled18: QMI8658 at 0x%02X %s", a, ok ? "on" : "FAILED");
     return ok;
   }
@@ -101,6 +105,41 @@ static bool imuRead(float& x, float& y, float& z) {
   x = (int16_t)(b[0] | b[1] << 8) / 4096.f;
   y = (int16_t)(b[2] | b[3] << 8) / 4096.f;
   z = (int16_t)(b[4] | b[5] << 8) / 4096.f;
+  return true;
+}
+
+// The ring: the task writes at head, the loop reads at tail (one writer, one
+// reader). Wire locks the bus per transaction, so the touch reads share it.
+struct ImuSample {
+  float x, y, z;
+  uint32_t ms;
+};
+static ImuSample imuRing[64];
+static std::atomic<uint32_t> imuHead{0}, imuTail{0};
+
+static void imuTask(void*) {
+  TickType_t wake = xTaskGetTickCount();
+  for (;;) {
+    vTaskDelayUntil(&wake, pdMS_TO_TICKS(2));
+    ImuSample s;
+    if (!imuRead(s.x, s.y, s.z)) continue;
+    s.ms = millis();
+    const uint32_t h = imuHead.load(std::memory_order_relaxed);
+    if (h - imuTail.load(std::memory_order_acquire) >= 64) continue;   // full: the loop is busy, drop it
+    imuRing[h % 64] = s;
+    imuHead.store(h + 1, std::memory_order_release);
+  }
+}
+
+static bool imuNext(float& x, float& y, float& z, uint32_t& ms) {
+  const uint32_t t = imuTail.load(std::memory_order_relaxed);
+  if (t == imuHead.load(std::memory_order_acquire)) return false;
+  const ImuSample& s = imuRing[t % 64];
+  x = s.x;
+  y = s.y;
+  z = s.z;
+  ms = s.ms;
+  imuTail.store(t + 1, std::memory_order_release);
   return true;
 }
 
@@ -148,7 +187,7 @@ static bool touchRead(int& x, int& y) {
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
-  imuInit();
+  if (imuInit()) xTaskCreatePinnedToCore(imuTask, "imu", 3072, nullptr, 2, nullptr, 0);   // off the loop's core
   touchAddr = i2cPresent(ADDR_CST820) ? ADDR_CST820 : i2cPresent(ADDR_FT3168) ? ADDR_FT3168 : 0;
   // The CO5300 boards (CST820 touch) start 16 columns in; the first SH8601
   // revision (FT3168) at 0. GFX 1.5.x takes an `ips` flag after the rotation; 1.6 doesn't.
@@ -216,7 +255,7 @@ void setup() {
   b.pushRows = pushRows;
   b.frameSwapped = [] { return fastSend; };
   b.touch = touchRead;
-  b.accel = [](float& x, float& y, float& z) { return imuRead(x, y, z); };
+  b.accel = imuNext;
   b.brightness = brightness;
   b.bootPin = PIN_BOOT;
   b.brightActive = 255;

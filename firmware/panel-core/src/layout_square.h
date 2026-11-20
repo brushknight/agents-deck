@@ -1771,7 +1771,19 @@ class SquarePanel : public PanelLayout {
   // The list boards have the board's panel (control_panel.h), pulled down from the header.
   bool hasPanel() const { return S.home == HomeKind::List; }
   void draw(Canvas& c, const PanelInput& in) const override {
-    if (S.imu && in.ui && in.fleet && drawFun(c, in)) return;
+    if (S.imu && in.ui && in.fleet) {
+      // The trick's empty grid with the board's panel over it (pulled down
+      // or open): drawn whole each frame, the grid stays under it.
+      if (in.ctl && hasPanel() && controlShown(in.ui->ctl) && magicGrid(in)) {
+        rowsReady = false;
+        cached = false;
+        drawReveal(c, in);
+        controlDraw(c, G, T, *in.ctl, in.ui->ctl, in.ms);
+        if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+        return;
+      }
+      if (drawFun(c, in)) return;
+    }
     const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
     // While the panel moves, home and the panel are each drawn once, then slid
     // (a copy of rows a frame): the motion costs the send, not two drawings.
@@ -1792,8 +1804,7 @@ class SquarePanel : public PanelLayout {
     const Motion m = funDetect(ui.fun, ax, ay, az, ms);
     if (m == Motion::Knock && ui.fun.magic && ui.screen == Screen::Home && !controlShown(ui.ctl)) {
       funKnock(ui.fun, ms);
-      ui.fun.takeN = squareSpots(S);         // the agents on its screen leave the other screens
-      ui.fun.stashDue = true;
+      ui.fun.stashDue = true;                  // every agent leaves the other screens, or comes back
     }
     else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
       funSickStart(ui.fun, ui.openId, ms);
@@ -1898,10 +1909,16 @@ class SquarePanel : public PanelLayout {
     if (S.cornerR) cornerMask(c, S.cornerR);
   }
 
+  // The magic trick's own screen: the grid, empty, or the tiles flying.
+  bool magicGrid(const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    return S.home == HomeKind::List && in.ui->screen == Screen::Home && f.magic && (!f.taken || funRevealing(f, in.ms));
+  }
+
   // The tricks over the frame: true when this drew the whole frame.
   bool drawFun(Canvas& c, const PanelInput& in) const {
     const FunUi& f = in.ui->fun;
-    if (S.home == HomeKind::List && in.ui->screen == Screen::Home && f.magic && (!f.taken || funRevealing(f, in.ms))) {
+    if (magicGrid(in)) {
       drawReveal(c, in);
       return true;
     }

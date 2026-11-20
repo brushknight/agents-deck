@@ -60,6 +60,20 @@ func TestStash(t *testing.T) {
 	if code := post("small-board", many); code != http.StatusBadRequest {
 		t.Errorf("17 ids: %d", code)
 	}
+	// All of them: the others see none, the taker all.
+	if code := post("small-board", `{"all": true}`); code != http.StatusNoContent {
+		t.Fatalf("all: %d", code)
+	}
+	if got := ids(s.View(st, "wall-panel")); got != "" {
+		t.Errorf("all taken: %q", got)
+	}
+	if got := ids(s.View(st, "small-board")); got != "a1,a2,a3" {
+		t.Errorf("the taker of all: %s", got)
+	}
+	post("small-board", `{"ids": []}`)
+	if got := ids(s.View(st, "wall-panel")); got != "a1,a2,a3" {
+		t.Errorf("all given back: %s", got)
+	}
 	// From this computer (no device): the holder is "local".
 	post("", `{"ids": ["a2"]}`)
 	if got := ids(s.View(st, "local")); got != "a1,a2,a3" {

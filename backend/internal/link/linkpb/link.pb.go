@@ -3132,7 +3132,8 @@ func (x *Order) GetAgentIds() []string {
 // sends an empty Stash, which gives them back.
 type Stash struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentIds      []string               `protobuf:"bytes,1,rep,name=agent_ids,json=agentIds,proto3" json:"agent_ids,omitempty"` // at most 16; none: give them back
+	AgentIds      []string               `protobuf:"bytes,1,rep,name=agent_ids,json=agentIds,proto3" json:"agent_ids,omitempty"` // at most 16
+	All           bool                   `protobuf:"varint,2,opt,name=all,proto3" json:"all,omitempty"`                          // every agent, whatever agent_ids says
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3172,6 +3173,13 @@ func (x *Stash) GetAgentIds() []string {
 		return x.AgentIds
 	}
 	return nil
+}
+
+func (x *Stash) GetAll() bool {
+	if x != nil {
+		return x.All
+	}
+	return false
 }
 
 // MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.
@@ -4816,9 +4824,10 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\"$\n" +
 	"\x05Order\x12\x1b\n" +
-	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"$\n" +
+	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"6\n" +
 	"\x05Stash\x12\x1b\n" +
-	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\">\n" +
+	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\x12\x10\n" +
+	"\x03all\x18\x02 \x01(\bR\x03all\">\n" +
 	"\rMoveAttention\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\"&\n" +

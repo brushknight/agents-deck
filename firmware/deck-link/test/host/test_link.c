@@ -526,7 +526,11 @@ static void test_handshake(void)
 	CHECK(st1 && st2 == st1 + 1 && sent_frames(s, 16) == 2);
 	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_stash_tag && s[0].body.stash.agent_ids_count == 2 &&
 	      strcmp(s[0].body.stash.agent_ids[1], "b") == 0);
-	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_stash_tag && s[1].body.stash.agent_ids_count == 0);
+	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_stash_tag && s[1].body.stash.agent_ids_count == 0 &&
+	      !s[1].body.stash.all);
+	tx_len = 0;
+	deck_stash_all(&link);
+	CHECK(sent_frames(s, 16) == 1 && s[0].body.stash.all && s[0].body.stash.agent_ids_count == 0);
 
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;

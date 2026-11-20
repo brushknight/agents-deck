@@ -199,6 +199,8 @@ uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t sl
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n);
 /* Takes those agents (at most 16) from every other screen; n 0 gives them back. */
 uint32_t deck_stash(deck_link_t *ctx, const char *const *agent_ids, size_t n);
+/* Takes every agent from every other screen (deck_stash with n 0 gives them back). */
+uint32_t deck_stash_all(deck_link_t *ctx);
 /* folder is used when agent_id is NULL or empty; color may be NULL. */
 uint32_t deck_set_hat(deck_link_t *ctx, const char *agent_id, const char *folder, const char *shape,
 		      const char *color, bool auto_hat);

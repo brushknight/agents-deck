@@ -315,7 +315,8 @@ typedef struct _agentsdeck_link_v1_Order {
  sends an empty Stash, which gives them back. */
 typedef struct _agentsdeck_link_v1_Stash {
     pb_size_t agent_ids_count;
-    char agent_ids[16][12]; /* at most 16; none: give them back */
+    char agent_ids[16][12]; /* at most 16 */
+    bool all; /* every agent, whatever agent_ids says */
 } agentsdeck_link_v1_Stash;
 
 /* MoveAttention moves an agent on the "Needs you" grid, like Move on the deck. */
@@ -708,7 +709,7 @@ extern "C" {
 #define agentsdeck_link_v1_Resume_init_default   {""}
 #define agentsdeck_link_v1_Move_init_default     {"", 0}
 #define agentsdeck_link_v1_Order_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
-#define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
 #define agentsdeck_link_v1_MoveAttention_init_default {"", 0}
 #define agentsdeck_link_v1_Restore_init_default  {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_default   {"", "", "", "", 0}
@@ -762,7 +763,7 @@ extern "C" {
 #define agentsdeck_link_v1_Resume_init_zero      {""}
 #define agentsdeck_link_v1_Move_init_zero        {"", 0}
 #define agentsdeck_link_v1_Order_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
-#define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
 #define agentsdeck_link_v1_MoveAttention_init_zero {"", 0}
 #define agentsdeck_link_v1_Restore_init_zero     {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_zero      {"", "", "", "", 0}
@@ -893,6 +894,7 @@ extern "C" {
 #define agentsdeck_link_v1_Move_slot_tag         2
 #define agentsdeck_link_v1_Order_agent_ids_tag   1
 #define agentsdeck_link_v1_Stash_agent_ids_tag   1
+#define agentsdeck_link_v1_Stash_all_tag         2
 #define agentsdeck_link_v1_MoveAttention_agent_id_tag 1
 #define agentsdeck_link_v1_MoveAttention_slot_tag 2
 #define agentsdeck_link_v1_Restore_agent_ids_tag 1
@@ -1303,7 +1305,8 @@ X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
 #define agentsdeck_link_v1_Order_DEFAULT NULL
 
 #define agentsdeck_link_v1_Stash_FIELDLIST(X, a) \
-X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
+X(a, STATIC,   REPEATED, STRING,   agent_ids,         1) \
+X(a, STATIC,   SINGULAR, BOOL,     all,               2)
 #define agentsdeck_link_v1_Stash_CALLBACK NULL
 #define agentsdeck_link_v1_Stash_DEFAULT NULL
 
@@ -1641,7 +1644,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_SetHat_size           175
 #define agentsdeck_link_v1_SnapshotBegin_size    93
 #define agentsdeck_link_v1_SnapshotEnd_size      0
-#define agentsdeck_link_v1_Stash_size            208
+#define agentsdeck_link_v1_Stash_size            210
 #define agentsdeck_link_v1_Subagent_size         128
 #define agentsdeck_link_v1_Subscribe_size        18
 #define agentsdeck_link_v1_Tokens_size           44

@@ -124,13 +124,15 @@ struct FunUi {
   bool taken = false;          // a knock took the agents (the next one gives them back)
   uint32_t revealAt = 0;       // the knock that took them: the tiles fly in
   uint32_t returnAt = 0;       // the knock that gave them back: the tiles fly out
-  int takeN = 0;               // how many agents the board shows, so takes (its first, in list order)
-  bool stashDue = false;       // tell the deck (Stash): take them, or give them back
+  bool stashDue = false;       // tell the deck (Stash): take every agent, or give them back
   uint32_t sickAt = 0;         // shaken on a card: the critter is sick
   char sickId[12] = "";
   // Detection (funDetect).
   bool seeded = false, wasHigh = false;
-  float prevMag = 1.f;
+  float hist[8] = {};          // the last samples' size (g), for the knock: how fast it changed
+  uint32_t histMs[8] = {};
+  int hn = 0;
+  uint32_t lastMs = 0;
   float base = 1.f, gx = 0, gy = 0, gz = 1.f;   // gravity, smoothed (g): the sphere leans with it
   uint32_t peaks[8] = {};
   int np = 0;

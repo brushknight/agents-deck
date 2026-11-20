@@ -37,7 +37,12 @@ constexpr uint32_t kSickMs = kSickGrowMs + kSickHoldMs + kSickSpewMs + kSickShri
 // its acceleration's length jumps by more than kKnockJerkG between two
 // samples (5 ms apart); picking it up or turning it changes far slower.
 // A shake: kShakePeaks swings past kShakeG within kShakeWindowMs.
-constexpr float kKnockJerkG = 1.0f, kShakeG = 0.5f;
+// A knock: the size of the acceleration changes by kKnockG within
+// kKnockWindowMs (the board hitting the table, or a knuckle on it; carrying it
+// changes it far slower). Needs the sensor read often (every 2 ms on the 1.8
+// inch), or the jolt falls between two readings.
+constexpr float kKnockG = 0.8f, kShakeG = 0.5f;
+constexpr uint32_t kKnockWindowMs = 10;
 constexpr int kShakePeaks = 4;   // two shakes back and forth
 constexpr uint32_t kShakeWindowMs = 1000, kKnockQuietMs = 450;
 
@@ -45,22 +50,41 @@ enum class Motion : uint8_t { None, Knock, Shake };
 
 static inline Motion funDetect(FunUi& f, float ax, float ay, float az, uint32_t ms) {
   const float mag = sqrtf(ax * ax + ay * ay + az * az);
-  if (!f.seeded) { f.base = f.prevMag = mag; f.seeded = true; }
-  const float jerk = mag - f.prevMag;
-  f.prevMag = mag;
-  f.base += (mag - f.base) * 0.05f;           // slow: gravity and how the board is held
+  if (!f.seeded) {
+    f.base = mag;
+    for (int i = 0; i < 8; i++) { f.hist[i] = mag; f.histMs[i] = ms; }
+    f.lastMs = ms;
+    f.seeded = true;
+  }
+  // Smoothing by time, so it is the same at any sample rate.
+  const float dt = (float)(ms - f.lastMs > 100 ? 100 : ms - f.lastMs);
+  f.lastMs = ms;
+  f.base += (mag - f.base) * (dt / 400.f);    // slow: gravity and how the board is held
   const float hp = mag - f.base;
-  // Gravity's direction, smoothed.
-  f.gx += (ax - f.gx) * 0.2f;
-  f.gy += (ay - f.gy) * 0.2f;
-  f.gz += (az - f.gz) * 0.2f;
-  // Swings for the shake: a peak counts when |hp| crosses kShakeG.
-  const bool high = hp > kShakeG || hp < -kShakeG;
-  if (high && !f.wasHigh) {
+  const float kg = dt / 40.f > 1.f ? 1.f : dt / 40.f;   // gravity's direction
+  f.gx += (ax - f.gx) * kg;
+  f.gy += (ay - f.gy) * kg;
+  f.gz += (az - f.gz) * kg;
+  // The biggest change from any sample in the last kKnockWindowMs.
+  float jerk = 0;
+  for (int i = 0; i < 8; i++) {
+    if (ms - f.histMs[i] > kKnockWindowMs) continue;
+    const float d = mag - f.hist[i];
+    if (d > jerk || -d > jerk) jerk = d > 0 ? d : -d;
+  }
+  f.hist[f.hn % 8] = mag;
+  f.histMs[f.hn % 8] = ms;
+  f.hn++;
+  // Swings for the shake: a peak counts when |hp| goes over kShakeG, and the
+  // next one only after it fell back under 60% of it.
+  const float ahp = hp < 0 ? -hp : hp;
+  if (!f.wasHigh && ahp > kShakeG) {
     f.peaks[f.np % 8] = ms;
     f.np++;
+    f.wasHigh = true;
+  } else if (f.wasHigh && ahp < kShakeG * 0.6f) {
+    f.wasHigh = false;
   }
-  f.wasHigh = high;
   int recent = 0;
   for (int i = 0; i < 8 && i < f.np; i++)
     if (ms - f.peaks[i] < kShakeWindowMs) recent++;
@@ -69,7 +93,7 @@ static inline Motion funDetect(FunUi& f, float ax, float ay, float az, uint32_t 
     f.lastShake = ms ? ms : 1;
     return Motion::Shake;
   }
-  if ((jerk > kKnockJerkG || jerk < -kKnockJerkG) && ms - f.lastKnock > kKnockQuietMs && (!f.lastShake || ms - f.lastShake > kShakeWindowMs) &&
+  if (jerk > kKnockG && ms - f.lastKnock > kKnockQuietMs && (!f.lastShake || ms - f.lastShake > kShakeWindowMs) &&
       recent <= 2) {
     f.lastKnock = ms ? ms : 1;
     return Motion::Knock;

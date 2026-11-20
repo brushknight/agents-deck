@@ -32,7 +32,9 @@ struct GridBoard {
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of the layout's width x height
   void (*pushRows)(const uint16_t* const* rows);   // the same, one pointer per row (nullptr: the board can't)
   bool (*frameSwapped)();                  // after begin(): the board takes frames byte-swapped (Canvas::be)
-  bool (*accel)(float& x, float& y, float& z);   // the motion sensor, in g (nullptr: none): fun_motion.h
+  // The motion sensor's next sample, in g, and when it was taken (false: none
+  // waiting; nullptr: no sensor): fun_motion.h.
+  bool (*accel)(float& x, float& y, float& z, uint32_t& ms);
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
   void (*brightness)(uint8_t level);       // 0..255
   int bootPin;                             // the BOOT button (active low), -1 for none
@@ -342,13 +344,13 @@ static inline void gridAppLoop() {
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();   // the board's panel asked
   touchPump();
   buttonPump();
-  // The motion sensor, about 200 times a second: knocks are short.
+  // The motion sensor: every sample since the last loop (the board reads it
+  // every 2 ms on its own, so a short knock is not missed while a frame draws).
   if (board.accel) {
-    static uint32_t lastAccel = 0;
     float ax, ay, az;
-    if (millis() - lastAccel >= 5 && board.accel(ax, ay, az)) {
-      lastAccel = millis();
-      board.layout->motion(ui, ax, ay, az, lastAccel);
+    uint32_t at;
+    for (int i = 0; i < 64 && board.accel(ax, ay, az, at); i++) {
+      board.layout->motion(ui, ax, ay, az, at);
       if (ui.fun.revealAt || ui.fun.returnAt || ui.fun.sickAt) dirty = true;
     }
   }
@@ -356,12 +358,9 @@ static inline void gridAppLoop() {
   // deck leaves them out of every other screen's state meanwhile (POST /v1/stash).
   if (ui.fun.stashDue) {
     ui.fun.stashDue = false;
-    const char* ids[16];
-    size_t n = 0;
-    if (ui.fun.taken && fleet->have)
-      for (int i = 0; i < fleet->fleet.count && (int)n < ui.fun.takeN && n < 16; i++) ids[n++] = fleet->fleet.agents[i].id;
-    deck_stash(link(), ids, n);
-    PANEL_LOG("magic: %s %u agents", n ? "took" : "gave back", (unsigned)n);
+    if (ui.fun.taken) deck_stash_all(link());
+    else deck_stash(link(), nullptr, 0);
+    PANEL_LOG("magic: %s every agent", ui.fun.taken ? "took" : "gave back");
   }
   static uint32_t lastFrame = 0;
 #ifdef PANEL_DEBUG

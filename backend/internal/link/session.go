@@ -799,7 +799,7 @@ func (s *Session) command(f *linkpb.Frame) error {
 		if ids == nil {
 			ids = []string{} // none: give them back
 		}
-		method, path, body = http.MethodPost, "/v1/stash", map[string][]string{"ids": ids}
+		method, path, body = http.MethodPost, "/v1/stash", map[string]any{"ids": ids, "all": b.Stash.All}
 	case *linkpb.Frame_SetHat:
 		h := b.SetHat
 		hb := map[string]any{"shape": h.Shape, "color": h.Color, "auto": h.Automatic}
