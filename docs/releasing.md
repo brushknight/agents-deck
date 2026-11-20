@@ -40,7 +40,7 @@ firmware files and `SHA256SUMS`; their names are unchanged.
 | `waveshare-touch-lcd-21` | `waveshare-touch-lcd-21/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
 | `waveshare-touch-amoled-18` | `waveshare-touch-amoled-18/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
 | `lilygo-t4-s3` | `lilygo-t4-s3/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
-| `waveshare-touch-lcd-4` | `waveshare-touch-lcd-4/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB and Wi-Fi |
+| `waveshare-touch-lcd-4` | `waveshare-touch-lcd-4` | `waveshare-touch-lcd-4` | arduino-esp32 2.0.17, USB only (its `idf5` build is experimental) |
 | `waveshare-lcd-147` | `waveshare-lcd-147/idf5` | `idf5` | arduino-esp32 3.x (pioarduino), USB only: its firmware has no Wi-Fi |
 
 What the deck knows about each board comes from `firmware/devices/<board>/board.json`:
@@ -86,8 +86,8 @@ fills that release. To rebuild an existing tag, run the workflow by hand (Action
 workflow). Before the first real one, a pre-release tag (`v0.1.0-rc.1`) runs the whole thing end to
 end.
 
-Before tagging: `main` is green in `ci`, and each board you changed was flashed from its `idf5` project and
-checked by eye.
+Before tagging: `main` is green in `ci`, and each board you changed was flashed from the project the release builds
+and checked by eye.
 
 Every push to `main` and every pull request runs `ci`: Go vet and tests, cross-compiling for every
 release target, a Windows build and test of the service (its tests may still fail without failing the
@@ -101,7 +101,7 @@ script's tests, and the firmware host tests and default builds.
 The `firmware` job in `.github/workflows/release.yml` runs once per board, in a pinned container
 (`python:3.12.15-slim-bookworm`) with pinned tools: [pioarduino's PlatformIO
 Core](https://github.com/pioarduino/platformio-core) 6.2.0 (the Core pioarduino's platform is made
-for) and `esptool==5.6.0`.
+for; it builds the 2.0.17 project too) and `esptool==5.6.0`.
 
 1. `pio run` builds the board's env, with `AGENTS_DECK_VERSION` set to the release's version (the
    firmware reports it in Hello). `idf5` projects use a PlatformIO home of their own

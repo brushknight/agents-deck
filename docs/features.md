@@ -169,8 +169,8 @@ by hand (`agentctl devices scope <name> admin`); `agentctl devices auto-approve 
 boards wait for `agentctl devices approve <name>` instead. A revoked board stays revoked until you
 approve it again, and nothing is ever approved over Wi-Fi.
 
-**Wi-Fi.** The touch boards on their `idf5` firmware (the round ones, the 4″, the 1.8″ AMOLED
-and the T4-S3) also work without the Mac's cable. Plugged in
+**Wi-Fi.** The touch boards on their `idf5` firmware (the round ones, the 1.8″ AMOLED and the
+T4-S3; on the 4″ it is experimental) also work without the Mac's cable. Plugged in
 and approved, a board pairs by itself: it gets its own certificate from the deck. Tell the deck your
 network once, and every board plugged in after that gets it by itself:
 

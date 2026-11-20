@@ -11,6 +11,6 @@
     }
   ],
   "flash_size": 16777216,
-  "wifi": true,
+  "wifi": false,
   "picture": "docs/images/devices/lcd4-home.png"
 }

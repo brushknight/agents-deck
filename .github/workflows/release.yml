@@ -390,11 +390,11 @@ jobs:
             project: firmware/devices/lilygo-t4-s3/idf5
             env: idf5
             home: .platformio-pioarduino
-          - board: waveshare-touch-lcd-4
+          - board: waveshare-touch-lcd-4 # 2.0.17: on idf5 its screen went black on a real board
             name: Waveshare ESP32-S3-Touch-LCD-4
-            project: firmware/devices/waveshare-touch-lcd-4/idf5
-            env: idf5
-            home: .platformio-pioarduino
+            project: firmware/devices/waveshare-touch-lcd-4
+            env: waveshare-touch-lcd-4
+            home: .platformio
           - board: waveshare-lcd-147 # the newer framework too, but its firmware is USB only
             name: Waveshare ESP32-S3-LCD-1.47B
             project: firmware/devices/waveshare-lcd-147/idf5
