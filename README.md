@@ -171,7 +171,7 @@ screen of every board.
 </tr>
 <tr>
 <td align="center" width="180"><img src="docs/images/devices/lcd4-home.png" width="160" alt="the 4-inch square board"></td>
-<td><b>Waveshare ESP32-S3-Touch-LCD-4</b><br>4″ square · touch · USB (Wi-Fi and Bluetooth experimental) · Needs you<br>The full 4×4 deck, like the desk panel.<br>Buy: <a href="https://www.waveshare.com/esp32-s3-touch-lcd-4.htm">Waveshare</a>, about $33 · firmware: <a href="firmware/devices/waveshare-touch-lcd-4"><code>waveshare-touch-lcd-4</code></a></td>
+<td><b>Waveshare ESP32-S3-Touch-LCD-4</b><br>4″ square · touch · Wi-Fi · Bluetooth · Needs you<br>The full 4×4 deck, like the desk panel.<br>Buy: <a href="https://www.waveshare.com/esp32-s3-touch-lcd-4.htm">Waveshare</a>, about $33 · firmware: <a href="firmware/devices/waveshare-touch-lcd-4"><code>waveshare-touch-lcd-4</code></a></td>
 </tr>
 <tr>
 <td align="center" width="180"><img src="docs/images/devices/amoled18-card.png" width="120" alt="the 1.8-inch AMOLED board"></td>
@@ -251,8 +251,8 @@ only a board whose code you typed. Each board then has an **uplink**: Auto (USB,
 Bluetooth), Wi-Fi, or Bluetooth.
 
 **Where it works today:** the touch boards on their `idf5` firmware, which is what the releases
-install on the 2.8″ and 2.1″ round boards, the 1.8″ AMOLED and the T4-S3 (on the 4″ only its
-experimental `idf5` build has it; the 1.47″ has none). On the computer side, only the macOS app has
+install on the 2.8″ and 2.1″ round boards, the 4″, the 1.8″ AMOLED and the T4-S3 (the 1.47″ has
+none). On the computer side, only the macOS app has
 the Bluetooth helper (`deck-ble`); Linux and Windows don't have Bluetooth yet
 (help wanted: a helper like `deck-ble` for BlueZ, see [the roadmap](docs/roadmap.md)). Firmware updates don't
 go over Bluetooth: a board updates over Wi-Fi or the cable. More in

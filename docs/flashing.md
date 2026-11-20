@@ -255,7 +255,7 @@ From the root of the clone, the command for your board:
 |---|---|---|---|
 | 2.8″ round | `waveshare-touch-lcd-28c` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
 | 2.1″ round | `waveshare-touch-lcd-21` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5 -t upload` |
-| 4″ square | `waveshare-touch-lcd-4` | 2.0.17 (USB only, for now) | `pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload` |
+| 4″ square | `waveshare-touch-lcd-4` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload` |
 | 1.8″ AMOLED | `waveshare-touch-amoled-18` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload` |
 | LilyGO T4-S3 | `lilygo-t4-s3` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5 -t upload` |
 | 1.47″ strip | `waveshare-lcd-147` | `idf5` (USB only) | `pio run -d firmware/devices/waveshare-lcd-147/idf5 -e idf5 -t upload` |
@@ -271,9 +271,9 @@ What the two kinds of build are:
   firmware has no Wi-Fi), and again after another board's `idf5` project was built in
   between. Its tools live in a PlatformIO home of their own, `~/.platformio-pioarduino`, because they
   clash with PlatformIO's own ESP32 platform.
-- **2.0.17** is arduino-esp32 2.0.17, in the board's folder itself. It talks over USB only. The 4″
-  is released from it for now, because its `idf5` build is
-  [experimental](devices.md#waveshare-esp32-s3-touch-lcd-4-square-4).
+- **2.0.17** is arduino-esp32 2.0.17, in the board's folder itself. It talks over USB only and is no
+  longer released: it is there to fall back on, for example if the 4″'s picture misbehaves on `idf5`
+  ([its notes](devices.md#waveshare-esp32-s3-touch-lcd-4-square-4)).
 
 Each board's README lists its other envs: a `debug` build that prints what it's doing on the USB port
 (`pio device monitor` shows it; the deck ignores text), and on the round boards a hardware self-test.
