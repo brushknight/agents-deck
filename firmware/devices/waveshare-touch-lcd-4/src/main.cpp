@@ -15,7 +15,17 @@
 // panel's DMA reads internal RAM rather than the PSRAM that Wi-Fi, TLS and
 // the CPU share).
 #include <Arduino.h>
+// The debug build on arduino-esp32 3.x reports the display and the restarts
+// (LCD4_DIAG, below): it reads the panel handle Arduino_GFX keeps private.
+#if defined(PANEL_DEBUG) && defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+#define LCD4_DIAG 1
+#define private public
 #include <Arduino_GFX_Library.h>
+#undef private
+#include <esp_system.h>
+#else
+#include <Arduino_GFX_Library.h>
+#endif
 #include <Wire.h>
 #include <esp32s3/rom/cache.h>
 
@@ -179,6 +189,47 @@ static bool touch(int& x, int& y) {
   return true;
 }
 
+// ---------------------------------------------------------------- diagnostics
+// Every 5 s on the USB port: how often the board has started since power-on
+// and why (esp_reset_reason of the last 8 starts, oldest first: 1 power-on,
+// 3 software, 4 panic, 5 and 6 and 7 watchdogs, 9 brownout, 11 USB), and how
+// many frames the panel took (about 42 a second while it is being fed).
+#ifdef LCD4_DIAG
+RTC_NOINIT_ATTR static uint32_t diagMagic;
+RTC_NOINIT_ATTR static uint32_t diagBoots;
+RTC_NOINIT_ATTR static uint8_t diagWhy[8];
+static volatile uint32_t diagVsyncs = 0;
+static IRAM_ATTR bool diagOnVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*) {
+  diagVsyncs = diagVsyncs + 1;
+  return false;
+}
+static void diagBegin() {
+  if (diagMagic != 0x4C434434) {             // power-on: the RTC memory holds nothing
+    diagMagic = 0x4C434434;
+    diagBoots = 0;
+    memset(diagWhy, 0, sizeof diagWhy);
+  }
+  if (diagBoots >= 8) memmove(diagWhy, diagWhy + 1, 7);
+  diagWhy[diagBoots < 8 ? diagBoots : 7] = (uint8_t)esp_reset_reason();
+  diagBoots++;
+  if (rgbPanel->_panel_handle) {
+    esp_lcd_rgb_panel_event_callbacks_t cbs = {};
+    cbs.on_vsync = diagOnVsync;
+    esp_lcd_rgb_panel_register_event_callbacks(rgbPanel->_panel_handle, &cbs, nullptr);
+  }
+}
+static void diagLoop() {
+  static uint32_t last = 0;
+  if (millis() - last < 5000) return;
+  last = millis();
+  const uint32_t v = diagVsyncs;
+  diagVsyncs = 0;
+  PANEL_LOG("lcd4: starts %u why %u %u %u %u %u %u %u %u, panel frames %u in 5 s, up %u s, expander %s, bounce %d px",
+            (unsigned)diagBoots, diagWhy[0], diagWhy[1], diagWhy[2], diagWhy[3], diagWhy[4], diagWhy[5], diagWhy[6], diagWhy[7],
+            (unsigned)v, (unsigned)(millis() / 1000), haveCh32 ? "ch32v003" : haveTca ? "tca9554" : "NONE", (int)LCD4_BOUNCE_PX);
+}
+#endif
+
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
@@ -187,6 +238,9 @@ static bool boardBegin() {
   gt911 = i2cPresent(ADDR_GT911) ? ADDR_GT911 : i2cPresent(ADDR_GT911_ALT) ? ADDR_GT911_ALT : 0;
   PANEL_LOG("lcd4: expander %s, gt911 0x%02X, framebuffer %p", haveCh32 ? "ch32v003" : haveTca ? "tca9554" : "NONE",
             gt911, panelFb);
+#ifdef LCD4_DIAG
+  diagBegin();
+#endif
   return panelFb != nullptr;
 }
 
@@ -233,4 +287,9 @@ void setup() {
   gridAppSetup(b, FW_VERSION);
 }
 
-void loop() { gridAppLoop(); }
+void loop() {
+  gridAppLoop();
+#ifdef LCD4_DIAG
+  diagLoop();
+#endif
+}
