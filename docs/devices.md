@@ -20,7 +20,7 @@ them again.
 |---|---|---|---|---|---|---|---|---|
 | <img src="images/devices/round-28-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.8C](#waveshare-esp32-s3-touch-lcd-28c-round-28) | 2.8″ round, 480×480 | the spring: 9 agents round the ring | yes, multi-touch | yes | yes | not yet | [`waveshare-touch-lcd-28c`](../firmware/devices/waveshare-touch-lcd-28c) |
 | <img src="images/devices/round-21-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-2.1](#waveshare-esp32-s3-touch-lcd-21-round-21) | 2.1″ round, 480×480 | the spring: 7 agents round the ring | yes | yes | yes | not yet | [`waveshare-touch-lcd-21`](../firmware/devices/waveshare-touch-lcd-21) |
-| <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | experimental | experimental | yes | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
+| <img src="images/devices/lcd4-home.png" width="90" alt=""> | [Waveshare ESP32-S3-Touch-LCD-4](#waveshare-esp32-s3-touch-lcd-4-square-4) | 4″ square, 480×480 | the deck's 4×4 grid, like the desk panel | yes | yes | yes | yes | [`waveshare-touch-lcd-4`](../firmware/devices/waveshare-touch-lcd-4) |
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | no | yes, while you hold BOOT | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
@@ -63,7 +63,7 @@ Builds (only if you [build the firmware yourself](flashing.md#build-from-source)
 web flasher pick the right one for you): every touch board has two PlatformIO projects. The one in
 the board's folder is arduino-esp32 2.0.17 and talks over USB only. The one in its `idf5/` folder is
 arduino-esp32 3.x (ESP-IDF 5), which has the TLS 1.3 the Wi-Fi link needs; it's the one released, and
-the one to flash, on every board except the 4″ (see [below](#waveshare-esp32-s3-touch-lcd-4-square-4)). The first `idf5` build downloads about
+the one to flash, on every board (the 1.47″ has one too, though its firmware stays on USB). The first `idf5` build downloads about
 1 GB and takes about five minutes.
 
 ---
@@ -127,12 +127,12 @@ looks like the desk panel and the web board.
   press BOOT to go back. On the card, stop arms on the first tap ("tap again to stop"). Swipe right
   on the first page (or tap the mark at the left of the page bars) for **Needs you**: the agents at
   work, asking or not checked yet, in the same grid.
-- **Build:** for now flash the **2.0.17 build** (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t
-  upload`): USB only, and the steadiest picture. The `idf5` build adds Wi-Fi, but on this board it is
-  **experimental**: without a bounce buffer its picture at times jumped sideways while it connected to
-  the deck, and an early test with one showed horizontal lines. It now uses the round boards' bounce
-  buffer and display settings, which still has to be confirmed on a real board.
-- **Known issues:** Wi-Fi (the `idf5` build) isn't settled yet, as above. Older revisions of the board
+- **Build:** `idf5` (`pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload`), which
+  is what the releases install: USB, Wi-Fi and Bluetooth.
+- **Known issues:** on `idf5` the picture at times jumped sideways while the board connected to the
+  deck. It now uses the round boards' bounce buffer and display settings, which should stop that. If
+  yours still does it, the 2.0.17 build (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload`)
+  has the steadiest picture, on USB only; please tell us in an issue. Older revisions of the board
   (V1–V3) can only switch the backlight on and off, not dim it.
 - **Get one:** [Waveshare ESP32-S3-Touch-LCD-4](https://www.waveshare.com/esp32-s3-touch-lcd-4.htm)
   (pick the touch version; about $33 in Waveshare's shop, October 2026). Details: [the board's README](../firmware/devices/waveshare-touch-lcd-4/README.md).
@@ -189,7 +189,7 @@ left, a mini-board of eight on the right, and an RGB LED that flashes orange whe
 
 - **What's special:** read-only and cheap. It picks the agent to show by itself (waiting, then failed,
   then hungry, then running). Its BOOT button shows the next agent for 30 s; held, it shows **Needs you** on the mini-board.
-- **Build:** the default env (`pio run -d firmware/devices/waveshare-lcd-147 -t upload`).
+- **Build:** `idf5` (`pio run -d firmware/devices/waveshare-lcd-147/idf5 -e idf5 -t upload`).
 - **Known issues:** no touch and no Wi-Fi: it stays on USB, and it never answers anything.
 - **Get one:** [Waveshare ESP32-S3-LCD-1.47B](https://www.waveshare.com/esp32-s3-lcd-1.47b.htm) (the
   "B" version, without touch; about $13 in Waveshare's shop, October 2026). Details: [the board's README](../firmware/devices/waveshare-lcd-147/README.md).

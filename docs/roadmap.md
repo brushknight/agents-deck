@@ -107,7 +107,6 @@ With every slot taken, the deck pages left and right instead of the pager tile:
 - **Starting agents on Windows:** `agentctl new` and restore run agents in tmux, which Windows lacks;
   it needs another way to host a terminal, and jumping to it (Windows Terminal).
 - **Linux:** jumping to an agent's terminal without iTerm, and a signed apt repository.
-- **The web flasher on the website**, linked from the README and Settings, About, once it's online.
 - **Homebrew:** a tap with a formula for `agentctl` and a cask for the app, once the installers have been used for a while.
 
 ## Parked ideas

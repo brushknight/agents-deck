@@ -63,7 +63,7 @@ with Latin and Cyrillic.
 You need [PlatformIO](https://platformio.org/) and the daemon on the Mac (`agentctl install`).
 
 ```bash
-pio run -d firmware/devices/waveshare-lcd-147 -t upload
+pio run -d firmware/devices/waveshare-lcd-147/idf5 -e idf5 -t upload
 agentctl link add /dev/cu.usbmodem1101        # the board's port: agentctl link ports
 agentctl devices approve waveshare-lcd-147-<id>   # only with `agentctl devices auto-approve usb off`
 ```

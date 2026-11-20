@@ -1554,7 +1554,7 @@ function drawAbout() {
     row(`agents deck ${sys.version || ''}`, `${sys.platform || ''} · installed with ${kinds[sys.install] || sys.install || 'unknown'}${u.version && u.version !== sys.version ? ` · ${u.version} is the latest` : ''}`, []),
     row('Source, licence and issues', 'github.com/brushknight/agents-deck', [h('a', { class: 'b', href: 'https://github.com/brushknight/agents-deck', rel: 'noreferrer' }, 'Open')]),
     row('Documentation', 'How the deck, the boards and the API work.', [h('a', { class: 'b', href: 'https://github.com/brushknight/agents-deck/tree/main/docs', rel: 'noreferrer' }, 'Open')]),
-    row('The web flasher', 'Put the firmware on a board from Chrome or Edge. Coming soon; until then, Boards here does the same.', []),
+    row('The web flasher', 'Put the firmware on a board from Chrome or Edge, with nothing installed. Boards here does the same.', [h('a', { class: 'b', href: 'https://brushknight.com/agents-deck', rel: 'noreferrer' }, 'Open')]),
     h('p', { class: 'note' }, 'In a terminal: agentctl version, agentctl status.'),
   ];
 }

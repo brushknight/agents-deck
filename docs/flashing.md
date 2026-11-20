@@ -147,8 +147,8 @@ from the network.
 
 ## From the web flasher
 
-For a board when you haven't installed agents deck, or on a computer that isn't yours. The **web
-flasher (coming soon)** runs in Chrome or Edge: pick your board, click **Connect**, choose the board's
+For a board when you haven't installed agents deck, or on a computer that isn't yours. The **[web
+flasher](https://brushknight.com/agents-deck)** runs in Chrome or Edge: pick your board, click **Connect**, choose the board's
 USB port, and click **Install**. Nothing to install, about a minute. It uses Web Serial, which Safari
 and Firefox don't have.
 
@@ -255,10 +255,10 @@ From the root of the clone, the command for your board:
 |---|---|---|---|
 | 2.8″ round | `waveshare-touch-lcd-28c` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-28c/idf5 -e idf5 -t upload` |
 | 2.1″ round | `waveshare-touch-lcd-21` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-21/idf5 -e idf5 -t upload` |
-| 4″ square | `waveshare-touch-lcd-4` | 2.0.17 (USB only, for now) | `pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload` |
+| 4″ square | `waveshare-touch-lcd-4` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload` |
 | 1.8″ AMOLED | `waveshare-touch-amoled-18` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/waveshare-touch-amoled-18/idf5 -e idf5 -t upload` |
 | LilyGO T4-S3 | `lilygo-t4-s3` | `idf5` (USB and Wi-Fi) | `pio run -d firmware/devices/lilygo-t4-s3/idf5 -e idf5 -t upload` |
-| 1.47″ strip | `waveshare-lcd-147` | 2.0.17 (USB only) | `pio run -d firmware/devices/waveshare-lcd-147 -t upload` |
+| 1.47″ strip | `waveshare-lcd-147` | `idf5` (USB only) | `pio run -d firmware/devices/waveshare-lcd-147/idf5 -e idf5 -t upload` |
 
 With more than one board plugged in, add `--upload-port /dev/cu.usbmodem…` to pick one. The deck lets
 go of the port while PlatformIO uses it, so you don't need to stop anything.
@@ -266,13 +266,14 @@ go of the port while PlatformIO uses it, so you don't need to stop anything.
 What the two kinds of build are:
 
 - **`idf5`** is arduino-esp32 3.x on ESP-IDF 5 ([pioarduino](https://github.com/pioarduino/platform-espressif32)).
-  It has the TLS 1.3 the Wi-Fi link needs. Its first build rebuilds the Arduino libraries with TLS 1.3
-  turned on (about five minutes), and again after another board's `idf5` project was built in
+  It has the TLS 1.3 the Wi-Fi link needs, and it is what the releases are built from. Its first build
+  rebuilds the Arduino libraries with TLS 1.3 turned on (about five minutes; not on the 1.47″, whose
+  firmware has no Wi-Fi), and again after another board's `idf5` project was built in
   between. Its tools live in a PlatformIO home of their own, `~/.platformio-pioarduino`, because they
   clash with PlatformIO's own ESP32 platform.
-- **2.0.17** is arduino-esp32 2.0.17, in the board's folder itself. It talks over USB only. The 4″
-  uses it for now because its `idf5` build is
-  [experimental](devices.md#waveshare-esp32-s3-touch-lcd-4-square-4); the 1.47″ has no Wi-Fi at all.
+- **2.0.17** is arduino-esp32 2.0.17, in the board's folder itself. It talks over USB only and is no
+  longer released: it is there to fall back on, for example if the 4″'s picture misbehaves on `idf5`
+  ([its notes](devices.md#waveshare-esp32-s3-touch-lcd-4-square-4)).
 
 Each board's README lists its other envs: a `debug` build that prints what it's doing on the USB port
 (`pio device monitor` shows it; the deck ignores text), and on the round boards a hardware self-test.

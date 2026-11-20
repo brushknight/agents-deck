@@ -51,13 +51,13 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
 
 ## Connect it
 
-> For now, flash the 2.0.17 build (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload`):
-> USB only, and the steadiest picture. The `idf5` build adds Wi-Fi but is experimental on this board:
-> its picture at times jumped sideways while it connected to the deck; it now has the round boards'
-> display settings, not yet confirmed on a board (see [Build and flash](#build-and-flash)).
+> Flash the `idf5` build, which is what the releases install: USB, Wi-Fi and Bluetooth. Its picture
+> at times jumped sideways while it connected to the deck; it now has the round boards' display
+> settings (see [Build and flash](#build-and-flash)). If yours still does it, the 2.0.17 build
+> (`pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload`) has the steadiest picture, on USB only.
 
 ```sh
-pio run -d firmware/devices/waveshare-touch-lcd-4 -t upload --upload-port /dev/cu.usbmodem<…>   # or idf5 (experimental) for Wi-Fi
+pio run -d firmware/devices/waveshare-touch-lcd-4/idf5 -e idf5 -t upload --upload-port /dev/cu.usbmodem<…>
 agentctl link add /dev/cu.usbmodem<…>
 agentctl devices approve waveshare-touch-lcd-4-<id>      # only with `agentctl devices auto-approve usb off`
 agentctl devices scope waveshare-touch-lcd-4-<id> act    # answer, focus, interrupt; admin to stop
@@ -70,9 +70,9 @@ PSRAM. The Hello says: display 480×480 colour, inputs TOUCH and BUTTON.
 
 | env | what |
 |---|---|
-| `waveshare-touch-lcd-4` (`platformio.ini`) | arduino-esp32 2.0.17: USB only (no TLS 1.3, so no Wi-Fi) |
-| `debug` | the same with one-line notes on the USB port |
-| `idf5` (`idf5/platformio.ini`) | arduino-esp32 3.x: USB and Wi-Fi (TLS 1.3) |
+| `idf5` (`idf5/platformio.ini`) | arduino-esp32 3.x: USB, Wi-Fi (TLS 1.3) and Bluetooth. The released build |
+| `waveshare-touch-lcd-4` (`platformio.ini`) | arduino-esp32 2.0.17: USB only (no TLS 1.3, so no Wi-Fi). Not released; to fall back on |
+| `debug` | the 2.0.17 build with one-line notes on the USB port |
 | `idf5-debug` | `idf5` with notes on the USB port (link, Wi-Fi phase, frame time, internal heap and PSRAM) |
 
 ```sh
@@ -140,7 +140,7 @@ revoke a board you lose (`agentctl devices revoke waveshare-touch-lcd-4-<id>`).
 
 ## Bluetooth
 
-Only the experimental `idf5` build has Bluetooth (the released 2.0.17 build doesn't). It also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
+The `idf5` build (the released one) has Bluetooth; the 2.0.17 build doesn't. It also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
 now). In Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name (`deck-`
 and six characters, shown on its screen) and type the 6-digit code the board shows into the window
 macOS opens. Over Bluetooth the board shows your agents and can get your Wi-Fi network; firmware

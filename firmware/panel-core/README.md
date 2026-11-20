@@ -119,8 +119,8 @@ and `layout_big.h` draw the Wi-Fi notices with `netNotice()` in their own notice
 a notice sits low, clear of its text. `PanelUi::wifi` (set by `grid_app.h`) puts the Wi-Fi mark
 (`drawNetMark()`, `round_geom.h`) on home: after "agents" in the list's header (the 1.8″ AMOLED and the T4-S3);
 at the right of the page bars' row in a grid (the 4″), which then stays with one page too, and
-hit-testing follows it. The 4″, the 1.8″ AMOLED and the T4-S3 have `idf5` projects; the 1.47″ is on 2.0.17 and
-USB only.
+hit-testing follows it. The 4″, the 1.8″ AMOLED and the T4-S3 have `idf5` projects; so does the 1.47″, which
+stays USB only.
 
 ## Bluetooth
 
