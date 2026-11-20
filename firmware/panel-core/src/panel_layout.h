@@ -30,6 +30,17 @@
 
 constexpr uint32_t kToastMs = 3000;
 
+// ---------------------------------------------------------------- profiling
+
+// The debug build's clock (grid_app.h sets it) and where a frame's drawing
+// time goes, in microseconds since the last report. Unset: nothing measured.
+static uint32_t (*squareClock)() = nullptr;
+struct SquareProfile { uint32_t fill, tileBg, sprite, text, other; };
+static SquareProfile squareProf{};
+#define SQ_T0(v) const uint32_t v = squareClock ? squareClock() : 0
+#define SQ_ADD(field, v) do { if (squareClock) squareProf.field += squareClock() - (v); } while (0)
+
+
 struct Rect {
   int x, y, w, h;
   bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
@@ -77,7 +88,13 @@ enum class ControlAct : uint8_t { None, Wifi, Ble, Restart };
 enum class ControlHit : uint8_t { None, Wifi, Ble, Restart };
 
 constexpr uint32_t kControlSettleMs = 220, kControlHoldMs = 1000;
-constexpr int kControlSlop = 12;
+constexpr int kControlSlop = 6;
+// A pull moves the panel this much faster than the finger: a little over half
+// the screen's height opens it all the way.
+constexpr float kControlPullGain = 1.8f;
+// Let go past this much of the way and it carries on: opening from shut, or
+// closing from open (a flick decides on its own).
+constexpr float kControlCommit = 0.2f;
 
 struct ControlUi {
   float open = 0;              // 0 shut .. 1 fully down
@@ -173,6 +190,7 @@ struct PanelInput {
   uint32_t silentSec;          // seconds since the deck last said anything ("last seen")
   const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
   const ControlInfo* ctl = nullptr;   // the board's panel (nullptr: none)
+  bool rowsOk = false;         // the board can send a frame as rows from anywhere (frameRows)
 };
 
 class PanelLayout {
@@ -193,4 +211,8 @@ class PanelLayout {
   // The board's panel takes this touch sample (pulling it down, or on it); the
   // firmware then gives it to nothing else. Boards without the panel: never.
   virtual bool panelTouch(PanelUi&, bool, int, int, uint32_t) const { return false; }
+  // After draw(): the frame as one pointer per row, when the layout made it
+  // from pictures it keeps (and in.rowsOk), so the board sends those rows and
+  // the canvas wasn't drawn; nullptr: send the canvas.
+  virtual const uint16_t* const* frameRows() const { return nullptr; }
 };

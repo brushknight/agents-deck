@@ -580,7 +580,7 @@ static inline void stripes(Canvas& c, const Rect& r, uint16_t fill, uint16_t acc
     for (int xx = 0; xx < r.w; xx++) {
       const int u = ((xx + (r.h - yy) - shift) % period + period) % period;
       const int px = r.x + xx, py = r.y + yy;
-      if (u < period / 2 && px >= 0 && px < c.w && py >= 0 && py < c.h) c.px[py * c.w + px] = s;
+      if (u < period / 2 && px >= 0 && px < c.w && py >= 0 && py < c.h) c.px[py * c.w + px] = c.enc(s);
     }
 }
 

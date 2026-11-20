@@ -50,19 +50,37 @@ struct Canvas {
   // The first row there is (rows top..h-1). A strip of a taller picture:
   // px points where row 0 would be, and only rows top..h-1 are memory.
   int top = 0;
+  // Pixels kept byte-swapped (high byte first), as a QSPI panel takes them, so
+  // the frame goes out with a plain copy (qspi_fast.h). The colours given to
+  // these functions are always plain RGB565; enc() and dec() convert at the
+  // edge (a solid fill converts its colour once).
+  bool be = false;
+  uint16_t enc(uint16_t c) const { return be ? (uint16_t)(c << 8 | c >> 8) : c; }
+  uint16_t dec(uint16_t c) const { return enc(c); }
 
-  void fill(uint16_t c) {
-    for (int i = top * w; i < w * h; i++) px[i] = c;
+  // n pixels of one (already encoded) colour from p: two to a 32-bit store,
+  // four stores a turn (a board's frame is in PSRAM, where every store counts).
+  static void run(uint16_t* p, int n, uint16_t v) {
+    if (n <= 0) return;
+    if ((uintptr_t)p & 2) { *p++ = v; n--; }
+    uint32_t* q = (uint32_t*)p;
+    const uint32_t vv = (uint32_t)v << 16 | v;
+    int pairs = n >> 1;
+    for (; pairs >= 4; pairs -= 4, q += 4) { q[0] = vv; q[1] = vv; q[2] = vv; q[3] = vv; }
+    while (pairs-- > 0) *q++ = vv;
+    if (n & 1) *(uint16_t*)q = v;
   }
 
+  void fill(uint16_t c) { run(px + (size_t)top * w, w * (h - top), enc(c)); }
+
   void rect(int x, int y, int rw, int rh, uint16_t c) {
+    c = enc(c);
     int x1 = x + rw, y1 = y + rh;
     if (x < 0) x = 0;
     if (y < top) y = top;
     if (x1 > w) x1 = w;
     if (y1 > h) y1 = h;
-    for (int yy = y; yy < y1; yy++)
-      for (int xx = x; xx < x1; xx++) px[yy * w + xx] = c;
+    for (int yy = y; yy < y1; yy++) run(px + (size_t)yy * w + x, x1 - x, c);
   }
 
   // Outline of thickness t, drawn inside the given box.
@@ -112,7 +130,7 @@ struct Canvas {
         if (xx < 0 || xx >= w) continue;
         const uint8_t b = g[gy * stride + gx / 2];
         const uint8_t a = (gx & 1) ? (b & 0x0F) : (b >> 4);
-        if (a) px[yy * w + xx] = blend565(px[yy * w + xx], c, a);
+        if (a) px[yy * w + xx] = a >= 15 ? enc(c) : enc(blend565(dec(px[yy * w + xx]), c, a));
       }
     }
   }

@@ -30,6 +30,8 @@ struct GridBoard {
   const PanelLayout* layout;               // e.g. a static SquarePanel(specLcd4())
   bool (*begin)();                         // display, touch, backlight; false: the display didn't start
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of the layout's width x height
+  void (*pushRows)(const uint16_t* const* rows);   // the same, one pointer per row (nullptr: the board can't)
+  bool (*frameSwapped)();                  // after begin(): the board takes frames byte-swapped (Canvas::be)
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
   void (*brightness)(uint8_t level);       // 0..255
   int bootPin;                             // the BOOT button (active low), -1 for none
@@ -132,6 +134,10 @@ static void send(const DeckCommand& c) {
 
 static void onLink(deck_link_t*) { dirty = true; }
 
+#ifdef PANEL_DEBUG
+static uint32_t dbgDrawUs = 0, dbgPushUs = 0, dbgFrames = 0, dbgPanelFrames = 0;   // the debug report: where a frame's time goes
+#endif
+
 static void render() {
   const uint32_t ms = millis();
   const LinkState ls = linkState();
@@ -147,6 +153,7 @@ static void render() {
   ui.ble = net.via == NetVia::Ble;
   // A firmware update, a passkey or "forget Bluetooth?": its notice (net_model.h's words) instead of the agents.
   const bool notice = net.ota.phase != OtaPhase::None || netOverlay(net);
+  canvas.be = board.frameSwapped && board.frameSwapped();   // the board may fall back to plain byte order
   // The board's own panel (control_panel.h), when it is pulled down.
   static ControlInfo ci;
   ci.name = deviceName;
@@ -166,8 +173,22 @@ static void render() {
   ci.bleBonded = net_link::bleBonded();
   ci.upSec = ms / 1000;
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
+  in.rowsOk = board.pushRows != nullptr;
+#ifdef PANEL_DEBUG
+  const uint32_t t0 = micros();
   board.layout->draw(canvas, in);
-  board.push(frame);
+  const uint32_t t1 = micros();
+  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) board.pushRows(rows);
+  else board.push(frame);
+  dbgDrawUs += t1 - t0;
+  dbgPushUs += micros() - t1;
+  dbgFrames++;
+  if (controlShown(ui.ctl)) dbgPanelFrames++;
+#else
+  board.layout->draw(canvas, in);
+  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) board.pushRows(rows);
+  else board.push(frame);
+#endif
 }
 
 // Bright while something happens or someone touched it in the last 30 s;
@@ -202,7 +223,7 @@ static void touchPump() {
   const NetView nv = net_link::view();
   const bool onNotice = !fleet->have || linkState() != LinkState::Live || nv.ota.phase != OtaPhase::None || netOverlay(nv);
   const uint32_t ms = millis();
-  // The board's panel first: pulled down from the top, it works on every screen of home, notices too.
+  // The board's panel first: pulled down from the top edge, it works on every screen (home, cards, prompts, notices).
   if (!netOverlay(nv) && board.layout->panelTouch(ui, down, x, y, ms)) {
     net_link::touchPressed(false);
     lastActiveMs = ms;
@@ -270,11 +291,15 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   canvas = Canvas{frame, W, H};
 
   const bool shown = frame && board.begin();
+  canvas.be = shown && board.frameSwapped && board.frameSwapped();
   PANEL_LOG("panel: %s, display %s, fleet %u B, frame %s, psram free %u", b.type, shown ? "up" : "FAILED",
             (unsigned)sizeof(DeckFleet), frame ? "ok" : "none", (unsigned)ESP.getFreePsram());
   if (board.brightness) board.brightness(board.brightActive);
 
   DeckLinkConfig cfg = {};
+#ifdef PANEL_DEBUG
+  squareClock = [] { return (uint32_t)micros(); };
+#endif
   boardId = b.boardId ? b.boardId : DeckLink::chipId();
   panelConfig(cfg, boardId, firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
   cfg.on_frame = onFrame;
@@ -318,6 +343,16 @@ static inline void gridAppLoop() {
               (unsigned)st->rx_overflow, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
               (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)ESP.getFreePsram());
+    if (dbgFrames) PANEL_LOG("frame: %u frames in 5 s (%u with the panel shown), draw %u ms, send %u ms on average", (unsigned)dbgFrames,
+                             (unsigned)dbgPanelFrames, (unsigned)(dbgDrawUs / dbgFrames / 1000), (unsigned)(dbgPushUs / dbgFrames / 1000));
+#ifdef QSPI_FAST_REPORT
+    QSPI_FAST_REPORT();
+#endif
+    if (dbgFrames) PANEL_LOG("draw: per frame fill %u us, tile backgrounds %u us, stripes %u us, critters %u us, tile text %u us",
+                             (unsigned)(squareProf.fill / dbgFrames), (unsigned)(squareProf.tileBg / dbgFrames), (unsigned)(squareProf.other / dbgFrames),
+                             (unsigned)(squareProf.sprite / dbgFrames), (unsigned)(squareProf.text / dbgFrames));
+    squareProf = SquareProfile{};
+    dbgDrawUs = dbgPushUs = dbgFrames = dbgPanelFrames = 0;
     frames = drawMs = 0;
   }
 #endif

@@ -39,6 +39,7 @@
 // boards draw.
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "canvas.h"
@@ -777,6 +778,21 @@ static inline int holdPermille(const PanelUi& ui, uint32_t ms) {
 
 namespace square_detail {
 
+// Coverage (0..15) of a corner square of radius r, pixel (i, j) counted out
+// from the corner's centre: the same as fillArc gives a quarter disc.
+constexpr int kCornerMax = 16;
+static inline const uint8_t* cornerCover(int r) {
+  static uint8_t table[kCornerMax + 1][kCornerMax * kCornerMax];
+  static bool made[kCornerMax + 1];
+  if (!made[r]) {
+    for (int j = 0; j < r; j++)
+      for (int i = 0; i < r; i++)
+        table[r][j * kCornerMax + i] = (uint8_t)round_detail::ringCover(sqrtf((i + 0.5f) * (i + 0.5f) + (j + 0.5f) * (j + 0.5f)), 0, (float)r);
+    made[r] = true;
+  }
+  return table[r];
+}
+
 // A rounded rectangle, filled or as a `t`-pixel outline.
 static inline void roundRect(Canvas& c, int x, int y, int w, int h, int r, uint16_t col) {
   if (r * 2 > h) r = h / 2;
@@ -784,10 +800,31 @@ static inline void roundRect(Canvas& c, int x, int y, int w, int h, int r, uint1
   c.rect(x + r, y, w - 2 * r, h, col);
   c.rect(x, y + r, r, h - 2 * r, col);
   c.rect(x + w - r, y + r, r, h - 2 * r, col);
-  fillArc(c, x + r, y + r, 0, r, 270, 90, col);
-  fillArc(c, x + w - r, y + r, 0, r, 0, 90, col);
-  fillArc(c, x + w - r, y + h - r, 0, r, 90, 90, col);
-  fillArc(c, x + r, y + h - r, 0, r, 180, 90, col);
+  // The four corners from one table of coverage per radius, worked out once
+  // (fillArc works out every pixel's distance and angle: most of a list
+  // frame's drawing time when every tile has four).
+  if (r <= 0) return;
+  if (r > kCornerMax) {
+    fillArc(c, x + r, y + r, 0, r, 270, 90, col);
+    fillArc(c, x + w - r, y + r, 0, r, 0, 90, col);
+    fillArc(c, x + w - r, y + h - r, 0, r, 90, 90, col);
+    fillArc(c, x + r, y + h - r, 0, r, 180, 90, col);
+    return;
+  }
+  const uint8_t* cov = cornerCover(r);
+  const uint16_t full = c.enc(col);
+  for (int j = 0; j < r; j++)
+    for (int i = 0; i < r; i++) {
+      const int a = cov[j * kCornerMax + i];
+      if (!a) continue;
+      const int xs[2] = {x + r - 1 - i, x + w - r + i}, ys[2] = {y + r - 1 - j, y + h - r + j};
+      for (int yy : ys)
+        for (int xx : xs) {
+          if (xx < 0 || xx >= c.w || yy < c.top || yy >= c.h) continue;
+          if (a >= 15) c.px[yy * c.w + xx] = full;
+          else round_detail::blendPx(c, xx, yy, col, a);
+        }
+    }
 }
 
 static inline void roundFrame(Canvas& c, int x, int y, int w, int h, int r, int t, uint16_t col) {
@@ -806,13 +843,16 @@ static inline void roundFrame(Canvas& c, int x, int y, int w, int h, int r, int 
 static inline void stripes(Canvas& c, const Rect& r, uint16_t fill, uint16_t accent, uint32_t ms, int period, int clipTop) {
   const uint16_t s = blend565(fill, accent, 3);
   const int shift = (int)((ms / 100) % 6) * period / 6;
+  const uint16_t fe = c.enc(fill), se = c.enc(s);
+  const int half = period / 2;
   for (int yy = 0; yy < r.h; yy++) {
     const int py = r.y + yy;
     if (py < clipTop || py < 0 || py >= c.h) continue;
-    for (int xx = 0; xx < r.w; xx++) {
-      const int u = ((xx + yy - shift) % period + period) % period;
+    uint16_t* row = c.px + (size_t)py * c.w;
+    int u = ((yy - shift) % period + period) % period;   // the phase at xx = 0, stepped along the row
+    for (int xx = 0; xx < r.w; xx++, u = u + 1 == period ? 0 : u + 1) {
       const int px = r.x + xx;
-      if (u < period / 2 && px >= 0 && px < c.w && c.px[py * c.w + px] == fill) c.px[py * c.w + px] = s;
+      if (u < half && px >= 0 && px < c.w && row[px] == fe) row[px] = se;
     }
   }
 }
@@ -891,9 +931,14 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
   Look k = lookOf(T, a);
   if (pressed) { k.fill = T.ink; k.body = k.label = k.meta = k.chip = T.bg; k.stripes = false; }
   const TileParts p = tileParts(S, r, list);
+  SQ_T0(t0);
   if (list) square_detail::roundRect(c, r.x, r.y, r.w, r.h, 8, k.fill);
   else c.rect(r.x, r.y, r.w, r.h, k.fill);
+  SQ_ADD(tileBg, t0);
+  SQ_T0(ts);
   if (k.stripes) stripes(c, r, k.fill, T.accent, ms, list ? 32 : 24, clipTop);
+  SQ_ADD(other, ts);
+  SQ_T0(t1);
   c.rect(p.chip.x, p.chip.y, p.chip.w, p.chip.h, k.chip);
   if (a.subagents) {
     const Pose sp = a.subTool[0] ? poseOfTool(a.subTool) : Pose::Think;
@@ -906,10 +951,13 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
     }
   }
   drawSprite(c, p.critter.x, p.critter.y, p.scale, a.species, poseOf(a, now), k.body, k.fill, ms, true, a.hat, a.hatColor);
+  SQ_ADD(sprite, t1);
+  SQ_T0(t2);
   textCentered(c, *S.tileTitle, r.x + r.w / 2, p.name.y, a.title[0] ? a.title : a.id, k.label, p.name.w);
   char meta[80];
   metaLine(a, now, meta, sizeof meta);
   textCentered(c, *S.tileMeta, r.x + r.w / 2, p.meta.y, meta, k.meta, p.meta.w);
+  SQ_ADD(text, t2);
   const int pct = a.ctxWindow ? ctxPct(a) : 0;
   if (list) {
     const bool waiting = a.status == Status::Waiting;
@@ -1070,9 +1118,68 @@ static inline void listTiles(Canvas& c, const SquareSpec& S, const Theme& T, con
 // side ("Needs you" at the left), each where the slide puts it. Each tile is
 // drawn once into the one frame, and the canvas cuts what leaves the screen.
 // The header stays in place over them.
+// The background of a list home, everywhere but under the tiles (they paint
+// their own), so most pixels are written once a frame, not twice. The rounded
+// corners blend onto what is under them: their squares get the background too.
+static inline void listBackground(Canvas& c, const SquareSpec& S, const Theme& T, const Rect* cov, int n) {
+  constexpr int kR = 8;   // the tiles' corner radius (tile(), listEmpty())
+  int ys[2 + 2 * 32];
+  int ny = 0;
+  ys[ny++] = S.headerH;
+  ys[ny++] = S.h;
+  for (int i = 0; i < n; i++) {
+    if (cov[i].y > S.headerH && cov[i].y < S.h) ys[ny++] = cov[i].y;
+    if (cov[i].y + cov[i].h > S.headerH && cov[i].y + cov[i].h < S.h) ys[ny++] = cov[i].y + cov[i].h;
+  }
+  for (int a = 1; a < ny; a++)
+    for (int b = a; b > 0 && ys[b - 1] > ys[b]; b--) { const int t = ys[b]; ys[b] = ys[b - 1]; ys[b - 1] = t; }
+  for (int k = 0; k + 1 < ny; k++) {
+    const int y0 = ys[k], y1 = ys[k + 1];
+    if (y1 <= y0) continue;
+    int xs[32], xe[32], m = 0;                 // the tiles across this band, by x
+    for (int i = 0; i < n && m < 32; i++)
+      if (cov[i].y <= y0 && cov[i].y + cov[i].h >= y1) {
+        int j = m++;
+        for (; j > 0 && xs[j - 1] > cov[i].x; j--) { xs[j] = xs[j - 1]; xe[j] = xe[j - 1]; }
+        xs[j] = cov[i].x;
+        xe[j] = cov[i].x + cov[i].w;
+      }
+    int x = 0;
+    for (int j = 0; j < m; j++) {
+      if (xs[j] > x) c.rect(x, y0, xs[j] - x, y1 - y0, T.bg);
+      if (xe[j] > x) x = xe[j];
+    }
+    if (x < S.w) c.rect(x, y0, S.w - x, y1 - y0, T.bg);
+  }
+  for (int i = 0; i < n; i++) {
+    const Rect& r = cov[i];
+    c.rect(r.x, r.y, kR, kR, T.bg);
+    c.rect(r.x + r.w - kR, r.y, kR, kR, T.bg);
+    c.rect(r.x, r.y + r.h - kR, kR, kR, T.bg);
+    c.rect(r.x + r.w - kR, r.y + r.h - kR, kR, kR, T.bg);
+  }
+}
+
 static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
   const PanelUi& ui = *in.ui;
   const int listX = S.w - (int)lroundf(pagerPos(ui) * S.w);   // 0 with the list on screen, S.w with "Needs you"
+  {                                            // where the tiles go this frame (as listSpots and listTiles place them)
+    Rect cov[32];
+    int n = 0;
+    if (ui.att && listX > 0)
+      for (int s = 0; s < squareSpots(S) && n < 32; s++) {
+        Rect r = listTile(S, s, 0);
+        r.x += listX - S.w;
+        if (r.x + r.w > 0 && r.x < S.w) cov[n++] = r;
+      }
+    if (listX < S.w)
+      for (int i = 0; i < in.fleet->count && n < 32; i++) {
+        Rect r = listTile(S, i, ui.scroll);
+        r.x += listX;
+        if (r.y + r.h > S.headerH && r.y < S.h && r.x + r.w > 0 && r.x < S.w) cov[n++] = r;
+      }
+    listBackground(c, S, T, cov, n);
+  }
   if (ui.att && listX > 0) listSpots(c, S, T, in, listX - S.w);
   if (listX < S.w) listTiles(c, S, T, in, listX);
   listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, &ui);
@@ -1518,7 +1625,13 @@ static inline void cornerMask(Canvas& c, int r) {
 // The whole frame.
 static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
   using namespace square_detail;
-  c.fill(T.bg);
+  // A list home paints its own background around its tiles (listBackground);
+  // every other screen starts from a cleared frame.
+  const bool listNext = S.home == HomeKind::List && in.link != LinkState::Connecting && in.link != LinkState::Unapproved &&
+                        in.fleet && in.fleet->count > 0 && in.ui && in.ui->screen == Screen::Home;
+  SQ_T0(tf);
+  if (!listNext) c.fill(T.bg);
+  SQ_ADD(fill, tf);
   char buf[96];
   const char* name = in.device && in.device[0] ? in.device : "<name>";
   const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
@@ -1579,6 +1692,15 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
 class SquarePanel : public PanelLayout {
  public:
   explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m)) {}
+  ~SquarePanel() override {
+    free(homePic);
+    free(panelPic);
+    free(rowTable);
+    free(edgeRow);
+  }
+  const uint16_t* const* frameRows() const override { return rowsReady ? rowTable : nullptr; }
+  SquarePanel(const SquarePanel&) = delete;
+  SquarePanel& operator=(const SquarePanel&) = delete;
   int width() const override { return S.w; }
   int height() const override { return S.h; }
   bool trueBlack() const override { return S.trueBlack; }
@@ -1586,6 +1708,11 @@ class SquarePanel : public PanelLayout {
   bool hasPanel() const { return S.home == HomeKind::List; }
   void draw(Canvas& c, const PanelInput& in) const override {
     const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
+    // While the panel moves, home and the panel are each drawn once, then slid
+    // (a copy of rows a frame): the motion costs the send, not two drawings.
+    rowsReady = false;
+    if (u && (u->pulling || u->animating) && slideFromCache(c, in, *u)) return;
+    cached = false;
     const bool covered = u && u->open >= 0.999f && !u->animating && !u->pulling;
     if (!covered) drawSquare(c, S, T, in);   // all the way down, what is under it doesn't show
     if (u && controlShown(*u)) {
@@ -1595,7 +1722,8 @@ class SquarePanel : public PanelLayout {
   }
   bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
     if (!hasPanel()) return false;
-    const bool mayBegin = ui.screen == Screen::Home && !ui.down && y < S.headerH;
+    // From the top edge of any screen: home, an agent's card, a prompt, a notice.
+    const bool mayBegin = !ui.down && y < S.headerH;
     return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);
   }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
@@ -1616,4 +1744,64 @@ class SquarePanel : public PanelLayout {
   const SquareSpec S;
   const Theme T;
   const ControlGeom G;
+
+ private:
+  // The two pictures the panel slides between, a frame each (in PSRAM on a
+  // board: malloc puts blocks this big there). Made the first time the panel
+  // moves; nullptr if there is no room (then every frame is drawn).
+  mutable uint16_t* homePic = nullptr;
+  mutable uint16_t* panelPic = nullptr;
+  mutable bool cached = false;
+  // The moving frame as rows of those pictures, for a board that sends rows.
+  mutable const uint16_t** rowTable = nullptr;
+  mutable uint16_t* edgeRow = nullptr;
+  mutable bool rowsReady = false;
+
+  bool slideFromCache(Canvas& c, const PanelInput& in, const ControlUi& u) const {
+    const size_t n = (size_t)S.w * S.h;
+    if (c.top != 0 || c.w != S.w || c.h != S.h) return false;
+    if (!homePic) homePic = (uint16_t*)malloc(n * 2);
+    if (!panelPic) panelPic = (uint16_t*)malloc(n * 2);
+    if (!homePic || !panelPic) return false;
+    if (!cached) {
+      drawSquare(c, S, T, in);
+      memcpy(homePic, c.px, n * 2);
+      ControlUi full = u;
+      full.open = 1.f;
+      full.pulling = full.animating = full.down = false;
+      full.pressed = ControlHit::None;
+      controlDraw(c, G, T, *in.ctl, full, in.ms);
+      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+      memcpy(panelPic, c.px, n * 2);
+      cached = true;
+    }
+    const int edge0 = (int)lroundf(u.open * (float)S.h);
+    if (in.rowsOk) {                     // nothing to copy: the board sends these rows as they are
+      if (!rowTable) rowTable = (const uint16_t**)malloc(sizeof(uint16_t*) * S.h);
+      if (!edgeRow) {
+        edgeRow = (uint16_t*)malloc((size_t)S.w * 2);
+        if (edgeRow) for (int x = 0; x < S.w; x++) edgeRow[x] = c.enc(T.ringTrack);
+      }
+      if (rowTable && edgeRow) {
+        for (int y = 0; y < S.h; y++)
+          rowTable[y] = y < edge0 ? panelPic + (size_t)(S.h - edge0 + y) * S.w
+                      : (y < edge0 + 2 && edge0 > 0 && edge0 < S.h) ? edgeRow
+                      : homePic + (size_t)y * S.w;
+        rowsReady = true;
+        return true;
+      }
+    }
+    // The panel's bottom edge at y = edge: above it the panel's last rows, a
+    // 2-pixel line, then home.
+    const int edge = (int)lroundf(u.open * (float)S.h);
+    const size_t row = (size_t)S.w * 2;
+    for (int y = 0; y < S.h; y++) {
+      uint16_t* dst = c.px + (size_t)y * S.w;
+      if (y < edge) memcpy(dst, panelPic + (size_t)(S.h - edge + y) * S.w, row);
+      else if (y < edge + 2 && edge > 0 && edge < S.h) for (int x = 0; x < S.w; x++) dst[x] = c.enc(T.ringTrack);
+      else memcpy(dst, homePic + (size_t)y * S.w, row);
+    }
+    if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    return true;
+  }
 };

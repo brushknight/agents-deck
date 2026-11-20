@@ -45,7 +45,7 @@ int main() {
 
   // A short, slow pull springs back shut (a quick one is a flick: it opens).
   PanelUi s;
-  drag(L, s, 180, 10, 60, 60, ms);
+  drag(L, s, 180, 10, 30, 60, ms);   // 20 px: under a fifth of the way
   settle(L, s, ms);
   assert(s.ctl.open == 0.f && !controlShown(s.ctl));
 
@@ -107,6 +107,27 @@ int main() {
       PanelInput in{&fleet, LinkState::Live, "test-board", DeckScope::Act, ms, 0, &u, 0, nullptr, &info};
       P.draw(c, in);
     }
+  }
+  // While it moves, the frame is the cached panel over the cached home: the
+  // same picture as drawing both, row for row.
+  {
+    const SquareSpec sp = specT4S3();
+    const SquarePanel P(sp), Q(sp);
+    static uint16_t a[450 * 600], b[450 * 600];
+    Canvas ca{a, sp.w, sp.h}, cb{b, sp.w, sp.h};
+    ControlInfo info;
+    info.name = "test-board";
+    info.board = "board";
+    PanelUi u;
+    u.ctl.animating = true;
+    u.ctl.open = 0.4f;
+    PanelInput in{&fleet, LinkState::Live, "test-board", DeckScope::Act, ms, 0, &u, 0, nullptr, &info};
+    P.draw(ca, in);                    // made from the cache
+    u.ctl.animating = false;           // the same frame drawn the slow way, for comparison
+    Q.draw(cb, in);
+    int diff = 0;
+    for (int i = 0; i < sp.w * sp.h; i++) diff += a[i] != b[i];
+    assert(diff < sp.w * 3);           // the edge line may sit a row apart
   }
   printf("control panel: ok\n");
   return 0;

@@ -102,11 +102,11 @@ static inline bool controlTouch(ControlUi& u, const ControlGeom& g, bool touchin
       u.pressed = ControlHit::None;
     }
     if (u.pulling) {
-      float o = u.open0 + (float)dy / (float)g.h;
+      float o = u.open0 + (float)dy * kControlPullGain / (float)g.h;
       if (o < 0) o = 0;
       if (o > 1) o = 1;
       const uint32_t dt = ms - u.lastMs;
-      if (dt > 0) u.velocity = 0.6f * u.velocity + 0.4f * ((float)(y - u.lastY) / (float)g.h / (float)dt);
+      if (dt > 0) u.velocity = 0.6f * u.velocity + 0.4f * ((float)(y - u.lastY) * kControlPullGain / (float)g.h / (float)dt);
       u.open = o;
     } else if (u.pressed == ControlHit::Restart && !u.holdFired && ms - u.downMs >= kControlHoldMs) {
       u.holdFired = true;
@@ -120,7 +120,11 @@ static inline bool controlTouch(ControlUi& u, const ControlGeom& g, bool touchin
   u.down = false;
   if (u.pulling) {
     u.pulling = false;
-    const bool open = u.velocity > 0.0006f ? true : u.velocity < -0.0006f ? false : u.open >= 0.5f;
+    const bool fromOpen = u.open0 >= 0.5f;
+    const bool open = u.velocity > 0.0008f    ? true
+                      : u.velocity < -0.0008f ? false
+                      : fromOpen              ? u.open > 1.f - kControlCommit
+                                              : u.open > kControlCommit;
     controlSettle(u, open, ms);
   } else {
     if (u.open < 0.99f) controlSettle(u, false, ms);   // a tap in the top strip: nothing to open

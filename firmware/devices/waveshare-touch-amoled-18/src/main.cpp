@@ -15,9 +15,13 @@
 // (idf5/platformio.ini, Wi-Fi with TLS 1.3); only Arduino_GFX's CO5300
 // constructor differs between the two GFX versions they use.
 #include <Arduino.h>
+// Private made public for qspi_fast.h, which sends frames on Arduino_GFX's own SPI device.
+#define private public
 #include <Arduino_GFX_Library.h>
+#undef private
 #include <Wire.h>
 
+#include "qspi_fast.h"   // before grid_app.h: its debug report reads the send's numbers
 #include "grid_app.h"
 #include "layout_square.h"
 
@@ -33,6 +37,10 @@ constexpr uint8_t EXIO_LCD_RST = 1 << 0, EXIO_LCD_PWR = 1 << 1, EXIO_TP_RST = 1 
 
 static Arduino_DataBus* bus = new Arduino_ESP32QSPI(PIN_QSPI_CS, PIN_QSPI_SCK, PIN_QSPI_D0, PIN_QSPI_D1, PIN_QSPI_D2, PIN_QSPI_D3);
 static Arduino_CO5300* lcd = nullptr;
+static bool fastSend = false;
+#ifndef LCD_QSPI_HZ
+#define LCD_QSPI_HZ 40000000
+#endif
 static uint8_t touchAddr = 0;
 static bool haveTca = false;
 
@@ -102,14 +110,46 @@ static bool boardBegin() {
 #else
   lcd = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, false, 368, 448, colOffset, 0, 0, 0);
 #endif
-  const bool ok = lcd->begin(40000000);
+  const bool ok = lcd->begin(LCD_QSPI_HZ);
+  fastSend = ok && qspi_fast::begin();
+  qspi_fast::preswapped = fastSend;        // the canvas draws in the panel's byte order (frameSwapped)
   PANEL_LOG("amoled18: tca9554 %s, touch 0x%02X, col offset %u, display %s", haveTca ? "ok" : "NONE", touchAddr,
             colOffset, ok ? "ok" : "FAILED");
   return ok;
 }
 
+// A whole frame: two buffers in turn (qspi_fast.h), else Arduino_GFX's own send.
 static void push(const uint16_t* frame) {
-  if (lcd) lcd->draw16bitRGBBitmap(0, 0, (uint16_t*)frame, 368, 448);
+  if (!lcd) return;
+  if (fastSend && qspi_fast::broken) {      // the fast send failed: the old one from now on, in plain byte order
+    fastSend = false;
+    qspi_fast::preswapped = false;
+  }
+  if (!fastSend) {
+    lcd->draw16bitRGBBitmap(0, 0, (uint16_t*)frame, 368, 448);
+    return;
+  }
+  lcd->startWrite();
+  lcd->writeAddrWindow(0, 0, 368, 448);
+  qspi_fast::pixels((Arduino_ESP32QSPI*)bus, frame, 368u * 448u);
+  lcd->endWrite();
+}
+
+// A frame as rows (the panel sliding over home: control_panel.h).
+static void pushRows(const uint16_t* const* rows) {
+  if (!lcd) return;
+  if (fastSend && qspi_fast::broken) {
+    fastSend = false;
+    qspi_fast::preswapped = false;
+  }
+  if (!fastSend) {                         // row by row, the slow way
+    for (int y = 0; y < 448; y++) lcd->draw16bitRGBBitmap(0, y, (uint16_t*)rows[y], 368, 1);
+    return;
+  }
+  lcd->startWrite();
+  lcd->writeAddrWindow(0, 0, 368, 448);
+  qspi_fast::rows((Arduino_ESP32QSPI*)bus, rows, 368, 448);
+  lcd->endWrite();
 }
 
 static void brightness(uint8_t level) {
@@ -123,6 +163,8 @@ void setup() {
   b.layout = &layout;
   b.begin = boardBegin;
   b.push = push;
+  b.pushRows = pushRows;
+  b.frameSwapped = [] { return fastSend; };
   b.touch = touchRead;
   b.brightness = brightness;
   b.bootPin = PIN_BOOT;
