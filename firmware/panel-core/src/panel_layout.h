@@ -81,12 +81,14 @@ struct ControlInfo {
   bool wifiCapable = false, wifiOn = false, wifiUp = false;
   bool bleCapable = false, bleOn = false, bleBonded = false;
   uint32_t upSec = 0;
+  bool imu = false;            // a motion sensor: the magic trick tile
+  bool magicOn = false;        // the trick is armed
 };
 
 // What a touch on the panel asks the firmware to do.
-enum class ControlAct : uint8_t { None, Wifi, Ble, Restart };
+enum class ControlAct : uint8_t { None, Wifi, Ble, Restart, Magic };
 
-enum class ControlHit : uint8_t { None, Wifi, Ble, Restart };
+enum class ControlHit : uint8_t { None, Wifi, Ble, Restart, Magic };
 
 constexpr uint32_t kControlSettleMs = 220, kControlHoldMs = 1000;
 constexpr int kControlSlop = 6;
@@ -114,6 +116,30 @@ struct ControlUi {
 };
 
 static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || u.animating || u.pulling; }
+
+// ---------------------------------------------------------------- motion (fun_motion.h)
+
+struct Token {
+  float x, y, vx, vy;
+  uint8_t color, life;         // life 0: not in use
+};
+
+struct FunUi {
+  bool magic = false;          // armed: the sphere, waiting for a knock
+  uint32_t revealAt = 0;       // the knock: the dots fly out
+  uint32_t sickAt = 0;         // shaken on a card: the critter is sick
+  char sickId[12] = "";
+  // Detection (funDetect).
+  bool seeded = false, wasHigh = false;
+  float base = 1.f, gx = 0, gy = 0, gz = 1.f;   // gravity, smoothed (g)
+  uint32_t peaks[8] = {};
+  int np = 0;
+  uint32_t lastKnock = 0, lastShake = 0;
+  // The tokens.
+  Token tok[90] = {};
+  int nextTok = 0;
+  uint32_t lastStep = 0;
+};
 
 struct PanelUi {
   Screen screen = Screen::Home;
@@ -174,6 +200,7 @@ struct PanelUi {
   uint32_t cmdSeq = 0;         // the command waiting for its Result
 
   ControlUi ctl;               // the board's panel (list boards)
+  FunUi fun;                   // the motion tricks (boards with a motion sensor)
 };
 
 static inline void uiToast(PanelUi& ui, const char* text, uint32_t ms, uint32_t forMs = kToastMs) {
@@ -217,4 +244,6 @@ class PanelLayout {
   // from pictures it keeps (and in.rowsOk), so the board sends those rows and
   // the canvas wasn't drawn; nullptr: send the canvas.
   virtual const uint16_t* const* frameRows() const { return nullptr; }
+  // An accelerometer sample in g (boards with a motion sensor): knocks and shakes.
+  virtual void motion(PanelUi&, float, float, float, uint32_t) const {}
 };

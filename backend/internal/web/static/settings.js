@@ -49,6 +49,7 @@ const S = {
   btAdd: {}, // Bluetooth identifier -> the job adding that board
   file: {}, // fileTarget key -> installing a firmware file: {stage, name, size, up, error, version}
   btScope: {}, // Bluetooth identifier -> the scope picked before Add
+  btFind: {}, // device id -> looking for that board over Bluetooth, to add it from its row
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -561,8 +562,16 @@ function uplinkLine(d) {
       seg(`Uplink for ${d.name}`, opts, d.uplinkPref || 'auto',
         (v) => deviceAction(d, 'uplink', { uplink: v }, null, `${d.name} uses ${UPLINKS.find((o) => o.value === v).text.toLowerCase()} off USB`),
         { key: `uplink-${d.id}` })));
-    line.append(h('p', { class: 'note' }, 'Auto: USB, else Wi-Fi, else Bluetooth.',
-      d.bluetooth ? '' : ' Bluetooth: add the board over Bluetooth on this computer first.'));
+    line.append(h('p', { class: 'note' }, 'Auto: USB, else Wi-Fi, else Bluetooth.'));
+    // Not added over Bluetooth on this computer yet: add it from here, in one go.
+    const nb = (S.btBoards?.boards || []).find((b) => b.device === d.id);
+    const job = nb && S.jobs[S.btAdd[nb.id]];
+    if (job) line.append(addFlow(nb, job));
+    else if (!d.bluetooth) {
+      line.append(h('div', { class: 'actions' }, h('div', { class: 'r' },
+        h('span', { class: 'note' }, S.btFind[d.id] ? 'Looking for it over Bluetooth…' : 'Not linked over Bluetooth yet.'),
+        btn('Add over Bluetooth', (e) => btAddFor(d, e.currentTarget), 'p', { 'data-k': `btfor-${d.id}`, disabled: !!S.btFind[d.id] }))));
+    }
   }
   // A Bluetooth link that keeps failing says why (the board forgot this
   // computer, and so on): the person has something to do.
@@ -888,6 +897,34 @@ async function btScan(on, el) {
   draw(true);
 }
 
+// btAddFor: add a board you already have over Bluetooth, from its own row:
+// look for it (a few seconds at most), then add it as Look for boards does.
+async function btAddFor(d, el) {
+  if (!S.bt?.available) { toast(S.bt?.why || 'Bluetooth isn\'t available on this computer.', true); return; }
+  S.btFind[d.id] = true;
+  draw(true);
+  try {
+    if (!S.bt.scanning) await api('POST', '/admin/v1/bluetooth/scan', { on: true });
+    for (let i = 0; i < 24; i++) {
+      await loadAll('bt', 'btBoards');
+      const b = (S.btBoards?.boards || []).find((x) => x.device === d.id);
+      if (b) {
+        delete S.btFind[d.id];
+        if (b.added) { toast(`${d.name} is linked over Bluetooth already.`); return; }
+        await btAddBoard(b, el);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    toast(`${d.name} didn't show up over Bluetooth. Bring it closer and check Bluetooth is on in its drawer (pull down from the top of its screen).`, true);
+  } catch (e) {
+    if (e.status !== 401) toast(e.message, true);
+  } finally {
+    delete S.btFind[d.id];
+    draw(true);
+  }
+}
+
 async function btAddBoard(b, el) {
   const scope = S.btScope[b.id] || 'act';
   let job;
@@ -980,7 +1017,10 @@ function bluetoothPanel() {
   ]));
   const list = (S.btBoards?.boards || []);
   const adding = Object.keys(S.btAdd).filter((id) => !list.some((b) => b.id === id));
-  for (const b of list) out.push(nearbyRow(b));
+  for (const b of list) {
+    if (b.device && S.jobs[S.btAdd[b.id]] && (S.devices?.devices || []).some((d) => d.id === b.device)) continue;   // its row shows the add
+    out.push(nearbyRow(b));
+  }
   for (const id of adding) { // a board being added that the list no longer shows
     const j = S.jobs[S.btAdd[id]];
     if (j) out.push(addFlow({ id, name: 'the board' }, j));

@@ -32,6 +32,7 @@ struct GridBoard {
   void (*push)(const uint16_t* frame);     // a whole RGB565 frame of the layout's width x height
   void (*pushRows)(const uint16_t* const* rows);   // the same, one pointer per row (nullptr: the board can't)
   bool (*frameSwapped)();                  // after begin(): the board takes frames byte-swapped (Canvas::be)
+  bool (*accel)(float& x, float& y, float& z);   // the motion sensor, in g (nullptr: none): fun_motion.h
   bool (*touch)(int& x, int& y);           // true while a finger is down, at (x, y) in frame pixels
   void (*brightness)(uint8_t level);       // 0..255
   int bootPin;                             // the BOOT button (active low), -1 for none
@@ -172,6 +173,8 @@ static void render() {
   ci.bleOn = net_link::bleSwitch();
   ci.bleBonded = net_link::bleBonded();
   ci.upSec = ms / 1000;
+  ci.imu = board.accel != nullptr;
+  ci.magicOn = ui.fun.magic;
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   in.rowsOk = board.pushRows != nullptr;
 #ifdef PANEL_DEBUG
@@ -213,6 +216,11 @@ static void panelAct() {
     case ControlAct::Wifi: net_link::setWifiSwitch(!net_link::wifiSwitch()); break;
     case ControlAct::Ble:  net_link::setBleSwitch(!net_link::bleSwitch()); break;
     case ControlAct::Restart: restartAt = millis() + 400; break;   // "restarting" shows first
+    case ControlAct::Magic:
+      ui.fun.magic = !ui.fun.magic;
+      ui.fun.revealAt = 0;
+      if (ui.fun.magic) ui.ctl = ControlUi();   // armed: the drawer gets out of the way
+      break;
     default: break;
   }
 }
@@ -328,6 +336,16 @@ static inline void gridAppLoop() {
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();   // the board's panel asked
   touchPump();
   buttonPump();
+  // The motion sensor, about 200 times a second: knocks are short.
+  if (board.accel) {
+    static uint32_t lastAccel = 0;
+    float ax, ay, az;
+    if (millis() - lastAccel >= 5 && board.accel(ax, ay, az)) {
+      lastAccel = millis();
+      board.layout->motion(ui, ax, ay, az, lastAccel);
+      if (ui.fun.revealAt || ui.fun.sickAt) dirty = true;
+    }
+  }
   static uint32_t lastFrame = 0;
 #ifdef PANEL_DEBUG
   static uint32_t lastNote = 0, frames = 0, drawMs = 0;
@@ -352,6 +370,7 @@ static inline void gridAppLoop() {
                              (unsigned)(squareProf.fill / dbgFrames), (unsigned)(squareProf.tileBg / dbgFrames), (unsigned)(squareProf.other / dbgFrames),
                              (unsigned)(squareProf.sprite / dbgFrames), (unsigned)(squareProf.text / dbgFrames));
     squareProf = SquareProfile{};
+    if (board.accel) PANEL_LOG("motion: gravity x %.2f y %.2f z %.2f g", ui.fun.gx, ui.fun.gy, ui.fun.gz);
     dbgDrawUs = dbgPushUs = dbgFrames = dbgPanelFrames = 0;
     frames = drawMs = 0;
   }

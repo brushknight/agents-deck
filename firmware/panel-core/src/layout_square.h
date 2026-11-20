@@ -63,6 +63,7 @@ struct SquareSpec {
   const char* name;
   int w, h, cornerR, m;        // panel, glass corner radius, margin
   float diagIn;                // the glass's diagonal in inches: physical distances (the drawer's 5 mm)
+  bool imu;                    // a motion sensor on the board (set by its firmware): the tricks in fun_motion.h
   bool trueBlack;
   // Type: label / body / question / value / name.
   const Font *label, *body, *question, *value, *title;
@@ -1749,10 +1750,11 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
 
 // The square boards' PanelLayout.
 #include "control_panel.h"
+#include "fun_motion.h"
 
 class SquarePanel : public PanelLayout {
  public:
-  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m, s.diagIn)) {}
+  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m, s.diagIn, s.imu)) {}
   ~SquarePanel() override {
     free(homePic);
     free(panelPic);
@@ -1768,6 +1770,7 @@ class SquarePanel : public PanelLayout {
   // The list boards have the board's panel (control_panel.h), pulled down from the header.
   bool hasPanel() const { return S.home == HomeKind::List; }
   void draw(Canvas& c, const PanelInput& in) const override {
+    if (S.imu && in.ui && in.fleet && drawFun(c, in)) return;
     const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
     // While the panel moves, home and the panel are each drawn once, then slid
     // (a copy of rows a frame): the motion costs the send, not two drawings.
@@ -1781,6 +1784,15 @@ class SquarePanel : public PanelLayout {
       if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
     }
   }
+  // The motion tricks (fun_motion.h): a knock reveals the agents when the
+  // trick is armed; a shake on an agent's card makes its critter sick.
+  void motion(PanelUi& ui, float ax, float ay, float az, uint32_t ms) const override {
+    if (!S.imu) return;
+    const Motion m = funDetect(ui.fun, ax, ay, az, ms);
+    if (m == Motion::Knock && ui.fun.magic) funReveal(ui.fun, ms);
+    else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
+      funSickStart(ui.fun, ui.openId, ms);
+  }
   bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
     if (!hasPanel()) return false;
     // From the top edge of any screen: home, an agent's card, a prompt, a notice.
@@ -1788,13 +1800,33 @@ class SquarePanel : public PanelLayout {
     return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);
   }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
+    if (S.imu && ui.fun.magic) {               // armed: a tap on the glass reveals too
+      if (!down) funReveal(ui.fun, ms);
+      return DeckCommand{};
+    }
+    if (S.imu && funSick(ui.fun, ms)) return DeckCommand{};
     return squareTouch(ui, S, f, down, x, y, scope, ms);
   }
   bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override {
-    const bool panel = hasPanel() && controlTick(ui.ctl, ms);
+    bool fun = false;
+    if (S.imu) {
+      if (funSick(ui.fun, ms)) {
+        const SickPose p = sickPose(ui, f, ms);
+        funTokensStep(ui.fun, p, S.w, S.h, ms);
+      } else if (ui.fun.sickAt) {
+        ui.fun.sickAt = 0;
+      }
+      if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
+      fun = funBusy(ui.fun, ms);
+    }
+    const bool panel = (hasPanel() && controlTick(ui.ctl, ms)) || fun;
     return squareTick(ui, S, f, ms) || panel;
   }
   void button(PanelUi& ui, const Fleet& f) const override {
+    if (S.imu && ui.fun.magic) {               // BOOT disarms the trick
+      ui.fun.magic = false;
+      return;
+    }
     if (hasPanel() && controlShown(ui.ctl)) {   // BOOT closes the panel first
       ui.ctl = ControlUi();
       return;
@@ -1807,6 +1839,41 @@ class SquarePanel : public PanelLayout {
   const ControlGeom G;
 
  private:
+  // The sick critter's pose: from its place on the card to the middle and back.
+  SickPose sickPose(const PanelUi& ui, const Fleet& f, uint32_t ms) const {
+    const int i = findAgent(f, ui.fun.sickId);
+    Rect from{S.w / 2 - 9 * S.cardScale, 20, 0, 0};
+    if (i >= 0) from = square_detail::cardGeom(S, f.agents[i], DeckScope::Act).critter;
+    return funSickPose(ui.fun, S.w, S.h, from.x, from.y, S.cardScale, ms);
+  }
+
+  // The tricks over the frame: true when this drew the whole frame.
+  bool drawFun(Canvas& c, const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    if (f.magic || funRevealing(f, in.ms)) {
+      drawSquare(c, S, T, in);                 // the header stays; the sphere covers the rest
+      const float burst = f.magic ? 0.f : (float)(in.ms - f.revealAt) / kRevealMs;
+      if (f.magic) funSphere(c, f, S.headerH, T.bg, in.ms, 0, true);
+      else funSphere(c, f, S.headerH, T.bg, in.ms, burst, false);
+      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+      return true;
+    }
+    if (!funSick(f, in.ms)) return false;
+    const int i = findAgent(*in.fleet, f.sickId);
+    if (i < 0 || in.ui->screen != Screen::Card) return false;
+    const Agent& a = in.fleet->agents[i];
+    const SickPose p = sickPose(*in.ui, *in.fleet, in.ms);
+    const bool grown = p.scale >= S.w / 22 - 1;
+    if (grown) c.fill(T.bg);                   // the stage: just the critter and its mess
+    else drawSquare(c, S, T, in);
+    const uint16_t green = rgb565(0x8B, 0xC3, 0x4A);
+    const Pose pose = p.spew ? Pose::Hungry : p.green ? Pose::Compact : Pose::Run;
+    drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, pose, p.green ? green : T.accent, T.bg, in.ms, false, a.hat, a.hatColor);
+    funTokensDraw(c, f, T.bg);
+    if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    return true;
+  }
+
   // The two pictures the panel slides between, a frame each (in PSRAM on a
   // board: malloc puts blocks this big there). Made the first time the panel
   // moves; nullptr if there is no room (then every frame is drawn).

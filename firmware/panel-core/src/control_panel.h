@@ -19,7 +19,7 @@
 struct ControlGeom {
   int w, h, m, pad, gap, r;
   int headY, nameH;
-  Rect wifi, ble, link, restart;
+  Rect wifi, ble, magic, link, restart;   // magic: h 0 on a board without a motion sensor
   int factsY, factPitch, facts;
   int handleY;
   int commitPx;                // kControlCommitMm on this glass
@@ -29,7 +29,7 @@ struct ControlGeom {
 };
 
 // diagIn: the glass's diagonal in inches (0: unknown, then a fifth of the height).
-static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0) {
+static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0, bool imu = false) {
   ControlGeom g{};
   const float ppi = diagIn > 0 ? sqrtf((float)(w * w + h * h)) / diagIn : 0;
   g.commitPx = ppi > 0 ? (int)lroundf(kControlCommitMm / 25.4f * ppi) : h / 5;
@@ -48,6 +48,10 @@ static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0) {
   g.wifi = Rect{m, y, tileW, tileH};
   g.ble = Rect{m + tileW + g.gap, y, tileW, tileH};
   y += tileH + g.gap;
+  if (imu) {                                // the magic trick, a wide tile of its own
+    g.magic = Rect{m, y, w - 2 * m, big ? 70 : 56};
+    y += g.magic.h + g.gap;
+  }
   g.link = Rect{m, y, w - 2 * m, big ? 62 : 46};
   y += g.link.h + (big ? 10 : 6);
   g.handleY = h - m - (big ? 10 : 8);
@@ -64,6 +68,7 @@ static inline ControlGeom controlGeom(int w, int h, int m, float diagIn = 0) {
 static inline ControlHit controlHit(const ControlGeom& g, int x, int y) {
   if (g.wifi.contains(x, y)) return ControlHit::Wifi;
   if (g.ble.contains(x, y)) return ControlHit::Ble;
+  if (g.magic.h && g.magic.contains(x, y)) return ControlHit::Magic;
   if (g.restart.contains(x, y)) return ControlHit::Restart;
   return ControlHit::None;
 }
@@ -135,6 +140,7 @@ static inline bool controlTouch(ControlUi& u, const ControlGeom& g, bool touchin
     if (u.open < 0.99f) controlSettle(u, false, ms);   // a tap in the top strip: nothing to open
     else if (u.pressed == ControlHit::Wifi) u.act = ControlAct::Wifi;
     else if (u.pressed == ControlHit::Ble) u.act = ControlAct::Ble;
+    else if (u.pressed == ControlHit::Magic) u.act = ControlAct::Magic;
   }
   u.pressed = ControlHit::None;
   return true;
@@ -162,6 +168,8 @@ static const char* const kIconWifi[] = {"..#####..", ".#.....#.", "#..###..#", "
 // The USB mark: the trident with a round end, a square end and a dot at the root.
 static const char* const kIconUsb[] = {".....#.....", "....###....", "...#####...", ".....#..###", ".##..#..###", ".##..#...#.", "..#..#...#.",
                                        "...#.#..#..", "....###....", ".....#.....", "....###....", "....###...."};
+// A wand with a spark at its tip.
+static const char* const kIconWand[] = {"......#..", "....#.#.#", ".....###.", "....##.##", ".....###.", "....##.#.", "...##....", "..##.....", ".##......", "##......."};
 static const char* const kIconBle[] = {"...#...", "...##..", "#..#.#.", ".#.##..", "..##...", ".#.##..", "#..#.#.", "...##..", "...#..."};
 
 static inline void pixels(Canvas& c, const char* const* rows, int n, int x, int y, int cell, uint16_t col) {
@@ -230,6 +238,23 @@ static inline void controlDraw(Canvas& c, const ControlGeom& g, const Theme& T, 
   else if (info.via == NetVia::Ble && info.linked) snprintf(st, sizeof st, "in use");
   else snprintf(st, sizeof st, "%s", info.bleBonded ? "paired" : "not paired");
   switchTile(c, g, T, g.ble, oy, kIconBle, 9, "Bluetooth", info.bleCapable, info.bleOn, u.pressed == ControlHit::Ble, st);
+
+  // The magic trick (a board with a motion sensor).
+  if (g.magic.h) {
+    const Rect& r = g.magic;
+    const bool lit = info.magicOn != (u.pressed == ControlHit::Magic);
+    const uint16_t ink = lit ? T.bg : T.ink, sub = lit ? T.line : T.dim;
+    if (lit) roundRect(c, r.x, r.y + oy, r.w, r.h, g.r, T.ink);
+    else {
+      roundRect(c, r.x, r.y + oy, r.w, r.h, g.r, T.panel);
+      roundFrame(c, r.x, r.y + oy, r.w, r.h, g.r, 2, T.ringTrack);
+    }
+    const int cell = g.h >= 560 ? 4 : 3;
+    pixels(c, kIconWand, 10, r.x + g.pad, r.y + oy + (r.h - 10 * cell) / 2, cell, lit ? T.accent : ink);
+    const int tx = r.x + g.pad + 9 * cell + 14;
+    c.text(*g.label, tx, r.y + oy + (r.h - g.label->cellH - g.small->cellH) / 2 + 2, "Magic trick", ink, r.w - (tx - r.x) - g.pad);
+    c.text(*g.small, tx, r.y + oy + (r.h - g.label->cellH - g.small->cellH) / 2 + g.label->cellH, info.magicOn ? "armed: knock the board" : "tap to arm", sub, r.w - (tx - r.x) - g.pad);
+  }
 
   // How it reaches the deck.
   {
