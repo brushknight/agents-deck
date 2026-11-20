@@ -72,7 +72,7 @@ notes) and attaches the files above. Its jobs:
 
 | job | runner | makes |
 |---|---|---|
-| `macos` | `macos-14` | agentctl for arm64 and amd64 (and both in one, inside the app); the Bluetooth helper `deck-ble` (`clients/ble/macos`, `swift build -c release`, universal; CI runs its `swift test`); the universal app, signed from the inside out by `packaging/macos/package.sh --deck-ble`, notarized when the Apple secrets are set; the `.dmg` and the `.zip` |
+| `macos` | `macos-15` | agentctl for arm64 and amd64 (and both in one, inside the app); the Bluetooth helper `deck-ble` (`clients/ble/macos`, `swift build -c release`, universal; CI runs its `swift test`); the universal app, signed from the inside out by `packaging/macos/package.sh --deck-ble`, notarized when the Apple secrets are set; the `.dmg` and the `.zip` |
 | `linux` | `ubuntu-24.04`, `ubuntu-24.04-arm` | agentctl, the tray app, the `.deb` and `.tar.gz` (`packaging/linux/package.sh`); then installs the `.deb` on the runner and checks it (`packaging/linux/check-deb.sh`) |
 | `windows` | `windows-latest` | `agentctl.exe` and the installer (`packaging/windows/agents-deck.iss`, Inno Setup). Skipped with a warning while the backend doesn't build for Windows |
 | `firmware` | `ubuntu-24.04`, pinned container | one job per board, see below |

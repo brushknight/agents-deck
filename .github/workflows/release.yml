@@ -59,7 +59,7 @@ jobs:
   # universal agentctl inside; agentctl on its own per architecture.
   macos:
     needs: meta
-    runs-on: macos-14 # Apple Silicon
+    runs-on: macos-15 # Apple Silicon
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       HAVE_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
