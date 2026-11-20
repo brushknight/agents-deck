@@ -37,9 +37,9 @@ constexpr uint32_t kSickMs = kSickGrowMs + kSickHoldMs + kSickSpewMs + kSickShri
 // its acceleration's length jumps by more than kKnockJerkG between two
 // samples (5 ms apart); picking it up or turning it changes far slower.
 // A shake: kShakePeaks swings past kShakeG within kShakeWindowMs.
-constexpr float kKnockJerkG = 1.0f, kShakeG = 0.7f;
-constexpr int kShakePeaks = 6;
-constexpr uint32_t kShakeWindowMs = 1200, kKnockQuietMs = 450;
+constexpr float kKnockJerkG = 1.0f, kShakeG = 0.5f;
+constexpr int kShakePeaks = 4;   // two shakes back and forth
+constexpr uint32_t kShakeWindowMs = 1000, kKnockQuietMs = 450;
 
 enum class Motion : uint8_t { None, Knock, Shake };
 
