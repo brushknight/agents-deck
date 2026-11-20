@@ -5,7 +5,7 @@
 // own (RoundLayout in round_view.h).
 //
 // Every frame the firmware calls tick() (animations: a list settling on a
-// row, a toast ending) and draw() with a PanelInput: the fleet from
+// row, its pages settling after a sideways drag, a toast ending) and draw() with a PanelInput: the fleet from
 // deck_model.h, the link state, the board's name, its scope, the animation
 // clock and the deck's time. Touch arrives as raw samples (finger down at
 // x, y, or lifted) through touch(), which turns them into taps, drags,
@@ -115,14 +115,26 @@ struct PanelUi {
   bool animating = false;
   uint32_t settledMs = 0;      // when the list last came to rest (the position bar fades after it)
 
+  // List homes with the "Needs you" screen: the two are pages side by side,
+  // and a sideways drag slides them. slide is where the pages are, 0 = "Needs
+  // you" on screen, 1 = the list; it counts only while a finger slides them
+  // (sliding) or they settle (slideAnim). At rest needsYou alone says which
+  // page shows, so code that sets it lands on that page at once.
+  bool sliding = false;
+  bool slideAnim = false;
+  float slide = 1;
+  float slide0 = 1;            // where the pages were when the finger went down
+  float slideFrom = 1, slideTo = 1;
+  uint32_t slideStart = 0;
+
   // The finger.
   bool down = false;
-  bool dragging = false;       // moving the list
+  bool dragging = false;       // moving the list (up and down; sliding is the sideways one)
   int x0 = 0, y0 = 0, x = 0, y = 0;
   uint32_t downMs = 0;
   float scroll0 = 0;           // the list's offset when the finger went down
-  float velocity = 0;          // px per ms, smoothed
-  int lastY = 0;
+  float velocity = 0;          // px per ms, smoothed (the list's, or the pages' while they slide)
+  int lastX = 0, lastY = 0;
   uint32_t lastMs = 0;
   PanelHit pressed;            // drawn pressed until the finger moves or lifts
   bool holdFired = false;      // the stop hold already sent its Dismiss

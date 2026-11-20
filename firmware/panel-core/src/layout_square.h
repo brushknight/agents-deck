@@ -26,6 +26,10 @@
 //           the first, its mark at the left of the page bars; on a list, one
 //           screen of what the list shows at once, left of the list, with
 //           two small marks at the top of the header
+//   slide   on a list the two are pages side by side: a sideways drag moves
+//           both with the finger, and on release they settle on the nearer
+//           one, or on the one a flick points at. The header stays; its two
+//           marks follow the slide. The grid changes page at once.
 //
 // Back from a card or a prompt: swipe right, or BOOT. A tile's icons (tool
 // chip, subagent critter) keep to a band above the critter, so they never
@@ -242,6 +246,30 @@ static inline int squareSpots(const SquareSpec& S) {
 }
 
 static inline bool onNeedsYou(const PanelUi& ui) { return ui.needsYou && ui.att; }
+
+// A list home's two pages, "Needs you" (0) and the list (1), slide sideways
+// when the board has both and home shows.
+static inline bool hasPager(const SquareSpec& S, const PanelUi& ui) {
+  return S.home == HomeKind::List && ui.screen == Screen::Home && ui.att;
+}
+
+// Where the pages are: 0 = "Needs you" on screen, 1 = the list, between the
+// two while they slide (a little past either end while a finger pulls there).
+static inline float pagerPos(const PanelUi& ui) {
+  if (ui.att && (ui.sliding || ui.slideAnim)) return ui.slide;
+  return onNeedsYou(ui) ? 0.f : 1.f;
+}
+
+// Where released pages come to rest: the page a flick points at (the finger
+// moving right brings "Needs you" in from the left), else the nearer one.
+static inline int pagerTarget(float pos, float velocity) {
+  if (velocity > 0.5f) return 0;
+  if (velocity < -0.5f) return 1;
+  return pos >= 0.5f ? 1 : 0;
+}
+
+// The settle animations' curve: fast at first, slowing into place.
+static inline float easeOut(float p) { return 1 - (1 - p) * (1 - p) * (1 - p); }
 
 // The grid's row under the cells stays with one page on Wi-Fi (the mark's)
 // and with the "Needs you" screen (its mark at the left).
@@ -499,6 +527,15 @@ static inline void squareFix(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
     if (ui.scroll > mx) ui.scroll = mx;
     if (ui.scroll < 0) ui.scroll = 0;
   }
+  if (!hasPager(S, ui)) ui.sliding = ui.slideAnim = false;   // a card opened, or the screen is gone
+}
+
+// Lets the list come to rest on a row from where it is.
+static inline void listRest(PanelUi& ui, const SquareSpec& S, const Fleet& f, float velocity, uint32_t ms) {
+  ui.scrollFrom = ui.scroll;
+  ui.scrollTo = settleTarget(S, f, ui.scroll, velocity);
+  ui.animStart = ms;
+  ui.animating = true;
 }
 
 static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Fleet& f, const PanelHit& h, DeckScope scope,
@@ -561,24 +598,30 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
   DeckCommand out;
   if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);   // the spots the finger lands on are the ones drawn
   const bool list = S.home == HomeKind::List && ui.screen == Screen::Home && !onNeedsYou(ui);   // "Needs you" doesn't scroll
+  const bool pager = hasPager(S, ui);
   if (touching) {
     if (!ui.down) {
+      const bool sliding = pager && ui.slideAnim;  // the pages are still settling
       ui.down = true;
       ui.dragging = false;
       ui.x0 = ui.x = x;
       ui.y0 = ui.y = y;
       ui.downMs = ui.lastMs = ms;
+      ui.lastX = x;
       ui.lastY = y;
       ui.velocity = 0;
       ui.holdFired = false;
-      ui.caught = list && ui.animating;
-      if (ui.caught) {                             // catch the moving list
+      ui.caught = (list && ui.animating) || sliding;
+      if (list && ui.animating) {                  // catch the moving list
         ui.animating = false;
         ui.settledMs = ms ? ms : 1;
-        ui.pressed = PanelHit();
-      } else {
-        ui.pressed = squareHit(S, ui, f, x, y, scope);
       }
+      // Catch the sliding pages where they are: this touch moves them on.
+      ui.slide0 = sliding ? ui.slide : pagerPos(ui);
+      ui.slideAnim = false;
+      ui.sliding = sliding;
+      if (ui.caught) ui.pressed = PanelHit();
+      else ui.pressed = squareHit(S, ui, f, x, y, scope);
       ui.scroll0 = ui.scroll;
       if (ui.pressed.kind == Hit::Stop && scope != DeckScope::Admin) ui.pressed = PanelHit();
       return out;
@@ -587,8 +630,27 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
     ui.y = y;
     const int dx = x - ui.x0, dy = y - ui.y0;
     if (dx * dx + dy * dy > kSlop * kSlop) ui.pressed = PanelHit();   // it became a drag
-    if (list && !ui.dragging && (dy > kSlop || dy < -kSlop) && (dy < 0 ? -dy : dy) >= (dx < 0 ? -dx : dx))
-      ui.dragging = true;
+    // One direction to a touch, chosen when it leaves the slop: up and down
+    // scrolls the list, sideways slides the pages.
+    const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if (list && !ui.dragging && !ui.sliding && ady > kSlop && ady >= adx) ui.dragging = true;
+    if (pager && !ui.dragging && !ui.sliding && adx > kSlop && adx > ady) {
+      ui.sliding = true;
+      ui.slide0 = pagerPos(ui);
+    }
+    if (ui.sliding) {
+      float p = ui.slide0 - (float)dx / S.w;       // the pages follow the finger
+      if (p < 0) p *= 0.35f;                       // a little give past the ends, no page beyond them
+      if (p > 1) p = 1 + (p - 1) * 0.35f;
+      ui.slide = p;
+      const uint32_t dt = ms - ui.lastMs;
+      if (dt > 0) {
+        const float v = (float)(x - ui.lastX) / dt;
+        ui.velocity = ui.velocity * 0.4f + v * 0.6f;
+        ui.lastX = x;
+        ui.lastMs = ms;
+      }
+    }
     if (ui.dragging) {
       const float mx = maxScroll(S, f);
       float s = ui.scroll0 - dy;
@@ -615,22 +677,29 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
   ui.down = false;
   const PanelHit pressed = ui.pressed;
   ui.pressed = PanelHit();
+  if (ui.sliding) {                                // the pages: on to the one they settle on
+    ui.sliding = false;
+    if (ms - ui.lastMs > 80) ui.velocity = 0;       // it stopped before letting go
+    const int to = pagerTarget(ui.slide, ui.velocity);
+    ui.needsYou = to == 0;                         // the page is chosen now; the slide only shows the way there
+    if (to) ui.page = 0;
+    ui.slideFrom = ui.slide;
+    ui.slideTo = (float)to;
+    ui.slideStart = ms;
+    ui.slideAnim = true;
+    if (ui.scroll != settleTarget(S, f, ui.scroll, 0)) listRest(ui, S, f, 0, ms);   // a list caught between rows
+    return out;
+  }
   if (ui.dragging) {
     ui.dragging = false;
     if (ms - ui.lastMs > 80) ui.velocity = 0;       // it stopped before letting go
-    ui.scrollFrom = ui.scroll;
-    ui.scrollTo = settleTarget(S, f, ui.scroll, ui.velocity);
-    ui.animStart = ms;
-    ui.animating = true;
+    listRest(ui, S, f, ui.velocity, ms);
     return out;
   }
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
   const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   if (ui.caught) {                                 // it only stopped the list: rest on a row
-    ui.scrollFrom = ui.scroll;
-    ui.scrollTo = settleTarget(S, f, ui.scroll, 0);
-    ui.animStart = ms;
-    ui.animating = true;
+    listRest(ui, S, f, 0, ms);
   } else if (adx <= kSlop && ady <= kSlop) {
     if (pressed.kind != Hit::None || (uint32_t)(ms - ui.downMs) <= kTapMaxMs)
       out = squareTap(ui, S, f, pressed.kind != Hit::None ? pressed : squareHit(S, ui, f, ui.x0, ui.y0, scope), scope, ms);
@@ -653,11 +722,16 @@ static inline bool squareTick(PanelUi& ui, const SquareSpec& S, const Fleet& f, 
       ui.animating = false;
       ui.settledMs = ms ? ms : 1;
     } else {
-      const float p = (float)t / kSettleMs, e = 1 - (1 - p) * (1 - p) * (1 - p);   // ease out
-      ui.scroll = ui.scrollFrom + (ui.scrollTo - ui.scrollFrom) * e;
+      ui.scroll = ui.scrollFrom + (ui.scrollTo - ui.scrollFrom) * easeOut((float)t / kSettleMs);
     }
   }
-  return ui.dragging || ui.animating || posBarAlpha(ui, ms) > 0 || (ui.down && ui.pressed.kind == Hit::Stop);
+  if (ui.slideAnim) {
+    const uint32_t t = ms - ui.slideStart;
+    // Over, or the page was changed under it (BOOT, the deck): show that page.
+    if (t >= kSettleMs || ui.slideTo != (onNeedsYou(ui) ? 0.f : 1.f)) ui.slideAnim = false;
+    else ui.slide = ui.slideFrom + (ui.slideTo - ui.slideFrom) * easeOut((float)t / kSettleMs);
+  }
+  return ui.dragging || ui.animating || ui.sliding || ui.slideAnim || posBarAlpha(ui, ms) > 0 || (ui.down && ui.pressed.kind == Hit::Stop);
 }
 
 static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) {
@@ -679,6 +753,10 @@ static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32
 // list, the "Needs you" screen and back.
 static inline void squareButton(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
   if (ui.screen != Screen::Home) { squareHome(ui); return; }
+  if (ui.sliding || ui.slideAnim) {                // pressed while the pages slide: the page changes at once,
+    ui.sliding = ui.slideAnim = false;             // and a finger still down does nothing more
+    if (ui.down) { ui.caught = true; ui.x0 = ui.x; ui.y0 = ui.y; ui.pressed = PanelHit(); }
+  }
   if (onNeedsYou(ui)) { ui.needsYou = false; ui.page = 0; return; }
   if (S.home == HomeKind::Grid) {
     const int pages = pageCount(S, f);
@@ -904,14 +982,18 @@ static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base, bool bl
 // (the header's text leaves no room for them on the 1.8" on Wi-Fi): "Needs
 // you" (solid orange while you are on it, an orange outline while someone is
 // on it), then the list (bright while you are on it).
+// While the pages slide the marks follow: the wide one narrows as the other
+// widens, the list's brightens, and "Needs you" fills at halfway.
 static inline void listMarks(Canvas& c, const SquareSpec& S, const Theme& T, const PanelUi& ui) {
-  const bool here = onNeedsYou(ui);
+  float p = pagerPos(ui);                          // 0 = "Needs you", 1 = the list
+  p = p < 0 ? 0 : p > 1 ? 1 : p;
+  const bool here = p < 0.5f;
   const int cur = 20, other = 10, h = 6, gap = 5, y = 3;
-  const int mw = here ? cur : other, lw = here ? other : cur;
+  const int lw = other + (int)lroundf((cur - other) * p), mw = cur + other - lw;
   const int x = (S.w - mw - gap - lw) / 2;
   if (here) fillPill(c, x, y, mw, h, T.accent);
   else strokePill(c, x, y, mw, h, 2, ui.att->count ? T.accent : T.ringTrack);
-  fillPill(c, x + mw + gap, y, lw, h, here ? T.ringTrack : T.ink);
+  fillPill(c, x + mw + gap, y, lw, h, blend565(T.ringTrack, T.ink, (uint8_t)lroundf(p * 15)));
 }
 
 static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link,
@@ -942,26 +1024,32 @@ static inline void listEmpty(Canvas& c, const Theme& T, const Rect& r) {
   roundFrame(c, r.x, r.y, r.w, r.h, 8, 1, T.emptyOutline);
 }
 
-static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
+// The list's "Needs you" page: one screen of spots, no scrolling. dx: how far
+// right of its place it is drawn (the pages sliding).
+static inline void listSpots(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, int dx) {
   const Fleet& f = *in.fleet;
   const PanelUi& ui = *in.ui;
-  if (onNeedsYou(ui)) {                            // one screen of spots, no scrolling
-    for (int s = 0; s < squareSpots(S); s++) {
-      const Rect r = listTile(S, s, 0);
-      const int i = attAgent(*ui.att, f, s);
-      if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, S.headerH);
-      else listEmpty(c, T, r);
-    }
-    listHeader(c, S, T, f, in.link, ui.wifi, ui.ble, &ui);
-    return;
+  for (int s = 0; s < squareSpots(S); s++) {
+    Rect r = listTile(S, s, 0);
+    r.x += dx;
+    if (r.x + r.w <= 0 || r.x >= S.w) continue;
+    const int i = attAgent(*ui.att, f, s);
+    if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, S.headerH);
+    else listEmpty(c, T, r);
   }
+}
+
+// The list itself, and its position bar, dx to the right of its place.
+static inline void listTiles(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, int dx) {
+  const Fleet& f = *in.fleet;
+  const PanelUi& ui = *in.ui;
   for (int i = 0; i < f.count; i++) {
-    const Rect r = listTile(S, i, ui.scroll);
-    if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+    Rect r = listTile(S, i, ui.scroll);
+    r.x += dx;
+    if (r.y + r.h <= S.headerH || r.y >= S.h || r.x + r.w <= 0 || r.x >= S.w) continue;
     tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i,
          S.headerH);
   }
-  listHeader(c, S, T, f, in.link, ui.wifi, ui.ble, &ui);
   // The position bar while the list moves, fading a second after it settles.
   const int alpha = posBarAlpha(ui, in.ms);
   const float mx = maxScroll(S, f);
@@ -974,8 +1062,20 @@ static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     float s = ui.scroll < 0 ? 0 : ui.scroll > mx ? mx : ui.scroll;
     const int y = top + (int)((span - len) * s / mx);
     const uint16_t col = blend565(T.bg, blend565(T.bg, T.ink, 10), (uint8_t)alpha);
-    roundRect(c, S.posX, y, S.posW, len, S.posW / 2, col);
+    roundRect(c, S.posX + dx, y, S.posW, len, S.posW / 2, col);
   }
+}
+
+// The list home: the page that shows, or, while the pages slide, both side by
+// side ("Needs you" at the left), each where the slide puts it. Each tile is
+// drawn once into the one frame, and the canvas cuts what leaves the screen.
+// The header stays in place over them.
+static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
+  const PanelUi& ui = *in.ui;
+  const int listX = S.w - (int)lroundf(pagerPos(ui) * S.w);   // 0 with the list on screen, S.w with "Needs you"
+  if (ui.att && listX > 0) listSpots(c, S, T, in, listX - S.w);
+  if (listX < S.w) listTiles(c, S, T, in, listX);
+  listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, &ui);
 }
 
 static inline void pageBars(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, int page, int pages,
