@@ -155,7 +155,7 @@ func TestAgentParity(t *testing.T) {
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {

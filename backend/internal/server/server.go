@@ -24,6 +24,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
+	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -38,6 +39,7 @@ type Controller interface {
 
 // Prompter types a task into an agent's session and presses Enter (POST
 // /v1/agents/{id}/prompt); with interrupt, it stops the current turn first.
+// Queued prompts (queue.go) go in through it too.
 type Prompter interface {
 	Prompt(id, text string, interrupt bool) error
 }
@@ -111,6 +113,9 @@ type Server struct {
 	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
 	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
 	Tokens *devices.Tokens
+	// Queue holds prompts sent with "mode": "queue" until their agent is
+	// idle (queue.go; RunQueue types them in). nil: queueing is off.
+	Queue *queue.Queue
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -150,7 +155,8 @@ type Server struct {
 	Admin   http.Handler
 	logins  loginCodes
 	apiOnce sync.Once
-	held    stash // the magic trick: what the receiver holds (stash.go)
+	held    stash    // the magic trick: what the receiver holds (stash.go)
+	queue   delivery // typing queued prompts in (queue.go)
 	apiMux  *http.ServeMux
 }
 
@@ -187,9 +193,28 @@ func (s *Server) api() *http.ServeMux {
 		var body struct {
 			Text      string `json:"text"`
 			Interrupt bool   `json:"interrupt"`
+			Mode      string `json:"mode"`     // now | interrupt | queue ("": now, or interrupt with "interrupt": true)
+			Position  string `json:"position"` // queue only: back (default) | front
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 3*MaxPromptBytes)).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "interrupt": false}`)
+			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "mode": "now"|"interrupt"|"queue"}`)
+			return
+		}
+		mode := body.Mode
+		switch {
+		case mode == "" && body.Interrupt:
+			mode = "interrupt"
+		case mode == "":
+			mode = "now"
+		case mode != "now" && mode != "interrupt" && mode != "queue":
+			writeErr(w, http.StatusBadRequest, `"mode" is now, interrupt or queue`)
+			return
+		case body.Interrupt && mode != "interrupt":
+			writeErr(w, http.StatusBadRequest, `"interrupt": true goes with "mode": "interrupt" only`)
+			return
+		}
+		if body.Position != "" && body.Position != "back" && body.Position != "front" {
+			writeErr(w, http.StatusBadRequest, `"position" is back or front`)
 			return
 		}
 		text, err := CleanPrompt(body.Text)
@@ -202,8 +227,14 @@ func (s *Server) api() *http.ServeMux {
 			writeErr(w, http.StatusNotImplemented, "sending prompts is not available here")
 			return
 		}
-		s.act(w, p.Prompt(r.PathValue("id"), text, body.Interrupt))
+		if mode == "queue" {
+			s.enqueue(w, r, p, r.PathValue("id"), text, body.Position == "front")
+			return
+		}
+		s.act(w, s.prompt(p, r.PathValue("id"), text, mode == "interrupt"))
 	})
+	mux.HandleFunc("GET /v1/agents/{id}/queue", s.getQueue)
+	mux.HandleFunc("POST /v1/agents/{id}/queue/{qid}/cancel", s.cancelQueued)
 	mux.HandleFunc("POST /v1/agents/{id}/focus", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Focus(r.PathValue("id")))
 	})

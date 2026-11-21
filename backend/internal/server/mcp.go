@@ -204,7 +204,7 @@ func (s *Server) mcpMethod(who devices.Device, req rpcRequest) (any, *rpcError) 
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "agents-deck", "title": "agents deck", "version": s.version()},
 			"instructions": "agents deck runs coding agents (Claude Code, Codex) on this computer. Use list_agents to see them, " +
-				"send_prompt to give an idle agent a task, answer when one waits on a question, interrupt to stop a turn, " +
+				"send_prompt to give an idle agent a task (mode queue: a busy one gets it when its turn ends), answer when one waits on a question, interrupt to stop a turn, " +
 				"and start_agent to start a new agent in a folder. Your token's scope: " + string(who.Scope) + ".",
 		}, nil
 	case "ping":
@@ -296,21 +296,36 @@ var mcpTools = []mcpTool{
 	{Name: "list_agents", Title: "List agents",
 		Description: "Every agent on the deck, compact: id, title, folder, tool, where it runs, status (starting, running, waiting, idle, error, exited), " +
 			"what it is doing, the question it waits on (with option keys to pass to answer), context use, working subagents, " +
-			"and acceptsPrompts (whether send_prompt can reach it). Start here, and call again to follow progress.",
+			"queued (prompts waiting for its turn to end) and acceptsPrompts (whether send_prompt can reach it). Start here, and call again to follow progress.",
 		InputSchema: schema(nil, map[string]any{}), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_agent", Title: "Get an agent",
 		Description: "Everything about one agent: status, its last prompt, current activity, the full waiting question (detail and options), " +
-			"working subagents, tokens, cost, model, branch and folder.",
+			"working subagents, queued prompts (how many; list_queue lists them), tokens, cost, model, branch and folder.",
 		InputSchema: schema([]string{"agent_id"}, map[string]any{"agent_id": agentIDProp}), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "send_prompt", Title: "Send a prompt",
 		Description: "Types a task into the agent's session and presses Enter, as if you typed it there. Works for agents the deck started " +
 			"and agents in herdr, cmux or Orca (acceptsPrompts true); sessions started by hand in another terminal are read-only. " +
-			"Refused while the agent is working or waiting on a question, unless interrupt is true (then Esc stops it first). " +
-			"Text is at most 4000 bytes; newlines are kept as part of the prompt.",
+			"mode now (the default) refuses while the agent is working or waiting on a question; mode interrupt presses Esc first to stop it; " +
+			"mode queue keeps the prompt and types it in when the agent's turn ends (status idle), one queued prompt per turn, " +
+			"or at once when it is idle already. Queued prompts wait while the agent asks a question: answer it, and the queue goes on after that turn. " +
+			"The result says sent, or queued with its queue_id. Text is at most 4000 bytes; newlines are kept as part of the prompt.",
 		InputSchema: schema([]string{"agent_id", "text"}, map[string]any{
-			"agent_id":  agentIDProp,
-			"text":      prop("string", "The prompt, as you would type it to the agent."),
-			"interrupt": prop("boolean", "Stop the agent's current turn (Esc) before typing. Default false."),
+			"agent_id": agentIDProp,
+			"text":     prop("string", "The prompt, as you would type it to the agent."),
+			"mode": map[string]any{"type": "string", "enum": []string{"now", "interrupt", "queue"},
+				"description": "now (default): only when the agent is idle. interrupt: stop its turn (Esc), then type. queue: when its turn ends."},
+			"queue_position": map[string]any{"type": "string", "enum": []string{"back", "front"},
+				"description": "mode queue: back (default) waits behind prompts queued earlier; front goes next."},
+			"interrupt": prop("boolean", "Same as mode interrupt (kept for older clients). Default false."),
+		})},
+	{Name: "list_queue", Title: "List queued prompts",
+		Description: "The prompts queued for an agent (send_prompt with mode queue), next first: queue_id, text, who queued it and when.",
+		InputSchema: schema([]string{"agent_id"}, map[string]any{"agent_id": agentIDProp}), Annotations: map[string]any{"readOnlyHint": true}},
+	{Name: "cancel_queued", Title: "Cancel a queued prompt",
+		Description: "Takes a queued prompt back before it is typed in. Take queue_id from send_prompt or list_queue.",
+		InputSchema: schema([]string{"agent_id", "queue_id"}, map[string]any{
+			"agent_id": agentIDProp,
+			"queue_id": prop("string", "The queued prompt's id (q and 6 characters)."),
 		})},
 	{Name: "answer", Title: "Answer a question",
 		Description: "Answers the question or permission prompt an agent waits on (status waiting) by picking one of its options. " +
@@ -351,6 +366,8 @@ func init() {
 		"list_agents":   toolListAgents,
 		"get_agent":     toolGetAgent,
 		"send_prompt":   toolSendPrompt,
+		"list_queue":    toolListQueue,
+		"cancel_queued": toolCancelQueued,
 		"answer":        toolAnswer,
 		"interrupt":     toolInterrupt,
 		"start_agent":   toolStartAgent,
@@ -456,13 +473,14 @@ type mcpAgentRow struct {
 	Error          string     `json:"error,omitempty"`
 	ContextPct     int        `json:"contextPct"`
 	Subagents      int        `json:"subagents"`
+	Queued         int        `json:"queued"`
 	Unseen         bool       `json:"finishedUnseen,omitempty"`
 	AcceptsPrompts bool       `json:"acceptsPrompts"`
 }
 
 func rowOf(a model.Agent) mcpAgentRow {
 	r := mcpAgentRow{ID: a.ID, Title: a.Title, Folder: a.Folder, Tool: a.Tool, RunsIn: runsIn(a), Status: string(a.Status),
-		LastPrompt: clip(a.LastPrompt, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents),
+		LastPrompt: clip(a.LastPrompt, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents), Queued: a.Queued,
 		Unseen: a.Unseen, AcceptsPrompts: acceptsPrompts(a)}
 	if a.AITitle != "" {
 		r.Title = a.Title + " (" + a.AITitle + ")"
@@ -566,11 +584,83 @@ func toolSendPrompt(s *Server, who devices.Device, a mcpArgs) (string, error) {
 		return "", err
 	}
 	text, _ := a["text"].(string)
-	if _, err := s.call(who, http.MethodPost, "/v1/agents/"+url.PathEscape(id)+"/prompt",
-		map[string]any{"text": text, "interrupt": a.flag("interrupt")}); err != nil {
+	mode := a.str("mode")
+	switch {
+	case mode == "" && a.flag("interrupt"):
+		mode = "interrupt"
+	case mode == "":
+		mode = "now"
+	case mode != "now" && mode != "interrupt" && mode != "queue":
+		return "", errors.New("mode is now, interrupt or queue")
+	case a.flag("interrupt") && mode != "interrupt":
+		return "", errors.New("interrupt true goes with mode interrupt only (or leave mode out)")
+	}
+	body := map[string]any{"text": text, "mode": mode}
+	if mode == "queue" {
+		switch pos := a.str("queue_position"); pos {
+		case "", "back", "front":
+			body["position"] = pos
+		default:
+			return "", errors.New("queue_position is back or front")
+		}
+	}
+	out, err := s.call(who, http.MethodPost, "/v1/agents/"+url.PathEscape(id)+"/prompt", body)
+	if err != nil {
 		return "", err
 	}
+	var r struct {
+		Status   string `json:"status"`
+		ID       string `json:"id"`
+		Position int    `json:"position"`
+	}
+	_ = json.Unmarshal(out, &r)
+	if r.Status == "queued" {
+		return asJSON(map[string]any{"status": "queued", "agent_id": id, "queue_id": r.ID, "position": r.Position,
+			"note": "typed in when " + id + "'s turn ends (status idle); list_queue shows it, cancel_queued takes it back"}), nil
+	}
 	return "sent: " + id + " has the prompt (list_agents shows it running once it starts)", nil
+}
+
+func toolListQueue(s *Server, who devices.Device, a mcpArgs) (string, error) {
+	id, err := a.need("agent_id")
+	if err != nil {
+		return "", err
+	}
+	out, err := s.call(who, http.MethodGet, "/v1/agents/"+url.PathEscape(id)+"/queue", nil)
+	if err != nil {
+		return "", err
+	}
+	var r struct{ Queue []QueuedPrompt }
+	if err := json.Unmarshal(out, &r); err != nil {
+		return "", err
+	}
+	type row struct {
+		QueueID  string    `json:"queue_id"`
+		Position int       `json:"position"`
+		Text     string    `json:"text"`
+		By       string    `json:"by"`
+		QueuedAt time.Time `json:"queuedAt"`
+	}
+	rows := make([]row, 0, len(r.Queue))
+	for i, q := range r.Queue {
+		rows = append(rows, row{q.ID, i + 1, q.Text, q.By, q.QueuedAt})
+	}
+	return asJSON(map[string]any{"agent_id": id, "queue": rows}), nil
+}
+
+func toolCancelQueued(s *Server, who devices.Device, a mcpArgs) (string, error) {
+	id, err := a.need("agent_id")
+	if err != nil {
+		return "", err
+	}
+	qid, err := a.need("queue_id")
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.call(who, http.MethodPost, "/v1/agents/"+url.PathEscape(id)+"/queue/"+url.PathEscape(qid)+"/cancel", nil); err != nil {
+		return "", err
+	}
+	return "cancelled " + qid + ": it won't be sent to " + id, nil
 }
 
 func toolAnswer(s *Server, who devices.Device, a mcpArgs) (string, error) {

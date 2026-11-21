@@ -732,6 +732,7 @@ var Routes = map[string]string{
 	"focus":          "POST /v1/agents/{id}/focus",
 	"interrupt":      "POST /v1/agents/{id}/interrupt",
 	"send_prompt":    "POST /v1/agents/{id}/prompt",
+	"queue":          "GET /v1/agents/{id}/queue | POST /v1/agents/{id}/queue/{qid}/cancel",
 	"dismiss":        "POST /v1/agents/{id}/dismiss",
 	"resume":         "POST /v1/agents/{id}/resume",
 	"move":           "POST /v1/agents/{id}/move",
@@ -834,8 +835,37 @@ func (s *Session) command(f *linkpb.Frame) error {
 	case *linkpb.Frame_Answer:
 		method, path, body = http.MethodPost, agentPath(b.Answer.AgentId, "answer"), map[string]string{"promptId": b.Answer.PromptId, "key": b.Answer.Key}
 	case *linkpb.Frame_SendPrompt:
-		method, path, body = http.MethodPost, agentPath(b.SendPrompt.AgentId, "prompt"),
-			map[string]any{"text": b.SendPrompt.Text, "interrupt": b.SendPrompt.Interrupt}
+		sp := b.SendPrompt
+		pb := map[string]any{"text": sp.Text, "interrupt": sp.Interrupt}
+		switch sp.Mode {
+		case linkpb.SendMode_SEND_INTERRUPT:
+			pb["interrupt"] = true
+		case linkpb.SendMode_SEND_QUEUE:
+			pb["mode"] = "queue"
+			if sp.Front {
+				pb["position"] = "front"
+			}
+		}
+		method, path, body = http.MethodPost, agentPath(sp.AgentId, "prompt"), pb
+	case *linkpb.Frame_Queue:
+		if b.Queue.CancelId != "" {
+			method, path = http.MethodPost, agentPath(b.Queue.AgentId, "queue/"+url.PathEscape(b.Queue.CancelId)+"/cancel")
+			break
+		}
+		return s.typed(f.Seq, agentPath(b.Queue.AgentId, "queue"), func(raw []byte) *linkpb.Frame {
+			var r struct {
+				Queue []struct {
+					ID, Text, By string
+					QueuedAt     time.Time
+				}
+			}
+			_ = json.Unmarshal(raw, &r)
+			l := &linkpb.QueueList{Total: uint32(len(r.Queue))}
+			for _, x := range r.Queue {
+				l.Prompts = append(l.Prompts, &linkpb.QueuedPrompt{Id: x.ID, Text: x.Text, By: x.By, QueuedAtMs: ms(x.QueuedAt)})
+			}
+			return &linkpb.Frame{Body: &linkpb.Frame_QueueList{QueueList: l}}
+		})
 	case *linkpb.Frame_Focus:
 		method, path = http.MethodPost, agentPath(b.Focus.AgentId, "focus")
 	case *linkpb.Frame_Interrupt:

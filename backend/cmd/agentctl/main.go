@@ -36,6 +36,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
+	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
@@ -1189,6 +1190,14 @@ func serve(args []string) error {
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()},
 		Tokens: &devices.Tokens{Path: paths.MCPTokens()}}
+	// Prompts queued for busy agents survive a restart (a demo keeps them in memory).
+	queuePath := paths.PromptQueue()
+	if *demoMode {
+		queuePath = ""
+	}
+	srv.Queue = queue.Open(queuePath)
+	st.Queued = srv.Queue.Agents
+	go srv.RunQueue(context.Background())
 	errc := make(chan error, 4)
 	// The default Wi-Fi network for boards plugged in over USB: its password in
 	// the OS secret store (the login Keychain on macOS), never in a file here.

@@ -2,7 +2,8 @@
 
 agents deck is also an [MCP](https://modelcontextprotocol.io) server. Add it to a capable agent
 (Claude Code, for example) and that agent can see every agent on your deck, give them tasks, answer
-their questions, stop them, and start new ones in a project folder with a first prompt. You talk to
+their questions, stop them, queue the next task for one that is busy, and start new ones in a project
+folder with a first prompt. You talk to
 one agent; it orchestrates the rest.
 
 It works only on this computer: over HTTP on the dashboard's address (`127.0.0.1`), or over stdio
@@ -14,8 +15,8 @@ In **Settings, Agents, MCP**, click **New token**, give it a name and pick what 
 
 | scope | in Settings | may |
 |---|---|---|
-| `view` | look only | `list_agents`, `get_agent` |
-| `act` | can answer (the default) | also `send_prompt`, `answer`, `interrupt` |
+| `view` | look only | `list_agents`, `get_agent`, `list_queue` |
+| `act` | can answer (the default) | also `send_prompt` (every mode), `cancel_queued`, `answer`, `interrupt` |
 | `admin` | can manage | also `start_agent`, `list_sessions`, `add_session` |
 
 The token (`adk_` and 64 hex digits) is shown once, with the commands below filled in. The deck keeps
@@ -60,9 +61,11 @@ interrupt to stop it first".
 
 | tool | scope | arguments | what it does |
 |---|---|---|---|
-| `list_agents` | view | – | every agent, compact: `id`, `title`, `folder`, `tool`, `runsIn` (`deck`, `herdr`, `cmux`, `orca`, or read-only elsewhere), `status`, how long in it, what it is doing, its last prompt, the question it waits on (`promptId`, option keys and labels), `contextPct`, working `subagents`, `acceptsPrompts` |
-| `get_agent` | view | `agent_id` | one agent in full: the whole question, subagents, model, branch, folder, tokens, cost, turns |
-| `send_prompt` | act | `agent_id`, `text`, `interrupt` (default false) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`) |
+| `list_agents` | view | – | every agent, compact: `id`, `title`, `folder`, `tool`, `runsIn` (`deck`, `herdr`, `cmux`, `orca`, or read-only elsewhere), `status`, how long in it, what it is doing, its last prompt, the question it waits on (`promptId`, option keys and labels), `contextPct`, working `subagents`, `queued` (prompts waiting for its turn to end), `acceptsPrompts` |
+| `get_agent` | view | `agent_id` | one agent in full: the whole question, subagents, `queued`, model, branch, folder, tokens, cost, turns |
+| `send_prompt` | act | `agent_id`, `text`, `mode` (`now`, `interrupt` or `queue`; default `now`), `queue_position` (`back` or `front`; default `back`), `interrupt` (the same as `mode: interrupt`, for older clients) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`), now or once its turn ends: see [Queue a prompt](#queue-a-prompt-for-a-busy-agent). Answers `sent: …`, or, when queued, `{"status": "queued", "queue_id", "position", …}` |
+| `list_queue` | view | `agent_id` | the prompts queued for the agent, next first: `queue_id`, `position`, `text`, `by` (who queued it), `queuedAt` |
+| `cancel_queued` | act | `agent_id`, `queue_id` | takes a queued prompt back before it is typed in |
 | `answer` | act | `agent_id`, `prompt_id`, `key` | picks an option of the question the agent waits on |
 | `interrupt` | act | `agent_id` | presses Esc: stops the current turn |
 | `start_agent` | admin | `folder`, `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent in the folder, on the deck; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
@@ -81,11 +84,53 @@ interrupt to stop it first".
   into another app's terminal, so these are read-only: you see them and can answer nothing. The tool
   says so; start agents with `start_agent` to give them tasks.
 
-A prompt is refused (`409`) while the agent is working on a turn, waiting on a question (use
-`answer`), still starting, or exited. With `interrupt: true`, a working or asking agent gets Esc first,
-then the prompt. Agents whose status the deck can't see (Codex or a shell started here) take a prompt
-at any time. Text: up to 4000 bytes, newlines and tabs but no other control characters (an escape
+`send_prompt` has three modes:
+
+- **`now`** (the default): refused (`409`) while the agent is working on a turn, waiting on a question
+  (use `answer`), still starting, or exited.
+- **`interrupt`**: a working or asking agent gets Esc first, then the prompt. `interrupt: true` does
+  the same, for clients written before `mode`.
+- **`queue`**: see below.
+
+Agents whose status the deck can't see (Codex or a shell started here) take a prompt at any time, in
+every mode. Text: up to 4000 bytes, newlines and tabs but no other control characters (an escape
 sequence could press keys of its own).
+
+## Queue a prompt for a busy agent
+
+With `mode: queue` you don't have to poll until an agent is idle, or stop it. The deck keeps the
+prompt and types it in the moment the agent's turn ends (its status goes `idle`). If the agent is idle
+already and nothing is queued for it, the prompt goes in at once and the answer is `sent`.
+
+```json
+{"name": "send_prompt", "arguments": {"agent_id": "k3f9a2", "text": "now run the integration tests", "mode": "queue"}}
+```
+
+```json
+{"status": "queued", "agent_id": "k3f9a2", "queue_id": "q7m2x0d", "position": 1,
+ "note": "typed in when k3f9a2's turn ends (status idle); list_queue shows it, cancel_queued takes it back"}
+```
+
+- **One per turn, in order.** Queued prompts go in one at a time: each waits until the turn the one
+  before it started has ended. `queue_position: front` puts a prompt before the ones queued earlier;
+  `back` (the default) after them.
+- **Questions are never answered for you.** While the agent waits on a question or a permission, its
+  queue waits too, and the question stays on the deck for you (or the orchestrator, with `answer`).
+  Once it is answered and that turn ends, the queue goes on.
+- **See and cancel.** `list_agents` and `get_agent` show `queued: n`; `list_queue` lists the prompts
+  with their `queue_id`; `cancel_queued` takes one back. The deck shows the count on the agent's tile
+  and lists the prompts, each with **Cancel**, on its page.
+- **Kept across restarts.** The queue is `prompt-queue.json` in the data folder (0600). At most 20
+  prompts per agent. An agent that has exited takes no new prompts; one that leaves the deck has its
+  queue dropped after 10 minutes.
+- **Every tool.** The deck keeps the queue itself, so Claude Code, Codex and shells behave the same:
+  each queued prompt goes in through the same path as `now`. An agent whose status the deck can't
+  see gets it at once.
+
+```json
+{"name": "list_queue", "arguments": {"agent_id": "k3f9a2"}}
+{"name": "cancel_queued", "arguments": {"agent_id": "k3f9a2", "queue_id": "q7m2x0d"}}
+```
 
 ## Security
 
@@ -96,11 +141,15 @@ sequence could press keys of its own).
   still sends the token, and the service checks it as on HTTP. The dashboard's login cookie is not a
   token.
 - **Scopes.** A token may do what its scope allows and nothing more; `start_agent` needs `admin`.
+  Queueing and cancelling need `act`, as sending does; `list_queue` needs `view`.
 - **Stored as a hash.** `mcp-tokens.json` in the data folder (0600) holds names, scopes and SHA-256
   hashes, never tokens. A revoked token's hash is dropped.
 - **Audited.** Every call that changes something is in `audit.log` under `mcp:<name>`, for example
   `{"device": "mcp:claude-main", "action": "POST /v1/agents/k3f9a2/prompt", "status": 204}`, and
-  `"action": "start agent"` for `start_agent`. The prompt's text is not logged.
+  `"action": "start agent"` for `start_agent`. A queued prompt has its id in `detail`
+  (`"status": 202, "detail": "queued q7m2x0d at the back"`; a cancel `"cancelled q7m2x0d"`), and the
+  deck logs typing it in under the same name: `{"device": "mcp:claude-main", "action": "deliver queued
+  prompt", "status": 204, "detail": "q7m2x0d to k3f9a2"}`. The prompt's text is not logged.
 - **What an orchestrator can do.** An `act` token can type anything into your agents, and they act on
   it with the permissions you gave them. Give `admin` only to an agent you would let start new
   agents in any folder.

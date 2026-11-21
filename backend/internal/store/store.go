@@ -179,6 +179,8 @@ type Store struct {
 	// Account gives each agent its Claude account, from the account it was
 	// started in or its transcript's folder (nil: accounts aren't shown).
 	Account func(name, transcript string) *model.Account
+	// Queued counts each agent's queued prompts (nil: no queue).
+	Queued func() map[string]int
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -462,9 +464,14 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account := s.Hat, s.Account
+	hat, account, queued := s.Hat, s.Account, s.Queued
 	s.mu.Unlock()
+	var counts map[string]int
+	if queued != nil {
+		counts = queued()
+	}
 	for i := range agents {
+		agents[i].Queued = counts[agents[i].ID]
 		if hat != nil {
 			agents[i].Hat = hat(agents[i].Cwd)
 		}

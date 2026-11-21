@@ -32,7 +32,9 @@ mutating request whose `Origin` is not that host.
 | GET | `/v1/state` | – | `State` |
 | GET | `/v1/events` | – | Server-Sent Events, see below |
 | POST | `/v1/agents/{id}/answer` | `{"promptId": "...", "key": "1"}` | `204`; `409` if `promptId` is no longer the agent's current prompt; `400` if `key` is not one of its options |
-| POST | `/v1/agents/{id}/prompt` | `{"text": "fix the failing test", "interrupt": false}` | `204`: types the text into the agent's session and presses Enter, as if you typed it there. Text: 1 to 4000 bytes of UTF-8, newlines and tabs but no other control characters; it goes in as one paste (bracketed, when the program asks for that), so its newlines don't submit it early. Works for agents the deck started (tmux) and agents in herdr, cmux or Orca. `409` while the agent works on a turn, waits on a question (answer it instead), is still starting or has exited; with `"interrupt": true` a working or asking agent gets Esc first. Agents the deck can't see the status of (Codex, Gemini or a shell started here) take it at any time. `422` for a session started by hand in another terminal or in the Codex app: nothing can type into another app's terminal. `404` unknown agent |
+| POST | `/v1/agents/{id}/prompt` | `{"text": "fix the failing test", "mode": "now"}`; `mode` `now` (default), `interrupt` or `queue`; with `queue`, `"position": "back"` (default) or `"front"` | `204`: types the text into the agent's session and presses Enter, as if you typed it there. Text: 1 to 4000 bytes of UTF-8, newlines and tabs but no other control characters; it goes in as one paste (bracketed, when the program asks for that), so its newlines don't submit it early. Works for agents the deck started (tmux) and agents in herdr, cmux or Orca. `now`: `409` while the agent works on a turn, waits on a question (answer it instead), is still starting or has exited. `interrupt` (or the older `"interrupt": true`): a working or asking agent gets Esc first. `queue`: `200` `{"status": "sent"}` when the agent is idle and nothing is queued for it (typed in at once), else `202` `{"status": "queued", "id": "q3k9x2a", "position": 2}`: kept, and typed in once the agent's turn ends (status `idle`), one queued prompt per turn, next first; `front` puts it before the prompts queued earlier. An agent waiting on a question or permission holds its queue: nothing is answered for you, and the queue goes on after the turn your answer finishes. At most 20 queued per agent (`409` beyond); kept across restarts (`prompt-queue.json`); `409` for an agent that has exited. Agents the deck can't see the status of (Codex, Gemini or a shell started here) take it at any time, in every mode. `422` for a session started by hand in another terminal or in the Codex app: nothing can type into another app's terminal. `404` unknown agent |
+| GET | `/v1/agents/{id}/queue` | – | `200` `{"queue": [{"id", "text", "by", "queuedAt"}]}`: the prompts queued for the agent, next first; `by` is who queued it (`mcp:<token>`, a device's name, `web` or `local`). `404` unknown agent |
+| POST | `/v1/agents/{id}/queue/{qid}/cancel` | – | `204`: takes a queued prompt back before it is typed in. `404` when it was sent or cancelled already |
 | POST | `/v1/agents/{id}/focus` | – | `204` — brings the agent's terminal to the front on the Mac (iTerm tab / overlay) |
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
@@ -116,6 +118,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // colour = (h >> 8) mod 8), false when chosen by hand
   "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
                                   // the account (Claude config folder) the session runs in; color is a hat colour
+  "queued": 0,                    // prompts waiting to be typed in once its turn ends (POST /v1/agents/{id}/prompt, "mode": "queue")
   "subagents": [                  // omitted when none: subagents (and workflow runs, type "workflow") still
                                   // working, oldest first. While only they work (Claude's turn is over) the
                                   // agent is "running" with activity {"tool": "Task", "detail": "2 subagents working"}
@@ -216,8 +219,8 @@ belong to an active device in `devices.json`; a revoked device fails the handsha
 
 | scope | may |
 |---|---|
-| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts` |
-| `act` | also answer, send prompts, focus, interrupt, move, order, hats |
+| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts`, `/v1/agents/{id}/queue` |
+| `act` | also answer, send and queue prompts (and cancel queued ones), focus, interrupt, move, order, hats |
 | `admin` | also dismiss, resume, hand over to another account, restore, `GET /v1/live`, add a live session |
 
 A request beyond the device's scope gets `403` with the command that would raise it.

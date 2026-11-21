@@ -72,6 +72,7 @@ type Agent struct {
 	External      bool       `json:"external"`            // owned by another app (Codex): view and focus only
 	App           string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
 	Subagents     []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
+	Queued        int        `json:"queued"`              // prompts waiting to be typed in once its turn ends ("mode": "queue")
 	Hat           *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
 	Account       *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
 	StartedAt     time.Time  `json:"startedAt"`
