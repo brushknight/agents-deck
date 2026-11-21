@@ -84,19 +84,40 @@ List<StatusPart> statusParts(ServiceStatus s) {
 /// online, and what wants attention. Each part opens Settings on its page;
 /// the Settings button at the end opens Settings. While the service isn't
 /// running there is no Settings button (Settings comes from the service).
+///
+/// With [onPin], a Pin button keeps the deck open above other windows; while
+/// [pinned], dragging the line moves the window ([onDrag]).
 class StatusLine extends StatelessWidget {
-  const StatusLine({super.key, required this.status, required this.onOpen});
+  const StatusLine({
+    super.key,
+    required this.status,
+    required this.onOpen,
+    this.pinned = false,
+    this.onPin,
+    this.onDrag,
+  });
 
   final ServiceStatus status;
 
   /// Opens Settings on a page (see [settingsPages]).
   final void Function(String page) onOpen;
 
+  /// The deck stays open above other windows until it is unpinned.
+  final bool pinned;
+
+  /// Pins or unpins the deck; null where the shell can't (no Pin button).
+  final void Function(bool pinned)? onPin;
+
+  /// Starts moving the window with the pointer (while pinned).
+  final VoidCallback? onDrag;
+
   @override
   Widget build(BuildContext context) {
     final running = status.state == ServiceState.running;
     final parts = statusParts(status);
-    return Container(
+    final onPin = this.onPin;
+    final onDrag = this.onDrag;
+    final line = Container(
       key: const Key('status-line'),
       height: statusLineHeight,
       color: DeckHud.bg,
@@ -127,6 +148,14 @@ class StatusLine extends StatelessWidget {
                 ),
               ),
             ),
+            if (onPin != null) ...[
+              const SizedBox(width: 4),
+              _PinButton(
+                key: const Key('status-pin'),
+                pinned: pinned,
+                onTap: () => onPin(!pinned),
+              ),
+            ],
             if (running) ...[
               const SizedBox(width: 4),
               _SettingsButton(
@@ -138,7 +167,89 @@ class StatusLine extends StatelessWidget {
         ),
       ),
     );
+    if (!pinned || onDrag == null) return line;
+    // Pinned, the deck stays where you put it: the line is its handle.
+    return GestureDetector(
+      key: const Key('status-drag'),
+      behavior: HitTestBehavior.translucent,
+      onPanStart: (_) => onDrag(),
+      child: line,
+    );
   }
+}
+
+/// "Pin" with a pushpin: keeps the deck open above other windows. Filled
+/// while pinned.
+class _PinButton extends StatelessWidget {
+  const _PinButton({super.key, required this.pinned, required this.onTap});
+
+  final bool pinned;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      toggled: pinned,
+      label: pinned ? 'Unpin the deck' : 'Pin the deck above other windows',
+      excludeSemantics: true,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Pressable(
+          onTap: onTap,
+          builder: (context, pressed) {
+            final filled = pinned != pressed;
+            final ink = filled ? DeckHud.bg : DeckHud.ink;
+            return Container(
+              height: 22,
+              padding: const EdgeInsets.only(left: 6, right: 8),
+              decoration: BoxDecoration(
+                color: filled ? DeckHud.ink : null,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: filled ? DeckHud.ink : DeckHud.dim),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CustomPaint(
+                    size: const Size.square(11),
+                    painter: _PinPainter(ink),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(pinned ? 'Pinned' : 'Pin', style: _partStyle(ink)),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// A small pushpin: a head, a collar and a needle.
+class _PinPainter extends CustomPainter {
+  const _PinPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final u = size.shortestSide / 11;
+    final paint = Paint()..color = color;
+    canvas.drawRect(Rect.fromLTWH(3 * u, 0, 5 * u, 5 * u), paint); // head
+    canvas.drawRect(
+      Rect.fromLTWH(1 * u, 5 * u, 9 * u, 1.5 * u),
+      paint,
+    ); // collar
+    canvas.drawRect(
+      Rect.fromLTWH(5 * u, 6.5 * u, 1 * u, 4.5 * u),
+      paint,
+    ); // needle
+  }
+
+  @override
+  bool shouldRepaint(_PinPainter old) => old.color != color;
 }
 
 const _partPadding = 4.0;
