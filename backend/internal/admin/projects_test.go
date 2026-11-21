@@ -47,8 +47,18 @@ func TestProjects(t *testing.T) {
 		t.Fatalf("an empty list: %d %v", code, out)
 	}
 	code, out := r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": " checkout ", "folder": work, "tool": "codex", "hat": map[string]string{"shape": "beret", "color": "teal"}}))
-	if code != 200 || out["name"] != "checkout" {
+	if code != 200 || out["name"] != "checkout" || out["path"] != work {
 		t.Fatalf("add: %d %v", code, out)
+	}
+	// ~/ is kept as written and answered in full.
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(home, work); err == nil && !strings.HasPrefix(rel, "..") {
+			code, out := r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "tilde", "folder": "~/" + rel}))
+			if code != 200 || out["folder"] != "~/"+rel || out["path"] != work {
+				t.Errorf("a ~/ folder: %d %v", code, out)
+			}
+			r.do(t, "POST", "/admin/v1/projects/tilde/remove", "")
+		}
 	}
 	for _, bad := range []map[string]any{
 		{"name": "checkout", "folder": work},                                                     // taken (names are kept apart without case)
@@ -67,7 +77,7 @@ func TestProjects(t *testing.T) {
 		}
 	}
 	b, err := os.ReadFile(filepath.Join(r.a.DataDir, "projects.json"))
-	if err != nil || !strings.Contains(string(b), `"folder": "`+work+`"`) || strings.Count(string(b), `"name"`) != 1 {
+	if err != nil || !strings.Contains(string(b), `"folder": "`+work+`"`) || strings.Count(string(b), `"name"`) != 1 || strings.Contains(string(b), `"path"`) {
 		t.Fatalf("projects.json: %v\n%s", err, b)
 	}
 

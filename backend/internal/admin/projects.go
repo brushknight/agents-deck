@@ -27,6 +27,8 @@ type Project struct {
 	Tool    string      `json:"tool,omitempty"`    // claude | codex | shell ("" = claude)
 	Account string      `json:"account,omitempty"` // a Claude account's name ("" = the default)
 	Hat     *ProjectHat `json:"hat,omitempty"`     // nil: the folder's own hat
+	// Path is Folder in full (~/ expanded), in answers only; never stored.
+	Path string `json:"path,omitempty"`
 }
 
 // ProjectHat is a project's hat: a shape and a colour from the deck's set.
@@ -60,7 +62,15 @@ func (a *Admin) projectsPath() string { return filepath.Join(a.DataDir, "project
 func (a *Admin) Projects() []Project {
 	a.projects.mu.Lock()
 	defer a.projects.mu.Unlock()
-	return a.readProjects()
+	return withPaths(a.readProjects())
+}
+
+// withPaths fills in each project's full path, for answers.
+func withPaths(list []Project) []Project {
+	for i := range list {
+		list[i].Path = expandHome(list[i].Folder)
+	}
+	return list
 }
 
 func (a *Admin) readProjects() []Project {
@@ -82,6 +92,9 @@ func (a *Admin) readProjects() []Project {
 }
 
 func (a *Admin) writeProjects(list []Project) error {
+	for i := range list {
+		list[i].Path = ""
+	}
 	b, _ := json.MarshalIndent(map[string]any{"projects": list}, "", "  ")
 	if err := os.MkdirAll(a.DataDir, 0o700); err != nil {
 		return err
@@ -189,7 +202,7 @@ func (a *Admin) projectsAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, withPaths([]Project{p})[0])
 }
 
 // projectAction is POST /admin/v1/projects/{name}/{action}: update (the
@@ -225,7 +238,7 @@ func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, p)
+		writeJSON(w, http.StatusOK, withPaths([]Project{p})[0])
 	case "remove":
 		a.projects.mu.Lock()
 		defer a.projects.mu.Unlock()

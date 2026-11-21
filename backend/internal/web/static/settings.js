@@ -219,6 +219,8 @@ const ICONS = {
   board: [['rect', { x: 6, y: 6, width: 12, height: 12, rx: 2 }], ['path', { d: 'M9.5 2.5V6M14.5 2.5V6M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5' }]],
   back: [['path', { d: 'M14.5 5.5L8 12l6.5 6.5' }]],
   restart: [['path', { d: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7' }]],
+  out: [['path', { d: 'M7 17L17 7M9 7h8v8' }]],
+  power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
 };
 function icon(name, size = 14, width = 2) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -449,9 +451,9 @@ const loadAll = (...names) => Promise.all(names.map(load));
 
 function needs(page) {
   return {
-    home: ['update', 'devices', 'ports', 'state'], agent: ['state'], start: ['projects', 'agents', 'state'], general: ['settings'], agents: ['agents', 'live', 'settings'],
+    home: ['update', 'devices', 'ports', 'state'], agent: ['state'], start: ['projects', 'agents', 'state', 'live'], general: ['settings'], agents: ['agents', 'live', 'settings'],
     boards: ['devices', 'ports', 'settings'], board: ['devices', 'ports', 'settings'], network: ['settings', 'devices'],
-    updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
+    updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update', 'state'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
   }[page] || [];
 }
@@ -459,7 +461,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state'] }[page] || [];
+  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state'] }[page] || [];
 }
 
 function firstError(page) {
@@ -749,7 +751,10 @@ function fillDeck() {
   deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageBtns,
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
     seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); } }, { key: 'view' }));
-  deck.strip.replaceChildren(summaryStrip());
+  const lost = agentsList().filter((a) => a.lost);
+  deck.strip.replaceChildren(summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+    h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
+    btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
   const ready = readyRows();
   const needsSec = h('section', { class: 'sec', id: 'needs' }, h('div', { class: 'rule' }, h('h2', {}, 'Needs you')),
@@ -1144,6 +1149,16 @@ function drawStart() {
         p ? h('span', { class: 'term cmd' }, h('span', { class: 'p' }, '$ '), `agentctl new ${p.folder}`) : null),
       S.projects?.canStart === false ? note('This service can\'t start agents (demo mode).') : null);
   }
+  const live = (S.live?.sessions || []).filter((x) => !x.onBoard);
+  if (live.length) {
+    main.append(sec('Or add a Claude session', `${live.length} running elsewhere`, null, blk(...live.map((x) => row(x.title || x.folder || 'Claude session', `${x.background ? 'in the background' : 'in a terminal'} · started ${ago(x.started)}`, [
+      btn('Add', (e) => busy(e.currentTarget, async () => {
+        await api('POST', `/v1/live/${encodeURIComponent(x.sessionId)}/add`, slot != null ? { slot } : {});
+        await load('state');
+        location.hash = '#home';
+      }, 'Added to the deck'), '', { 'aria-label': `Add ${x.title || x.folder || 'this session'} to the deck` }),
+    ], { name: true })))));
+  }
   const page = slot != null ? Math.floor(slot / SPOTS) : 0;
   const side = h('div', { class: 'agentside' }, h('span', { class: 'kl' }, 'It lands here'), miniDeck(page, null, slot ?? -1),
     h('span', { class: 'sub' }, slot != null ? `Page ${page + 1}, spot ${slot % SPOTS + 1}. The free spot you clicked.` : 'The first free spot.'));
@@ -1200,55 +1215,64 @@ async function patchSettings(body, btnEl) {
 function drawGeneral() {
   const s = S.settings;
   const start = [];
+  const login = 'Start when I log in';
   if (s.startAtLogin === null || s.startAtLogin === undefined) {
-    start.push(row('Start when I log in', 'Not available on this computer: start the service with agentctl serve.', []));
+    start.push(row(login, 'This computer can\'t start it at login. Start the service in a terminal:', [toggle(login, false, () => {}, { disabled: true })],
+      { name: true, pic: ico('power'), below: h('span', { class: 'term inl' }, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl serve')) }));
   } else if (S.confirmLoginOff) {
-    start.push(row('Start when I log in', 'Turning this off also stops the service now. Boards then show "waiting for the deck" until you start it again from the app or with agentctl serve.', [
-      btn('Keep it on', () => { S.confirmLoginOff = false; draw(); }, '', { 'data-k': 'login-keep' }),
-      btn('Turn off and stop', (e) => { S.confirmLoginOff = false; patchSettings({ startAtLogin: false }, e.currentTarget); }, 'd'),
-    ], { cls: 'tint' }));
+    start.push(h('div', { class: 'row tint top' }, ico('power'), h('div', { class: 'grow' }, h('span', { class: 'eyebrow acc2' }, 'Turning off Start when I log in'),
+      h('p', { class: 'txt' }, 'This also stops the service now. Boards show ', h('span', { class: 'mono' }, 'waiting for the deck'), ' until it starts again.')),
+    h('div', { class: 'r' }, btn('Keep it on', () => { S.confirmLoginOff = false; draw(); }, '', { 'data-k': 'login-keep' }),
+      btn('Turn off and stop', (e) => { S.confirmLoginOff = false; patchSettings({ startAtLogin: false }, e.currentTarget); }, 'd'))));
   } else {
     let what = 'The service. Without it, boards show "waiting for the deck".';
-    if (s.trayAtLogin !== undefined) what = 'The service and the tray icon. Without it, boards show "waiting for the deck".';
-    else if ((S.system?.platform || '').startsWith('darwin')) what += ' To open the app at login too, add agents deck in System Settings > General > Login Items.';
-    const meta = s.loginNote ? `${s.loginNote}.` : what;
-    start.push(row('Start when I log in', meta, [toggle('Start when I log in', s.startAtLogin, (on, el) => {
+    if (s.trayAtLogin !== undefined) what = 'The service and the tray icon.';
+    else if ((S.system?.platform || '').startsWith('darwin')) what = 'The service. To open the app at login too, add agents deck in System Settings, General, Login Items.';
+    start.push(row(login, s.loginNote ? `${s.loginNote}.` : what, [toggle(login, s.startAtLogin, (on, el) => {
       if (!on) { S.confirmLoginOff = true; draw(); $('[data-k="login-keep"]')?.focus(); return; }
       patchSettings({ startAtLogin: true }, el);
-    })]));
+    })], { name: true, pic: ico('power') }));
   }
-  start.push(row('After a restart, bring agents back', 'Agents you started with agentctl are resumed where they stopped.', [
-    seg('Restore agents', [{ value: 'ask', text: 'Ask me' }, { value: 'auto', text: 'Automatically' }], s.restore, (v) => patchSettings({ restore: v })),
-  ]));
-  const notify = [
-    row('Tell me', 'A click on a notification opens that agent\'s card.', [
-      seg('Notifications', [
-        { value: 'off', text: 'Never' }, { value: 'attention', text: 'Needs me' }, { value: 'finished', text: 'Also finished' },
-      ], s.notifications, (v) => patchSettings({ notifications: v })),
-    ]),
-    row('Play a sound', s.notifications === 'off' ? 'Turn notifications on first.' : null, [toggle('Play a sound', s.sound, (on, el) => patchSettings({ sound: on }, el), { disabled: s.notifications === 'off' })]),
-  ];
+  start.push(row('After a restart, bring agents back', 'The ones the deck started, where they stopped.', [
+    seg('Bring agents back after a restart', [{ value: 'ask', text: 'Ask me' }, { value: 'auto', text: 'Automatically' }], s.restore, (v) => patchSettings({ restore: v })),
+  ], { name: true, pic: ico('restart') }));
+
+  const sample = agentsList().find((a) => a.status === 'waiting');
+  const face = h('span', { class: 'face dk' });
+  face.style.setProperty('--body', '#FF4D00');
+  face.style.setProperty('--cut', '#141412');
+  const spr = h('span', { class: 'spr c' });
+  setSprite(spr, 'wait', sample?.tool || 'claude', sample?.hat || { shape: 'top hat', color: 'yellow' }, { bubble: false });
+  face.append(spr);
+  const notify = blk(
+    h('div', { class: 'row notif' }, face, h('div', { class: 'grow' }, h('span', { class: 'nm' }, `${sample ? agentName(sample) : 'An agent'} needs you`), h('span', { class: 'sub' }, `${sample ? askOf(sample).q : 'Allow bash?'} · now`))),
+    h('div', { class: 'row' },
+      h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Tell me'), seg('Notifications', [
+        { value: 'off', text: 'Never' }, { value: 'attention', text: 'When one needs me' }, { value: 'finished', text: 'Also when done' },
+      ], s.notifications, (v) => patchSettings({ notifications: v }))),
+      h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Sound'), h('div', { class: 'actions' },
+        toggle('Play a sound', s.sound, (on, el) => patchSettings({ sound: on }, el), { disabled: s.notifications === 'off' }),
+        h('span', { class: 'sub' }, 'Off while notifications are off.')))));
+
   const cli = s.cli || {};
-  const cliMeta = cli.installed
-    ? `Installed${cli.path ? ` at ${cli.path}` : ''}. Type agentctl in any terminal to start and list agents.`
-    : 'Not installed. With it you can type agentctl in any terminal to start and list agents.';
   const cliBtn = cli.canChange
     ? btn(cli.installed ? 'Remove' : 'Install', (e) => busy(e.currentTarget, async () => {
       S.settings.cli = await api('POST', '/admin/v1/cli', { installed: !cli.installed });
       draw();
     }, cli.installed ? 'Removed the agentctl command' : 'Installed the agentctl command'), cli.installed ? '' : 'p')
     : null;
-  const term = [
-    row('The agentctl command', cliMeta, [cliBtn]),
-    row('The dashboard in your browser', 'The same deck and these settings, on this computer only.', [
-      APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : link('Open', '/'),
-    ]),
-  ];
+  const termChip = (...kids) => h('span', { class: 'term tchip', 'aria-hidden': 'true' }, ...kids);
+  const term = blk(
+    row('The agentctl command', cli.installed ? `Installed${cli.path ? ` at ${cli.path}` : ''}. Type agentctl in any terminal to start and list agents.` : 'Not installed. Install it to start and list agents from any terminal.', [cliBtn],
+      { name: true, pic: termChip(h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl')) }),
+    row('The deck in your browser', 'The same app, on this computer only.', [
+      APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : h('a', { class: 'btn sm', href: '/', target: '_blank', rel: 'noreferrer' }, 'Open in a new tab'),
+    ], { name: true, pic: termChip('127.0.0.1') }));
   return [
-    head('General', 'How it starts and', 'speaks up.'),
+    head('General', 'How the deck', 'starts.'),
     sec('Starting', null, null, blk(...start)),
-    sec('Notifications', null, null, blk(...notify)),
-    sec('For the terminal', null, null, blk(...term)),
+    sec('Notifications', 'a click opens the agent', null, notify),
+    sec('For the terminal and the browser', null, null, term),
   ];
 }
 
@@ -1287,6 +1311,7 @@ function drawAgents() {
       t.note ? h('span', { class: 'sub' }, t.note) : null));
   }
   out.push(sec('Tools on this computer', 'found by themselves', null, grid));
+  out.push(projectsSection(a.accounts));
 
   const live = (S.live?.sessions || []).filter((s) => !s.onBoard);
   const rows = [];
@@ -1329,6 +1354,108 @@ function drawAgents() {
   out.push(sec('Accounts', a.accounts.length ? plural(a.accounts.length, 'Claude account') : null, null, blk(...acc)));
   out.push(...mcpSection());
   return out;
+}
+
+
+// ---- Projects: the folders agents start in ----------------------------------------------------
+
+let notProjects = [];
+try { notProjects = JSON.parse(localStorage.getItem('settings.notProjects') || '[]'); } catch (e) { notProjects = []; }
+const sameFolder = (cwd, folder) => !!cwd && (cwd === folder || tilde(cwd) === folder || tilde(cwd) === tilde(folder));
+
+function projectForm(accs) {
+  const f = S.projForm;
+  const editing = f.orig;
+  const err = h('p', { class: 'sub err', role: 'alert' });
+  const keep = () => { f.name = $('#pj-name')?.value ?? f.name; f.folder = $('#pj-folder')?.value ?? f.folder; };
+  const hat = f.hat || null;
+  const shapeOpts = [{ value: '', text: 'The folder\'s own' }, ...HAT_SHAPES.map((x) => ({ value: x, text: x }))];
+  const colors = HAT_COLOR_NAMES.map((color) => {
+    const b = h('button', { type: 'button', class: 'colsw', role: 'radio', 'aria-checked': hat && hat.color === color ? 'true' : 'false', 'aria-label': `Colour: ${color}`, title: color, disabled: !hat,
+      onclick: () => { keep(); f.hat = { shape: hat.shape, color }; draw(true); } });
+    b.style.background = HAT_COLORS[color][0];
+    return b;
+  });
+  const save = async (e) => {
+    keep();
+    err.textContent = '';
+    const b = e.currentTarget;
+    b.disabled = true;
+    const body = { name: f.name, folder: f.folder, tool: f.tool || '', account: f.tool && f.tool !== 'claude' ? '' : (f.account || ''), hat: f.hat || null };
+    try {
+      const r = editing ? await api('POST', `/admin/v1/projects/${encodeURIComponent(editing)}/update`, body) : await api('POST', '/admin/v1/projects', body);
+      // Agents in a project wear its hat: it is the folder's hat.
+      if (r?.hat) await api('POST', '/v1/hats', { folder: r.path || r.folder, shape: r.hat.shape, color: r.hat.color }).catch(() => null);
+      S.projForm = null; S.open.project = '';
+      await load('projects');
+      toast(editing ? 'Saved' : `Added ${r.name}`);
+      draw(true);
+    } catch (ex) { err.textContent = ex.message; } finally { if (b.isConnected) b.disabled = false; }
+  };
+  return h('div', { class: 'blk pad' },
+    h('span', { class: 'eyebrow acc2' }, editing ? `Edit ${editing}` : 'New project'),
+    h('div', { class: 'fields' },
+      h('div', { class: 'field' }, h('label', { for: 'pj-name' }, 'Name'), h('input', { id: 'pj-name', type: 'text', value: f.name || '', maxlength: '40', autocomplete: 'off', 'data-k': 'pj-name' })),
+      h('div', { class: 'field' }, h('label', { for: 'pj-folder' }, 'Folder'), h('input', { id: 'pj-folder', type: 'text', value: f.folder || '', placeholder: '~/dev/my-app', autocomplete: 'off', spellcheck: 'false', 'data-k': 'pj-folder' }))),
+    h('div', { class: 'fields' },
+      h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Runs'), seg('Runs', [{ value: '', text: 'Claude Code' }, { value: 'codex', text: 'Codex' }, { value: 'shell', text: 'Shell' }], f.tool === 'claude' ? '' : (f.tool || ''), (v) => { keep(); f.tool = v; draw(true); }, { key: 'pj-tool' })),
+      (!f.tool || f.tool === 'claude') && accs.length ? h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Claude account'),
+        seg('Claude account', [{ value: '', text: 'Default' }, ...accs.map((x) => ({ value: x.name, text: x.name }))], f.account || '', (v) => { keep(); f.account = v; draw(true); }, { key: 'pj-acc' })) : null),
+    h('div', { class: 'fields' },
+      h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Hat'), h('div', { class: 'actions' },
+        pickSel('Hat', shapeOpts, hat ? hat.shape : '', (v) => { keep(); f.hat = v ? { shape: v, color: (hat && hat.color) || 'blue' } : null; draw(true); }, 'pj-hat'),
+        h('span', { class: 'hatprev dk' }, critter({ pose: 'hi', bot: f.tool === 'codex', hat, body: '#FF4D00', cut: '#222220', centre: true })))),
+      h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Colour'), h('div', { class: 'hatrow', role: 'radiogroup', 'aria-label': 'Hat colour' }, colors))),
+    err,
+    h('div', { class: 'actions' }, btn(editing ? 'Save' : 'Add the project', save, 'p', { 'data-k': 'pj-save' }),
+      btn('Cancel', () => { S.projForm = null; S.open.project = ''; draw(true); }),
+      editing ? h('span', { class: 'sp' }) : null,
+      editing ? btn('Remove', (e) => busy(e.currentTarget, async () => {
+        await api('POST', `/admin/v1/projects/${encodeURIComponent(editing)}/remove`, {});
+        S.projForm = null; S.open.project = '';
+        await load('projects'); draw(true);
+      }, `Removed ${editing}`), 'd') : null));
+}
+
+function projectsSection(accs) {
+  if (S.errors.projects || !S.projects) return null; // an older service has no projects
+  const list = S.projects.projects || [];
+  const agents = agentsList();
+  const content = [h('div', { class: 'intro' }, h('p', { class: 'txt' }, 'Folders your agents work in. Start agents in one from Home; agents in one project share its hat.'),
+    S.projForm ? null : h('button', { type: 'button', class: 'btn p', 'data-k': 'pj-add', onclick: () => { S.projForm = { tool: '', account: '' }; S.open.project = 'new'; draw(true); $('#pj-name')?.focus(); } }, icon('plus', 14, 2.2), 'Add a project'))];
+  if (S.projForm) content.push(projectForm(accs));
+  const rows = list.map((p) => {
+    const n = agents.filter((a) => sameFolder(a.cwd, p.path || p.folder)).length;
+    const acc = accs.find((x) => x.name === p.account);
+    const accChip = p.account ? h('span', { class: 'chip st' }, h('i', { 'aria-hidden': 'true' }), p.account) : h('span', { class: 'chip st off' }, 'Default account');
+    if (acc) accChip.firstChild.style.background = (HAT_COLORS[acc.color] || HAT_COLORS.ink)[0];
+    return row(p.name, `${p.folder} · ${n ? plural(n, 'agent') : 'no agents'}`, [
+      chip(TOOL_NAMES[p.tool || 'claude'], 'st'), !p.tool || p.tool === 'claude' ? accChip : null,
+      link('Start agent', `#start//${encodeURIComponent(p.name)}`, '', { 'aria-label': `Start an agent in ${p.name}` }),
+      btn('Edit', () => { S.projForm = { ...p, orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, '', { 'aria-label': `Edit ${p.name}` }),
+    ], { name: true, pic: projectFace(p) });
+  });
+  // Folders agents work in that aren't projects yet.
+  const seen = [...new Set(agents.map((a) => a.cwd).filter(Boolean))]
+    .filter((cwd) => !list.some((p) => sameFolder(cwd, p.path || p.folder)) && !notProjects.includes(cwd)).slice(0, 3);
+  for (const cwd of seen) {
+    const name = cwd.split('/').filter(Boolean).pop() || cwd;
+    rows.push(row(name, `${tilde(cwd)} · seen on the deck`, [
+      btn('Keep it', (e) => busy(e.currentTarget, async () => {
+        await api('POST', '/admin/v1/projects', { name: name.slice(0, 40), folder: cwd });
+        await load('projects'); draw(true);
+      }, `Added ${name}`), '', { 'aria-label': `Keep ${name} as a project` }),
+      btn('Not a project', () => {
+        notProjects = [...notProjects, cwd].slice(-100);
+        try { localStorage.setItem('settings.notProjects', JSON.stringify(notProjects)); } catch (e) { /* private window */ }
+        draw(true);
+      }),
+    ], { name: true, off: true, cls: 'tint', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
+  }
+  if (rows.length) content.push(blk(...rows));
+  const s = sec('Projects', list.length ? plural(list.length, 'folder') : null, null, ...content);
+  s.id = 'projects';
+  return s;
 }
 
 // ---- MCP: tokens that let an agent run the deck's agents ------------------------------
@@ -2592,37 +2719,42 @@ function notesLines(notes) {
 
 function drawUpdates() {
   const u = S.update;
-  const out = [head('Updates', `You have ${u.current}.`, null)];
-  out.push(h('p', { class: 'lead' }, `${u.install === 'source' ? 'Built from source. ' : ''}${u.checked ? `Last checked ${ago(u.checked)}.` : 'Not checked yet.'}`));
   const job = S.jobs[u.job || S.appJob] || null;
-  const app = [];
+  const showUpd = appUpdate(u) && S.laterUpdate !== u.version;
+  let title;
+  if (job && job.state === 'running') title = head('Updates', `Installing ${job.version || u.version}`, 'now.');
+  else if (showUpd) title = head('Updates', `${u.version} is`, u.state === 'ready' ? 'ready.' : 'out.');
+  else if (u.state === 'none') title = head('Updates', 'You have the', 'latest.');
+  else title = head('Updates', `You have ${u.current}.`, null);
+  const out = [title];
   if (job && job.state === 'running') {
-    app.push(h('div', { class: 'ask' }, h('div', { class: 'grow' }, h('span', { class: 'eyebrow' }, 'Installing'), h('span', { class: 'q' }, `agents deck ${job.version || u.version}`), h('span', { class: 'dt', role: 'status' }, job.message || ''))));
-  } else if (appUpdate(u) && S.laterUpdate !== u.version) {
+    out.push(h('div', { class: 'blk pad' }, h('span', { class: 'eyebrow acc2' }, 'Installing'), h('span', { class: 'nm' }, `agents deck ${job.version || u.version}`),
+      h('p', { class: 'txt', role: 'status' }, job.message || 'Replacing the app. It restarts by itself.'), chip('Installing', 'acc', 'dot')));
+  } else if (showUpd) {
     const notes = notesLines(u.notes);
     const can = u.state === 'ready' || (u.state === 'available' && !u.message);
-    const acts = [];
-    if (can) acts.push(btn('Install and restart', (e) => installApp(e.currentTarget), 'p'));
-    else if (u.page) acts.push(h('a', { class: 'btn sm p', href: u.page, rel: 'noreferrer' }, 'Download page'));
-    acts.push(btn('Later', () => { S.laterUpdate = u.version; draw(); }));
-    app.push(h('div', { class: 'rcard' },
-      h('div', { class: 'vis' }, h('span', { class: 'vterm', 'aria-hidden': 'true' }, h('span', {}, '$ update'), h('span', {}, u.current), h('span', { class: 'p' }, u.version))),
-      h('div', { class: 'bd' },
-        h('span', { class: 'eyebrow acc2' }, u.state === 'ready' ? 'Update ready' : 'Update out'),
-        h('span', { class: 'ttl' }, `agents deck ${u.version}`),
-        notes.length ? h('ul', { class: 'meta' }, notes.map((l) => h('li', {}, l))) : h('span', { class: 'meta' }, 'A new version is out.'),
-        h('span', { class: 'meta' }, u.message || 'Your agents keep running while the app restarts. It takes a few seconds.'),
-        h('div', { class: 'act' }, acts))));
+    out.push(h('div', { class: 'term hot' }, h('div', { class: 'bar' }, h('i', {}), u.state === 'ready' ? 'update · downloaded and checked' : 'update · out'),
+      h('div', { class: 'body' },
+        h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl update')),
+        h('div', {}, h('span', { class: 'd' }, u.current), ' → ', h('span', { class: 'w' }, u.version)),
+        ...(notes.length ? notes : ['A new version is out.']).map((l) => h('div', {}, h('span', { class: 'p' }, '+ '), l))),
+      h('div', { class: 'ln' },
+        can ? btn('Install and restart', (e) => installApp(e.currentTarget), 'p') : u.page ? h('a', { class: 'btn sm p', href: u.page, rel: 'noreferrer' }, 'Download page') : null,
+        btn('Later', () => { S.laterUpdate = u.version; draw(); }),
+        h('span', { class: 'sub' }, u.message || 'Agents keep running. A few seconds.'))));
   } else if (u.state === 'disabled') {
-    app.push(blk(row('This copy doesn\'t update itself', u.message || '', [])));
+    out.push(blk(row('This copy doesn\'t update itself', u.message || 'Update it the way you installed it.', [u.page ? h('a', { class: 'btn sm', href: u.page, rel: 'noreferrer' }, 'Download page') : null], { name: true, pic: ico('board') })));
   } else if (u.state === 'none' && u.version) {
-    app.push(blk(row('agents deck is up to date', `${u.version} is the latest.`, [chip('Up to date', 'ok st', 'check')])));
+    out.push(blk(row(`${u.version} is the latest`, u.checked ? `Checked ${ago(u.checked)}.` : '', [chip('Up to date', 'ok st', 'dot')], { name: true, pic: ico('check') })));
   }
-  if (job && job.state === 'failed') app.push(errorBox(`The update didn't install: ${job.error}`));
-  if (u.error) app.push(note(`The last check didn't work: ${u.error}`, 'err'));
-  if (app.length) out.push(sec('The app', null, null, ...app));
-
-  out.push(sec('How to update', null, null, blk(row('The app and its service', 'Downloads come from GitHub and are checked before they\'re used.', [
+  if (job && job.state === 'failed') {
+    out.push(h('div', { class: 'blk pad err', role: 'alert' }, h('span', { class: 'eyebrow acc2' }, 'Didn\'t install'), h('span', { class: 'nm' }, 'The update didn\'t install'),
+      h('p', { class: 'txt' }, `${job.error}. Nothing changed.`), h('div', { class: 'actions' }, btn('Try again', (e) => installApp(e.currentTarget), 'p'))));
+  }
+  if (u.error) {
+    out.push(h('div', { class: 'term' }, h('div', { class: 'body' }, h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl update')), h('div', { class: 'badc' }, `The last check didn't work: ${u.error}`))));
+  }
+  out.push(sec('How to update', 'from GitHub, checked before use', null, blk(row('The app and its service', u.checked ? `Last checked ${ago(u.checked)}.` : 'Not checked yet.', [
     seg('Update mode', [{ value: 'notify', text: 'Tell me' }, { value: 'auto', text: 'Automatic' }, { value: 'off', text: 'Never check' }], u.mode, async (v) => {
       const r = await patchSettings({ updates: v });
       if (r) { await load('update'); draw(); }
@@ -2632,25 +2764,28 @@ function drawUpdates() {
       S.laterUpdate = '';
       draw();
     }, () => (S.update.state === 'none' ? 'Up to date' : `Found ${S.update.version}`)), '', { 'data-k': 'check-now' }),
-  ]))));
+  ], { name: true, pic: ico('restart') }))));
 
   const devs = S.devices?.devices || [];
-  const withUpd = devs.filter((d) => d.update);
+  for (const j of S.jobList?.jobs || []) putJob(j);
+  const withUpd = devs.filter((d) => d.update || d.job);
   const rows = withUpd.map((d) => {
-    const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'not connected · plug it in to update' }[d.update.how];
+    if (d.job) return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), null, [], { name: true, pic: thumb(devScreen(d, 'xs')), below: jobLine(d, S.jobs[d.job]) });
+    const how = { usb: 'over USB · about a minute', wifi: 'over Wi-Fi · about 2 minutes', unplugged: 'plug it in to update' }[d.update.how];
     const from = d.update.source === 'local' ? ' built on this computer' : '';
     const meta = `${d.firmware} → ${d.update.version}${from} · ${d.update.ready ? how : d.update.note || how}`;
-    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), meta, d.update.ready ? [btn(from ? 'Install' : 'Update', (e) => updateDevice(d, e.currentTarget), 'p')] : [],
+    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), meta,
+      d.update.ready ? [btn(from ? 'Install' : 'Update', (e) => updateDevice(d, e.currentTarget), 'p')] : [!d.online ? chip('Offline', 'off st', 'offline') : null],
       { pic: thumb(devScreen(d, 'xs')), off: !d.online, name: true });
   });
   const latest = S.devices?.latest;
   const current = latest ? devs.filter((d) => d.kind === 'serial' && d.firmware === latest).length : 0;
-  let foot = 'Boards never update by themselves.';
-  if (!devs.some((d) => d.kind === 'serial')) foot += ' No boards yet.';
-  else if (!withUpd.length && latest) foot += ` Every board is on ${latest}.`;
-  else if (current) foot += ` ${current === 1 ? 'One board is' : `${current} boards are`} already on ${latest}.`;
+  let foot = '';
+  if (!devs.some((d) => d.kind === 'serial')) foot = 'No boards yet.';
+  else if (!withUpd.length && latest) foot = `Every board is on ${latest}.`;
+  else if (current) foot = `${current === 1 ? 'One board is' : `${say(current)} boards are`} already on ${latest}.`;
   if (!latest && S.devices?.catalogError) foot += ` Couldn't read the latest firmware list: ${S.devices.catalogError}`;
-  out.push(sec('Boards', withUpd.length ? plural(withUpd.length, 'update') : null, ['Boards', '#boards'], rows.length ? blk(...rows) : null, note(foot)));
+  out.push(sec('Board firmware', 'boards never update by themselves', null, rows.length ? blk(...rows) : null, foot ? h('span', { class: 'sub' }, foot) : null));
   return out;
 }
 
@@ -2659,32 +2794,38 @@ function drawUpdates() {
 function drawTroubleshoot() {
   const d = S.diag;
   const sys = S.system || {};
-  const out = [head('Troubleshoot', 'When something is', 'off.')];
-  out.push(h('div', { class: 'term' }, h('div', { class: 'bar' }, h('i', {}), 'service'),
-    h('div', { class: 'body' }, h('div', {}, h('span', { class: 'p' }, '$'), ' ', h('span', { class: 'w' }, 'agentctl status')),
-      h('div', {}, connOK ? h('span', { class: 'okc' }, 'running') : h('span', { class: 'badc' }, 'not answering'), `  ${sys.version || ''}  `, h('span', { class: 'd' }, `up ${d.uptime}`)),
-      h('div', {}, `${plural(d.agents, 'agent')}  `, h('span', { class: 'd' }, '·'), `  ${d.boardsOnline} of ${plural(d.boards, 'board')} online`))));
-  out.push(sec('The service', null, null, blk(
-    row('Restart the service', `Running since ${new Date(d.started).toLocaleString()}. Agents keep running. Boards reconnect in a few seconds.`, [btn('Restart', (e) => restartService(e.currentTarget))]),
-    row('Copy a report', 'Versions, your system and board models. No project names, folders or prompts.', [
-      btn(S.showReport ? 'Hide it' : 'Show what\'s in it', () => { S.showReport = !S.showReport; draw(); }, '', { 'aria-expanded': S.showReport ? 'true' : 'false', 'aria-controls': 'report', 'data-k': 'show-report' }),
-      btn('Copy', async () => {
+  const out = [connOK ? head('Troubleshoot', 'Running for', `${d.uptime}.`) : head('Troubleshoot', 'The service isn\'t', 'answering.')];
+  const stat = (k, v, cls) => h('div', { class: 'stat' }, h('span', { class: 'kl' }, k), h('span', { class: `v ${cls || ''}`.trim() }, v));
+  out.push(h('div', { class: 'blk stats4' },
+    stat('Service', connOK ? [h('span', { class: 'sq ok' }), 'running'] : [h('span', { class: 'sq' }), 'down']),
+    stat('Up for', d.uptime), stat('Agents', String(d.agents)), stat('Boards online', `${d.boardsOnline} of ${d.boards}`)));
+  out.push(blk(
+    row('Restart the service', `Running since ${new Date(d.started).toLocaleString()}. Agents keep running. Boards reconnect in seconds.`, [btn('Restart', (e) => restartService(e.currentTarget))], { name: true, pic: ico('restart') }),
+    row('Copy a report', 'Versions, system, board models. No names, folders or prompts.', [
+      btn(S.showReport ? 'Hide it' : 'Show', () => { S.showReport = !S.showReport; draw(); }, '', { 'aria-expanded': S.showReport ? 'true' : 'false', 'aria-controls': 'report', 'data-k': 'show-report' }),
+      btn('Copy report', async () => {
         const ok = await copyText(d.report);
-        toast(ok ? 'Copied the report' : 'Couldn\'t copy: use Show what\'s in it and copy it by hand', !ok);
+        toast(ok ? 'Copied the report' : 'Couldn\'t copy: use Show and copy it by hand', !ok);
       }, 'p'),
-    ])),
-  S.showReport ? h('pre', { class: 'report', id: 'report', tabindex: '0' }, d.report) : null));
-  const logContent = [];
-  if (!d.log.length) logContent.push(note('The log is empty, or the service writes it somewhere else (agentctl serve in a terminal prints it there).'));
-  else {
+    ], { name: true, pic: ico('copy') })));
+  if (S.showReport) out.push(h('pre', { class: 'report', id: 'report', tabindex: '0' }, d.report));
+  const openData = (e) => busy(e.currentTarget, () => api('POST', '/admin/v1/open-data-folder', {}));
+  const logSec = sec('Latest from the log', 'problems in red', null);
+  logSec.querySelector('.rule').append(h('button', { type: 'button', class: 'btn link small', onclick: openData }, 'Open the log folder →'));
+  if (!d.log.length) {
+    logSec.append(h('div', { class: 'term' }, h('div', { class: 'body' }, h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'tail agentctl.log')), h('div', { class: 'd' }, 'nothing yet'))),
+      h('p', { class: 'txt' }, 'Or the service writes it elsewhere: ', h('span', { class: 'mono' }, 'agentctl serve'), ' in a terminal prints it there.'));
+  } else {
     const ul = h('ul', { class: 'log', 'aria-label': 'The last lines of the log' });
     d.log.forEach((l) => ul.append(h('li', { class: /error|fail|stopped answering|refused/i.test(l) ? 'em' : '' }, l)));
-    logContent.push(ul);
+    logSec.append(ul);
   }
-  logContent.push(h('div', { class: 'actions' }, btn('Open the log folder', (e) => busy(e.currentTarget, () => api('POST', '/admin/v1/open-data-folder', {})))));
-  out.push(sec('Latest from the log', null, null, ...logContent));
-  out.push(sec('Where its files are', null, null, blk(row('Data folder', d.dataDir, []), row('Log', d.logFile, []))));
-  if (sys.platform) out.push(note(`agents deck ${sys.version} · ${sys.platform} · installed as ${sys.install}`));
+  out.push(logSec);
+  const inData = d.logFile && d.dataDir && d.logFile.startsWith(d.dataDir);
+  out.push(sec('Where its files are', null, null, blk(
+    row('Data folder', d.dataDir, [btn('Show', openData, '', { 'aria-label': 'Show the data folder' })], { name: true, pic: ico('board') }),
+    row('Log', d.logFile, inData ? [btn('Show', openData, '', { 'aria-label': 'Show the log' })] : [], { name: true, pic: ico('copy') })),
+  sys.platform ? h('span', { class: 'sub' }, `agents deck ${sys.version} · ${sys.platform} · installed as ${sys.install}`) : null));
   return out;
 }
 
@@ -2694,15 +2835,24 @@ function drawAbout() {
   const sys = S.system || {};
   const u = S.update || {};
   const kinds = { app: 'the app', windows: 'the Windows installer', deb: 'a .deb package', zip: 'agentctl.exe from the .zip', archive: 'install.sh', source: 'built from source' };
+  const os = { darwin: 'macOS', linux: 'Linux', windows: 'Windows' }[(sys.platform || '').split('/')[0]] || sys.platform || '';
+  const newer = u.version && u.version !== sys.version && appUpdate(u);
+  const lk = (href, title, sub) => h('a', { class: 'lk', href, rel: 'noreferrer', target: '_blank' }, h('span', { class: 'lki' }, icon('out', 16)), h('span', { class: 'serif' }, title), h('span', { class: 'sub' }, sub));
+  const agents = agentsList().filter((a) => a.status !== 'exited').length;
   return [
-    head('About', 'agents', 'deck.'),
-    h('p', { class: 'lead' }, 'agents deck shows your coding agents on a deck: in the browser, in the tray and on small boards.'),
-    sec('This copy', null, null, blk(row(`agents deck ${sys.version || ''}`, `${sys.platform || ''} · installed with ${kinds[sys.install] || sys.install || 'unknown'}${u.version && u.version !== sys.version ? ` · ${u.version} is the latest` : ''}`, [], { name: true }))),
-    sec('Links', null, null, blk(
-      row('Source, licence and issues', 'github.com/brushknight/agents-deck', [h('a', { class: 'btn sm', href: 'https://github.com/brushknight/agents-deck', rel: 'noreferrer' }, 'Open')]),
-      row('Documentation', 'How the deck, the boards and the API work.', [h('a', { class: 'btn sm', href: 'https://github.com/brushknight/agents-deck/tree/main/docs', rel: 'noreferrer' }, 'Open')]),
-      row('The web flasher', 'Put the firmware on a board from Chrome or Edge, with nothing installed. Boards here does the same.', [h('a', { class: 'btn sm', href: 'https://brushknight.com/agents-deck', rel: 'noreferrer' }, 'Open')]))),
-    h('div', { class: 'term' }, h('div', { class: 'body' }, h('div', {}, h('span', { class: 'p' }, '$'), ' ', h('span', { class: 'w' }, 'agentctl version')), h('div', {}, h('span', { class: 'p' }, '$'), ' ', h('span', { class: 'w' }, 'agentctl status')))),
+    h('header', { class: 'abouthd' }, h('span', { class: 'aboutspr' }, critter({ hat: { shape: 'propeller', color: 'blue' }, spin: true, cut: '#1A1A18', centre: true })),
+      h('div', { class: 'hd' }, h('span', { class: 'eyebrow acc' }, 'About'), h('h1', {}, 'Your agents, on a ', h('em', {}, 'deck.')),
+        h('div', { class: 'actions' }, h('span', { class: 'nm' }, `agents deck ${sys.version || ''}`), h('span', { class: 'sub' }, `${os} · installed with ${kinds[sys.install] || sys.install || 'unknown'}`),
+          newer ? chip(`${u.version} is the latest`, 'acc') : null, newer ? h('a', { class: 'btn link small', href: '#updates' }, 'See the update →') : null))),
+    h('div', { class: 'lks' },
+      lk('https://github.com/brushknight/agents-deck', 'Source and issues', 'github.com/brushknight/agents-deck · the licence'),
+      lk('https://github.com/brushknight/agents-deck/tree/main/docs', 'Documentation', 'How the deck, boards and API work.'),
+      lk('https://brushknight.com/agents-deck', 'The web flasher', 'Firmware on a board from Chrome or Edge.')),
+    h('div', { class: 'term' }, h('div', { class: 'bar' }, h('i', {}), 'In a terminal'), h('div', { class: 'body' },
+      h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl version')),
+      h('div', { class: 'd' }, `agentctl ${sys.version || ''}`),
+      h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl status')),
+      h('div', { class: 'd' }, connOK ? h('span', { class: 'okc' }, 'running') : h('span', { class: 'badc' }, 'not answering'), ` · ${plural(agents, 'agent')} · ${sys.boards?.online ?? 0} of ${sys.boards?.total ?? 0} boards`))),
   ];
 }
 
@@ -2831,7 +2981,7 @@ function listenState() {
 }
 
 // Keys on the deck: Esc goes back to the tiles, 1 to 9 answer the agent
-// that asks.
+// that asks, ← and → turn the deck's pages.
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
@@ -2841,6 +2991,10 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (!typing && S.page === 'agent' && agentView?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); agentView.answer(e.key); }
+  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && document.activeElement?.getAttribute('role') !== 'radio') {
+    const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
+    if (next >= 0 && next < pageCount()) { S.deckPage = next; if (S.panel) draw(true); else updateDeck(); }
+  }
 });
 
 // ---- live job progress -----------------------------------------------------------------------

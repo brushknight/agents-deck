@@ -151,7 +151,7 @@ terminal.
 
 Also in Settings: **General** (start at login, notifications), **Agents** (the tools found, Claude
 sessions outside the deck, accounts) and **Troubleshoot** (restart the service, a report to copy, the
-log). Every page is also a command ([features](docs/features.md#the-settings-page)).
+log). Every page is also a command ([features](docs/features.md#the-app-in-the-browser)).
 
 ## Pick a display
 
