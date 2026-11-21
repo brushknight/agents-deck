@@ -34,9 +34,9 @@ constexpr uint32_t kToastMs = 3000;
 
 // The debug build's clock (grid_app.h sets it) and where a frame's drawing
 // time goes, in microseconds since the last report. Unset: nothing measured.
-static uint32_t (*squareClock)() = nullptr;
+static uint32_t (*squareClock)() __attribute__((unused)) = nullptr;
 struct SquareProfile { uint32_t fill, tileBg, sprite, text, other; };
-static SquareProfile squareProf{};
+static SquareProfile squareProf __attribute__((unused)){};
 #define SQ_T0(v) const uint32_t v = squareClock ? squareClock() : 0
 #define SQ_ADD(field, v) do { if (squareClock) squareProf.field += squareClock() - (v); } while (0)
 
