@@ -162,9 +162,9 @@ than one answer) comes one step at a time, each with a new `id`:
 - the review: `title: "submit these answers?"`, the answers in `detail` (one per line), options
   `1` submit answers and `2` cancel.
 
-Free text ("type something") has no option key. The web page sends it with `POST /v1/agents/{id}/prompt`
-and `"interrupt": true`: Esc closes the question, then the text goes in as the next prompt. An answer typed at the terminal moves the deck's
-prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
+Free text ("type something") has no option key. The web page sends it with
+`POST /v1/agents/{id}/prompt` and `"interrupt": true`: Esc closes the question, then the text goes in
+as the next prompt. An answer typed at the terminal moves the deck's prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
 answers or the form is cancelled.
 
 Status meanings (what the tiles show):
