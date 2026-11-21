@@ -18,8 +18,9 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   - Each tile shows the critter with its pose and hat, the title, a status line, the context along
     the border, the tool chip, and the subagent critter.
   - Orange means it needs you; stripes mean a finished turn you haven't looked at.
-  - Swipe left or right (a move clearly more sideways than up or down) or tap the page bars to change
-    page; BOOT goes to the next page.
+  - Slide the pages left or right with a finger (a move clearly more sideways than up or down); they
+    follow it, and on release go on to the next page once you moved about 5 mm (or flicked), else
+    spring back. Tapping the page bars changes page too; BOOT goes to the next page.
 - **Needs you.** One more page, to the left of the first: the agents at work, asking you something,
   or finished and not checked yet, in the same 4×4 grid. An agent leaves 5 seconds after it stops
   needing you, and keeps its spot while it is there. Swipe right on the first page (or tap the mark at
@@ -46,6 +47,9 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   **send**. **Focus terminal** sits beside it. A permission is the orange card; a question is dark
   with the orange border.
 - **Back.** Swipe right, or press BOOT.
+- **The board's panel.** Pull down from the top edge of any screen (a tap there still opens the tile
+  under it): the board's name, Wi-Fi and Bluetooth switches, how it reaches the deck, restart (hold
+  1 s) and the firmware version. Swipe it up or press BOOT to close it.
 - **Other screens.** Waiting for approval (with the command), connecting to the deck, deck offline,
   no agents.
 - **Backlight.** Dims when every agent is idle and nobody has touched the screen for 30 s.
@@ -172,6 +176,10 @@ touch it found, frame time, Deck Link rx / bad / overflow counters, memory); the
 
 ## Code
 
-`src/main.cpp` is only the board: display, touch, expander, backlight. The layout, the touch UI and
+`src/main.cpp` is only the board: display, touch, expander, backlight. In the idf5 build the panel has
+no frame buffer of its own: the LCD interrupt refills its two bounce buffers from one of three frames
+in PSRAM, turned 180 degrees on the way, while the next frame is drawn into another (in strips of
+internal RAM, copied in by changed rows). The drawer and the sliding pages are composed from kept
+pictures as the interrupt refills, with nothing drawn or copied. The layout, the touch UI and
 Deck Link are shared with the other panels in [`firmware/panel-core`](../../panel-core)
 (`layout_big.h`, `specBig480()`).
