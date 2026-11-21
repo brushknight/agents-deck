@@ -224,6 +224,14 @@ interrupt an agent (scope `act`): plugging it into your computer counts as your 
 **admin** (it adds stop), approving boards by hand, renaming or removing one: all in Settings,
 Boards. Something not working? See [troubleshooting](docs/flashing.md#troubleshooting).
 
+## One agent runs the others (MCP)
+
+agents deck is an MCP server too. Make a token in Settings, **Agents**, MCP, add it to Claude Code
+(`claude mcp add --transport http agents-deck http://127.0.0.1:7340/mcp --header "Authorization:
+Bearer …"`), and that agent can see every agent on your deck, give them tasks, answer their questions,
+interrupt them and start new ones in a project folder. Local only, scoped and audited:
+[docs/mcp.md](docs/mcp.md).
+
 ## Wi-Fi
 
 Every touch board except the 4″ (for now) can leave your computer and run from any USB charger. Set

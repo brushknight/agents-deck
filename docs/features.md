@@ -127,6 +127,17 @@ Added sessions are **watched**: status (working, idle, hungry when a turn finish
 
 To have every one join by itself, set **Put them on the deck** to **automatically** in Settings, Agents (`agentctl set sessions auto`): each Claude session the list shows joins the deck within a few seconds, including the ones the Claude desktop app starts from another session. A session you take off the deck stays off, also after a restart of the service, until you add it again. `pick` (the default) waits for you to add them.
 
+## MCP: one agent runs the others
+
+The deck is an MCP server, so one agent (Claude Code, for example) can orchestrate the others: list
+them and what they ask, send an idle agent a task (`send_prompt`), answer a question, interrupt a turn,
+and start a new agent in a folder with a first prompt (`start_agent`). Make a token in Settings,
+Agents, MCP (or `agentctl mcp token create <name>`), then add it over HTTP (`POST /mcp` on
+`127.0.0.1`) or stdio (`agentctl mcp`). Prompts reach agents the deck started and agents in herdr,
+cmux and Orca; sessions started by hand in another terminal stay read-only. Every call is checked
+against the token's scope and audited under its name. [mcp.md](mcp.md) has the tools and the
+security model.
+
 ## Agent terminals
 
 - **Focus.** iTerm's local API selects the agent's tab and pane, then iTerm's `StealFocus` escape brings the window forward, including a hidden hotkey window. `agentctl set term tmux` switches your last-used tab to the agent instead; `window` only raises its window.

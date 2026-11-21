@@ -50,6 +50,8 @@ const S = {
   file: {}, // fileTarget key -> installing a firmware file: {stage, name, size, up, error, version}
   btScope: {}, // Bluetooth identifier -> the scope picked before Add
   btFind: {}, // device id -> looking for that board over Bluetooth, to add it from its row
+  mcp: null, // MCP tokens and where clients connect
+  mcpNew: null, // the new-token form, then the token made (shown once)
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -275,7 +277,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
+    live: '/v1/live', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
   };
   try {
     S[what] = await api('GET', paths[what]);
@@ -299,7 +301,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth calls).
 function extras(page) {
-  return { boards: ['bt', 'btBoards', 'jobList'], network: ['bt'] }[page] || [];
+  return { boards: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp'] }[page] || [];
 }
 
 function firstError(page) {
@@ -447,6 +449,81 @@ function drawAgents() {
         await load('agents'); draw();
       }), '', { 'aria-label': `Colour of ${ac.name}: ${ac.color}. Change to ${next}` }),
     ], { pic: h('span', { class: `chip c-${ac.color}`, 'aria-hidden': 'true' }), name: true }));
+  }
+  out.push(...mcpSection());
+  return out;
+}
+
+// ---- MCP: tokens that let an agent run the deck's agents ------------------------------
+
+const MCP_SCOPES = [
+  { value: 'view', text: 'look only', title: 'See the agents and what they ask' },
+  { value: 'act', text: 'can answer', title: 'Also send prompts, answer questions and interrupt' },
+  { value: 'admin', text: 'can manage', title: 'Also start new agents and watch other sessions' },
+];
+
+function mcpSection() {
+  if (S.errors.mcp || !S.mcp) return []; // an older service has no MCP
+  const out = [lab('mcp')];
+  out.push(h('p', { class: 'note' }, 'Let one agent (Claude Code, for example) see the others, give them tasks, answer their questions and start new ones, through MCP. Each token has a scope, works only on this computer, and what it does is in the audit log under its name.'));
+  const n = S.mcpNew;
+  if (n && n.token) {
+    out.push(h('div', { class: 'box' },
+      h('p', {}, `Token ${n.name} (${scopeWords(n.scope)}). Copy it now: it is shown only this once.`),
+      h('div', { class: 'code-box', 'aria-label': 'The new token' }, n.token),
+      h('p', { class: 'note' }, 'Add it to Claude Code over HTTP:'),
+      h('div', { class: 'code-box', 'aria-label': 'Command for HTTP' }, n.commands.http),
+      h('p', { class: 'note' }, 'or over stdio, through agentctl:'),
+      h('div', { class: 'code-box', 'aria-label': 'Command for stdio' }, n.commands.stdio),
+      h('div', { class: 'actions' }, h('div', { class: 'r' },
+        btn('Copy token', async () => toast(await copyText(n.token) ? 'Copied' : 'Couldn\'t copy: select it by hand', false)),
+        btn('Copy HTTP command', async () => toast(await copyText(n.commands.http) ? 'Copied' : 'Couldn\'t copy: select it by hand', false)),
+        btn('Done', () => { S.mcpNew = null; draw(); }, 'p')))));
+  } else if (n) {
+    const err = h('p', { class: 'm err', role: 'alert' });
+    out.push(h('div', { class: 'box' },
+      h('div', { class: 'grid2' },
+        h('div', {}, h('label', { for: 'mcp-name' }, 'A name for it'), h('input', { id: 'mcp-name', type: 'text', autocomplete: 'off', value: n.name || 'claude', 'data-k': 'mcp-name' })),
+        h('div', {}, h('label', {}, 'It may'), seg('What the token may do', MCP_SCOPES, n.scope, (v) => { n.scope = v; n.name = $('#mcp-name').value; draw(true); }))),
+      err,
+      h('div', { class: 'actions' },
+        h('p', { class: 'note' }, n.scope === 'admin' ? 'Starting agents needs this.' : n.scope === 'act' ? 'Prompts, answers and interrupts; not starting agents.' : 'Reads only.'),
+        h('div', { class: 'r' },
+          btn('Cancel', () => { S.mcpNew = null; draw(true); }),
+          btn('Make the token', async (e) => {
+            err.textContent = '';
+            const b = e.currentTarget;
+            b.disabled = true;
+            try {
+              const r = await api('POST', '/admin/v1/mcp/tokens', { name: $('#mcp-name').value.trim(), scope: n.scope });
+              S.mcpNew = r;
+              await load('mcp');
+              draw(true);
+            } catch (ex) {
+              err.textContent = ex.message;
+            } finally {
+              if (b.isConnected) b.disabled = false;
+            }
+          }, 'p')))));
+  } else {
+    out.push(row('Make a token', `Clients connect to ${S.mcp.url}.`, [
+      btn('New token', () => { S.mcpNew = { name: 'claude', scope: 'act' }; draw(); $('#mcp-name')?.focus(); }),
+    ]));
+  }
+  for (const t of S.mcp.tokens || []) {
+    const used = t.lastUsed ? `used ${ago(t.lastUsed)}` : 'never used';
+    const meta = t.revoked ? `revoked · ${used}` : `${scopeWords(t.scope)} · made ${ago(t.created)} · ${used}`;
+    out.push(row(t.name, meta, [
+      t.revoked
+        ? btn('Remove', (e) => busy(e.currentTarget, async () => {
+          await api('POST', `/admin/v1/mcp/tokens/${encodeURIComponent(t.name)}/remove`, {});
+          await load('mcp'); draw();
+        }, 'Removed'))
+        : btn('Revoke', (e) => busy(e.currentTarget, async () => {
+          await api('POST', `/admin/v1/mcp/tokens/${encodeURIComponent(t.name)}/revoke`, {});
+          await load('mcp'); draw();
+        }, 'Revoked: it stops working now'), '', { 'aria-label': `Revoke ${t.name}` }),
+    ], { name: true, off: t.revoked }));
   }
   return out;
 }
