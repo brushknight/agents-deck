@@ -36,6 +36,12 @@ type Controller interface {
 	Resume(id string) error
 }
 
+// Prompter types a task into an agent's session and presses Enter (POST
+// /v1/agents/{id}/prompt); with interrupt, it stops the current turn first.
+type Prompter interface {
+	Prompt(id, text string, interrupt bool) error
+}
+
 // Restorer brings back agents lost with the tmux server (POST /v1/restore):
 // the ones listed, or every lost agent when ids is empty.
 type Restorer interface {
@@ -79,6 +85,14 @@ var (
 	ErrNotFound    = errors.New("no such agent")
 	ErrStalePrompt = errors.New("prompt changed")
 	ErrBadKey      = errors.New("not an option of the current prompt")
+	// Sending a prompt (POST /v1/agents/{id}/prompt).
+	ErrBusy     = errors.New("the agent is working on a turn: wait until it is idle, or send with interrupt to stop it first")
+	ErrAsking   = errors.New("the agent is waiting on a question: answer it instead (or send with interrupt to dismiss the question first)")
+	ErrStarting = errors.New("the agent is still starting: try again in a few seconds")
+	ErrExited   = errors.New("the agent has exited: resume it first")
+	// ErrReadOnly: the session can't be typed into from the deck (it runs
+	// in another terminal or app). Errors that wrap it answer 422.
+	ErrReadOnly = errors.New("the deck can't type into this session")
 )
 
 type Server struct {
@@ -94,6 +108,9 @@ type Server struct {
 	Devices *devices.Registry
 	CA      *pki.CA
 	Audit   *devices.Audit
+	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
+	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
+	Tokens *devices.Tokens
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -165,6 +182,27 @@ func (s *Server) api() *http.ServeMux {
 			return
 		}
 		s.act(w, s.Ctl.Answer(r.PathValue("id"), body.PromptID, body.Key))
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/prompt", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Text      string `json:"text"`
+			Interrupt bool   `json:"interrupt"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 3*MaxPromptBytes)).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "interrupt": false}`)
+			return
+		}
+		text, err := CleanPrompt(body.Text)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		p, ok := s.Ctl.(Prompter)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "sending prompts is not available here")
+			return
+		}
+		s.act(w, p.Prompt(r.PathValue("id"), text, body.Interrupt))
 	})
 	mux.HandleFunc("POST /v1/agents/{id}/focus", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Focus(r.PathValue("id")))
@@ -376,6 +414,10 @@ func (s *Server) act(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrBadKey):
 		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrBusy), errors.Is(err, ErrAsking), errors.Is(err, ErrStarting), errors.Is(err, ErrExited):
+		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrReadOnly):
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}
@@ -457,6 +499,16 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 	return secureHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !hostOK(r) {
 			writeErr(w, http.StatusMisdirectedRequest, "bad host")
+			return
+		}
+		if r.URL.Path == "/mcp" {
+			// MCP clients send a token, not the session cookie. A browser page
+			// on another site can't use it: its Origin is refused.
+			if o := r.Header.Get("Origin"); o != "" && o != "http://"+r.Host {
+				writeErr(w, http.StatusForbidden, "bad origin")
+				return
+			}
+			s.serveMCP(w, r)
 			return
 		}
 		if pre != nil && pre(w, r) {
@@ -551,6 +603,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
+	mux.HandleFunc("/local/mcp", s.serveMCP) // agentctl mcp (stdio): still needs a token
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
 	mux.HandleFunc("/local/link/firmware", s.linkFirmware)

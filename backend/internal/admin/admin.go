@@ -116,6 +116,11 @@ type Admin struct {
 	// nil: this computer has none.
 	Bluetooth Bluetooth
 
+	// Tokens are the MCP access tokens (mcp.go); MCPURL is where MCP clients
+	// connect over HTTP (http://127.0.0.1:<port>/mcp). nil: no MCP section.
+	Tokens *devices.Tokens
+	MCPURL string
+
 	// NetworkOn: the network listener runs in this process (it starts or
 	// stops only with the service).
 	NetworkOn bool
@@ -187,6 +192,10 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/update", a.updateState)
 	mux.HandleFunc("POST /admin/v1/update/check", a.updateCheck)
 	mux.HandleFunc("POST /admin/v1/update/apply", a.updateApply)
+
+	mux.HandleFunc("GET /admin/v1/mcp", a.mcpInfo)
+	mux.HandleFunc("POST /admin/v1/mcp/tokens", a.mcpCreate)
+	mux.HandleFunc("POST /admin/v1/mcp/tokens/{name}/{action}", a.mcpAction)
 
 	mux.HandleFunc("GET /admin/v1/diagnostics", a.diagnostics)
 	mux.HandleFunc("/admin/v1/", func(w http.ResponseWriter, r *http.Request) {

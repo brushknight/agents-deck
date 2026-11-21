@@ -48,6 +48,8 @@ agentsdeck.link.v1.Answer.prompt_id      max_size:16
 agentsdeck.link.v1.Answer.key            max_size:8
 agentsdeck.link.v1.Focus.agent_id        max_size:12
 agentsdeck.link.v1.Interrupt.agent_id    max_size:12
+agentsdeck.link.v1.SendPrompt.agent_id   max_size:12
+agentsdeck.link.v1.SendPrompt.text       max_size:384
 agentsdeck.link.v1.Dismiss.agent_id      max_size:12
 agentsdeck.link.v1.Resume.agent_id       max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12

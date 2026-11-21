@@ -37,6 +37,7 @@ func newAdmin(st *store.Store, srv *server.Server, self, logFile string) *admin.
 		// share its cache and its one-download-at-a-time lock.
 		Updater: upd, Firmware: &firmware.Client{Releases: upd.Releases},
 		Open: proc.Open, Exe: self, MagicChanged: srv.MagicChanged,
+		Tokens: srv.Tokens, MCPURL: "http://" + srv.LocalAddr + "/mcp",
 	}
 	if home != "" {
 		a.CLIDir = filepath.Join(home, ".local", "bin")

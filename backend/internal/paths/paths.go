@@ -44,8 +44,9 @@ func WebToken() string   { return filepath.Join(Data(), "web-session") }
 func CACert() string     { return filepath.Join(Data(), "ca.pem") }          // the deck's CA (public)
 func ServerCert() string { return filepath.Join(Data(), "server-cert.pem") } // network listener, signed by the CA
 func ServerKey() string  { return filepath.Join(Data(), "server-key.pem") }
-func Devices() string    { return filepath.Join(Data(), "devices.json") } // paired devices
-func Audit() string      { return filepath.Join(Data(), "audit.log") }    // one line per action, by device
+func Devices() string    { return filepath.Join(Data(), "devices.json") }    // paired devices
+func MCPTokens() string  { return filepath.Join(Data(), "mcp-tokens.json") } // MCP tokens (hashes only)
+func Audit() string      { return filepath.Join(Data(), "audit.log") }       // one line per action, by device
 func HooksFile() string  { return filepath.Join(Data(), "claude-hooks.json") }
 func Log() string        { return filepath.Join(Data(), "agentd.log") }
 func PID() string        { return filepath.Join(Data(), "agentd.pid") } // the running service's process id

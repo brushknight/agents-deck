@@ -49,6 +49,7 @@ message Frame {
     MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
     Stash stash = 46;              // POST /v1/stash
     MagicView magic_view = 47;     // POST /v1/magic/view
+    SendPrompt send_prompt = 48;   // POST /v1/agents/{id}/prompt
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -299,6 +300,15 @@ message Answer {
 
 message Focus { string agent_id = 1; }
 message Interrupt { string agent_id = 1; }
+
+// SendPrompt types a task into the agent's session and presses Enter. text
+// is at most 383 bytes (link.options), so the whole frame fits a board's
+// smallest frame (512 bytes); the web API takes up to 4000.
+message SendPrompt {
+  string agent_id = 1;
+  string text = 2;
+  bool interrupt = 3;  // the agent is working: press Esc first, then type
+}
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
 

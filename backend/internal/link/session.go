@@ -731,6 +731,7 @@ var Routes = map[string]string{
 	"answer":         "POST /v1/agents/{id}/answer",
 	"focus":          "POST /v1/agents/{id}/focus",
 	"interrupt":      "POST /v1/agents/{id}/interrupt",
+	"send_prompt":    "POST /v1/agents/{id}/prompt",
 	"dismiss":        "POST /v1/agents/{id}/dismiss",
 	"resume":         "POST /v1/agents/{id}/resume",
 	"move":           "POST /v1/agents/{id}/move",
@@ -832,6 +833,9 @@ func (s *Session) command(f *linkpb.Frame) error {
 		return s.sendReply(f.Seq, &linkpb.Frame{Body: &linkpb.Frame_RestoreResult{RestoreResult: rr}})
 	case *linkpb.Frame_Answer:
 		method, path, body = http.MethodPost, agentPath(b.Answer.AgentId, "answer"), map[string]string{"promptId": b.Answer.PromptId, "key": b.Answer.Key}
+	case *linkpb.Frame_SendPrompt:
+		method, path, body = http.MethodPost, agentPath(b.SendPrompt.AgentId, "prompt"),
+			map[string]any{"text": b.SendPrompt.Text, "interrupt": b.SendPrompt.Interrupt}
 	case *linkpb.Frame_Focus:
 		method, path = http.MethodPost, agentPath(b.Focus.AgentId, "focus")
 	case *linkpb.Frame_Interrupt:

@@ -306,6 +306,15 @@ typedef struct _agentsdeck_link_v1_Interrupt {
     char agent_id[12];
 } agentsdeck_link_v1_Interrupt;
 
+/* SendPrompt types a task into the agent's session and presses Enter. text
+ is at most 383 bytes (link.options), so the whole frame fits a board's
+ smallest frame (512 bytes); the web API takes up to 4000. */
+typedef struct _agentsdeck_link_v1_SendPrompt {
+    char agent_id[12];
+    char text[384];
+    bool interrupt; /* the agent is working: press Esc first, then type */
+} agentsdeck_link_v1_SendPrompt;
+
 typedef struct _agentsdeck_link_v1_Dismiss {
     char agent_id[12];
 } agentsdeck_link_v1_Dismiss;
@@ -573,6 +582,7 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_MoveAttention move_attention; /* POST /v1/agents/{id}/attention */
         agentsdeck_link_v1_Stash stash; /* POST /v1/stash */
         agentsdeck_link_v1_MagicView magic_view; /* POST /v1/magic/view */
+        agentsdeck_link_v1_SendPrompt send_prompt; /* POST /v1/agents/{id}/prompt */
         /* Replies, deck → board, with the request's seq. */
         agentsdeck_link_v1_Result result; /* every command without a typed reply */
         agentsdeck_link_v1_HatList hat_list; /* reply to ListHats */
@@ -689,6 +699,7 @@ extern "C" {
 
 
 
+
 #define agentsdeck_link_v1_Magic_role_ENUMTYPE agentsdeck_link_v1_MagicRole
 #define agentsdeck_link_v1_Magic_arrive_ENUMTYPE agentsdeck_link_v1_Corner
 #define agentsdeck_link_v1_Magic_leave_ENUMTYPE agentsdeck_link_v1_Corner
@@ -750,6 +761,7 @@ extern "C" {
 #define agentsdeck_link_v1_Answer_init_default   {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_default    {""}
 #define agentsdeck_link_v1_Interrupt_init_default {""}
+#define agentsdeck_link_v1_SendPrompt_init_default {"", "", 0}
 #define agentsdeck_link_v1_Dismiss_init_default  {""}
 #define agentsdeck_link_v1_Resume_init_default   {""}
 #define agentsdeck_link_v1_Move_init_default     {"", 0}
@@ -806,6 +818,7 @@ extern "C" {
 #define agentsdeck_link_v1_Answer_init_zero      {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_zero       {""}
 #define agentsdeck_link_v1_Interrupt_init_zero   {""}
+#define agentsdeck_link_v1_SendPrompt_init_zero  {"", "", 0}
 #define agentsdeck_link_v1_Dismiss_init_zero     {""}
 #define agentsdeck_link_v1_Resume_init_zero      {""}
 #define agentsdeck_link_v1_Move_init_zero        {"", 0}
@@ -937,6 +950,9 @@ extern "C" {
 #define agentsdeck_link_v1_Answer_key_tag        3
 #define agentsdeck_link_v1_Focus_agent_id_tag    1
 #define agentsdeck_link_v1_Interrupt_agent_id_tag 1
+#define agentsdeck_link_v1_SendPrompt_agent_id_tag 1
+#define agentsdeck_link_v1_SendPrompt_text_tag   2
+#define agentsdeck_link_v1_SendPrompt_interrupt_tag 3
 #define agentsdeck_link_v1_Dismiss_agent_id_tag  1
 #define agentsdeck_link_v1_Resume_agent_id_tag   1
 #define agentsdeck_link_v1_Move_agent_id_tag     1
@@ -1043,6 +1059,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_move_attention_tag 45
 #define agentsdeck_link_v1_Frame_stash_tag       46
 #define agentsdeck_link_v1_Frame_magic_view_tag  47
+#define agentsdeck_link_v1_Frame_send_prompt_tag 48
 #define agentsdeck_link_v1_Frame_result_tag      50
 #define agentsdeck_link_v1_Frame_hat_list_tag    51
 #define agentsdeck_link_v1_Frame_live_sessions_tag 52
@@ -1087,6 +1104,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_accounts,body.list_accounts),  44)
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,move_attention,body.move_attention),  45) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,stash,body.stash),  46) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic_view,body.magic_view),  47) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,send_prompt,body.send_prompt),  48) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,result,body.result),  50) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,hat_list,body.hat_list),  51) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,live_sessions,body.live_sessions),  52) \
@@ -1129,6 +1147,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_move_attention_MSGTYPE agentsdeck_link_v1_MoveAttention
 #define agentsdeck_link_v1_Frame_body_stash_MSGTYPE agentsdeck_link_v1_Stash
 #define agentsdeck_link_v1_Frame_body_magic_view_MSGTYPE agentsdeck_link_v1_MagicView
+#define agentsdeck_link_v1_Frame_body_send_prompt_MSGTYPE agentsdeck_link_v1_SendPrompt
 #define agentsdeck_link_v1_Frame_body_result_MSGTYPE agentsdeck_link_v1_Result
 #define agentsdeck_link_v1_Frame_body_hat_list_MSGTYPE agentsdeck_link_v1_HatList
 #define agentsdeck_link_v1_Frame_body_live_sessions_MSGTYPE agentsdeck_link_v1_LiveSessions
@@ -1342,6 +1361,13 @@ X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 #define agentsdeck_link_v1_Interrupt_CALLBACK NULL
 #define agentsdeck_link_v1_Interrupt_DEFAULT NULL
+
+#define agentsdeck_link_v1_SendPrompt_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
+X(a, STATIC,   SINGULAR, STRING,   text,              2) \
+X(a, STATIC,   SINGULAR, BOOL,     interrupt,         3)
+#define agentsdeck_link_v1_SendPrompt_CALLBACK NULL
+#define agentsdeck_link_v1_SendPrompt_DEFAULT NULL
 
 #define agentsdeck_link_v1_Dismiss_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
@@ -1580,6 +1606,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Subagent_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Answer_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Focus_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Interrupt_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_SendPrompt_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Dismiss_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Resume_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Move_msg;
@@ -1638,6 +1665,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Answer_fields &agentsdeck_link_v1_Answer_msg
 #define agentsdeck_link_v1_Focus_fields &agentsdeck_link_v1_Focus_msg
 #define agentsdeck_link_v1_Interrupt_fields &agentsdeck_link_v1_Interrupt_msg
+#define agentsdeck_link_v1_SendPrompt_fields &agentsdeck_link_v1_SendPrompt_msg
 #define agentsdeck_link_v1_Dismiss_fields &agentsdeck_link_v1_Dismiss_msg
 #define agentsdeck_link_v1_Resume_fields &agentsdeck_link_v1_Resume_msg
 #define agentsdeck_link_v1_Move_fields &agentsdeck_link_v1_Move_msg
@@ -1719,6 +1747,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Restored_size         188
 #define agentsdeck_link_v1_Result_size           103
 #define agentsdeck_link_v1_Resume_size           13
+#define agentsdeck_link_v1_SendPrompt_size       401
 #define agentsdeck_link_v1_Server_size           85
 #define agentsdeck_link_v1_SetHat_size           175
 #define agentsdeck_link_v1_SnapshotBegin_size    93

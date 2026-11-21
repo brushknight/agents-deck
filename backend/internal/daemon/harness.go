@@ -17,21 +17,22 @@ import (
 // app's name; what you do on the deck goes back through the app. Adding one:
 // docs/harnesses.md.
 type harness struct {
-	send      func(e store.Entry, key string) error // types an answer's key
-	interrupt func(e store.Entry) error             // stops the current turn
-	focus     func(e store.Entry) error             // shows the agent on the Mac
-	hide      func(e store.Entry)                   // off the deck until it's active again
+	send      func(e store.Entry, key string) error  // types an answer's key
+	interrupt func(e store.Entry) error              // stops the current turn
+	focus     func(e store.Entry) error              // shows the agent on the Mac
+	hide      func(e store.Entry)                    // off the deck until it's active again
+	prompt    func(e store.Entry, text string) error // types a prompt and presses Enter
 }
 
 // harnessOf is the app an agent runs in, if it runs in one.
 func (d *Daemon) harnessOf(e store.Entry) (harness, bool) {
 	switch e.A.App {
 	case "orca":
-		return harness{d.orcaSend, d.orcaInterrupt, d.orcaFocus, d.orcaHide}, true
+		return harness{d.orcaSend, d.orcaInterrupt, d.orcaFocus, d.orcaHide, d.orcaPrompt}, true
 	case "herdr":
-		return harness{d.herdrSend, d.herdrInterrupt, d.herdrFocus, d.herdrHide}, true
+		return harness{d.herdrSend, d.herdrInterrupt, d.herdrFocus, d.herdrHide, d.herdrPrompt}, true
 	case "cmux":
-		return harness{d.cmuxSend, d.cmuxInterrupt, d.cmuxFocus, d.cmuxHide}, true
+		return harness{d.cmuxSend, d.cmuxInterrupt, d.cmuxFocus, d.cmuxHide, d.cmuxPrompt}, true
 	}
 	return harness{}, false
 }

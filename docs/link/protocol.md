@@ -131,6 +131,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `ListHats` | `GET /v1/hats` | view | `HatList` |
 | `ListAccounts` | `GET /v1/accounts` | view | `AccountList` |
 | `Answer {agent_id, prompt_id, key}` | `POST /v1/agents/{id}/answer` | act | `Result`: 204; 409 if the prompt changed; 400 if `key` isn't an option. A question with several parts comes one step at a time, each a new prompt; `Option.selected` marks ticked answers of a pick-any question (see the web API's Prompt) |
+| `SendPrompt {agent_id, text, interrupt}` | `POST /v1/agents/{id}/prompt` | act | `Result`: 204; 409 while the agent works (unless `interrupt`), asks a question, starts or has exited; 422 for a session the deck can't type into. `text` is at most 383 bytes (384 with its NUL in `link.options`), so the whole frame fits the smallest frame a board may ask for (512 bytes); the web API takes up to 4000 |
 | `Focus`, `Interrupt` `{agent_id}` | `POST /v1/agents/{id}/focus`, `…/interrupt` | act | `Result` |
 | `Move {agent_id, slot}` | `POST /v1/agents/{id}/move` | act | `Result` |
 | `MoveAttention {agent_id, slot}` | `POST /v1/agents/{id}/attention` | act | `Result`: 204; 409 if the agent isn't on the "Needs you" grid; 400 if `slot` isn't 1 to 16 |

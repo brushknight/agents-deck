@@ -78,6 +78,9 @@ PB_BIND(agentsdeck_link_v1_Focus, agentsdeck_link_v1_Focus, AUTO)
 PB_BIND(agentsdeck_link_v1_Interrupt, agentsdeck_link_v1_Interrupt, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_SendPrompt, agentsdeck_link_v1_SendPrompt, 2)
+
+
 PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 
 

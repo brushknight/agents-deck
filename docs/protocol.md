@@ -7,6 +7,7 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 | desk panel (Flutter, 720×720), later a phone app | HTTPS on the network, `:7341`, **TLS 1.3 only** | a **client certificate per device**, signed by the deck's CA; scope view, act or admin |
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
 | menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600); on Windows `%LOCALAPPDATA%\agents-deck\agentd.sock` (Windows 10 1803 and later have unix sockets) | filesystem permissions: your user (on Windows, the folder under your profile is private to you) |
+| MCP clients (an orchestrating agent such as Claude Code), [mcp.md](mcp.md) | `POST /mcp` on `127.0.0.1:7340` (Streamable HTTP), or `agentctl mcp` (stdio) through the unix socket (`POST /local/mcp`) | an **MCP token** (`Authorization: Bearer adk_…`) on both: made in Settings, MCP, kept only as a SHA-256 hash; scope view, act or admin |
 | ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board (at once when plugged into a registered USB port, unless turned off); scope view, act or admin |
 | ESP32 boards over Bluetooth | Bluetooth LE: the same Deck Link frames as a byte stream through the Deck Link GATT service, run by a small helper next to `agentctl` (`deck-ble` on macOS, [clients/ble](../clients/ble/README.md)) | added by you (`agentctl bluetooth add`), paired with the 6-digit passkey shown on the board's own screen and bonded; then the same device, scope and audit log as on USB |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
@@ -16,6 +17,9 @@ scope, audit and revocation model: a board on it is a device you approved, never
 sight ([Boards over Bluetooth](#devices-and-security)).
 
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
+The MCP endpoint is served only on the loopback dashboard (`POST /mcp`) and the unix socket (`POST
+/local/mcp`), never on the network, and needs an MCP token on both: each tool call runs the `/v1` API
+through the same scope check and audit log as a paired device, as `mcp:<token name>` ([mcp.md](mcp.md)).
 The management API (`/admin/v1`, [below](#management-api-adminv1)) is served only on the unix socket and the
 loopback dashboard, never on the network.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
@@ -28,6 +32,7 @@ mutating request whose `Origin` is not that host.
 | GET | `/v1/state` | – | `State` |
 | GET | `/v1/events` | – | Server-Sent Events, see below |
 | POST | `/v1/agents/{id}/answer` | `{"promptId": "...", "key": "1"}` | `204`; `409` if `promptId` is no longer the agent's current prompt; `400` if `key` is not one of its options |
+| POST | `/v1/agents/{id}/prompt` | `{"text": "fix the failing test", "interrupt": false}` | `204`: types the text into the agent's session and presses Enter, as if you typed it there. Text: 1 to 4000 bytes of UTF-8, newlines and tabs but no other control characters; it goes in as one paste (bracketed, when the program asks for that), so its newlines don't submit it early. Works for agents the deck started (tmux) and agents in herdr, cmux or Orca. `409` while the agent works on a turn, waits on a question (answer it instead), is still starting or has exited; with `"interrupt": true` a working or asking agent gets Esc first. Agents the deck can't see the status of (Codex, Gemini or a shell started here) take it at any time. `422` for a session started by hand in another terminal or in the Codex app: nothing can type into another app's terminal. `404` unknown agent |
 | POST | `/v1/agents/{id}/focus` | – | `204` — brings the agent's terminal to the front on the Mac (iTerm tab / overlay) |
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
@@ -211,7 +216,7 @@ belong to an active device in `devices.json`; a revoked device fails the handsha
 | scope | may |
 |---|---|
 | `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts` |
-| `act` | also answer, focus, interrupt, move, order, hats |
+| `act` | also answer, send prompts, focus, interrupt, move, order, hats |
 | `admin` | also dismiss, resume, hand over to another account, restore, `GET /v1/live`, add a live session |
 
 A request beyond the device's scope gets `403` with the command that would raise it.
@@ -357,7 +362,8 @@ each board is connected right now (USB, Wi-Fi or Bluetooth);
 **Audit.** Every request that changes something is appended to `audit.log` as one JSON line:
 `{"time", "device", "action": "POST /v1/agents/k3f9a2/answer", "status": 204}`; firmware downloads
 (`GET /v1/firmware/…`) are recorded too, with the byte range in `detail`; the web dashboard is
-`web`, the unix socket `local`.
+`web`, the unix socket `local`, an MCP token `mcp:<name>` (and `"action": "start agent"` for MCP's
+`start_agent`).
 
 ## Management API (`/admin/v1`)
 
@@ -408,6 +414,9 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | GET | `/admin/v1/update` | – | the updater's state (`state`, `current`, `version`, `notes`, `message`, `install`) plus `mode`, `checked`, `releaseKey`, `job` |
 | POST | `/admin/v1/update/check` | – | reads the latest release now, then downloads it in the background so it is ready |
 | POST | `/admin/v1/update/apply` | – | `202` and a job: download if needed, then install; the service and the app restart |
+| GET | `/admin/v1/mcp` | – | `{"tokens": [{"name", "scope", "created", "lastUsed", "revoked"}], "url", "agentctl"}`: the MCP tokens (never their secrets or hashes), the HTTP endpoint (`http://127.0.0.1:7340/mcp`) and the agentctl the stdio transport runs |
+| POST | `/admin/v1/mcp/tokens` | `{"name", "scope"}` (`scope` `act` when left out) | `{"token", "name", "scope", "url", "commands": {"http", "stdio"}}`: a new token, `adk_` and 64 hex digits, returned this once (only its SHA-256 is kept), with the `claude mcp add` commands for both transports. `400` for a bad name or scope, or an active token of the same name |
+| POST | `/admin/v1/mcp/tokens/{name}/{action}` | `revoke` or `remove` | `204`: `revoke` stops the token at once (it stays listed, revoked; its hash is dropped); `remove` forgets it. `404` for no such token |
 | GET | `/admin/v1/diagnostics` | – | `{"report", "log", "uptime", "agents", "boardsOnline", "boards", "dataDir", "logFile"}`: the report holds versions, the platform, counts and board models; the log's last lines have home paths, folders, quoted text, agent, device, account, user, host and network names and addresses left out. `dataDir` and `logFile` are for this computer's page, not the report |
 
 **Jobs and events.** Jobs come on `/admin/v1/events`, not on `/v1/events`: that stream also goes
