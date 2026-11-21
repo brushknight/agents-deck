@@ -212,6 +212,41 @@ int main() {
     assert(ui.page == 0);
   }
 
+  // ---- swipe direction: only a move clearly more across than up or down
+  // (|dx| > 1.3 |dy|) slides the page; a diagonal that goes mostly up does not.
+  {
+    Fleet f = fleetOf(2);
+    f.agents[1].slot = 17;
+    auto swipe = [&](PanelUi& ui, int dx, int dy, uint32_t ms) {
+      squareTouch(ui, L, f, true, 240, 300, DeckScope::Act, ms);
+      squareTouch(ui, L, f, true, 240 + dx / 2, 300 + dy / 2, DeckScope::Act, ms + 40);
+      squareTouch(ui, L, f, true, 240 + dx, 300 + dy, DeckScope::Act, ms + 80);
+      squareTouch(ui, L, f, false, 0, 0, DeckScope::Act, ms + 90);
+    };
+    PanelUi ui;
+    swipe(ui, -60, -100, 0);                                     // up and a bit left: no page
+    assert(ui.page == 0);
+    swipe(ui, -80, -70, 200);                                    // about as much up as across: no page
+    assert(ui.page == 0);
+    swipe(ui, 0, -120, 400);                                     // straight up: no page either
+    assert(ui.page == 0);
+    swipe(ui, -100, -60, 600);                                   // mostly across: the next page
+    assert(ui.page == 1);
+    swipe(ui, 60, 100, 800);                                     // down and right: stays
+    assert(ui.page == 1);
+    swipe(ui, 100, 20, 1000);                                    // across: back
+    assert(ui.page == 0);
+    // On a card, back is a sideways move too.
+    const Rect r0 = cellRect(L, gridGeom(L, 2), 0);
+    touchAt(L, ui, f, r0.x + r0.w / 2, r0.y + r0.h / 2, 1200, DeckScope::Act);
+    assert(ui.screen == Screen::Card);
+    swipe(ui, 70, -110, 1400);
+    assert(ui.screen == Screen::Card);
+    swipe(ui, 120, -40, 1600);
+    assert(ui.screen == Screen::Home);
+    assert(swipeAcross(131, 100) && !swipeAcross(130, 100) && !swipeAcross(0, 0));
+  }
+
   // ---- the "Needs you" screen on the list boards: what the list shows at
   // once (2 x 2, 2 x 3 on the T4-S3), to the left of the list, not scrolling
   {
@@ -526,7 +561,7 @@ int main() {
     assert(ui.needsYou);
     const Rect r0 = cellRect(L, g, 0);
     assert(squareHit(L, ui, f, r0.x + 5, r0.y + 5, DeckScope::Act).agent == 1);
-    squareSwipe(ui, L, f, Swipe::Down);                          // previous: nothing further left
+    squareSwipe(ui, L, f, Swipe::Down);                          // up or down: not a page change
     assert(ui.needsYou);
     squareSwipe(ui, L, f, Swipe::Left);
     assert(!ui.needsYou && ui.page == 0);

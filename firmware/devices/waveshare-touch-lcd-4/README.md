@@ -18,7 +18,8 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   - Each tile shows the critter with its pose and hat, the title, a status line, the context along
     the border, the tool chip, and the subagent critter.
   - Orange means it needs you; stripes mean a finished turn you haven't looked at.
-  - Swipe or tap the page bars to change page; BOOT goes to the next page.
+  - Swipe left or right (a move clearly more sideways than up or down) or tap the page bars to change
+    page; BOOT goes to the next page.
 - **Needs you.** One more page, to the left of the first: the agents at work, asking you something,
   or finished and not checked yet, in the same 4×4 grid. An agent leaves 5 seconds after it stops
   needing you, and keeps its spot while it is there. Swipe right on the first page (or tap the mark at

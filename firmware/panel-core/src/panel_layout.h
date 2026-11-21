@@ -49,6 +49,11 @@ struct Rect {
 
 enum class Swipe : uint8_t { Left, Right, Up, Down };
 
+// A move is sideways (a page slide, back from a card) only when it is clearly
+// more across than up or down: |dx| > 1.3 |dy|. A diagonal that goes up (or
+// down) about as much as across is not a page slide.
+static inline bool swipeAcross(int adx, int ady) { return adx * 10 > ady * 13; }
+
 // The screens of a square board.
 enum class Screen : uint8_t { Home, Card, Prompt };
 

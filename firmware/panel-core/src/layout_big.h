@@ -468,11 +468,11 @@ static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f
   if (adx <= slop && ady <= slop) {
     if (pressed.kind != Hit::None) out = bigTap(ui, f, pressed, scope, ms);
   } else if (adx >= swipeMin || ady >= swipeMin) {
-    const bool horizontal = adx >= ady;
+    const bool across = swipeAcross(adx, ady);     // only a sideways move pages or goes back
     if (ui.screen != Screen::Home) {
-      if (horizontal && dx > 0) bigHome(ui);
-    } else {
-      bigStep(ui, f, horizontal ? dx < 0 : dy < 0);
+      if (across && dx > 0) bigHome(ui);
+    } else if (across) {
+      bigStep(ui, f, dx < 0);
     }
   }
   return out;

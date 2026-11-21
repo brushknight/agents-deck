@@ -620,9 +620,10 @@ static inline void squareSwipe(PanelUi& ui, const SquareSpec& S, const Fleet& f,
     if (s == Swipe::Right) squareHome(ui);
     return;
   }
-  const bool next = s == Swipe::Left || s == Swipe::Up;
+  if (s == Swipe::Up || s == Swipe::Down) return;  // only a sideways move changes the page
+  const bool next = s == Swipe::Left;
   if (onNeedsYou(ui)) {                            // back to the first page (the top of the list)
-    if (S.home == HomeKind::Grid ? next : s == Swipe::Left) { ui.needsYou = false; ui.page = 0; }
+    if (next) { ui.needsYou = false; ui.page = 0; }
     return;
   }
   if (S.home == HomeKind::Grid) {
@@ -676,7 +677,7 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
     // scrolls the list, sideways slides the pages.
     const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     if (list && !ui.dragging && !ui.sliding && ady > kSlop && ady >= adx) ui.dragging = true;
-    if (pager && !ui.dragging && !ui.sliding && adx > kSlop && adx > ady) {
+    if (pager && !ui.dragging && !ui.sliding && adx > kSlop && swipeAcross(adx, ady)) {
       ui.sliding = true;
       ui.slide0 = pagerPos(ui);
     }
@@ -746,7 +747,7 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
     if (pressed.kind != Hit::None || (uint32_t)(ms - ui.downMs) <= kTapMaxMs)
       out = squareTap(ui, S, f, pressed.kind != Hit::None ? pressed : squareHit(S, ui, f, ui.x0, ui.y0, scope), scope, ms);
   } else if (adx >= kSwipeMin || ady >= kSwipeMin) {
-    squareSwipe(ui, S, f, adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down));
+    squareSwipe(ui, S, f, swipeAcross(adx, ady) ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down));
   }
   return out;
 }

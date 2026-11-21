@@ -317,8 +317,17 @@ int main() {
     assert(bigHit(S, ui, f, bigCell(g, 1).x + 5, bigCell(g, 1).y + 5, DeckScope::Act).agent == 2);   // r
     assert(bigHit(S, ui, f, bigCell(g, 2).x + 5, bigCell(g, 2).y + 5, DeckScope::Act).agent == 3);   // z (page 2)
     assert(bigHit(S, ui, f, bigCell(g, 3).x + 5, bigCell(g, 3).y + 5, DeckScope::Act).kind == Hit::None);
-    // Further right: nothing; swipe up or down count as previous / next too.
+    // Further right: nothing.
     bigStep(ui, f, false);
+    assert(ui.needsYou);
+    // Up, or a diagonal that goes mostly up: not a page change (only |dx| > 1.3 |dy| is).
+    bigTouch(ui, S, f, true, 200, 400, DeckScope::Act, 170);
+    bigTouch(ui, S, f, true, 260, 300, DeckScope::Act, 180);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 190);
+    assert(ui.needsYou);
+    bigTouch(ui, S, f, true, 300, 400, DeckScope::Act, 191);
+    bigTouch(ui, S, f, true, 220, 330, DeckScope::Act, 195);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 199);
     assert(ui.needsYou);
     // A tile there opens its prompt, and back is the screen again.
     tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 200);
