@@ -580,6 +580,17 @@ function askOf(a) {
   return { q: 'Needs input', dt: w.title || w.detail || '' };
 }
 
+// The label over a question: "Question · 1 of 1", "Question · size · pick
+// any". A context that already says "question" ("question · 1 of 1", "size ·
+// question 2 of 3", "review · 2 questions") goes in as it is.
+function askLabel(w) {
+  if (w.kind === 'permission') return 'Permission';
+  if (w.kind !== 'question') return 'Input';
+  const c = (w.context || '').trim();
+  if (!c) return `Question · pick 1 of ${(w.options || []).length}`;
+  return /\bquestions?\b/i.test(c) ? c : `Question · ${c}`;
+}
+
 function tileClass(a) {
   if (a.status === 'waiting') return 'wait';
   if (a.status === 'error') return 'err';
@@ -1020,7 +1031,7 @@ function buildAgent(a, body) {
     if (s) { opts.forEach((o) => { o.disabled = true; }); say2(note, s.status === 'sent' ? `Sent ${s.key}. Waiting for the agent…` : `Sending ${s.key}…`); }
     agentView.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
     const ask = h('div', { class: 'askblk' },
-      h('span', { class: 'eyebrow' }, isQ ? `Question${w.context ? ` · ${w.context}` : ` · pick 1 of ${(w.options || []).length}`}` : w.kind === 'permission' ? 'Permission' : 'Input'),
+      h('span', { class: 'eyebrow' }, askLabel(w)),
       h('span', { class: 'serif q' }, isQ ? w.title : askOf(a).q),
       !isQ && (w.detail || w.title) ? h('div', { class: 'term' }, h('div', { class: 'body' },
         w.detail ? h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, w.detail)) : null,
