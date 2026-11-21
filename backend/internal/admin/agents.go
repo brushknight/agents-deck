@@ -335,6 +335,32 @@ func (a *Admin) accountRows(byAccount map[string]int, cost map[string]float64) [
 	return accs
 }
 
+// accountDefault: POST /admin/v1/accounts/{name}/default: new agents start
+// in that account (agentctl accounts default <name>).
+func (a *Admin) accountDefault(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	list := accounts.Configured()
+	found := false
+	for _, ac := range list {
+		found = found || ac.Name == name
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "no account called "+name)
+		return
+	}
+	a.cfgMu.Lock()
+	err := accounts.Save(list, name)
+	a.cfgMu.Unlock()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if a.Store != nil {
+		a.Store.Touch()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // accountColor: POST /admin/v1/accounts/{name}/color {"color"}.
 func (a *Admin) accountColor(w http.ResponseWriter, r *http.Request) {
 	var b struct {

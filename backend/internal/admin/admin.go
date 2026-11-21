@@ -133,20 +133,25 @@ type Admin struct {
 	// (default 2 minutes); CheckEvery is the time between checks (a day).
 	FirstCheck, CheckEvery time.Duration
 
-	cfgMu   sync.Mutex
-	jobs    jobs
-	ports   portHolds
-	catMu   sync.Mutex
-	catalog *firmware.Catalog
-	catAt   time.Time
-	catErr  string
-	catBusy bool
-	updMu   sync.Mutex
-	checked time.Time
-	labels  labelBook
-	ota     otaWatch
-	files   fileBook
-	probes  probeBook
+	// Starter starts agents in a project's folder (the live daemon); nil:
+	// projects can be kept but not started (demo mode).
+	Starter Starter
+
+	cfgMu    sync.Mutex
+	projects projectStore
+	jobs     jobs
+	ports    portHolds
+	catMu    sync.Mutex
+	catalog  *firmware.Catalog
+	catAt    time.Time
+	catErr   string
+	catBusy  bool
+	updMu    sync.Mutex
+	checked  time.Time
+	labels   labelBook
+	ota      otaWatch
+	files    fileBook
+	probes   probeBook
 }
 
 // Handler serves /admin/v1/… . The caller has already decided who may reach
@@ -163,6 +168,10 @@ func (a *Admin) Handler() http.Handler {
 
 	mux.HandleFunc("GET /admin/v1/agents", a.agents)
 	mux.HandleFunc("POST /admin/v1/accounts/{name}/color", a.accountColor)
+	mux.HandleFunc("POST /admin/v1/accounts/{name}/default", a.accountDefault)
+	mux.HandleFunc("GET /admin/v1/projects", a.projectsList)
+	mux.HandleFunc("POST /admin/v1/projects", a.projectsAdd)
+	mux.HandleFunc("POST /admin/v1/projects/{name}/{action}", a.projectAction)
 
 	mux.HandleFunc("GET /admin/v1/devices", a.listDevices)
 	mux.HandleFunc("POST /admin/v1/devices/{id}/{action}", a.deviceAction)
