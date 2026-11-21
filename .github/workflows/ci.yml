@@ -216,6 +216,8 @@ jobs:
           test -x "$mnt/agents deck.app/Contents/MacOS/deck-ble"
           # -dv, not -r-: an ad-hoc signature's designated requirement is a cdhash, without the identifier.
           codesign -dv "$mnt/agents deck.app/Contents/MacOS/deck-ble" 2>&1 | grep -q '^Identifier=dev.agents-deck.deck-ble$'
+          # macOS reads the app's Info.plist for the helper inside it (clients/ble/README.md).
+          /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" "$mnt/agents deck.app/Contents/Info.plist"
           hdiutil detach "$mnt"
 
   firmware:

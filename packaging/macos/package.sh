@@ -72,9 +72,14 @@ echo "agentctl: $(lipo -archs "$dest/Contents/MacOS/agentctl" 2>/dev/null || ech
 # Inside out: nested code first, deepest first, then the app itself. Each piece
 # gets its own signature, so the app's signature needs no --deep.
 sign -i dev.agents-deck.agentctl "$dest/Contents/MacOS/agentctl"
-# The Bluetooth helper: its identifier matches the Info.plist built into it,
-# which carries the Bluetooth usage text macOS shows when it asks.
+# The Bluetooth helper: its identifier matches the Info.plist built into it.
+# Inside the app's bundle, though, macOS reads the app's Info.plist for it, so
+# the usage text must be there too, or macOS ends the helper as it starts.
 if [ -n "$deckble" ]; then
+  if ! /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" "$dest/Contents/Info.plist" >/dev/null 2>&1; then
+    echo "the app's Info.plist has no NSBluetoothAlwaysUsageDescription: macOS would end deck-ble (clients/ble/README.md)" >&2
+    exit 1
+  fi
   install -m 0755 "$deckble" "$dest/Contents/MacOS/deck-ble"
   sign -i dev.agents-deck.deck-ble "$dest/Contents/MacOS/deck-ble"
 fi

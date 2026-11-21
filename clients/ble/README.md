@@ -117,12 +117,19 @@ the helper would be attributed to `agentctl`. So:
 
 - `deck-ble` carries its own Info.plist in a `__TEXT,__info_plist` section (linker `-sectcreate`;
   `macos/Support/Info.plist`): bundle identifier `dev.agents-deck.deck-ble`, name
-  "agents deck Bluetooth", and the usage text.
+  "agents deck Bluetooth", and the usage text. macOS reads it only when the helper runs on its own.
+- In the app the helper is `agents deck.app/Contents/MacOS/deck-ble`, inside the app's bundle, so macOS
+  reads the **app's** Info.plist for it and ignores the built-in one. The app's Info.plist
+  (`clients/macos/macos/Runner/Info.plist`) carries the same usage text for that reason. Without it,
+  macOS ends the helper (SIGABRT, "attempted to access privacy-sensitive data without a usage
+  description") as soon as it starts, and the service restarts it every 30 s. `package.sh` refuses to
+  add the helper to an app whose Info.plist doesn't have the key.
 - At start it runs itself again as its own responsible process
   (`responsibility_spawnattrs_setdisclaim`, looked up at run time; the way Xcode's debugger and
   Qt Creator start programs), passing stdin, stdout and stderr through and waiting for it. If the call
-  isn't there, it carries on as it is. The prompt and the switch in System Settings, Privacy &
-  Security, Bluetooth should then read "agents deck Bluetooth"; this is not yet seen on a real Mac.
+  isn't there, it carries on as it is. Which name the prompt and the switch in System Settings,
+  Privacy & Security, Bluetooth show ("agents deck Bluetooth" or the app's "agents deck") is not yet
+  seen on a real Mac.
 - The packaging signs it with the identifier `dev.agents-deck.deck-ble`, which matches its Info.plist,
   so the permission survives updates signed by the same team.
 - `deck-ble --authorization` prints the current answer without asking.
