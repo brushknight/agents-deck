@@ -301,6 +301,7 @@ class Agent {
     this.external = false,
     this.app = '',
     this.subagents = const [],
+    this.queued = 0,
     this.hat,
     this.account,
     this.startedAt,
@@ -363,6 +364,10 @@ class Agent {
 
   /// Subagents still working, oldest first.
   final List<AgentSubagent> subagents;
+
+  /// Prompts waiting to be typed in once its turn ends (sent with
+  /// `"mode": "queue"`).
+  final int queued;
 
   /// The pixel hat for its working folder; null = none.
   final AgentHat? hat;
@@ -446,6 +451,7 @@ class Agent {
           for (final x in l)
             if (x is Map<String, dynamic>) AgentSubagent.fromJson(x),
       ],
+      queued: _int(j['queued']),
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
       lastActive: _time(j['lastActive']),
