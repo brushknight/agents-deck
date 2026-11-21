@@ -39,6 +39,7 @@
 #include "font_big.h"
 #include "font_data.h"
 #include "model.h"
+#include "page_slide.h"
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "sprites.h"
@@ -439,30 +440,52 @@ static inline void bigStep(PanelUi& ui, const Fleet& f, bool next) {
 
 static inline int bigSpots() { return 16; }
 
+constexpr float kBigDiagIn = 4.0f;   // the 4" glass: the pages' commit point in pixels
+
+static inline void pagerFollow(PanelUi& ui, const Fleet& f, const BigSpec& S, int dx, int x, uint32_t ms) {
+  pagerFollow(ui, bigPages(f), S.w, dx, x, ms);
+}
+
 static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f, bool touching, int x, int y,
                                    DeckScope scope, uint32_t ms) {
   DeckCommand out;
   constexpr int slop = 14, swipeMin = 40;
   if (ui.att) attSync(*ui.att, f, bigSpots(), ms);   // the spots the finger lands on are the ones drawn
+  const bool home = ui.screen == Screen::Home;
   if (touching) {
     if (!ui.down) {
       ui.down = true;
       ui.x0 = ui.x = x;
       ui.y0 = ui.y = y;
-      ui.downMs = ms;
-      ui.pressed = bigHit(S, ui, f, x, y, scope);
+      ui.downMs = ui.lastMs = ms;
+      ui.lastX = x;
+      ui.velocity = 0;
+      // The pages still settling: this finger catches them where they are and moves them on.
+      const bool caught = home && ui.slideAnim;
+      ui.slide0 = pagerAt(ui);
+      ui.slideAnim = false;
+      ui.sliding = caught;
+      ui.pressed = caught ? PanelHit() : bigHit(S, ui, f, x, y, scope);
       return out;
     }
     ui.x = x;
     ui.y = y;
     const int dx = x - ui.x0, dy = y - ui.y0;
+    const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     if (dx * dx + dy * dy > slop * slop) ui.pressed = PanelHit();   // it became a swipe
+    // Home's pages follow a clearly sideways finger (page_slide.h).
+    if (home && !ui.sliding && adx > slop && swipeAcross(adx, ady)) pagerGrab(ui, x, ms);
+    if (ui.sliding) pagerFollow(ui, f, S, dx, x, ms);
     return out;
   }
   if (!ui.down) return out;
   ui.down = false;
   const PanelHit pressed = ui.pressed;
   ui.pressed = PanelHit();
+  if (ui.sliding) {                                  // on to the page they settle on
+    pagerRelease(ui, bigPages(f), S.w, pagerCommitPx(S.w, S.h, kBigDiagIn), ms);
+    return out;
+  }
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
   const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   if (adx <= slop && ady <= slop) {
@@ -480,6 +503,8 @@ static inline DeckCommand bigTouch(PanelUi& ui, const BigSpec& S, const Fleet& f
 
 static inline bool bigTick(PanelUi& ui, const Fleet& f, uint32_t ms) {
   const int pages = bigPages(f);
+  if (ui.screen != Screen::Home) ui.sliding = ui.slideAnim = false;
+  pagerTick(ui, ms);
   if (ui.page >= pages) ui.page = pages - 1;
   if (ui.page < 0) ui.page = 0;
   if (ui.att) attSync(*ui.att, f, bigSpots(), ms);
@@ -496,7 +521,7 @@ static inline bool bigTick(PanelUi& ui, const Fleet& f, uint32_t ms) {
   }
   if (ui.backAfterToast && (int32_t)(ui.toastUntil - ms) <= 0) bigHome(ui);
   if (ui.stopArmedUntil && (int32_t)(ui.stopArmedUntil - ms) <= 0) ui.stopArmedUntil = 0;
-  return false;
+  return pagerMoving(ui);                            // the pages slide: draw often
 }
 
 static inline void bigResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) {
@@ -1129,6 +1154,7 @@ class BigPanel : public PanelLayout {
   int height() const override { return S.h; }
   bool trueBlack() const override { return false; }
   void draw(Canvas& c, const PanelInput& in) const override {
+    if (slideHome(c, in)) return;                   // home's pages under the finger: cut from two pictures
     const ControlUi* u = in.ui && in.ctl ? &in.ui->ctl : nullptr;
     // While the panel moves, the screen and the panel are each drawn once, then slid.
     if (u && (u->pulling || u->animating)) {
@@ -1146,6 +1172,7 @@ class BigPanel : public PanelLayout {
     if (u && controlShown(*u)) controlDraw(c, G, T, *in.ctl, *u, in.ms);
   }
   const uint16_t* const* frameRows() const override { return drawer.rows(); }
+  const FrameSplit* frameSplit() const override { return pages.split(); }
   bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
     const bool was = ui.ctl.down;
     const bool took = controlEdgeTouch(ui.ctl, G, down, x, y, ms, S.h / 8);
@@ -1173,4 +1200,31 @@ class BigPanel : public PanelLayout {
 
  private:
   mutable DrawerSlide drawer;
+  mutable PageSlide pages;
+
+  // Home's pages while they slide (page_slide.h): each page drawn once (no
+  // toast), every frame cut from the two either side of the finger.
+  bool slideHome(Canvas& c, const PanelInput& in) const {
+    const bool moving = in.ui && in.fleet && in.fleet->count > 0 && pagerMoving(*in.ui) && in.ui->screen == Screen::Home &&
+                        (in.link == LinkState::Live || in.link == LinkState::Lost) && !(in.ctl && controlShown(in.ui->ctl));
+    if (!moving) {
+      pages.reset();
+      return false;
+    }
+    drawer.reset();
+    const PanelUi& ui = *in.ui;
+    const bool ok = pages.slide(c, pagerAt(ui), pagerCount(ui, bigPages(*in.fleet)), in.splitOk, T.bg, [&](Canvas& k, int i) {
+      PanelUi u = ui;
+      u.sliding = u.slideAnim = false;
+      u.toast[0] = '\0';
+      u.pressed = PanelHit();
+      pagerGo(u, i);
+      PanelInput pi = in;
+      pi.ui = &u;
+      drawBig(k, S, T, pi);
+    });
+    if (!ok) return false;
+    if (!pages.split() && ui.toast[0] && (int32_t)(ui.toastUntil - in.ms) > 0) big_detail::toast(c, S, T, ui.toast);
+    return true;
+  }
 };

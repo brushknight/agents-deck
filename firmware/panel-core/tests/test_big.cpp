@@ -29,6 +29,7 @@ static Fleet fleetOf(std::initializer_list<Agent> as) {
 
 static DeckCommand tap(const BigSpec& S, PanelUi& ui, const Fleet& f, const Rect& r, DeckScope sc, uint32_t ms) {
   const int x = r.x + r.w / 2, y = r.y + r.h / 2;
+  bigTick(ui, f, ms);                                // pages that slid before have settled
   bigTouch(ui, S, f, true, x, y, sc, ms);
   bigTouch(ui, S, f, true, x, y, sc, ms + 40);
   return bigTouch(ui, S, f, false, 0, 0, sc, ms + 60);
@@ -428,16 +429,17 @@ int main() {
     bigStep(ui, f, false);
     assert(ui.needsYou);
     // Up, or a diagonal that goes mostly up: not a page change (only |dx| > 1.3 |dy| is).
-    bigTouch(ui, S, f, true, 200, 400, DeckScope::Act, 170);
-    bigTouch(ui, S, f, true, 260, 300, DeckScope::Act, 180);
-    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 190);
-    assert(ui.needsYou);
-    bigTouch(ui, S, f, true, 300, 400, DeckScope::Act, 191);
-    bigTouch(ui, S, f, true, 220, 330, DeckScope::Act, 195);
-    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 199);
-    assert(ui.needsYou);
+    bigTick(ui, f, 500);                                          // (the slide there has settled)
+    bigTouch(ui, S, f, true, 200, 400, DeckScope::Act, 570);
+    bigTouch(ui, S, f, true, 260, 300, DeckScope::Act, 580);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 590);
+    assert(ui.needsYou && !ui.slideAnim);
+    bigTouch(ui, S, f, true, 300, 400, DeckScope::Act, 591);
+    bigTouch(ui, S, f, true, 220, 330, DeckScope::Act, 595);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 599);
+    assert(ui.needsYou && !ui.slideAnim);
     // A tile there opens its prompt, and back is the screen again.
-    tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 200);
+    tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 600);
     assert(ui.screen == Screen::Prompt && !strcmp(ui.openId, "w"));
     bigButton(ui, f);
     assert(ui.screen == Screen::Home && ui.needsYou);
@@ -479,6 +481,7 @@ int main() {
     Canvas c{buf.data(), S.w, S.h};
     const Theme T = deckTheme(false);
     PanelInput in{&f, LinkState::Live, "x", DeckScope::Act, 8000, 0, &ui, 0};
+    bigTick(ui, f, 8000);                                         // at rest
     ui.needsYou = true;
     BigPanel(S).draw(c, in);
     b = bigBars(S, g, ui, 2);

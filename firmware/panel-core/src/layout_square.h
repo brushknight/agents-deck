@@ -49,6 +49,7 @@
 #include "font_round.h"
 #include "font_square.h"
 #include "model.h"
+#include "page_slide.h"
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "sprites.h"
@@ -250,25 +251,18 @@ static inline int squareSpots(const SquareSpec& S) {
 
 static inline bool onNeedsYou(const PanelUi& ui) { return ui.needsYou && ui.att; }
 
-// A list home's two pages, "Needs you" (0) and the list (1), slide sideways
-// when the board has both and home shows.
-static inline bool hasPager(const SquareSpec& S, const PanelUi& ui) {
-  return S.home == HomeKind::List && ui.screen == Screen::Home && ui.att;
+// Home's pages slide sideways under the finger (page_slide.h): on a list
+// home "Needs you" (0) and the list (1) when the board has both, on a grid
+// "Needs you" (when there is one) and every page.
+static inline bool hasPager(const SquareSpec& S, const PanelUi& ui, const Fleet& f) {
+  return ui.screen == Screen::Home && pagerCount(ui, pageCount(S, f)) > 1;
 }
 
-// Where the pages are: 0 = "Needs you" on screen, 1 = the list, between the
+// A list home's pages: 0 = "Needs you" on screen, 1 = the list, between the
 // two while they slide (a little past either end while a finger pulls there).
 static inline float pagerPos(const PanelUi& ui) {
   if (ui.att && (ui.sliding || ui.slideAnim)) return ui.slide;
   return onNeedsYou(ui) ? 0.f : 1.f;
-}
-
-// Where released pages come to rest: the page a flick points at (the finger
-// moving right brings "Needs you" in from the left), else the nearer one.
-static inline int pagerTarget(float pos, float velocity) {
-  if (velocity > 0.5f) return 0;
-  if (velocity < -0.5f) return 1;
-  return pos >= 0.5f ? 1 : 0;
 }
 
 // The settle animations' curve: fast at first, slowing into place.
@@ -560,7 +554,7 @@ static inline void squareFix(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
     if (ui.scroll > mx) ui.scroll = mx;
     if (ui.scroll < 0) ui.scroll = 0;
   }
-  if (!hasPager(S, ui)) ui.sliding = ui.slideAnim = false;   // a card opened, or the screen is gone
+  if (!hasPager(S, ui, f)) ui.sliding = ui.slideAnim = false;   // a card opened, or the screen is gone
 }
 
 // Lets the list come to rest on a row from where it is.
@@ -641,7 +635,8 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
   DeckCommand out;
   if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);   // the spots the finger lands on are the ones drawn
   const bool list = S.home == HomeKind::List && ui.screen == Screen::Home && !onNeedsYou(ui);   // "Needs you" doesn't scroll
-  const bool pager = hasPager(S, ui);
+  const bool pager = hasPager(S, ui, f);
+  const int pages = pageCount(S, f);
   if (touching) {
     if (!ui.down) {
       const bool sliding = pager && ui.slideAnim;  // the pages are still settling
@@ -660,7 +655,7 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
         ui.settledMs = ms ? ms : 1;
       }
       // Catch the sliding pages where they are: this touch moves them on.
-      ui.slide0 = sliding ? ui.slide : pagerPos(ui);
+      ui.slide0 = pagerAt(ui);
       ui.slideAnim = false;
       ui.sliding = sliding;
       if (ui.caught) ui.pressed = PanelHit();
@@ -678,22 +673,9 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
     const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     if (list && !ui.dragging && !ui.sliding && ady > kSlop && ady >= adx) ui.dragging = true;
     if (pager && !ui.dragging && !ui.sliding && adx > kSlop && swipeAcross(adx, ady)) {
-      ui.sliding = true;
-      ui.slide0 = pagerPos(ui);
+      pagerGrab(ui, x, ms);
     }
-    if (ui.sliding) {
-      float p = ui.slide0 - (float)dx / S.w;       // the pages follow the finger
-      if (p < 0) p *= 0.35f;                       // a little give past the ends, no page beyond them
-      if (p > 1) p = 1 + (p - 1) * 0.35f;
-      ui.slide = p;
-      const uint32_t dt = ms - ui.lastMs;
-      if (dt > 0) {
-        const float v = (float)(x - ui.lastX) / dt;
-        ui.velocity = ui.velocity * 0.4f + v * 0.6f;
-        ui.lastX = x;
-        ui.lastMs = ms;
-      }
-    }
+    if (ui.sliding) pagerFollow(ui, pages, S.w, x - ui.x0, x, ms);   // the pages follow the finger
     if (ui.dragging) {
       const float mx = maxScroll(S, f);
       float s = ui.scroll0 - dy;
@@ -721,15 +703,7 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
   const PanelHit pressed = ui.pressed;
   ui.pressed = PanelHit();
   if (ui.sliding) {                                // the pages: on to the one they settle on
-    ui.sliding = false;
-    if (ms - ui.lastMs > 80) ui.velocity = 0;       // it stopped before letting go
-    const int to = pagerTarget(ui.slide, ui.velocity);
-    ui.needsYou = to == 0;                         // the page is chosen now; the slide only shows the way there
-    if (to) ui.page = 0;
-    ui.slideFrom = ui.slide;
-    ui.slideTo = (float)to;
-    ui.slideStart = ms;
-    ui.slideAnim = true;
+    pagerRelease(ui, pages, S.w, pagerCommitPx(S.w, S.h, S.diagIn), ms);   // past the commit point: the next page
     if (ui.scroll != settleTarget(S, f, ui.scroll, 0)) listRest(ui, S, f, 0, ms);   // a list caught between rows
     return out;
   }
@@ -768,12 +742,7 @@ static inline bool squareTick(PanelUi& ui, const SquareSpec& S, const Fleet& f, 
       ui.scroll = ui.scrollFrom + (ui.scrollTo - ui.scrollFrom) * easeOut((float)t / kSettleMs);
     }
   }
-  if (ui.slideAnim) {
-    const uint32_t t = ms - ui.slideStart;
-    // Over, or the page was changed under it (BOOT, the deck): show that page.
-    if (t >= kSettleMs || ui.slideTo != (onNeedsYou(ui) ? 0.f : 1.f)) ui.slideAnim = false;
-    else ui.slide = ui.slideFrom + (ui.slideTo - ui.slideFrom) * easeOut((float)t / kSettleMs);
-  }
+  pagerTick(ui, ms);                               // released pages settling
   return ui.dragging || ui.animating || ui.sliding || ui.slideAnim || posBarAlpha(ui, ms) > 0 || (ui.down && ui.pressed.kind == Hit::Stop);
 }
 
@@ -1764,6 +1733,7 @@ class SquarePanel : public PanelLayout {
     free(scratch);
   }
   const uint16_t* const* frameRows() const override { return rowsReady ? rowTable : nullptr; }
+  const FrameSplit* frameSplit() const override { return pageSlide.split(); }
   SquarePanel(const SquarePanel&) = delete;
   SquarePanel& operator=(const SquarePanel&) = delete;
   int width() const override { return S.w; }
@@ -1789,6 +1759,7 @@ class SquarePanel : public PanelLayout {
       }
       if (drawFun(c, in)) return;
     }
+    if (slideHome(c, in)) return;                 // home's pages under the finger: cut from two pictures
     const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
     // While the panel moves, home and the panel are each drawn once, then slid
     // (a copy of rows a frame): the motion costs the send, not two drawings.
@@ -2071,6 +2042,43 @@ class SquarePanel : public PanelLayout {
   mutable const uint16_t** rowTable = nullptr;
   mutable uint16_t* edgeRow = nullptr;
   mutable bool rowsReady = false;
+
+  // Home's pages while they slide (page_slide.h): each page drawn once into
+  // a picture, then every frame cut from the two either side of the finger.
+  // The pictures have no glass corners (the seam would show them) and no
+  // toast; on the canvas the list's header, the toast and the corners go on
+  // over the pages each frame.
+  mutable PageSlide pageSlide;
+  bool slideHome(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const bool moving = in.ui && in.fleet && in.fleet->count > 0 && pagerMoving(*in.ui) && in.ui->screen == Screen::Home &&
+                        (in.link == LinkState::Live || in.link == LinkState::Lost) && !(in.ctl && controlShown(in.ui->ctl));
+    if (!moving) {
+      pageSlide.reset();
+      return false;
+    }
+    rowsReady = false;
+    const PanelUi& ui = *in.ui;
+    SquareSpec flat = S;
+    flat.cornerR = 0;
+    const int count = pagerCount(ui, pageCount(S, *in.fleet));
+    const bool ok = pageSlide.slide(c, pagerAt(ui), count, in.splitOk, T.bg, [&](Canvas& k, int i) {
+      PanelUi u = ui;
+      u.sliding = u.slideAnim = false;
+      u.toast[0] = '\0';
+      u.pressed = PanelHit();
+      pagerGo(u, i);
+      PanelInput pi = in;
+      pi.ui = &u;
+      drawSquare(k, flat, T, pi);
+    });
+    if (!ok) return false;
+    if (pageSlide.split()) return true;
+    if (S.home == HomeKind::List) listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, &ui);
+    if (ui.toast[0] && (int32_t)(ui.toastUntil - in.ms) > 0) toastPill(c, S, T, ui.toast);
+    if (S.cornerR) cornerMask(c, S.cornerR);
+    return true;
+  }
 
   bool slideFromCache(Canvas& c, const PanelInput& in, const ControlUi& u) const {
     const size_t n = (size_t)S.w * S.h;

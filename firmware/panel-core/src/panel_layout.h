@@ -241,6 +241,17 @@ struct PanelInput {
   const NetView* net = nullptr;  // USB or Wi-Fi (nullptr: a USB-only board)
   const ControlInfo* ctl = nullptr;   // the board's panel (nullptr: none)
   bool rowsOk = false;         // the board can send a frame as rows from anywhere (frameRows)
+  bool splitOk = false;        // the board can send a frame as two pictures side by side (frameSplit)
+};
+
+// A moving frame made of two pictures: pixel x of a row comes from `a` at
+// x + shift while x < w - shift, then from `b` at x - (w - shift). A null
+// picture is `fill` (past the first or the last page).
+struct FrameSplit {
+  const uint16_t* a;
+  const uint16_t* b;
+  int shift;
+  uint16_t fill;   // as the canvas encodes it
 };
 
 class PanelLayout {
@@ -265,6 +276,9 @@ class PanelLayout {
   // from pictures it keeps (and in.rowsOk), so the board sends those rows and
   // the canvas wasn't drawn; nullptr: send the canvas.
   virtual const uint16_t* const* frameRows() const { return nullptr; }
+  // After draw(): the frame as two pictures side by side (home's pages
+  // sliding, page_slide.h), when in.splitOk; nullptr: send the canvas or the rows.
+  virtual const FrameSplit* frameSplit() const { return nullptr; }
   // An accelerometer sample in g (boards with a motion sensor): knocks and shakes.
   virtual void motion(PanelUi&, float, float, float, uint32_t) const {}
   // The agent tiles on screen now (the magic trick's giver): indexes into the

@@ -114,6 +114,8 @@ static uint16_t* frames[kSlots];                       // PSRAM
 static const uint16_t* rows[kSlots][kH];               // what each slot shows, row by row (internal RAM)
 static uint32_t hashes[kSlots][kH];                    // each frame's rows as last copied in
 static bool hashed[kSlots];                            // false: the frame was drawn whole, its hashes are stale
+static FrameSplit splits[kSlots];                      // a slot showing two pictures side by side (home's pages sliding)
+static bool isSplit[kSlots];
 static volatile int onScreen = -1, next = -1;          // the slots the interrupt shows and shows next
 static int drawing = -1;                               // the slot being drawn into
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
@@ -137,6 +139,7 @@ static void show(int k) {
 }
 
 static void slotRows(int k) {
+  isSplit[k] = false;
   for (int y = 0; y < kH; y++) rows[k][y] = frames[k] + (size_t)y * kW;
 }
 
@@ -155,6 +158,19 @@ static IRAM_ATTR bool fill(esp_lcd_panel_handle_t, void* buf, int pos, int len, 
   const int k = onScreen, y0 = pos / kW, n = len / 2 / kW;
   if (k < 0) {
     for (int i = 0; i < len / 4; i++) out[i] = 0;
+    return false;
+  }
+  if (isSplit[k]) {                                    // two pictures: source pixel x < W - s from a at x + s, else b
+    const FrameSplit& sp = splits[k];
+    uint16_t* o = (uint16_t*)buf;
+    const int na = kW - sp.shift;
+    for (int y = y0; y < y0 + n; y++) {
+      const size_t row = (size_t)(kH - 1 - y) * kW;
+      if (sp.b) for (const uint16_t* p = sp.b + row + sp.shift - 1; p >= sp.b + row; p--) *o++ = *p;
+      else for (int i = 0; i < sp.shift; i++) *o++ = sp.fill;
+      if (sp.a) for (const uint16_t* p = sp.a + row + kW - 1; p >= sp.a + row + sp.shift; p--) *o++ = *p;
+      else for (int i = 0; i < na; i++) *o++ = sp.fill;
+    }
     return false;
   }
   for (int y = y0; y < y0 + n; y++) {
@@ -215,6 +231,16 @@ static void push(const uint16_t* frame) {
 static void pushRows(const uint16_t* const* r) {
   const int k = drawing >= 0 ? drawing : freeSlot();
   for (int y = 0; y < kH; y++) rows[k][y] = r[y];
+  isSplit[k] = false;
+  hashed[k] = false;
+  show(k);
+}
+
+// Two pictures side by side (home's pages sliding): composed as the interrupt refills.
+static void pushSplit(const FrameSplit& sp) {
+  const int k = drawing >= 0 ? drawing : freeSlot();
+  splits[k] = sp;
+  isSplit[k] = true;
   hashed[k] = false;
   show(k);
 }
@@ -488,6 +514,7 @@ void setup() {
   b.frameBegin = scan::frameBegin;
   b.stripRows = 24;                                   // 23 KB of internal RAM
   b.pushStrip = scan::pushStrip;
+  b.pushSplit = scan::pushSplit;
 #else
   b.push = push;
 #endif

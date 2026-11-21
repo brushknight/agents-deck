@@ -51,6 +51,9 @@ struct GridBoard {
   // frames again (its pictures are whole frames, frameRows).
   int stripRows;
   void (*pushStrip)(const uint16_t* px, int y0, int rows, bool last);
+  // A board that composes a frame from two pictures side by side as it sends
+  // it (home's pages sliding, page_slide.h; nullptr: the layout composes it on the canvas).
+  void (*pushSplit)(const FrameSplit& s);
 };
 
 namespace grid_app {
@@ -198,7 +201,8 @@ static void drawAndSend(const PanelInput& in) {
 #else
 #define GRID_TIME(acc, stmt) stmt
 #endif
-  const bool slides = ui.ctl.pulling || ui.ctl.animating;   // the panel's pictures are whole frames
+  // The panel's pictures, and the pages' while they slide, are whole frames.
+  const bool slides = ui.ctl.pulling || ui.ctl.animating || ui.sliding || ui.slideAnim;
   if (strip && !slides) {
     const int W = canvas.w, H = canvas.h, n = board.stripRows;
     for (int y0 = 0; y0 < H; y0 += n) {
@@ -215,7 +219,8 @@ static void drawAndSend(const PanelInput& in) {
     if (uint16_t* f = board.frameBegin()) canvas.px = frame = f;
   }
   GRID_TIME(dbgDrawUs, board.layout->draw(canvas, in));
-  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) GRID_TIME(dbgPushUs, board.pushRows(rows));
+  if (const FrameSplit* sp = board.pushSplit ? board.layout->frameSplit() : nullptr) GRID_TIME(dbgPushUs, board.pushSplit(*sp));
+  else if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) GRID_TIME(dbgPushUs, board.pushRows(rows));
   else GRID_TIME(dbgPushUs, board.push(frame));
 #undef GRID_TIME
 }
@@ -258,6 +263,7 @@ static void render() {
   ci.magicOn = ui.fun.magic;
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   in.rowsOk = board.pushRows != nullptr;
+  in.splitOk = board.pushSplit != nullptr;
 #ifdef PANEL_DEBUG
   dbgFrames++;
   if (controlShown(ui.ctl)) dbgPanelFrames++;
