@@ -22,10 +22,31 @@ var Settings = map[string]struct {
 	Values []string
 	Help   string
 }{
-	"term":    {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
-	"restore": {[]string{RestoreAsk, RestoreAuto}, "agents lost with the tmux server (crash, reboot): ask = keep them for `agentctl restore`, auto = bring them back right away"},
-	"header":  {[]string{HeaderOn, HeaderOff}, "on = a band at the top of each agent terminal with its critter, name, status, context and cost; off = none"},
-	"mouse":   {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
+	"term":     {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
+	"restore":  {[]string{RestoreAsk, RestoreAuto}, "agents lost with the tmux server (crash, reboot): ask = keep them for `agentctl restore`, auto = bring them back right away"},
+	"header":   {[]string{HeaderOn, HeaderOff}, "on = a band at the top of each agent terminal with its critter, name, status, context and cost; off = none"},
+	"mouse":    {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
+	"sessions": {[]string{SessionsPick, SessionsAuto}, "Claude sessions started outside the deck (a terminal, the Claude app): pick = you add the ones you want, auto = each one joins the deck by itself (one you take off stays off)"},
+}
+
+// What happens to Claude sessions started outside the deck (`agentctl set sessions …`).
+const (
+	SessionsPick = "pick" // they join when you add them (agentctl add, Settings, a free cell)
+	SessionsAuto = "auto" // each one joins by itself, unless you took it off the deck
+)
+
+// CurrentSessions reads the sessions mode from config.json (default pick).
+func CurrentSessions() string {
+	var c struct {
+		Sessions string `json:"sessions"`
+	}
+	if b, err := os.ReadFile(paths.Config()); err == nil {
+		_ = json.Unmarshal(b, &c)
+	}
+	if c.Sessions == SessionsAuto {
+		return SessionsAuto
+	}
+	return SessionsPick
 }
 
 // Mouse modes (`agentctl set mouse …`).

@@ -289,7 +289,7 @@ const loadAll = (...names) => Promise.all(names.map(load));
 
 function needs(page) {
   return {
-    general: ['settings'], agents: ['agents', 'live'], boards: ['devices', 'ports'], network: ['settings', 'devices'],
+    general: ['settings'], agents: ['agents', 'live', 'settings'], boards: ['devices', 'ports'], network: ['settings', 'devices'],
     updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
   }[page] || [];
@@ -413,6 +413,13 @@ function drawAgents() {
       t.note ? h('div', { class: 'nt' }, t.note) : null));
   }
   out.push(grid);
+
+  if (S.settings?.sessions) { // an older service has no such setting
+    out.push(lab('claude sessions started elsewhere'));
+    out.push(row('Put them on the deck', 'Sessions from a terminal or the Claude app. Automatically: every one running here joins the deck by itself, and one you take off the deck stays off.', [
+      seg('Claude sessions', [{ value: 'pick', text: 'when I add them' }, { value: 'auto', text: 'automatically' }], S.settings.sessions, (v) => patchSettings({ sessions: v })),
+    ]));
+  }
 
   out.push(lab('running here, not on the deck'));
   const live = (S.live?.sessions || []).filter((s) => !s.onBoard);
