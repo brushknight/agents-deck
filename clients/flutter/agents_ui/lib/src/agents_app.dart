@@ -91,39 +91,66 @@ class _AgentsAppState extends State<AgentsApp> {
 
   bool _cardShown = false;
 
-  // The magic trick (a board takes a page of agents, docs/protocol.md
-  // POST /v1/stash): when several agents leave at once their tiles fly off
-  // to the bottom-left corner one after another, and when several come back
-  // at once they fly in from the top-left. Same pace as the board's tiles.
+  // The magic trick (docs/features.md), when the deck made this screen its
+  // giver: when the receiver takes the agents this screen shows, their tiles
+  // fly off to its leave corner together; given back, they fly in from its
+  // arrive corner. It tells the deck which agents it shows (the open page).
   Map<String, Agent> _seen = const {};
   List<Agent> _leaving = const [];
   Set<String> _arriving = const {};
   int _flight = 0; // a new number per flight, so the tiles start again
-  static const _flock =
-      3; // this many at once is the trick, not an agent ending
+  bool _wasTaken = false;
+  String _leaveCorner = 'bottom-left', _arriveCorner = 'top-left';
 
   void _watchFlights(AgentsState state) {
     final now = {for (final a in state.agents) a.id: a};
-    if (_seen.isNotEmpty) {
-      final gone = [
+    final m = state.magic;
+    final taken = m != null && m.giver && m.taken;
+    if (m != null && m.giver) {
+      _leaveCorner = m.leave;
+      _arriveCorner = m.arrive;
+    }
+    if (taken && !_wasTaken) {
+      _leaving = [
         for (final e in _seen.entries)
           if (!now.containsKey(e.key)) e.value,
       ];
-      final come = {
+      _arriving = const {};
+      _flight++;
+    } else if (!taken && _wasTaken) {
+      _arriving = {
         for (final id in now.keys)
           if (!_seen.containsKey(id)) id,
       };
-      if (gone.length >= _flock) {
-        _leaving = gone..sort((a, b) => a.slot.compareTo(b.slot));
-        _arriving = const {};
-        _flight++;
-      } else if (come.length >= _flock) {
-        _arriving = come;
-        _leaving = const [];
-        _flight++;
-      }
+      _leaving = const [];
+      _flight++;
     }
+    _wasTaken = taken;
     _seen = now;
+  }
+
+  // What this screen shows, for the deck (the giver only): on a change and
+  // every 5 s.
+  String _viewSent = '';
+  DateTime _viewAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _reportView(AgentsState state) {
+    final m = state.magic;
+    if (m == null || !m.giver || m.taken || _view < 1) return;
+    final start = (_view - 1) * _cells;
+    final ids = [
+      for (final a in state.agents)
+        if (a.slot >= start && a.slot < start + _cells) a.id,
+    ];
+    final key = ids.join(',');
+    final now = DateTime.now();
+    if (ids.isEmpty ||
+        (key == _viewSent && now.difference(_viewAt).inSeconds < 5)) {
+      return;
+    }
+    _viewSent = key;
+    _viewAt = now;
+    widget.source.magicView(ids);
   }
 
   @override
@@ -302,6 +329,7 @@ class _AgentsAppState extends State<AgentsApp> {
   /// so the bar row fits in the same square.
   Widget _deck(AgentsState state) {
     _watchFlights(state);
+    _reportView(state);
     final last = state.agents.map((a) => a.slot).fold(0, math.max);
     final pages = last ~/ _cells + 1;
     if (_view > pages) _view = pages;
@@ -391,6 +419,7 @@ class _AgentsAppState extends State<AgentsApp> {
       col: (slot - start) % DeckGrid.columns,
       row: (slot - start) ~/ DeckGrid.columns,
       leave: leave,
+      corner: leave ? _leaveCorner : _arriveCorner,
       delay: Duration.zero, // all at once: a swarm
       child: tile,
     );
@@ -779,12 +808,14 @@ class _Fly extends StatefulWidget {
     required this.col,
     required this.row,
     required this.leave,
+    required this.corner,
     required this.delay,
     required this.child,
   });
 
   final int col, row;
   final bool leave;
+  final String corner; // top-left | top-right | bottom-left | bottom-right
   final Duration delay;
   final Widget child;
 
@@ -816,9 +847,12 @@ class _FlyState extends State<_Fly> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     // In cells: the corner one cell past the grid's edge.
-    final corner = widget.leave
-        ? Offset(-1.0 - widget.col, DeckGrid.rows - widget.row.toDouble())
-        : Offset(-1.0 - widget.col, -1.0 - widget.row);
+    final left = widget.corner.endsWith('left');
+    final top = widget.corner.startsWith('top');
+    final corner = Offset(
+      left ? -1.0 - widget.col : DeckGrid.columns - widget.col.toDouble(),
+      top ? -1.0 - widget.row : DeckGrid.rows - widget.row.toDouble(),
+    );
     return AnimatedBuilder(
       animation: _c,
       builder: (context, child) {

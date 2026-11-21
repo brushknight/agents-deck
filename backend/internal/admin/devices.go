@@ -31,6 +31,7 @@ type DeviceRow struct {
 	Board      string    `json:"board,omitempty"`    // the catalog board it is
 	Model      string    `json:"model,omitempty"`    // that board's name
 	CanWifi    bool      `json:"canWifi,omitempty"`  // its firmware has Wi-Fi
+	Motion     bool      `json:"motion,omitempty"`   // a motion sensor: it can be the magic trick's receiver
 	Firmware   string    `json:"firmware,omitempty"` // its version
 	Wifi       *WifiRow  `json:"wifi,omitempty"`
 	Update     *Pending  `json:"update,omitempty"` // a newer firmware in the latest release
@@ -106,7 +107,7 @@ func (a *Admin) deviceRows() []DeviceRow {
 	var out []DeviceRow
 	for _, d := range a.Devices.List() {
 		row := DeviceRow{ID: d.Name, Name: d.Name, Kind: d.Kind, Scope: string(d.Scope), LastSeen: d.LastSeen,
-			Created: d.Created, Type: d.Type, Firmware: d.Firmware}
+			Created: d.Created, Type: d.Type, Firmware: d.Firmware, Motion: d.Motion}
 		if n := labels[d.Name]; n != "" {
 			row.Name = n
 		}

@@ -30,7 +30,7 @@ var limits = map[string]limit{
 	"Subagent.id": {size: 12}, "Subagent.title": {size: 64}, "Subagent.type": {size: 24}, "Subagent.tool": {size: 24},
 	"Answer.agent_id": {size: 12}, "Answer.prompt_id": {size: 16}, "Answer.key": {size: 8},
 	"Focus.agent_id": {size: 12}, "Interrupt.agent_id": {size: 12}, "Dismiss.agent_id": {size: 12}, "Resume.agent_id": {size: 12},
-	"Move.agent_id": {size: 12}, "MoveAttention.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32}, "Stash.agent_ids": {size: 12, count: 16},
+	"Move.agent_id": {size: 12}, "MoveAttention.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32}, "Stash.agent_ids": {size: 12, count: 16}, "MagicView.agent_ids": {size: 12, count: 16},
 	"SetHat.agent_id": {size: 12}, "SetHat.folder": {size: 128}, "SetHat.shape": {size: 16}, "SetHat.color": {size: 12},
 	"AddLive.session_id": {size: 40},
 	"Handoff.agent_id":   {size: 12}, "Handoff.account": {size: 16},

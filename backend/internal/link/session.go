@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -94,9 +95,11 @@ type Session struct {
 	welcomed bool // a Welcome reflecting dev has been sent
 	sentAs   devices.Device
 
-	sub  *linkpb.Subscribe
-	sent map[string][]byte // agent id -> the AgentChanged it last got
-	ping uint32
+	sub       *linkpb.Subscribe
+	sent      map[string][]byte // agent id -> the AgentChanged it last got
+	sentMagic []byte            // the Magic it last got…
+	magicSent bool              // …if any since its last snapshot
+	ping      uint32
 
 	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
 	helloSeen atomic.Pointer[linkpb.Hello] // its Hello, for Hub (any goroutine)
@@ -426,8 +429,11 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 		}
 		log.Printf("link %s: %s (%s %s) over %s, %s", s.Name, d.Name, h.Type, h.Firmware, s.Transport, state)
 	}
-	s.hello, s.mode, s.sub, s.sent = h, mode, nil, nil
+	s.hello, s.mode, s.sub, s.sent, s.magicSent = h, mode, nil, nil, false
 	s.setDevice(d)
+	if m, ok := s.Deck.(interface{ Motion(name string, on bool) }); ok {
+		m.Motion(d.Name, slices.Contains(h.Inputs, linkpb.Input_INPUT_MOTION)) // it can receive the magic trick
+	}
 	s.helloSeen.Store(h)
 	if s.Hub != nil {
 		s.Hub.firmwareHello(d.Name, h.Firmware)
@@ -589,6 +595,11 @@ func (s *Session) push(full bool) error {
 			return err
 		}
 	}
+	if !full { // its part in the trick first: a giver flies the tiles out before they go
+		if err := s.pushMagic(st); err != nil {
+			return err
+		}
+	}
 	next := map[string][]byte{}
 	for _, a := range agents {
 		p := toPB(a, sub.Fields)
@@ -610,9 +621,51 @@ func (s *Session) push(full bool) error {
 	}
 	s.sent = next
 	if full {
-		return s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}})
+		if err := s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}}); err != nil {
+			return err
+		}
+		s.magicSent = false
+		return s.pushMagic(st)
 	}
 	return nil
+}
+
+// pushMagic sends the board its part in the magic trick when that changed,
+// and after a snapshot when it has one: giver, receiver or none, whether the
+// agents are taken, and its corners.
+func (s *Session) pushMagic(st model.State) error {
+	m := &linkpb.Magic{}
+	if st.Magic != nil {
+		m.Taken, m.Arrive, m.Leave = st.Magic.Taken, cornerPB(st.Magic.Arrive), cornerPB(st.Magic.Leave)
+		switch st.Magic.Role {
+		case "giver":
+			m.Role = linkpb.MagicRole_MAGIC_GIVER
+		case "receiver":
+			m.Role = linkpb.MagicRole_MAGIC_RECEIVER
+		}
+	}
+	key, _ := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if s.magicSent && bytes.Equal(s.sentMagic, key) {
+		return nil
+	}
+	if !s.magicSent && m.Role == linkpb.MagicRole_MAGIC_NONE { // no part: a board starts out with none, nothing to say
+		s.sentMagic, s.magicSent = key, true
+		return nil
+	}
+	s.sentMagic, s.magicSent = key, true
+	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Magic{Magic: m}})
+}
+
+func cornerPB(c string) linkpb.Corner {
+	switch c {
+	case "top-right":
+		return linkpb.Corner_CORNER_TOP_RIGHT
+	case "bottom-left":
+		return linkpb.Corner_CORNER_BOTTOM_LEFT
+	case "bottom-right":
+		return linkpb.Corner_CORNER_BOTTOM_RIGHT
+	}
+	return linkpb.Corner_CORNER_TOP_LEFT
 }
 
 // sendAgent sends one agent, trimming its biggest parts when the board's
@@ -683,6 +736,7 @@ var Routes = map[string]string{
 	"move":           "POST /v1/agents/{id}/move",
 	"move_attention": "POST /v1/agents/{id}/attention",
 	"stash":          "POST /v1/stash",
+	"magic_view":     "POST /v1/magic/view",
 	"order":          "POST /v1/order",
 	"restore":        "POST /v1/restore",
 	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
@@ -794,6 +848,12 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, agentPath(b.MoveAttention.AgentId, "attention"), map[string]int{"slot": int(b.MoveAttention.Slot)}
 	case *linkpb.Frame_Order:
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
+	case *linkpb.Frame_MagicView:
+		ids := b.MagicView.AgentIds
+		if ids == nil {
+			ids = []string{}
+		}
+		method, path, body = http.MethodPost, "/v1/magic/view", map[string][]string{"ids": ids}
 	case *linkpb.Frame_Stash:
 		ids := b.Stash.AgentIds
 		if ids == nil {

@@ -18,6 +18,13 @@ type ServerDeck struct{ S *server.Server }
 
 func (d ServerDeck) Snapshot() model.State { return d.S.Store.Snapshot() }
 
+// Motion notes whether a board has a motion sensor (from its Hello).
+func (d ServerDeck) Motion(name string, on bool) {
+	if d.S.Devices != nil {
+		d.S.Devices.SetMotion(name, on)
+	}
+}
+
 // View is the state as this board sees it (without agents another screen took: server.View).
 func (d ServerDeck) View(st model.State, viewer string) model.State { return d.S.View(st, viewer) }
 

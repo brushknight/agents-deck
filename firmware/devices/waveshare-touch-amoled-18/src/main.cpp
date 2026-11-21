@@ -278,9 +278,6 @@ void setup() {
   b.bootPin = PIN_BOOT;
   b.brightActive = 255;
   b.brightIdle = 40;          // an AMOLED dims well, and black pixels cost nothing
-#if PANEL_MAGIC_TRICK
-  b.brightIdle = 255;         // the demo build: the trick is done by knocks, not touches, so it never dims
-#endif
   gridAppSetup(b, FW_VERSION);
 }
 

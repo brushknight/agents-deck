@@ -120,16 +120,20 @@ static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || 
 // ---------------------------------------------------------------- motion (fun_motion.h)
 
 
-// The magic trick's tile in the board's panel: a demo, built in only where
-// asked (-DPANEL_MAGIC_TRICK=1, the 1.8 inch's debug build).
-#ifndef PANEL_MAGIC_TRICK
-#define PANEL_MAGIC_TRICK 0
-#endif
-
 struct FunUi {
   bool magic = false;          // the trick is on (from the drawer) until it is switched off there
   bool taken = false;          // a knock took the agents (the next knock gives them back)
   bool spent = false;          // taken and given back once: nothing more until it is switched on again
+  // Its part, from the deck (Settings, Magic trick; the Magic frame).
+  uint8_t role = 0;            // 0 none, 1 giver, 2 receiver
+  uint8_t arrive = 1, leave = 3;   // corners its tiles fly in from and out to: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+  // The giver: its agents are taken; when they left and came back (the flights).
+  bool given = false;
+  uint32_t giveAt = 0, backAt = 0;
+  // What it showed when they were taken: the frame, and where each tile was.
+  const uint16_t* pic = nullptr;
+  int16_t picX[16] = {}, picY[16] = {};
+  int picN = 0;
   uint32_t revealAt = 0;       // the knock that took them: the tiles fly in
   uint32_t returnAt = 0;       // the knock that gave them back: the tiles fly out
   bool stashDue = false;       // tell the deck (Stash): take every agent, or give them back
@@ -254,4 +258,7 @@ class PanelLayout {
   virtual const uint16_t* const* frameRows() const { return nullptr; }
   // An accelerometer sample in g (boards with a motion sensor): knocks and shakes.
   virtual void motion(PanelUi&, float, float, float, uint32_t) const {}
+  // The agent tiles on screen now (the magic trick's giver): indexes into the
+  // fleet and their places, at most max; 0 where this layout can't say.
+  virtual int shownTiles(const PanelUi&, const Fleet&, int*, int16_t*, int16_t*, int) const { return 0; }
 };

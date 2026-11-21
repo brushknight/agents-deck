@@ -1771,15 +1771,16 @@ class SquarePanel : public PanelLayout {
   // The list boards have the board's panel (control_panel.h), pulled down from the header.
   bool hasPanel() const { return S.home == HomeKind::List; }
   void draw(Canvas& c, const PanelInput& in) const override {
-    if (S.imu && in.ui && in.fleet) {
+    if (in.ui && in.fleet && (S.imu || in.ui->fun.role == 1)) {
       // The trick's empty grid with the board's panel over it (pulled down
       // or open): drawn whole each frame, the grid stays under it.
-      if (in.ctl && hasPanel() && controlShown(in.ui->ctl) && magicGrid(in)) {
+      if (in.ctl && hasPanel() && controlShown(in.ui->ctl) && (magicGrid(in) || giverScreen(in))) {
         const ControlUi& u = in.ui->ctl;
         rowsReady = false;
         if ((u.pulling || u.animating) && slideFromCache(c, in, u)) return;   // moving: slid, as over home
         cached = false;
-        drawReveal(c, in);
+        if (giverScreen(in)) drawGiver(c, in);
+        else drawReveal(c, in);
         controlDraw(c, G, T, *in.ctl, in.ui->ctl, in.ms);
         if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
         return;
@@ -1823,6 +1824,7 @@ class SquarePanel : public PanelLayout {
   }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
     if (S.imu && ui.fun.magic && !ui.fun.taken) return DeckCommand{};   // the empty grid: nothing to touch
+    if (ui.fun.role == 1 && ui.fun.given && ui.screen == Screen::Home) return DeckCommand{};   // the giver's emptied grid
     if (S.imu && funSick(ui.fun, ms)) return DeckCommand{};
     return squareTouch(ui, S, f, down, x, y, scope, ms);
   }
@@ -1832,7 +1834,9 @@ class SquarePanel : public PanelLayout {
       (void)f;
       if (ui.fun.sickAt && !funSick(ui.fun, ms)) ui.fun.sickAt = 0;
       if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
-      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;   // given back: the empty grid stays until the drawer switches it off
+      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;
+      if (ui.fun.backAt && !funBack(ui.fun, ms)) ui.fun.backAt = 0;
+      if (ui.fun.giveAt && !funGiving(ui.fun, ms)) ui.fun.giveAt = 0;   // given back: the empty grid stays until the drawer switches it off
       fun = funBusy(ui.fun, ms);
     }
     const bool panel = (hasPanel() && controlTick(ui.ctl, ms)) || fun;
@@ -1896,9 +1900,9 @@ class SquarePanel : public PanelLayout {
         sc.fill(T.bg);
         tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
         const float scale = kStart + (1.f - kStart) * t;
-        // Past the top-right corner, off the glass: they come in from there and go out there.
-        // In from past the top-right corner; given back, out past the bottom-right.
-        const float sx0 = S.w + 8, sy0 = out ? S.h + 8 : -th * kStart - 8;
+        // In from past its arrive corner; given back, out past its leave corner (Settings, Magic trick).
+        float sx0, sy0;
+        flightCorner(out ? f.leave : f.arrive, kStart, sx0, sy0);
         const float dx = sx0 + (r.x - sx0) * t, dy = sy0 + (r.y - sy0) * t;
         const int dw = (int)(tw * scale), dh = (int)(th * scale);
         for (int yy = 0; yy < dh; yy++) {
@@ -1916,6 +1920,98 @@ class SquarePanel : public PanelLayout {
     if (S.cornerR) cornerMask(c, S.cornerR);
   }
 
+  // Just past one of the screen's corners, off the glass, for a tile at scale k.
+  void flightCorner(uint8_t corner, float k, float& x, float& y) const {
+    const bool left = corner == 0 || corner == 2, top = corner == 0 || corner == 1;
+    x = left ? -S.tileW * k - 8 : S.w + 8;
+    y = top ? -S.tileH * k - 8 : S.h + 8;
+  }
+
+  // One tile (w x h from src, rows src_stride apart) at scale, its top-left at (dx, dy).
+  static void blitScaled(Canvas& c, const uint16_t* src, int stride, int w, int h, float scale, float dx, float dy) {
+    const int dw = (int)(w * scale), dh = (int)(h * scale);
+    if (dw <= 0 || dh <= 0) return;
+    for (int yy = 0; yy < dh; yy++) {
+      const int py = (int)dy + yy;
+      if (py < 0 || py >= c.h) continue;
+      const uint16_t* s = src + (size_t)(yy * h / dh) * stride;
+      uint16_t* d = c.px + (size_t)py * c.w;
+      for (int xx = 0; xx < dw; xx++) {
+        const int px = (int)dx + xx;
+        if (px >= 0 && px < c.w) d[px] = s[xx * w / dw];
+      }
+    }
+  }
+
+  // The giver's screen while its agents are taken, and their flights: out to
+  // its leave corner from the picture it showed, back in from its arrive
+  // corner as they are now.
+  bool giverScreen(const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    return f.role == 1 && S.home == HomeKind::List && in.ui->screen == Screen::Home && (f.given || funBack(f, in.ms));
+  }
+
+  void drawGiver(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const FunUi& f = in.ui->fun;
+    const PanelUi& ui = *in.ui;
+    c.fill(T.bg);
+    const uint16_t spot = rgb565(0x77, 0x74, 0x6C);
+    for (int sp = 0; sp < squareSpots(S); sp++) {
+      const Rect r = listTile(S, sp, 0);
+      if (r.y < S.h) roundRect(c, r.x, r.y, r.w, r.h, 8, spot);
+    }
+    listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+    constexpr float kEnd = 0.55f;
+    if (f.given && funGiving(f, in.ms) && f.pic) {           // out, from the picture
+      for (int k = 0; k < f.picN; k++) {
+        const float t = funFlightT(f.giveAt, k, in.ms);
+        if (t >= 1) continue;
+        float ex, ey;
+        flightCorner(f.leave, kEnd, ex, ey);
+        const float x = f.picX[k] + (ex - f.picX[k]) * t, y = f.picY[k] + (ey - f.picY[k]) * t;
+        blitScaled(c, f.pic + (size_t)f.picY[k] * c.w + f.picX[k], c.w, S.tileW, S.tileH, 1.f - (1.f - kEnd) * t, x, y);
+      }
+    } else if (!f.given && funBack(f, in.ms)) {               // back in, as they are now
+      const int tw = S.tileW, th = S.tileH;
+      if (!scratch) scratch = (uint16_t*)malloc((size_t)tw * th * 2);
+      int k = 0;
+      for (int i = 0; i < in.fleet->count; i++) {
+        const Rect r = listTile(S, i, ui.scroll);
+        if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+        const float t = funFlightT(f.backAt, k++, in.ms);
+        if (t <= 0) continue;
+        if (t >= 1 || !scratch) {
+          tile(c, S, T, in.fleet->agents[i], r, in.ms, in.nowEpoch, true, false, S.headerH);
+          continue;
+        }
+        Canvas sc{scratch, tw, th};
+        sc.be = c.be;
+        sc.fill(T.bg);
+        tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
+        float sx, sy;
+        flightCorner(f.arrive, kEnd, sx, sy);
+        blitScaled(c, scratch, tw, tw, th, kEnd + (1.f - kEnd) * t, sx + (r.x - sx) * t, sy + (r.y - sy) * t);
+      }
+    }
+    if (S.cornerR) cornerMask(c, S.cornerR);
+  }
+
+  // The tiles on screen now (list home): their agents' indexes and places.
+  int shownTiles(const PanelUi& ui, const Fleet& f, int* idx, int16_t* x, int16_t* y, int max) const override {
+    if (S.home != HomeKind::List || ui.screen != Screen::Home) return 0;
+    int n = 0;
+    for (int i = 0; i < f.count && n < max; i++) {
+      const Rect r = listTile(S, i, ui.scroll);
+      if (r.y < S.headerH || r.y + r.h > S.h) continue;   // whole tiles only
+      idx[n] = i;
+      x[n] = (int16_t)r.x;
+      y[n] = (int16_t)r.y;
+      n++;
+    }
+    return n;
+  }
+
   // The magic trick's own screen: the grid, empty, or the tiles flying.
   bool magicGrid(const PanelInput& in) const {
     const FunUi& f = in.ui->fun;
@@ -1925,6 +2021,10 @@ class SquarePanel : public PanelLayout {
   // The tricks over the frame: true when this drew the whole frame.
   bool drawFun(Canvas& c, const PanelInput& in) const {
     const FunUi& f = in.ui->fun;
+    if (giverScreen(in)) {
+      drawGiver(c, in);
+      return true;
+    }
     if (magicGrid(in)) {
       drawReveal(c, in);
       return true;
@@ -1971,7 +2071,8 @@ class SquarePanel : public PanelLayout {
     if (!panelPic) panelPic = (uint16_t*)malloc(n * 2);
     if (!homePic || !panelPic) return false;
     if (!cached) {
-      if (S.imu && in.ui && magicGrid(in)) drawReveal(c, in);   // under the panel: the trick's grid
+      if (in.ui && giverScreen(in)) drawGiver(c, in);       // under the panel: the trick's grids
+      else if (S.imu && in.ui && magicGrid(in)) drawReveal(c, in);
       else drawSquare(c, S, T, in);
       memcpy(homePic, c.px, n * 2);
       ControlUi full = u;

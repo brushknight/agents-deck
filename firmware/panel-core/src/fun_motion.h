@@ -136,7 +136,20 @@ static inline float funRevealT(const FunUi& f, int k, uint32_t ms) {
   return 1.f - (1.f - x) * (1.f - x) * (1.f - x);   // fast out of the corner, settling in
 }
 static inline bool funSick(const FunUi& f, uint32_t ms) { return f.sickAt && ms - f.sickAt < kSickMs; }
-static inline bool funBusy(const FunUi& f, uint32_t ms) { return funRevealing(f, ms) || funReturning(f, ms) || funSick(f, ms); }
+static inline bool funGiving(const FunUi& f, uint32_t ms) { return f.giveAt && ms - f.giveAt < kRevealMs; }
+static inline bool funBack(const FunUi& f, uint32_t ms) { return f.backAt && ms - f.backAt < kRevealMs; }
+static inline bool funBusy(const FunUi& f, uint32_t ms) {
+  return funRevealing(f, ms) || funReturning(f, ms) || funSick(f, ms) || funGiving(f, ms) || funBack(f, ms);
+}
+
+// A tile's flight for tile k of a flight that started at 'at': 0 to 1, eased.
+static inline float funFlightT(uint32_t at, int k, uint32_t ms) {
+  const int32_t t = (int32_t)(ms - at) - (int32_t)(k * kRevealStaggerMs);
+  if (t <= 0) return 0;
+  if (t >= (int32_t)kRevealTravelMs) return 1;
+  const float x = (float)t / kRevealTravelMs;
+  return 1.f - (1.f - x) * (1.f - x) * (1.f - x);
+}
 
 // ---------------------------------------------------------------- sick
 

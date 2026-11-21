@@ -77,11 +77,49 @@ static DeckScope scope() {
   }
 }
 
+static void onMagic(const agentsdeck_link_v1_Magic& m);
+
 static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
   if (ctx != link()) return;               // the other link (USB while on Wi-Fi): not what the screen shows
   lastHeardMs = millis();
+  if (f->which_body == agentsdeck_link_v1_Frame_magic_tag) onMagic(f->body.magic);   // before the agent changes it brings
   if (deckApply(*fleet, *f, millis())) dirty = true;
   if (fleet->newWaiting) fleet->newWaiting = false;
+}
+
+// Its part in the magic trick (Settings on the deck). The giver, taken:
+// keep the frame it shows and where its tiles are, to fly them out (the
+// deck's removals follow this frame). Given back: fly the new ones in.
+static uint16_t* giverPic = nullptr;
+static void onMagic(const agentsdeck_link_v1_Magic& m) {
+  FunUi& f = ui.fun;
+  const uint32_t ms = millis() ? millis() : 1;
+  f.role = (uint8_t)m.role;
+  f.arrive = (uint8_t)m.arrive;
+  f.leave = (uint8_t)m.leave;
+  if (f.role != 2 && f.magic) {            // no longer the receiver: the trick ends here
+    f.magic = f.taken = false;
+    f.revealAt = f.returnAt = 0;
+  }
+  if (f.role != 1) {
+    f.given = false;
+    f.giveAt = f.backAt = 0;
+  } else if (m.taken && !f.given) {
+    int idx[16];
+    f.picN = board.layout->shownTiles(ui, fleet->fleet, idx, f.picX, f.picY, 16);
+    const size_t n = (size_t)canvas.w * canvas.h;
+    if (!giverPic) giverPic = (uint16_t*)heap_caps_malloc(n * 2, MALLOC_CAP_SPIRAM);
+    if (giverPic && canvas.px) memcpy(giverPic, canvas.px, n * 2);
+    f.pic = giverPic;
+    f.given = true;
+    f.giveAt = ms;
+    f.backAt = 0;
+  } else if (!m.taken && f.given) {
+    f.given = false;
+    f.backAt = ms;
+    f.giveAt = 0;
+  }
+  dirty = true;
 }
 
 static void onWelcome(deck_link_t* ctx, const char* name, agentsdeck_link_v1_Scope, bool approved) {
@@ -175,7 +213,7 @@ static void render() {
   ci.bleOn = net_link::bleSwitch();
   ci.bleBonded = net_link::bleBonded();
   ci.upSec = ms / 1000;
-  ci.imu = PANEL_MAGIC_TRICK && board.accel != nullptr;   // the Magic trick tile: a demo, debug builds only
+  ci.imu = ui.fun.role == 2 && board.accel != nullptr;   // the Magic trick tile: when the deck made it the receiver
   ci.magicOn = ui.fun.magic;
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   in.rowsOk = board.pushRows != nullptr;
@@ -200,7 +238,8 @@ static void render() {
 // dim when every agent is idle.
 static void updateBrightness() {
   const uint32_t ms = millis();
-  bool active = ms - lastActiveMs < 30000 || linkState() != LinkState::Live || !fleet->have;
+  bool active = ms - lastActiveMs < 30000 || linkState() != LinkState::Live || !fleet->have ||
+                ui.fun.magic;   // the magic trick is worked by knocks, not touches: it stays bright
   if (!active) {
     const Counts n = countFleet(fleet->fleet);
     active = n.running || n.waiting || n.error || n.hungry;
@@ -319,7 +358,7 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   squareClock = [] { return (uint32_t)micros(); };
 #endif
   boardId = b.boardId ? b.boardId : DeckLink::chipId();
-  panelConfig(cfg, boardId, firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true});
+  panelConfig(cfg, boardId, firmware, PanelSpec{b.type, (uint32_t)W, (uint32_t)H, true, b.accel != nullptr});
   cfg.on_frame = onFrame;
   cfg.on_welcome = onWelcome;
   cfg.on_result = onResult;
@@ -361,8 +400,7 @@ static inline void gridAppLoop() {
   // The deck is told again each time the link comes up, and every 5 s while
   // (debug builds only): a word lost while the link was down must not leave the
   // wall panel's page empty.
-#if PANEL_MAGIC_TRICK
-  if (board.accel) {
+  if (board.accel && ui.fun.role == 2) {   // the receiver
     static int told = -1;                  // what the deck last heard: 1 taken, 0 given back
     static uint32_t toldAt = 0;
     static bool wasLive = false;
@@ -381,7 +419,31 @@ static inline void gridAppLoop() {
       toldAt = millis();
     }
   }
-#endif
+  // The giver: tell the deck which agents it shows (what a take takes), when
+  // that changes and every 5 s.
+  if (ui.fun.role == 1 && !ui.fun.given) {
+    static char sent[16][12];
+    static int sentN = -1;
+    static uint32_t sentAt = 0, lookedAt = 0;
+    if (millis() - lookedAt > 300 && fleet->have && linkState() == LinkState::Live) {
+      lookedAt = millis();
+      int idx[16];
+      int16_t xs[16], ys[16];
+      const int n = board.layout->shownTiles(ui, fleet->fleet, idx, xs, ys, 16);
+      bool same = n == sentN;
+      for (int i = 0; same && i < n; i++) same = strcmp(sent[i], fleet->fleet.agents[idx[i]].id) == 0;
+      if (n > 0 && (!same || millis() - sentAt > 5000)) {
+        const char* ids[16];
+        for (int i = 0; i < n; i++) {
+          snprintf(sent[i], sizeof sent[i], "%s", fleet->fleet.agents[idx[i]].id);
+          ids[i] = sent[i];
+        }
+        deck_magic_view(link(), ids, (size_t)n);
+        sentN = n;
+        sentAt = millis();
+      }
+    }
+  }
   static uint32_t lastFrame = 0;
 #ifdef PANEL_DEBUG
   static uint32_t lastNote = 0, frames = 0, drawMs = 0;

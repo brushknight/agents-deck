@@ -290,7 +290,7 @@ const loadAll = (...names) => Promise.all(names.map(load));
 
 function needs(page) {
   return {
-    general: ['settings'], agents: ['agents', 'live'], boards: ['devices', 'ports'], network: ['settings', 'devices'],
+    general: ['settings'], agents: ['agents', 'live'], boards: ['devices', 'ports', 'settings'], network: ['settings', 'devices'],
     updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
   }[page] || [];
@@ -877,6 +877,47 @@ function drawBoards() {
     }
     out.push(det);
   }
+  out.push(...drawMagic());
+  return out;
+}
+
+// ---- Magic trick ---------------------------------------------------------------------------
+
+// The magic trick: a knock on the receiver (a board with a motion sensor)
+// takes the agents the giver shows, the next knock gives them back. Off by
+// default; while off, nothing happens.
+function drawMagic() {
+  const m = S.settings?.magic;
+  if (!m) return [];
+  const devs = (S.devices?.devices || []).filter((d) => d.state === 'active');
+  const receivers = devs.filter((d) => d.motion);
+  const save = (patch, el) => patchSettings({ magic: { ...m, ...patch } }, el);
+  const pick = (label, list, current, key) => h('select', {
+    class: 'pick', 'aria-label': label, 'data-k': `magic-${key}`,
+    onchange: (e) => save({ [key]: e.target.value }),
+  },
+  h('option', { value: '', selected: !current }, 'choose a device'),
+  ...list.map((d) => h('option', { value: d.id, selected: d.id === current }, d.name)));
+  const corners = (label, current, key) => seg(label, [
+    { value: 'top-left', text: 'top left' }, { value: 'top-right', text: 'top right' },
+    { value: 'bottom-left', text: 'bottom left' }, { value: 'bottom-right', text: 'bottom right' },
+  ], current, (v) => save({ [key]: v }), { key: `magic-${key}` });
+  const out = [lab('magic trick')];
+  const ready = m.giver && m.receiver;
+  out.push(row('Magic trick',
+    'Knock on the receiver to take the agents the giver shows; knock again to give them back. Off: nothing happens.',
+    [toggle('Magic trick', m.on, (on, el) => save({ on }, el), { disabled: !ready && !m.on })]));
+  out.push(row('Giver', 'Any screen: the agents it shows fly off it, and their places stay empty until they come back.',
+    [pick('Giver', devs.filter((d) => d.id !== m.receiver), m.giver, 'giver')]));
+  out.push(row('Receiver', receivers.length
+    ? 'A board with a motion sensor: you knock on it, the agents fly onto it.'
+    : 'Needs a board with a motion sensor (the 1.8 inch AMOLED). Plug one in and it shows up here.',
+  [pick('Receiver', receivers.filter((d) => d.id !== m.giver), m.receiver, 'receiver')]));
+  out.push(row('On the giver, they leave to', null, [corners('On the giver, they leave to', m.giverLeave, 'giverLeave')]));
+  out.push(row('On the giver, they come back from', null, [corners('On the giver, they come back from', m.giverArrive, 'giverArrive')]));
+  out.push(row('On the receiver, they arrive from', null, [corners('On the receiver, they arrive from', m.receiverArrive, 'receiverArrive')]));
+  out.push(row('On the receiver, they leave to', null, [corners('On the receiver, they leave to', m.receiverLeave, 'receiverLeave')]));
+  if (m.on) out.push(h('p', { class: 'note' }, 'To start: pull the receiver\'s menu down from the top edge and switch Magic trick on. Knock once to take the agents, knock again on its grid to give them back. Then switch it off in the same menu.'));
   return out;
 }
 

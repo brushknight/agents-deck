@@ -93,6 +93,12 @@ PB_BIND(agentsdeck_link_v1_Order, agentsdeck_link_v1_Order, 2)
 PB_BIND(agentsdeck_link_v1_Stash, agentsdeck_link_v1_Stash, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_MagicView, agentsdeck_link_v1_MagicView, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Magic, agentsdeck_link_v1_Magic, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_MoveAttention, agentsdeck_link_v1_MoveAttention, AUTO)
 
 
@@ -166,6 +172,10 @@ PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO
 
 
 PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+
+
 
 
 

@@ -119,6 +119,10 @@ type Settings struct {
 	Network        bool `json:"network"`
 	NetworkRunning bool `json:"networkRunning"`
 
+	// Magic: the magic trick (off by default). The giver and the receiver
+	// are device names (/admin/v1/devices; the receiver needs "motion").
+	Magic devices.Magic `json:"magic"`
+
 	// Wifi is the network boards get on USB. Its password is never sent back.
 	Wifi struct {
 		SSID string `json:"ssid"`
@@ -159,6 +163,9 @@ func (a *Admin) SettingsNow() Settings {
 		s.Wifi.SSID = a.WifiSSID()
 	}
 	s.CLI = a.cliState()
+	if a.Devices != nil {
+		s.Magic = a.Devices.Settings().Magic.WithDefaults()
+	}
 	return s
 }
 
@@ -168,12 +175,13 @@ func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 
 // SettingsPatch is PATCH /admin/v1/settings: only the keys given change.
 type SettingsPatch struct {
-	StartAtLogin  *bool   `json:"startAtLogin"`
-	Notifications *string `json:"notifications"`
-	Sound         *bool   `json:"sound"`
-	Restore       *string `json:"restore"`
-	Updates       *string `json:"updates"`
-	Network       *bool   `json:"network"`
+	StartAtLogin  *bool          `json:"startAtLogin"`
+	Notifications *string        `json:"notifications"`
+	Sound         *bool          `json:"sound"`
+	Restore       *string        `json:"restore"`
+	Updates       *string        `json:"updates"`
+	Network       *bool          `json:"network"`
+	Magic         *devices.Magic `json:"magic"` // the whole setting
 	Wifi          *struct {
 		SSID     string `json:"ssid"`
 		Password string `json:"password"`
@@ -212,6 +220,19 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	case p.StartAtLogin != nil && a.Login == nil:
 		writeErr(w, http.StatusNotImplemented, "starting at login is not available on this platform")
 		return
+	}
+	if p.Magic != nil {
+		if a.Devices == nil {
+			writeErr(w, http.StatusServiceUnavailable, "no device registry here")
+			return
+		}
+		if err := a.Devices.SetMagic(*p.Magic); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if a.MagicChanged != nil {
+			a.MagicChanged() // the screens learn their new part (or that it is off)
+		}
 	}
 	if p.Wifi != nil && !p.Wifi.Forget {
 		if err := server.CheckWifi(p.Wifi.SSID, p.Wifi.Password); err != nil {

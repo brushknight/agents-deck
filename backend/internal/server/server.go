@@ -133,11 +133,8 @@ type Server struct {
 	Admin   http.Handler
 	logins  loginCodes
 	apiOnce sync.Once
-	held    stash // agents a board took from MagicPanel (stash.go)
-	// MagicPanel is the screen the magic trick takes agents from (a device's
-	// name); empty: the trick is off (stash.go).
-	MagicPanel string
-	apiMux     *http.ServeMux
+	held    stash // the magic trick: what the receiver holds (stash.go)
+	apiMux  *http.ServeMux
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).
@@ -157,6 +154,7 @@ func (s *Server) api() *http.ServeMux {
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
 	mux.HandleFunc("POST /v1/stash", s.postStash)
+	mux.HandleFunc("POST /v1/magic/view", s.postMagicView)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			PromptID string `json:"promptId"`

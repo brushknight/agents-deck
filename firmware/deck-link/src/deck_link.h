@@ -108,6 +108,10 @@ typedef struct {
 	void (*on_agent)(deck_link_t *ctx, const agentsdeck_link_v1_Agent *agent);
 	void (*on_agent_removed)(deck_link_t *ctx, const char *id);
 	void (*on_snapshot_end)(deck_link_t *ctx);
+	/* Its part in the magic trick (giver, receiver or none), whether the
+	 * agents are taken, and its corners: after a snapshot when it has one, and
+	 * whenever it changes, before the agent changes that follow. */
+	void (*on_magic)(deck_link_t *ctx, const agentsdeck_link_v1_Magic *magic);
 	void (*on_result)(deck_link_t *ctx, uint32_t seq, uint32_t code, const char *error);
 	void (*on_hat_list)(deck_link_t *ctx, uint32_t seq, const agentsdeck_link_v1_HatList *list);
 	void (*on_live_sessions)(deck_link_t *ctx, uint32_t seq, const agentsdeck_link_v1_LiveSessions *live);
@@ -197,10 +201,12 @@ uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot);
 /* Moves an agent on the deck's "Needs you" grid to spot 1..16 (Agent.attention_slot). */
 uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot);
 uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n);
-/* Takes those agents (at most 16) from every other screen; n 0 gives them back. */
+/* The magic trick's receiver: take those agents (at most 16); n 0 gives them back. */
 uint32_t deck_stash(deck_link_t *ctx, const char *const *agent_ids, size_t n);
-/* Takes every agent from every other screen (deck_stash with n 0 gives them back). */
+/* The magic trick's receiver: take what the giver shows (deck_stash with n 0 gives them back). */
 uint32_t deck_stash_all(deck_link_t *ctx);
+/* The magic trick's giver: the agents it shows now, in order (at most 16). */
+uint32_t deck_magic_view(deck_link_t *ctx, const char *const *agent_ids, size_t n);
 /* folder is used when agent_id is NULL or empty; color may be NULL. */
 uint32_t deck_set_hat(deck_link_t *ctx, const char *agent_id, const char *folder, const char *shape,
 		      const char *color, bool auto_hat);

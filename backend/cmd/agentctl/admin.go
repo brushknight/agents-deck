@@ -36,7 +36,7 @@ func newAdmin(st *store.Store, srv *server.Server, self, logFile string) *admin.
 		// One release reader for both: the app's updates and the boards' firmware
 		// share its cache and its one-download-at-a-time lock.
 		Updater: upd, Firmware: &firmware.Client{Releases: upd.Releases},
-		Open: proc.Open, Exe: self,
+		Open: proc.Open, Exe: self, MagicChanged: srv.MagicChanged,
 	}
 	if home != "" {
 		a.CLIDir = filepath.Join(home, ".local", "bin")

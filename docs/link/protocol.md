@@ -136,6 +136,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `MoveAttention {agent_id, slot}` | `POST /v1/agents/{id}/attention` | act | `Result`: 204; 409 if the agent isn't on the "Needs you" grid; 400 if `slot` isn't 1 to 16 |
 | `Order {agent_ids}` | `POST /v1/order` | act | `Result` |
 | `Stash {agent_ids, all}` | `POST /v1/stash` | act | `Result` |
+| `MagicView {agent_ids}` | `POST /v1/magic/view` | act | `Result` |
 | `SetHat {agent_id or folder, shape, color, automatic}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
 | `Dismiss`, `Resume` `{agent_id}` | `POST /v1/agents/{id}/dismiss`, `…/resume` | admin | `Result` |
 | `Handoff {agent_id, account}` | `POST /v1/agents/{id}/handoff` | admin | `Result` (200 when it started) |
