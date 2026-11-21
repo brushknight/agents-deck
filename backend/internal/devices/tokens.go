@@ -92,8 +92,9 @@ func (s *Tokens) save() error {
 // the secret exists outside the caller. A revoked token's name can be used
 // again; an active one's can't.
 func (s *Tokens) Create(name string, scope Scope) (string, Token, error) {
-	if err := ValidName(name); err != nil {
-		return "", Token{}, errors.New("token names are lowercase letters, digits and dashes (up to 32), e.g. claude-main")
+	name = strings.TrimSpace(name)
+	if err := tokenName(name); err != nil {
+		return "", Token{}, err
 	}
 	if _, err := ParseScope(string(scope)); err != nil {
 		return "", Token{}, err
@@ -106,8 +107,11 @@ func (s *Tokens) Create(name string, scope Scope) (string, Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.load()
-	if t, ok := s.list[name]; ok && !t.Revoked {
-		return "", Token{}, fmt.Errorf("there is already a token named %s: revoke it first, or pick another name", name)
+	if t := s.find(name); t != nil && !t.Revoked {
+		return "", Token{}, fmt.Errorf("there is already a token named %s: revoke it first, or pick another name", t.Name)
+	}
+	if t := s.find(name); t != nil {
+		delete(s.list, t.Name) // a revoked one under the same name gives way
 	}
 	t := &Token{Name: name, Scope: scope, Hash: HashToken(secret), Created: time.Now().UTC()}
 	s.list[name] = t
@@ -179,8 +183,8 @@ func (s *Tokens) Revoke(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.load()
-	t, ok := s.list[name]
-	if !ok {
+	t := s.find(name)
+	if t == nil {
 		return ErrUnknown
 	}
 	t.Revoked, t.Hash = true, ""
@@ -192,9 +196,45 @@ func (s *Tokens) Remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.load()
-	if _, ok := s.list[name]; !ok {
+	t := s.find(name)
+	if t == nil {
 		return ErrUnknown
 	}
-	delete(s.list, name)
+	delete(s.list, t.Name)
 	return s.save()
+}
+
+// tokenName: a token's name is a label for you (it shows in Settings and
+// the audit log as mcp:<name>): any readable text up to 64 characters, but
+// no control characters, and no "/" (it is part of the revoke address).
+func tokenName(name string) error {
+	switch {
+	case name == "":
+		return errors.New("give the token a name, e.g. Fable orchestrator")
+	case len([]rune(name)) > 64:
+		return errors.New("a token name is at most 64 characters")
+	case strings.ContainsRune(name, '/'):
+		return errors.New("a token name can't contain /")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("a token name can't contain control characters")
+		}
+	}
+	return nil
+}
+
+// find is the token named name, ignoring capitals (nil: none); the caller
+// holds s.mu.
+func (s *Tokens) find(name string) *Token {
+	name = strings.TrimSpace(name)
+	if t, ok := s.list[name]; ok {
+		return t
+	}
+	for k, t := range s.list {
+		if strings.EqualFold(k, name) {
+			return t
+		}
+	}
+	return nil
 }

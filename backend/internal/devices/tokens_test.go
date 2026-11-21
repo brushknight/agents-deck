@@ -44,7 +44,7 @@ func TestTokens(t *testing.T) {
 	if _, _, err := s2.Create("claude-main", View); err == nil {
 		t.Error("a second active token with the same name")
 	}
-	for _, bad := range []string{"Bad Name", "x/y", ""} {
+	for _, bad := range []string{"x/y", "", "   "} {
 		if _, _, err := s2.Create(bad, View); err == nil {
 			t.Errorf("name %q accepted", bad)
 		}
@@ -75,4 +75,24 @@ func TestTokens(t *testing.T) {
 		t.Errorf("revoke unknown: %v", err)
 	}
 	s2.Used("nope") // no panic
+}
+
+// A token's name is free text: spaces, capitals, dots; no control
+// characters or "/"; unique ignoring capitals.
+func TestTokenNames(t *testing.T) {
+	s := &Tokens{Path: filepath.Join(t.TempDir(), "mcp-tokens.json")}
+	if _, tok, err := s.Create("  Fable 5.2 orchestrator ", Act); err != nil || tok.Name != "Fable 5.2 orchestrator" {
+		t.Fatalf("free text: %+v %v", tok, err)
+	}
+	if _, _, err := s.Create("fable 5.2 ORCHESTRATOR", Act); err == nil {
+		t.Error("same name in other capitals was accepted")
+	}
+	for _, bad := range []string{"", "a/b", "bell\x07", strings.Repeat("x", 65)} {
+		if _, _, err := s.Create(bad, Act); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+	if err := s.Revoke("FABLE 5.2 orchestrator"); err != nil {
+		t.Errorf("revoke ignoring capitals: %v", err)
+	}
 }
