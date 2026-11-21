@@ -1027,9 +1027,39 @@ function buildAgent(a, body) {
         w.title ? h('div', { class: 'd' }, cap(w.title)) : null,
         w.context ? h('div', { class: 'd' }, w.context) : null)) : (isQ && w.detail ? h('p', { class: 'txt dark' }, w.detail) : null));
     const free = w.kind === 'input' || !(w.options || []).length;
-    body.replaceChildren(hd.el, ask,
-      free ? h('p', { class: 'txt' }, 'It wants free text: answer it in its terminal.') : list,
-      h('p', { class: 'sub' }, free ? '' : `Answer here with 1 to ${(w.options || []).length} on the keyboard, or in its terminal.`), acts, note);
+    // Your own answer: the deck presses Esc on the question, then types the
+    // text in as the next prompt (POST /prompt with interrupt). Agents in
+    // another app's terminal can't be typed into, so they don't get the field.
+    let own = null;
+    if (!external && (!a.external || inApp(a))) {
+      const fid = `own-${a.id}`;
+      const input = h('input', { type: 'text', id: fid, placeholder: free ? 'What should it do?' : w.kind === 'permission' ? 'Tell it what to do instead' : 'Something other than the answers above', maxlength: '4000', autocomplete: 'off', 'data-k': fid });
+      const sendOwn = async (e) => {
+        e?.preventDefault();
+        const text = input.value.trim();
+        if (!text || sending.get(w.id)) return;
+        sending.set(w.id, { key: 'your answer', status: 'sending' });
+        opts.forEach((o) => { o.disabled = true; });
+        say2(note, 'Sending your answer…');
+        try {
+          await post(a, 'prompt', { text, interrupt: true });
+          sending.set(w.id, { key: 'your answer', status: 'sent' });
+          input.value = '';
+          say2(note, 'Sent your answer. Waiting for the agent…');
+        } catch (ex) {
+          sending.delete(w.id);
+          opts.forEach((o) => { o.disabled = false; });
+          say2(note, `Not sent: ${ex.message}`, true);
+        }
+      };
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendOwn(e); });
+      own = h('div', { class: 'promptrow own' },
+        h('div', { class: 'field' }, h('label', { for: fid }, 'Type your own answer'), input),
+        h('button', { type: 'button', class: 'btn p sm', onclick: sendOwn }, 'Send'));
+    }
+    const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
+      : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
+    body.replaceChildren(...[hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note].filter(Boolean));
     return (x) => hd.update(x);
   }
 

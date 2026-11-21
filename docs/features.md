@@ -26,7 +26,7 @@ Tap a tile for its card (in the browser, the agent's own page, with a box to sen
 
 - **Overview.** What it's doing now, context used, tokens, estimated cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop** (or **resume** / **remove** once it has exited).
 - **Permission prompts** show the exact command with Claude's own options; **questions** show their choices; a question with several parts goes one question at a time (pick-any ones tick, then **next**), then **submit answers**. Your answer is typed into the agent's terminal, and a prompt that has already changed is refused.
-- **Free-text input** can't be typed on the deck: the card sends you to the terminal.
+- **Your own answer.** In the browser, an agent's page also has **Type your own answer** under the choices: the deck presses Esc on the question and types your text in as the next prompt, so it reaches the agent as your reply. Agents in another app's terminal (a session started by hand) don't get it. On the other screens, free-text input sends you to the terminal.
 - **Last active** says when the agent last sent or got a message ("last active 3h ago"), also after a
   crash or a restart. `agentctl ls` shows it as ACTIVE, and `agentctl ls --sort active` puts the most
   recently active first.
