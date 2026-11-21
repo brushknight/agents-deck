@@ -308,12 +308,12 @@ message Order {
   repeated string agent_ids = 1;
 }
 
-// Stash takes agents from every other screen (the 1.8 inch board's magic
-// trick): they drop out of the state the others get until the same board
-// sends an empty Stash, which gives them back.
+// Stash takes agents from one screen for a demo (the 1.8 inch board's magic
+// trick, docs/protocol.md): they drop out of that screen's state until the
+// same board sends an empty Stash, which gives them back.
 message Stash {
   repeated string agent_ids = 1;  // at most 16
-  bool all = 2;                   // every agent, whatever agent_ids says
+  bool all = 2;                   // the first page's agents, whatever agent_ids says
   // Neither ids nor all: give them back.
 }
 

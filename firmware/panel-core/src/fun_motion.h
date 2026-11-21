@@ -26,7 +26,7 @@
 #include "panel_layout.h"
 
 // The reveal: each tile flies kRevealTravelMs, the next starting kRevealStaggerMs later.
-constexpr uint32_t kRevealTravelMs = 520, kRevealStaggerMs = 90;
+constexpr uint32_t kRevealTravelMs = 350, kRevealStaggerMs = 15;
 constexpr uint32_t kRevealMs = kRevealTravelMs + 8 * kRevealStaggerMs;   // room for nine tiles
 constexpr uint32_t kSickGrowMs = 450, kSickHoldMs = 250, kSickSpewMs = 3000, kSickShrinkMs = 450;
 constexpr uint32_t kSickMs = kSickGrowMs + kSickHoldMs + kSickSpewMs + kSickShrinkMs;
@@ -41,8 +41,10 @@ constexpr uint32_t kSickMs = kSickGrowMs + kSickHoldMs + kSickSpewMs + kSickShri
 // kKnockWindowMs (the board hitting the table, or a knuckle on it; carrying it
 // changes it far slower). Needs the sensor read often (every 2 ms on the 1.8
 // inch), or the jolt falls between two readings.
-constexpr float kKnockG = 0.8f, kShakeG = 0.5f;
-constexpr uint32_t kKnockWindowMs = 10;
+// And the board was still for kKnockStillMs before it (not shaken, not
+// handled), and no finger touched the glass for kKnockTouchMs.
+constexpr float kKnockG = 0.8f, kShakeG = 0.5f, kStillG = 0.25f;
+constexpr uint32_t kKnockWindowMs = 10, kKnockStillMs = 300, kKnockTouchMs = 500;
 constexpr int kShakePeaks = 4;   // two shakes back and forth
 constexpr uint32_t kShakeWindowMs = 1000, kKnockQuietMs = 450;
 
@@ -85,6 +87,16 @@ static inline Motion funDetect(FunUi& f, float ax, float ay, float az, uint32_t 
   } else if (f.wasHigh && ahp < kShakeG * 0.6f) {
     f.wasHigh = false;
   }
+  // Movement in bursts: when this one began, and when the one before ended.
+  if (ahp > kStillG) {
+    if (!f.lastMove || ms - f.lastMove > kKnockWindowMs) {
+      f.prevMoveEnd = f.lastMove;
+      f.burstAt = ms;
+    }
+    f.lastMove = ms;
+  }
+  const bool stillBefore = f.burstAt && ms - f.burstAt <= kKnockWindowMs && (!f.prevMoveEnd || f.burstAt - f.prevMoveEnd > kKnockStillMs);
+  const bool untouched = !f.lastTouch || ms - f.lastTouch > kKnockTouchMs;
   int recent = 0;
   for (int i = 0; i < 8 && i < f.np; i++)
     if (ms - f.peaks[i] < kShakeWindowMs) recent++;
@@ -93,7 +105,8 @@ static inline Motion funDetect(FunUi& f, float ax, float ay, float az, uint32_t 
     f.lastShake = ms ? ms : 1;
     return Motion::Shake;
   }
-  if (jerk > kKnockG && ms - f.lastKnock > kKnockQuietMs && (!f.lastShake || ms - f.lastShake > kShakeWindowMs) &&
+  (void)stillBefore;                          // (moving it onto the table is movement too: not asked)
+  if (jerk > kKnockG && untouched && ms - f.lastKnock > kKnockQuietMs && (!f.lastShake || ms - f.lastShake > kShakeWindowMs) &&
       recent <= 2) {
     f.lastKnock = ms ? ms : 1;
     return Motion::Knock;
@@ -105,7 +118,7 @@ static inline Motion funDetect(FunUi& f, float ax, float ay, float az, uint32_t 
 static inline void funKnock(FunUi& f, uint32_t ms) {
   f.taken = !f.taken;
   if (f.taken) { f.revealAt = ms ? ms : 1; f.returnAt = 0; }
-  else { f.returnAt = ms ? ms : 1; f.revealAt = 0; }
+  else { f.returnAt = ms ? ms : 1; f.revealAt = 0; f.spent = true; }   // one take, one give-back per switching on
 }
 
 static inline void funMagicOff(FunUi& f) { f.magic = f.taken = false; f.revealAt = f.returnAt = 0; }

@@ -785,8 +785,12 @@ static void loop() {
       }
       if (n < 0) {
         NET_LOG("net: TLS closed: %s", deck_tls_strerror((deck_tls_err_t)-n));
+        const bool refused = now - tlsSince < 15000;   // the deck ended it at once: it has this board on USB or Bluetooth
         tlsDown();
         netDeckFailed(plan, now, -n == DECK_TLS_CERT_REJECTED);
+        // Wait a minute before Wi-Fi again: each try holds the loop for
+        // seconds, and the USB deck's answer must get through meanwhile.
+        if (refused) plan.nextTryAt = now + plan.retryDeckMaxMs;
       }
       break;
     }

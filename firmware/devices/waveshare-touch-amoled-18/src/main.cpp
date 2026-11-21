@@ -205,15 +205,31 @@ static bool boardBegin() {
   return ok;
 }
 
+// After a failed fast transfer the slow send takes over; 3 s later the fast
+// one gets another go (leftover transfers drained), from the next frame on:
+// one hiccup must not leave every animation at half speed until a restart.
+static uint32_t slowSince = 0;
+static void fastRetry() {
+  if (fastSend || !qspi_fast::broken || !slowSince || millis() - slowSince < 3000) return;
+  spi_transaction_t* done = nullptr;
+  while (spi_device_get_trans_result(((Arduino_ESP32QSPI*)bus)->_handle, &done, 0) == ESP_OK) {
+  }
+  qspi_fast::broken = false;
+  qspi_fast::preswapped = fastSend = true;
+  slowSince = 0;
+}
+
 // A whole frame: two buffers in turn (qspi_fast.h), else Arduino_GFX's own send.
 static void push(const uint16_t* frame) {
   if (!lcd) return;
-  if (fastSend && qspi_fast::broken) {      // the fast send failed: the old one from now on, in plain byte order
+  if (fastSend && qspi_fast::broken) {      // the fast send failed: the old one for now, in plain byte order
     fastSend = false;
     qspi_fast::preswapped = false;
+    slowSince = millis() ? millis() : 1;
   }
   if (!fastSend) {
     lcd->draw16bitRGBBitmap(0, 0, (uint16_t*)frame, 368, 448);
+    fastRetry();
     return;
   }
   lcd->startWrite();
@@ -228,9 +244,11 @@ static void pushRows(const uint16_t* const* rows) {
   if (fastSend && qspi_fast::broken) {
     fastSend = false;
     qspi_fast::preswapped = false;
+    slowSince = millis() ? millis() : 1;
   }
   if (!fastSend) {                         // row by row, the slow way
     for (int y = 0; y < 448; y++) lcd->draw16bitRGBBitmap(0, y, (uint16_t*)rows[y], 368, 1);
+    fastRetry();
     return;
   }
   lcd->startWrite();
@@ -260,6 +278,9 @@ void setup() {
   b.bootPin = PIN_BOOT;
   b.brightActive = 255;
   b.brightIdle = 40;          // an AMOLED dims well, and black pixels cost nothing
+#if PANEL_MAGIC_TRICK
+  b.brightIdle = 255;         // the demo build: the trick is done by knocks, not touches, so it never dims
+#endif
   gridAppSetup(b, FW_VERSION);
 }
 

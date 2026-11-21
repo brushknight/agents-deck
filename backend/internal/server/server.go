@@ -133,8 +133,11 @@ type Server struct {
 	Admin   http.Handler
 	logins  loginCodes
 	apiOnce sync.Once
-	held    stash // agents a screen took from the others (stash.go)
-	apiMux  *http.ServeMux
+	held    stash // agents a board took from MagicPanel (stash.go)
+	// MagicPanel is the screen the magic trick takes agents from (a device's
+	// name); empty: the trick is off (stash.go).
+	MagicPanel string
+	apiMux     *http.ServeMux
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).

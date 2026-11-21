@@ -119,9 +119,17 @@ static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || 
 
 // ---------------------------------------------------------------- motion (fun_motion.h)
 
+
+// The magic trick's tile in the board's panel: a demo, built in only where
+// asked (-DPANEL_MAGIC_TRICK=1, the 1.8 inch's debug build).
+#ifndef PANEL_MAGIC_TRICK
+#define PANEL_MAGIC_TRICK 0
+#endif
+
 struct FunUi {
   bool magic = false;          // the trick is on (from the drawer) until it is switched off there
-  bool taken = false;          // a knock took the agents (the next one gives them back)
+  bool taken = false;          // a knock took the agents (the next knock gives them back)
+  bool spent = false;          // taken and given back once: nothing more until it is switched on again
   uint32_t revealAt = 0;       // the knock that took them: the tiles fly in
   uint32_t returnAt = 0;       // the knock that gave them back: the tiles fly out
   bool stashDue = false;       // tell the deck (Stash): take every agent, or give them back
@@ -137,6 +145,8 @@ struct FunUi {
   uint32_t peaks[8] = {};
   int np = 0;
   uint32_t lastKnock = 0, lastShake = 0;
+  uint32_t lastMove = 0, burstAt = 0, prevMoveEnd = 0;   // movement bursts: a knock comes out of stillness
+  uint32_t lastTouch = 0;      // a finger on the glass (grid_app)
 };
 
 struct PanelUi {

@@ -475,6 +475,7 @@ uint32_t deck_order(deck_link_t *ctx, const char *const *agent_ids, size_t n)
 uint32_t deck_stash(deck_link_t *ctx, const char *const *agent_ids, size_t n)
 {
 	agentsdeck_link_v1_Stash m;
+	memset(&m, 0, sizeof m); /* all false: these ids, or none (give them back) */
 	size_t max = sizeof m.agent_ids / sizeof m.agent_ids[0];
 	m.agent_ids_count = 0;
 	for (size_t i = 0; i < n && i < max; i++)

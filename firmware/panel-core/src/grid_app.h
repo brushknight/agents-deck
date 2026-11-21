@@ -175,7 +175,7 @@ static void render() {
   ci.bleOn = net_link::bleSwitch();
   ci.bleBonded = net_link::bleBonded();
   ci.upSec = ms / 1000;
-  ci.imu = board.accel != nullptr;
+  ci.imu = PANEL_MAGIC_TRICK && board.accel != nullptr;   // the Magic trick tile: a demo, debug builds only
   ci.magicOn = ui.fun.magic;
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   in.rowsOk = board.pushRows != nullptr;
@@ -226,6 +226,7 @@ static void panelAct() {
       }
       else {
         ui.fun.magic = true;
+        ui.fun.spent = false;
         ui.ctl = ControlUi();                  // on: the drawer gets out of the way, the grid is empty
       }
       break;
@@ -236,6 +237,7 @@ static void panelAct() {
 static void touchPump() {
   int x = 0, y = 0;
   const bool down = board.touch && board.touch(x, y);
+  if (down) ui.fun.lastTouch = millis();   // a finger on the glass is not a knock
   const NetView nv = net_link::view();
   const bool onNotice = !fleet->have || linkState() != LinkState::Live || nv.ota.phase != OtaPhase::None || netOverlay(nv);
   const uint32_t ms = millis();
@@ -356,12 +358,30 @@ static inline void gridAppLoop() {
   }
   // The magic trick took the agents on this screen, or gave them back: the
   // deck leaves them out of every other screen's state meanwhile (POST /v1/stash).
-  if (ui.fun.stashDue) {
+  // The deck is told again each time the link comes up, and every 5 s while
+  // (debug builds only): a word lost while the link was down must not leave the
+  // wall panel's page empty.
+#if PANEL_MAGIC_TRICK
+  if (board.accel) {
+    static int told = -1;                  // what the deck last heard: 1 taken, 0 given back
+    static uint32_t toldAt = 0;
+    static bool wasLive = false;
+    // USB when it is up (the deck closes a Wi-Fi link while USB carries the board), else the active link.
+    deck_link_t* via = deck_link_state(deck.core()) == DECK_LINK_ONLINE ? deck.core() : link();
+    const bool live = deck_link_state(via) == DECK_LINK_ONLINE && deck_link_approved(via);
+    if (live && !wasLive) told = -1;
+    wasLive = live;
+    const int want = ui.fun.taken ? 1 : 0;
     ui.fun.stashDue = false;
-    if (ui.fun.taken) deck_stash_all(link());
-    else deck_stash(link(), nullptr, 0);
-    PANEL_LOG("magic: %s every agent", ui.fun.taken ? "took" : "gave back");
+    if (live && (told != want || millis() - toldAt > 5000)) {
+      if (want) deck_stash_all(via);
+      else deck_stash(via, nullptr, 0);
+      if (told != want) PANEL_LOG("magic: %s", want ? "took the agents" : "gave them back");
+      told = want;
+      toldAt = millis();
+    }
   }
+#endif
   static uint32_t lastFrame = 0;
 #ifdef PANEL_DEBUG
   static uint32_t lastNote = 0, frames = 0, drawMs = 0;

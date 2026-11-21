@@ -91,6 +91,41 @@ class _AgentsAppState extends State<AgentsApp> {
 
   bool _cardShown = false;
 
+  // The magic trick (a board takes a page of agents, docs/protocol.md
+  // POST /v1/stash): when several agents leave at once their tiles fly off
+  // to the bottom-left corner one after another, and when several come back
+  // at once they fly in from the top-left. Same pace as the board's tiles.
+  Map<String, Agent> _seen = const {};
+  List<Agent> _leaving = const [];
+  Set<String> _arriving = const {};
+  int _flight = 0; // a new number per flight, so the tiles start again
+  static const _flock =
+      3; // this many at once is the trick, not an agent ending
+
+  void _watchFlights(AgentsState state) {
+    final now = {for (final a in state.agents) a.id: a};
+    if (_seen.isNotEmpty) {
+      final gone = [
+        for (final e in _seen.entries)
+          if (!now.containsKey(e.key)) e.value,
+      ];
+      final come = {
+        for (final id in now.keys)
+          if (!_seen.containsKey(id)) id,
+      };
+      if (gone.length >= _flock) {
+        _leaving = gone..sort((a, b) => a.slot.compareTo(b.slot));
+        _arriving = const {};
+        _flight++;
+      } else if (come.length >= _flock) {
+        _arriving = come;
+        _leaving = const [];
+        _flight++;
+      }
+    }
+    _seen = now;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -266,6 +301,7 @@ class _AgentsAppState extends State<AgentsApp> {
   /// keys or click a bar. The tiles keep their width and get a little shorter
   /// so the bar row fits in the same square.
   Widget _deck(AgentsState state) {
+    _watchFlights(state);
     final last = state.agents.map((a) => a.slot).fold(0, math.max);
     final pages = last ~/ _cells + 1;
     if (_view > pages) _view = pages;
@@ -340,7 +376,24 @@ class _AgentsAppState extends State<AgentsApp> {
 
   List<Widget> _cellsFor(AgentsState state, int page) {
     final bySlot = {for (final a in state.agents) a.slot: a};
+    final leftFrom = {for (final a in _leaving) a.slot: a};
     final start = page * _cells;
+    // The order the tiles fly in: by place, as on the board.
+    final order = <String, int>{};
+    for (final a in [
+      ..._leaving,
+      ...state.agents.where((a) => _arriving.contains(a.id)),
+    ]..sort((a, b) => a.slot.compareTo(b.slot))) {
+      order[a.id] = order.length;
+    }
+    Widget fly(Agent a, int slot, Widget tile, {required bool leave}) => _Fly(
+      key: ValueKey('fly-$_flight-${a.id}'),
+      col: (slot - start) % DeckGrid.columns,
+      row: (slot - start) ~/ DeckGrid.columns,
+      leave: leave,
+      delay: Duration.zero, // all at once: a swarm
+      child: tile,
+    );
     return [
       for (var slot = start; slot < start + _cells; slot++)
         if (bySlot[slot] case final a?)
@@ -349,18 +402,49 @@ class _AgentsAppState extends State<AgentsApp> {
             slot: slot,
             id: a.id,
             title: a.title,
-            child: AgentTile(
-              key: ValueKey('agent-tile-${a.id}'),
-              agent: a,
-              state: state,
-              onOpen: _open,
-            ),
+            child: _arriving.contains(a.id)
+                ? fly(
+                    a,
+                    slot,
+                    AgentTile(
+                      key: ValueKey('agent-tile-${a.id}'),
+                      agent: a,
+                      state: state,
+                      onOpen: _open,
+                    ),
+                    leave: false,
+                  )
+                : AgentTile(
+                    key: ValueKey('agent-tile-${a.id}'),
+                    agent: a,
+                    state: state,
+                    onOpen: _open,
+                  ),
           )
         else
           _swapCell(
             state,
             slot: slot,
-            child: _FreeCell(onOpen: (ctx, key) => _openPicker(ctx, key, slot)),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _FreeCell(onOpen: (ctx, key) => _openPicker(ctx, key, slot)),
+                if (leftFrom[slot] case final a?)
+                  IgnorePointer(
+                    child: fly(
+                      a,
+                      slot,
+                      AgentTile(
+                        key: ValueKey('gone-tile-${a.id}'),
+                        agent: a,
+                        state: state,
+                        onOpen: (_, _, _) {},
+                      ),
+                      leave: true,
+                    ),
+                  ),
+              ],
+            ),
           ),
     ];
   }
@@ -686,6 +770,76 @@ class ContextRingPainter extends CustomPainter {
 
 /// Unused slot: near-black block with a faint frame.
 /// A free cell: tap it to add a session there.
+/// A tile on its way: from its place to just past the bottom-left corner of
+/// the grid (leave), or from just past the top-left corner to its place,
+/// shrinking toward the corner and fading there.
+class _Fly extends StatefulWidget {
+  const _Fly({
+    super.key,
+    required this.col,
+    required this.row,
+    required this.leave,
+    required this.delay,
+    required this.child,
+  });
+
+  final int col, row;
+  final bool leave;
+  final Duration delay;
+  final Widget child;
+
+  @override
+  State<_Fly> createState() => _FlyState();
+}
+
+class _FlyState extends State<_Fly> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 350),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.leave) _c.value = 0;
+    Future.delayed(widget.delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // In cells: the corner one cell past the grid's edge.
+    final corner = widget.leave
+        ? Offset(-1.0 - widget.col, DeckGrid.rows - widget.row.toDouble())
+        : Offset(-1.0 - widget.col, -1.0 - widget.row);
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        // Leaving: place -> corner, speeding up. Coming: corner -> place, slowing down.
+        final t = widget.leave
+            ? Curves.easeInCubic.transform(_c.value)
+            : 1 - Curves.easeOutCubic.transform(_c.value);
+        return FractionalTranslation(
+          translation: corner * t,
+          child: Transform.scale(
+            scale: 1 - 0.6 * t,
+            alignment: Alignment.center,
+            child: Opacity(opacity: (1 - t * t).clamp(0.0, 1.0), child: child),
+          ),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
 class _FreeCell extends StatefulWidget {
   const _FreeCell({required this.onOpen});
 

@@ -1775,7 +1775,9 @@ class SquarePanel : public PanelLayout {
       // The trick's empty grid with the board's panel over it (pulled down
       // or open): drawn whole each frame, the grid stays under it.
       if (in.ctl && hasPanel() && controlShown(in.ui->ctl) && magicGrid(in)) {
+        const ControlUi& u = in.ui->ctl;
         rowsReady = false;
+        if ((u.pulling || u.animating) && slideFromCache(c, in, u)) return;   // moving: slid, as over home
         cached = false;
         drawReveal(c, in);
         controlDraw(c, G, T, *in.ctl, in.ui->ctl, in.ms);
@@ -1802,9 +1804,13 @@ class SquarePanel : public PanelLayout {
   void motion(PanelUi& ui, float ax, float ay, float az, uint32_t ms) const override {
     if (!S.imu) return;
     const Motion m = funDetect(ui.fun, ax, ay, az, ms);
-    if (m == Motion::Knock && ui.fun.magic && ui.screen == Screen::Home && !controlShown(ui.ctl)) {
+    if (m == Motion::Knock && ui.fun.magic && !ui.fun.spent && ui.screen == Screen::Home && !funSick(ui.fun, ms) && !controlShown(ui.ctl)) {   // on the grid only: knock 1 takes, knock 2 gives back (a shake on a card starts with a jolt too)
       funKnock(ui.fun, ms);
       ui.fun.stashDue = true;                  // every agent leaves the other screens, or comes back
+      if (!ui.fun.taken) {                     // given back: from wherever it was, to the grid the tiles leave
+        ui.screen = Screen::Home;
+        ui.confirm = false;
+      }
     }
     else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
       funSickStart(ui.fun, ui.openId, ms);
@@ -1826,7 +1832,7 @@ class SquarePanel : public PanelLayout {
       (void)f;
       if (ui.fun.sickAt && !funSick(ui.fun, ms)) ui.fun.sickAt = 0;
       if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
-      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;
+      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;   // given back: the empty grid stays until the drawer switches it off
       fun = funBusy(ui.fun, ms);
     }
     const bool panel = (hasPanel() && controlTick(ui.ctl, ms)) || fun;
@@ -1891,7 +1897,8 @@ class SquarePanel : public PanelLayout {
         tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
         const float scale = kStart + (1.f - kStart) * t;
         // Past the top-right corner, off the glass: they come in from there and go out there.
-        const float sx0 = S.w + 8, sy0 = -th * kStart - 8;
+        // In from past the top-right corner; given back, out past the bottom-right.
+        const float sx0 = S.w + 8, sy0 = out ? S.h + 8 : -th * kStart - 8;
         const float dx = sx0 + (r.x - sx0) * t, dy = sy0 + (r.y - sy0) * t;
         const int dw = (int)(tw * scale), dh = (int)(th * scale);
         for (int yy = 0; yy < dh; yy++) {
@@ -1964,7 +1971,8 @@ class SquarePanel : public PanelLayout {
     if (!panelPic) panelPic = (uint16_t*)malloc(n * 2);
     if (!homePic || !panelPic) return false;
     if (!cached) {
-      drawSquare(c, S, T, in);
+      if (S.imu && in.ui && magicGrid(in)) drawReveal(c, in);   // under the panel: the trick's grid
+      else drawSquare(c, S, T, in);
       memcpy(homePic, c.px, n * 2);
       ControlUi full = u;
       full.open = 1.f;

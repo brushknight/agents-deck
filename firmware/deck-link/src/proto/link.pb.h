@@ -310,13 +310,13 @@ typedef struct _agentsdeck_link_v1_Order {
     char agent_ids[32][12];
 } agentsdeck_link_v1_Order;
 
-/* Stash takes agents from every other screen (the 1.8 inch board's magic
- trick): they drop out of the state the others get until the same board
- sends an empty Stash, which gives them back. */
+/* Stash takes agents from one screen for a demo (the 1.8 inch board's magic
+ trick, docs/protocol.md): they drop out of that screen's state until the
+ same board sends an empty Stash, which gives them back. */
 typedef struct _agentsdeck_link_v1_Stash {
     pb_size_t agent_ids_count;
     char agent_ids[16][12]; /* at most 16 */
-    bool all; /* every agent, whatever agent_ids says */
+    bool all; /* the first page's agents, whatever agent_ids says */
 } agentsdeck_link_v1_Stash;
 
 /* MoveAttention moves an agent on the "Needs you" grid, like Move on the deck. */

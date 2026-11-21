@@ -10,8 +10,8 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
-// A screen that takes agents keeps seeing them; every other screen (other
-// devices, this computer) doesn't, until the taker gives them back.
+// The magic trick: a board takes agents from one screen. That screen loses
+// them, everyone else (the board too) sees everything.
 func TestStash(t *testing.T) {
 	s := &Server{Store: store.New("", "test deck", "0.0.0")}
 	st := model.State{Agents: []model.Agent{{ID: "a1"}, {ID: "a2"}, {ID: "a3"}}}
@@ -32,18 +32,17 @@ func TestStash(t *testing.T) {
 		return w.Code
 	}
 
-	if got := ids(s.View(st, "wall-panel")); got != "a1,a2,a3" {
-		t.Fatalf("nothing taken: %s", got)
+	// Off unless a screen is named.
+	if code := post("small-board", `{"ids": ["a1"]}`); code != http.StatusNotFound {
+		t.Fatalf("off: %d", code)
 	}
+	s.MagicPanel = "wall-panel"
 	if code := post("small-board", `{"ids": ["a1", "a3"]}`); code != http.StatusNoContent {
 		t.Fatalf("take: %d", code)
 	}
-	if got := ids(s.View(st, "small-board")); got != "a1,a2,a3" {
-		t.Errorf("the taker sees them all: %s", got)
-	}
-	for _, other := range []string{"wall-panel", "local"} {
-		if got := ids(s.View(st, other)); got != "a2" {
-			t.Errorf("%s: %s, want a2", other, got)
+	for viewer, want := range map[string]string{"small-board": "a1,a2,a3", "wall-panel": "a2", "other-board": "a1,a2,a3", "local": "a1,a2,a3"} {
+		if got := ids(s.View(st, viewer)); got != want {
+			t.Errorf("%s sees %q, want %q", viewer, got, want)
 		}
 	}
 	if code := post("small-board", `{"ids": []}`); code != http.StatusNoContent {
@@ -52,34 +51,11 @@ func TestStash(t *testing.T) {
 	if got := ids(s.View(st, "wall-panel")); got != "a1,a2,a3" {
 		t.Errorf("given back: %s", got)
 	}
-	// No ids at all, or too many: refused.
 	if code := post("small-board", `{}`); code != http.StatusBadRequest {
 		t.Errorf("no ids: %d", code)
 	}
 	many := `{"ids": ["` + strings.Repeat(`x", "`, 16) + `x"]}`
 	if code := post("small-board", many); code != http.StatusBadRequest {
 		t.Errorf("17 ids: %d", code)
-	}
-	// All of them: the others see none, the taker all.
-	if code := post("small-board", `{"all": true}`); code != http.StatusNoContent {
-		t.Fatalf("all: %d", code)
-	}
-	if got := ids(s.View(st, "wall-panel")); got != "" {
-		t.Errorf("all taken: %q", got)
-	}
-	if got := ids(s.View(st, "small-board")); got != "a1,a2,a3" {
-		t.Errorf("the taker of all: %s", got)
-	}
-	post("small-board", `{"ids": []}`)
-	if got := ids(s.View(st, "wall-panel")); got != "a1,a2,a3" {
-		t.Errorf("all given back: %s", got)
-	}
-	// From this computer (no device): the holder is "local".
-	post("", `{"ids": ["a2"]}`)
-	if got := ids(s.View(st, "local")); got != "a1,a2,a3" {
-		t.Errorf("local taker: %s", got)
-	}
-	if got := ids(s.View(st, "wall-panel")); got != "a1,a3" {
-		t.Errorf("local took a2: %s", got)
 	}
 }

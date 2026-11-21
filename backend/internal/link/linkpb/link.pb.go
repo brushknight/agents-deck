@@ -3127,13 +3127,13 @@ func (x *Order) GetAgentIds() []string {
 	return nil
 }
 
-// Stash takes agents from every other screen (the 1.8 inch board's magic
-// trick): they drop out of the state the others get until the same board
-// sends an empty Stash, which gives them back.
+// Stash takes agents from one screen for a demo (the 1.8 inch board's magic
+// trick, docs/protocol.md): they drop out of that screen's state until the
+// same board sends an empty Stash, which gives them back.
 type Stash struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentIds      []string               `protobuf:"bytes,1,rep,name=agent_ids,json=agentIds,proto3" json:"agent_ids,omitempty"` // at most 16
-	All           bool                   `protobuf:"varint,2,opt,name=all,proto3" json:"all,omitempty"`                          // every agent, whatever agent_ids says
+	All           bool                   `protobuf:"varint,2,opt,name=all,proto3" json:"all,omitempty"`                          // the first page's agents, whatever agent_ids says
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
