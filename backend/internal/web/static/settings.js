@@ -609,15 +609,17 @@ function tileFor(a) {
     const spr = h('span', { class: 'spr c dk', 'aria-hidden': 'true' });
     const tn = h('span', { class: 'tn' });
     const tm = h('span', { class: 'tm' });
-    const el = h('a', { class: 'tile', href: `#agent/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, spr, tn, tm);
+    const qb = h('span', { class: 'qb', hidden: true });
+    const el = h('a', { class: 'tile', href: `#agent/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, qb, spr, tn, tm);
     wireDrag(el, a.id);
-    t = { el, ring, ch, spr, tn, tm, sig: '' };
+    t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
   }
   const meta = tileMeta(a);
   const cls = tileClass(a);
   const pct = a.status === 'running' ? ctxPct(a) : 0;
-  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${a.id === S.arg ? 'cur' : ''}`;
+  const queued = a.queued || 0;
+  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
   if (t.sig !== sig) {
     t.sig = sig;
     t.el.className = `tile ${cls}${a.id === S.arg && S.page === 'agent' ? ' cur' : ''}`;
@@ -626,7 +628,11 @@ function tileFor(a) {
     t.ring.hidden = !pct;
     t.ring.style.setProperty('--p', `${pct}%`);
     t.ch.style.background = cls === 'wait' ? '#0A0A0A' : chipColor(a);
-    t.el.setAttribute('aria-label', `${agentName(a)}, ${a.status === 'waiting' ? 'needs you' : meta}`);
+    // Prompts waiting for its turn to end: "+2" in the corner.
+    t.qb.hidden = !queued;
+    t.qb.textContent = `+${queued}`;
+    t.qb.title = queued ? `${plural(queued, 'prompt')} queued: ${queued === 1 ? 'it goes' : 'they go'} in when this turn ends` : '';
+    t.el.setAttribute('aria-label', `${agentName(a)}, ${a.status === 'waiting' ? 'needs you' : meta}${queued ? `, ${queued} queued` : ''}`);
   }
   setSprite(t.spr, poseOf(a), a.tool, a.hat);
   return t.el;
@@ -967,10 +973,54 @@ function agentHead(a) {
       const st = { running: ['Working', 'acc'], waiting: ['Needs you', 'fill'], error: ['Error', 'bad'], idle: [x.unseen ? 'Hungry' : 'Idle', x.unseen ? 'acc' : 'off'], starting: ['Starting', 'off'], exited: ['Ended', 'off'] }[x.status] || [x.status, ''];
       status.className = `chip st2 ${st[1]}`;
       status.replaceChildren(h('i', { 'aria-hidden': 'true' }), `${st[0]}${since ? ` · ${since}` : ''}`);
-      chips.replaceChildren(status, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
+      chips.replaceChildren(status, x.queued ? chip(`${x.queued} queued`, 'acc', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
         x.aiTitle && x.aiTitle !== agentName(x) ? chip(x.aiTitle, 'off') : null);
     },
   };
+}
+
+// who queued a prompt, from the user's side.
+function queuedBy(by) {
+  if (!by || by === 'local') return 'from this computer';
+  if (by === 'web') return 'from the browser';
+  if (by.startsWith('mcp:')) return `from ${by.slice(4)} over MCP`;
+  return `from ${by}`;
+}
+
+// queueBlock: the prompts queued for an agent, each with Cancel. They go in
+// one at a time, as each turn ends; it reads them again when the count or
+// the status changes.
+function queueBlock(a, note) {
+  const list = h('div', { class: 'blk qlist2' });
+  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true },
+    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), h('span', { class: 'm' }, 'each goes in when a turn ends')), list);
+  let sig = null;
+  const show = (items) => {
+    el.hidden = !items.length;
+    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`,
+      btn('Cancel', (e) => busy(e.currentTarget, async () => {
+        let gone = false;
+        try {
+          await api('POST', `/v1/agents/${encodeURIComponent(a.id)}/queue/${encodeURIComponent(it.id)}/cancel`);
+        } catch (ex) {
+          if (ex.status !== 404) throw ex;
+          gone = true;
+        }
+        sig = null;
+        await load('state');
+        updateDeck();
+        return gone;
+      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` }),
+      { cls: 'qitem' })));
+  };
+  const update = async (x) => {
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    if (want === sig) return;
+    sig = want;
+    if (!x.queued) { show([]); return; }
+    try { const r = await api('GET', `/v1/agents/${encodeURIComponent(x.id)}/queue`); if (sig === want) show(r?.queue || []); } catch (ex) { if (ex.status !== 401) say2(note, `Queued prompts: ${ex.message}`, true); }
+  };
+  return { el, update };
 }
 
 // buildAgent fills the agent's page for its state: working (stats, what it
@@ -1070,8 +1120,9 @@ function buildAgent(a, body) {
     }
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
-    body.replaceChildren(...[hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note].filter(Boolean));
-    return (x) => hd.update(x);
+    const qb = queueBlock(a, note);
+    body.replaceChildren(...[hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el].filter(Boolean));
+    return (x) => { hd.update(x); qb.update(x); };
   }
 
   agentView.answer = null;
@@ -1085,23 +1136,35 @@ function buildAgent(a, body) {
   const lastWhen = h('span', { class: 'sub' });
   const foot = h('p', { class: 'sub' });
   let promptBox = null;
+  const qb = queueBlock(a, note);
   if (!external && a.status !== 'exited' && a.status !== 'error') {
-    const input = h('input', { type: 'text', id: `pr-${a.id}`, placeholder: a.status === 'running' ? 'Tell it what to do next (it stops this turn first)' : 'Tell it what to do next', maxlength: '4000', autocomplete: 'off', 'data-k': `pr-${a.id}` });
-    const send = async (e) => {
+    // Busy: queue it for when this turn ends (Enter), or stop the turn and
+    // send it now. Idle: it goes in at once, after anything queued before it.
+    const busyNow = a.status === 'running' || a.status === 'starting';
+    const input = h('input', { type: 'text', id: `pr-${a.id}`, placeholder: busyNow ? 'Tell it what to do next (it goes in when this turn ends)' : 'Tell it what to do next', maxlength: '4000', autocomplete: 'off', 'data-k': `pr-${a.id}` });
+    const send = async (e, mode = 'queue') => {
       e?.preventDefault();
       const text = input.value.trim();
       if (!text) return;
       say2(note, 'Sending…');
-      try { await post(a, 'prompt', { text, interrupt: a.status === 'running' }); input.value = ''; say2(note, 'Sent.'); } catch (ex) { say2(note, `Not sent: ${ex.message}`, true); }
+      try {
+        const r = await post(a, 'prompt', { text, mode });
+        input.value = '';
+        say2(note, r?.status === 'queued' ? `Queued${r.position > 1 ? `, number ${r.position}` : ''}: it goes in when ${r.position > 1 ? 'the turns before it end' : 'this turn ends'}.` : 'Sent.');
+        if (r?.status === 'queued') { await load('state'); updateDeck(); }
+      } catch (ex) { say2(note, `Not sent: ${ex.message}`, true); }
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(e); });
-    promptBox = h('div', { class: 'promptrow' }, h('label', { for: `pr-${a.id}`, class: 'sr' }, 'Prompt'), h('div', { class: 'field' }, input), h('button', { type: 'button', class: 'btn p sm', onclick: send }, 'Send'));
+    promptBox = h('div', { class: 'promptrow' }, h('label', { for: `pr-${a.id}`, class: 'sr' }, 'Prompt'), h('div', { class: 'field' }, input),
+      h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
+      a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
   body.replaceChildren(hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
-    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, acts, note, foot);
+    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
+    qb.update(x);
     const pct = ctxPct(x);
     vCtx.textContent = `${pct}%`;
     prog.style.width = `${pct}%`;

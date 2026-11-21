@@ -488,6 +488,10 @@ a.tile:hover { border-color: var(--edge); }
 .tile .ring { position: absolute; inset: 0; padding: 3px; pointer-events: none; background: conic-gradient(var(--orange) var(--p, 0%), #2A2925 0);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
 .tile .ch { position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; }
+/* prompts queued for the agent: a count in the corner */
+.tile .qb { position: absolute; top: 5px; left: 5px; min-width: 20px; height: 18px; padding: 0 5px; background: var(--ink); color: var(--term); font: 700 11px/18px var(--f-mono); text-align: center; }
+.tile .qb[hidden] { display: none; }
+.tile.wait .qb { background: var(--term); color: var(--orange); }
 .pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pager .kl { margin-right: 4px; }
 .pg { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; font: 700 12px/1 var(--f-mono); border: 1px solid var(--rule); color: var(--soft); background: transparent; cursor: pointer; padding: 0; border-radius: 0; }
@@ -571,6 +575,7 @@ a.tile:hover { border-color: var(--edge); }
 .opt.p .h2 { color: var(--term); }
 .promptrow { display: flex; gap: 10px; align-items: flex-end; }
 .promptrow .btn { height: 40px; }
+.qlist2 .qitem .ttl { font-family: var(--f-mono); font-size: 12px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .btn.armed { background: var(--bad); border-color: var(--bad); color: var(--term); }
 .hatpick { margin-top: 12px; }
 .hatrow { display: flex; flex-wrap: wrap; gap: 6px; }
