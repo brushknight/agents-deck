@@ -15,9 +15,15 @@
 // (idf5/platformio.ini, Wi-Fi with TLS 1.3); only Arduino_GFX's CO5300
 // constructor differs between the two GFX versions they use.
 #include <Arduino.h>
+// Private made public for qspi_fast.h, which sends frames on Arduino_GFX's own SPI device.
+#define private public
 #include <Arduino_GFX_Library.h>
+#undef private
 #include <Wire.h>
 
+#include <atomic>
+
+#include "qspi_fast.h"   // before grid_app.h: its debug report reads the send's numbers
 #include "grid_app.h"
 #include "layout_square.h"
 
@@ -33,6 +39,10 @@ constexpr uint8_t EXIO_LCD_RST = 1 << 0, EXIO_LCD_PWR = 1 << 1, EXIO_TP_RST = 1 
 
 static Arduino_DataBus* bus = new Arduino_ESP32QSPI(PIN_QSPI_CS, PIN_QSPI_SCK, PIN_QSPI_D0, PIN_QSPI_D1, PIN_QSPI_D2, PIN_QSPI_D3);
 static Arduino_CO5300* lcd = nullptr;
+static bool fastSend = false;
+#ifndef LCD_QSPI_HZ
+#define LCD_QSPI_HZ 40000000
+#endif
 static uint8_t touchAddr = 0;
 static bool haveTca = false;
 
@@ -47,6 +57,90 @@ static bool tca(uint8_t reg, uint8_t value) {
   Wire.write(reg);
   Wire.write(value);
   return Wire.endTransmission() == 0;
+}
+
+// ---------------------------------------------------------------- motion sensor
+// The QMI8658 on the same bus (0x6B, or 0x6A): the accelerometer alone, at
+// +-8 g and 500 samples a second, read every 2 ms by a task of its own into a
+// ring the loop drains (a knock lasts a few ms: read between frames, it is
+// missed), for the tricks in fun_motion.h.
+constexpr uint8_t ADDR_QMI_A = 0x6B, ADDR_QMI_B = 0x6A;
+static uint8_t qmiAddr = 0;
+
+static bool qmiWrite(uint8_t reg, uint8_t v) {
+  Wire.beginTransmission(qmiAddr);
+  Wire.write(reg);
+  Wire.write(v);
+  return Wire.endTransmission() == 0;
+}
+
+static bool qmiRead(uint8_t reg, uint8_t* b, uint8_t n) {
+  Wire.beginTransmission(qmiAddr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(qmiAddr, n) != n) return false;
+  for (uint8_t i = 0; i < n; i++) b[i] = Wire.read();
+  return true;
+}
+
+// Found (WHO_AM_I 0x05) and set up: CTRL1 address auto-increment, little
+// endian; CTRL2 +-8 g at 500 Hz; CTRL7 accelerometer on.
+static bool imuInit() {
+  for (uint8_t a : {ADDR_QMI_A, ADDR_QMI_B}) {
+    qmiAddr = a;
+    uint8_t id = 0;
+    if (!qmiRead(0x00, &id, 1) || id != 0x05) continue;
+    const bool ok = qmiWrite(0x02, 0x40) && qmiWrite(0x03, 0x24) && qmiWrite(0x08, 0x01);
+    PANEL_LOG("amoled18: QMI8658 at 0x%02X %s", a, ok ? "on" : "FAILED");
+    return ok;
+  }
+  qmiAddr = 0;
+  PANEL_LOG("amoled18: no motion sensor");
+  return false;
+}
+
+// One sample in g (4096 per g at +-8 g).
+static bool imuRead(float& x, float& y, float& z) {
+  uint8_t b[6];
+  if (!qmiAddr || !qmiRead(0x35, b, 6)) return false;
+  x = (int16_t)(b[0] | b[1] << 8) / 4096.f;
+  y = (int16_t)(b[2] | b[3] << 8) / 4096.f;
+  z = (int16_t)(b[4] | b[5] << 8) / 4096.f;
+  return true;
+}
+
+// The ring: the task writes at head, the loop reads at tail (one writer, one
+// reader). Wire locks the bus per transaction, so the touch reads share it.
+struct ImuSample {
+  float x, y, z;
+  uint32_t ms;
+};
+static ImuSample imuRing[64];
+static std::atomic<uint32_t> imuHead{0}, imuTail{0};
+
+static void imuTask(void*) {
+  TickType_t wake = xTaskGetTickCount();
+  for (;;) {
+    vTaskDelayUntil(&wake, pdMS_TO_TICKS(2));
+    ImuSample s;
+    if (!imuRead(s.x, s.y, s.z)) continue;
+    s.ms = millis();
+    const uint32_t h = imuHead.load(std::memory_order_relaxed);
+    if (h - imuTail.load(std::memory_order_acquire) >= 64) continue;   // full: the loop is busy, drop it
+    imuRing[h % 64] = s;
+    imuHead.store(h + 1, std::memory_order_release);
+  }
+}
+
+static bool imuNext(float& x, float& y, float& z, uint32_t& ms) {
+  const uint32_t t = imuTail.load(std::memory_order_relaxed);
+  if (t == imuHead.load(std::memory_order_acquire)) return false;
+  const ImuSample& s = imuRing[t % 64];
+  x = s.x;
+  y = s.y;
+  z = s.z;
+  ms = s.ms;
+  imuTail.store(t + 1, std::memory_order_release);
+  return true;
 }
 
 // Panel supply on, panel and touch through a reset.
@@ -93,6 +187,7 @@ static bool touchRead(int& x, int& y) {
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
+  if (imuInit()) xTaskCreatePinnedToCore(imuTask, "imu", 3072, nullptr, 2, nullptr, 0);   // off the loop's core
   touchAddr = i2cPresent(ADDR_CST820) ? ADDR_CST820 : i2cPresent(ADDR_FT3168) ? ADDR_FT3168 : 0;
   // The CO5300 boards (CST820 touch) start 16 columns in; the first SH8601
   // revision (FT3168) at 0. GFX 1.5.x takes an `ips` flag after the rotation; 1.6 doesn't.
@@ -102,14 +197,64 @@ static bool boardBegin() {
 #else
   lcd = new Arduino_CO5300(bus, GFX_NOT_DEFINED, 0, false, 368, 448, colOffset, 0, 0, 0);
 #endif
-  const bool ok = lcd->begin(40000000);
+  const bool ok = lcd->begin(LCD_QSPI_HZ);
+  fastSend = ok && qspi_fast::begin();
+  qspi_fast::preswapped = fastSend;        // the canvas draws in the panel's byte order (frameSwapped)
   PANEL_LOG("amoled18: tca9554 %s, touch 0x%02X, col offset %u, display %s", haveTca ? "ok" : "NONE", touchAddr,
             colOffset, ok ? "ok" : "FAILED");
   return ok;
 }
 
+// After a failed fast transfer the slow send takes over; 3 s later the fast
+// one gets another go (leftover transfers drained), from the next frame on:
+// one hiccup must not leave every animation at half speed until a restart.
+static uint32_t slowSince = 0;
+static void fastRetry() {
+  if (fastSend || !qspi_fast::broken || !slowSince || millis() - slowSince < 3000) return;
+  spi_transaction_t* done = nullptr;
+  while (spi_device_get_trans_result(((Arduino_ESP32QSPI*)bus)->_handle, &done, 0) == ESP_OK) {
+  }
+  qspi_fast::broken = false;
+  qspi_fast::preswapped = fastSend = true;
+  slowSince = 0;
+}
+
+// A whole frame: two buffers in turn (qspi_fast.h), else Arduino_GFX's own send.
 static void push(const uint16_t* frame) {
-  if (lcd) lcd->draw16bitRGBBitmap(0, 0, (uint16_t*)frame, 368, 448);
+  if (!lcd) return;
+  if (fastSend && qspi_fast::broken) {      // the fast send failed: the old one for now, in plain byte order
+    fastSend = false;
+    qspi_fast::preswapped = false;
+    slowSince = millis() ? millis() : 1;
+  }
+  if (!fastSend) {
+    lcd->draw16bitRGBBitmap(0, 0, (uint16_t*)frame, 368, 448);
+    fastRetry();
+    return;
+  }
+  lcd->startWrite();
+  lcd->writeAddrWindow(0, 0, 368, 448);
+  qspi_fast::pixels((Arduino_ESP32QSPI*)bus, frame, 368u * 448u);
+  lcd->endWrite();
+}
+
+// A frame as rows (the panel sliding over home: control_panel.h).
+static void pushRows(const uint16_t* const* rows) {
+  if (!lcd) return;
+  if (fastSend && qspi_fast::broken) {
+    fastSend = false;
+    qspi_fast::preswapped = false;
+    slowSince = millis() ? millis() : 1;
+  }
+  if (!fastSend) {                         // row by row, the slow way
+    for (int y = 0; y < 448; y++) lcd->draw16bitRGBBitmap(0, y, (uint16_t*)rows[y], 368, 1);
+    fastRetry();
+    return;
+  }
+  lcd->startWrite();
+  lcd->writeAddrWindow(0, 0, 368, 448);
+  qspi_fast::rows((Arduino_ESP32QSPI*)bus, rows, 368, 448);
+  lcd->endWrite();
 }
 
 static void brightness(uint8_t level) {
@@ -117,13 +262,18 @@ static void brightness(uint8_t level) {
 }
 
 void setup() {
-  static const SquarePanel layout(specAmoled18());
+  static SquareSpec spec = specAmoled18();
+  spec.imu = true;                        // the QMI8658: the drawer's magic trick, a shake on a card
+  static const SquarePanel layout(spec);
   GridBoard b{};
   b.type = "waveshare-touch-amoled-18";
   b.layout = &layout;
   b.begin = boardBegin;
   b.push = push;
+  b.pushRows = pushRows;
+  b.frameSwapped = [] { return fastSend; };
   b.touch = touchRead;
+  b.accel = imuNext;
   b.brightness = brightness;
   b.bootPin = PIN_BOOT;
   b.brightActive = 255;

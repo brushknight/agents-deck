@@ -99,10 +99,12 @@ type Admin struct {
 	PairInfo func() (url, ca string)
 
 	ListPorts func() ([]serial.Info, error) // serial.List
-	Flasher   Flasher
-	Firmware  Firmware
-	Updater   Updater
-	Login     service.Manager // start at login; nil where there is none
+	// MagicChanged tells the screens the magic trick's settings changed.
+	MagicChanged func()
+	Flasher      Flasher
+	Firmware     Firmware
+	Updater      Updater
+	Login        service.Manager // start at login; nil where there is none
 	// Tray: the Linux tray app's autostart entry, switched with Start when I
 	// log in (nil elsewhere).
 	Tray *TrayAutostart

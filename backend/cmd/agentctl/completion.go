@@ -186,7 +186,7 @@ _agentctl() {
         esac
       fi ;;
     status)     _agentctl_args '--json[print it as JSON]' ;;
-    serve)      _agentctl_args '--demo[simulated fleet from the fixture]' '--log[append the log to a file]:file:_files' ;;
+    serve)      _agentctl_args '--demo[simulated fleet from the fixture]' '--fixture[with --demo, the fleet from a dataset file]:file:_files' '--log[append the log to a file]:file:_files' ;;
     completion) (( CURRENT == 3 )) && _values 'shell' zsh ;;
     set)
       if (( CURRENT == 3 )); then _values 'setting' 'term[how focus shows an agent]' 'mouse[who owns the mouse in agent terminals]' 'restore[what happens to agents lost with tmux]' 'hat[the hat of an agent'"'"'s working folder]'

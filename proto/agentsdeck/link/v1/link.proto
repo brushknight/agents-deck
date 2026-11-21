@@ -28,6 +28,7 @@ message Frame {
     AgentChanged agent_changed = 21;    // …and later, one per agent that changed
     AgentRemoved agent_removed = 22;
     SnapshotEnd snapshot_end = 23;
+    Magic magic = 24;                   // its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow)
 
     // Commands, board → deck: one per web API endpoint (docs/protocol.md).
     Answer answer = 30;            // POST /v1/agents/{id}/answer
@@ -46,6 +47,8 @@ message Frame {
     Handoff handoff = 43;          // POST /v1/agents/{id}/handoff
     ListAccounts list_accounts = 44;  // GET /v1/accounts
     MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
+    Stash stash = 46;              // POST /v1/stash
+    MagicView magic_view = 47;     // POST /v1/magic/view
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -97,6 +100,7 @@ enum Input {
   INPUT_ENCODER = 2;
   INPUT_TOUCH = 3;
   INPUT_KNOB = 4;  // a motorized/haptic knob
+  INPUT_MOTION = 5;  // a motion sensor: knocks and shakes (it can receive the magic trick)
 }
 
 message Welcome {
@@ -305,6 +309,43 @@ message Move {
 
 message Order {
   repeated string agent_ids = 1;
+}
+
+// The magic trick (docs/features.md): with it switched on in the deck's
+// settings, a knock on the receiver (a board with a motion sensor) takes the
+// agents the giver (any screen) shows, and the next knock gives them back.
+//
+// Stash, from the receiver: take, or give back.
+message Stash {
+  repeated string agent_ids = 1;  // at most 16
+  bool all = 2;                   // the agents the giver shows, whatever agent_ids says
+  // Neither ids nor all: give them back.
+}
+
+// MagicView, from the giver: the agents it shows now (what a take takes).
+message MagicView {
+  repeated string agent_ids = 1;  // at most 16, in the order they are shown
+}
+
+enum MagicRole {
+  MAGIC_NONE = 0;      // not in the trick, or the trick is off
+  MAGIC_GIVER = 1;     // its agents are taken
+  MAGIC_RECEIVER = 2;  // it takes them, with a knock
+}
+
+enum Corner {
+  CORNER_TOP_LEFT = 0;
+  CORNER_TOP_RIGHT = 1;
+  CORNER_BOTTOM_LEFT = 2;
+  CORNER_BOTTOM_RIGHT = 3;
+}
+
+// Magic, deck to board: its part in the trick and where its tiles fly.
+message Magic {
+  MagicRole role = 1;
+  bool taken = 2;      // the receiver holds the agents now
+  Corner arrive = 3;   // tiles fly in from this corner (the receiver on a take, the giver on a give-back)
+  Corner leave = 4;    // and out to this one (the giver on a take, the receiver on a give-back)
 }
 
 // MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.

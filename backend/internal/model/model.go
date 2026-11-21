@@ -17,6 +17,20 @@ const (
 type State struct {
 	Server Server  `json:"server"`
 	Agents []Agent `json:"agents"`
+	// Magic is this screen's part in the magic trick (absent: none, or the
+	// trick is off). Only the giver and the receiver get it.
+	Magic *Magic `json:"magic,omitempty"`
+}
+
+// Magic: the giver (its agents are taken) or the receiver (it takes them
+// with a knock), whether they are taken now, and where this screen's tiles
+// fly: in from Arrive, out to Leave (corners: top-left, top-right,
+// bottom-left, bottom-right).
+type Magic struct {
+	Role   string `json:"role"` // giver | receiver
+	Taken  bool   `json:"taken"`
+	Arrive string `json:"arrive"`
+	Leave  string `json:"leave"`
 }
 
 type Server struct {

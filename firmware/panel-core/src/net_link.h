@@ -72,9 +72,32 @@ static char boardName[40] = "";
 static bool statusDue = false;        // send NetStatus from loop(): after the Result the deck waits for
 static NetUplink uplink = NetUplink::Auto;   // the deck's preference (LinkConfig)
 
+// The switches on the board's own panel (control_panel.h): a radio turned off
+// there stays off, across restarts, until it is turned on there again. Kept
+// in NVS next to the rest (one byte: bit 0 Wi-Fi off, bit 1 Bluetooth off).
+static bool wifiSwitchedOff = false, bleSwitchedOff = false;
+static uint32_t bleLastTry = 0;        // when the Bluetooth stack was last started (0: start it now)
+constexpr const char* kRadioKey = "pc_radio";
+
+static void radioLoad() {
+  uint8_t v = 0;
+  size_t len = sizeof v;
+  if (kvOk && kv.get && kv.get(kv.user, kRadioKey, &v, &len) && len == 1) {
+    wifiSwitchedOff = v & 1;
+    bleSwitchedOff = v & 2;
+  }
+}
+
+static void radioSave() {
+  const uint8_t v = (uint8_t)((wifiSwitchedOff ? 1 : 0) | (bleSwitchedOff ? 2 : 0));
+  if (kvOk && kv.set) (void)kv.set(kv.user, kRadioKey, &v, 1);
+}
+
 static bool hasCert() { return deck_cert_valid(&cert); }
-// Wi-Fi could work (a network, a certificate, TLS 1.3) and the preference lets the board use it.
-static bool canWifi() { return DECK_LINK_HAS_TLS13 && kvOk && wifi.ssid[0] && hasCert() && uplinkAllowsWifi(uplink); }
+// Wi-Fi could work (a network, a certificate, TLS 1.3), the preference lets the board use it, and it isn't switched off.
+static bool canWifi() {
+  return DECK_LINK_HAS_TLS13 && kvOk && wifi.ssid[0] && hasCert() && uplinkAllowsWifi(uplink) && !wifiSwitchedOff;
+}
 
 #if DECK_LINK_HAS_TLS13
 static deck_link_t wcore;             // the Wi-Fi core
@@ -361,14 +384,15 @@ static void bleLoop(uint32_t now) {
   // A firmware update downloading: the stack goes (its TLS wants the heap); back after.
   const bool updating = ota::view.phase == OtaPhase::Downloading || ota::view.phase == OtaPhase::Verifying ||
                         ota::view.phase == OtaPhase::Restarting;
-  if (updating && bleOn) {
+  // Switched off on the board's panel: the stack goes too, and stays away.
+  const bool away = updating || bleSwitchedOff;
+  if (away && bleOn) {
     bleStop(true);
     ble_link::stop();
     bleOn = false;
-  } else if (!updating && !bleOn) {
-    static uint32_t lastTry = 0;
-    if (!lastTry || now - lastTry > 30000) {   // not every loop if it can't start
-      lastTry = now;
+  } else if (!away && !bleOn) {
+    if (!bleLastTry || now - bleLastTry > 30000) {   // not every loop if it can't start
+      bleLastTry = now ? now : 1;
       bleOn = ble_link::begin(AGENTS_DECK_BOARD, infoId, infoFw);
     }
   }
@@ -594,6 +618,42 @@ static uint32_t (*linkConfigHook())(deck_link_t*, agentsdeck_link_v1_Uplink) {
 #endif
 }
 
+// ---------------------------------------------------------------- the panel's switches
+
+// Wi-Fi and Bluetooth as the board's panel shows them: whether this firmware
+// has them and whether they are switched on.
+static bool wifiSwitch() { return !wifiSwitchedOff; }
+static bool bleSwitch() { return !bleSwitchedOff; }
+// A deck is bonded over Bluetooth (the panel says "paired").
+static bool bleBonded() {
+#if PANEL_HAS_BLE
+  return bleOn && ble_link::isBonded();
+#else
+  return false;
+#endif
+}
+
+// A switch flipped on the panel. Off: the radio stops at once (a session it
+// carried goes back to USB, or to the other radio). On: it comes back by the
+// usual rules.
+static void setWifiSwitch(bool on) {
+  if (wifiSwitchedOff == !on) return;
+  wifiSwitchedOff = !on;
+  radioSave();
+  NET_LOG("net: Wi-Fi switched %s on the board", on ? "on" : "off");
+  if (on) plan.nextTryAt = millis();   // no waiting out an old retry delay
+  statusDue = true;
+}
+
+static void setBleSwitch(bool on) {
+  if (bleSwitchedOff == !on) return;
+  bleSwitchedOff = !on;
+  radioSave();
+  NET_LOG("net: Bluetooth switched %s on the board", on ? "on" : "off");
+  if (on) bleLastTry = 0;
+  statusDue = true;
+}
+
 // ---------------------------------------------------------------- the forget gesture
 
 // BOOT is held (or not). Call it with the debounced level every loop.
@@ -628,6 +688,7 @@ static void begin(deck_link_t* usbCore, const deck_link_config_t& cfg, const Hoo
 #if PANEL_HAS_BLE
     uplink = uplinkOf((uint32_t)deck_store_load_uplink(&kv));
 #endif
+    radioLoad();
   }
   netBegin(plan, millis(), DECK_LINK_HAS_TLS13, wifi.ssid);
   NET_LOG("net: nvs %s, certificate %s, Wi-Fi %s, TLS 1.3 %s, Bluetooth %s, uplink %u", kvOk ? "ok" : "FAILED",
@@ -724,8 +785,12 @@ static void loop() {
       }
       if (n < 0) {
         NET_LOG("net: TLS closed: %s", deck_tls_strerror((deck_tls_err_t)-n));
+        const bool refused = now - tlsSince < 15000;   // the deck ended it at once: it has this board on USB or Bluetooth
         tlsDown();
         netDeckFailed(plan, now, -n == DECK_TLS_CERT_REJECTED);
+        // Wait a minute before Wi-Fi again: each try holds the loop for
+        // seconds, and the USB deck's answer must get through meanwhile.
+        if (refused) plan.nextTryAt = now + plan.retryDeckMaxMs;
       }
       break;
     }

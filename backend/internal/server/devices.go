@@ -191,6 +191,7 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // audited logs every request that changes something, under who.
 func (s *Server) audited(who string, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = withCaller(r, who) // the stash knows who asks (stash.go)
 		if r.Method == http.MethodGet || s.Audit == nil {
 			h.ServeHTTP(w, r)
 			return

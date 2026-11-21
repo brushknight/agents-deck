@@ -217,6 +217,27 @@ another program (a flasher, a serial monitor) has it open. `agentctl link sim` i
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
 device, see [link/new-device.md](link/new-device.md).
 
+## Magic trick
+
+A party trick for two screens: knock on a small board and the agents on another screen fly onto it; knock
+again and they fly back. It is off until you switch it on.
+
+- **Set it up** in Settings, Boards, Magic trick: pick the **giver** (any screen: the wall panel, a board)
+  and the **receiver** (a board with a motion sensor, like the 1.8 inch AMOLED), and the corners the tiles
+  fly to and from on each. Then switch it on.
+- **Do it:** on the receiver, pull the menu down from the top edge and switch **Magic trick** on. Its grid
+  goes empty. Knock once on the board (on a table, or with a knuckle): the agents the giver shows fly off the
+  giver to its corner and onto the receiver from its corner; their places on the giver stay empty. Use them
+  on the receiver as usual: open them, scroll, shake one. Back on the receiver's grid, knock again: they fly
+  back. The receiver then shows its empty grid, and knocks do nothing, until you switch Magic trick off in
+  its menu.
+- **What is taken:** the agents on the giver's screen when you knock: the open page on the wall panel, the
+  tiles on screen on a board. At most 16.
+- **Other screens** (the menu bar, the browser, other boards) are not part of it and show every agent all
+  along.
+- If the receiver goes quiet mid-trick (unplugged, restarted), the giver gets its agents back after 30 s.
+  Switching the trick off in Settings gives them back at once.
+
 ## The Settings page
 
 `http://127.0.0.1:7340/settings` on the dashboard (the **Settings** button at the top of the deck), and

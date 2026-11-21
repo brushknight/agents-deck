@@ -86,6 +86,20 @@ static void checkScreens(const SquareSpec& S) {
       }
       ui.dragging = false;
       ui.scroll = 0;
+      static Attention att;                                  // the pages anywhere in their slide, past the ends too
+      att = Attention();
+      ui.att = &att;
+      squareTick(ui, S, d.fleet, 300);
+      ui.sliding = true;
+      for (float p : {-0.2f, 0.f, 0.01f, 0.3f, 0.5f, 0.97f, 1.f, 1.2f}) {
+        ui.slide = p;
+        ui.scroll = p * 120;
+        P.draw(c, in);
+        assert(guards());
+      }
+      ui.sliding = false;
+      ui.scroll = 0;
+      ui.att = nullptr;
       for (int i = 0; i < d.fleet.count; i++) {
         snprintf(ui.openId, sizeof ui.openId, "%s", d.fleet.agents[i].id);
         for (Screen s : {Screen::Card, Screen::Prompt}) {
@@ -198,6 +212,42 @@ int main() {
     assert(ui.page == 0);
   }
 
+  // ---- swipe direction: only a move clearly more across than up or down
+  // (|dx| > 1.3 |dy|) slides the page; a diagonal that goes mostly up does not.
+  {
+    Fleet f = fleetOf(2);
+    f.agents[1].slot = 17;
+    auto swipe = [&](PanelUi& ui, int dx, int dy, uint32_t ms) {
+      squareTouch(ui, L, f, true, 240, 300, DeckScope::Act, ms);
+      squareTouch(ui, L, f, true, 240 + dx / 2, 300 + dy / 2, DeckScope::Act, ms + 40);
+      squareTouch(ui, L, f, true, 240 + dx, 300 + dy, DeckScope::Act, ms + 80);
+      squareTouch(ui, L, f, false, 0, 0, DeckScope::Act, ms + 90);
+      for (uint32_t t = 100; t <= 400; t += 10) squareTick(ui, L, f, ms + t);
+    };
+    PanelUi ui;
+    swipe(ui, -60, -100, 0);                                     // up and a bit left: no page
+    assert(ui.page == 0);
+    swipe(ui, -80, -70, 1000);                                    // about as much up as across: no page
+    assert(ui.page == 0);
+    swipe(ui, 0, -120, 2000);                                     // straight up: no page either
+    assert(ui.page == 0);
+    swipe(ui, -100, -60, 3000);                                   // mostly across: the next page
+    assert(ui.page == 1);
+    swipe(ui, 60, 100, 4000);                                     // down and right: stays
+    assert(ui.page == 1);
+    swipe(ui, 100, 20, 5000);                                    // across: back
+    assert(ui.page == 0);
+    // On a card, back is a sideways move too.
+    const Rect r0 = cellRect(L, gridGeom(L, 2), 0);
+    touchAt(L, ui, f, r0.x + r0.w / 2, r0.y + r0.h / 2, 6000, DeckScope::Act);
+    assert(ui.screen == Screen::Card);
+    swipe(ui, 70, -110, 7000);
+    assert(ui.screen == Screen::Card);
+    swipe(ui, 120, -40, 8000);
+    assert(ui.screen == Screen::Home);
+    assert(swipeAcross(131, 100) && !swipeAcross(130, 100) && !swipeAcross(0, 0));
+  }
+
   // ---- the "Needs you" screen on the list boards: what the list shows at
   // once (2 x 2, 2 x 3 on the T4-S3), to the left of the list, not scrolling
   {
@@ -218,6 +268,7 @@ int main() {
     squareTouch(ui, A, f, true, 200, 255, DeckScope::Act, 150);
     squareTouch(ui, A, f, false, 0, 0, DeckScope::Act, 160);
     assert(ui.needsYou && !ui.dragging);
+    for (uint32_t t = 176; ui.slideAnim; t += 16) squareTick(ui, A, f, t);   // the pages slide there
     const Rect s0 = listTile(A, 0, 0), s2 = listTile(A, 2, 0), s3 = listTile(A, 3, 0);
     assert(squareHit(A, ui, f, s0.x + 5, s0.y + 5, DeckScope::Act).agent == 1);
     assert(squareHit(A, ui, f, s2.x + 5, s2.y + 5, DeckScope::Act).agent == 5);
@@ -260,6 +311,246 @@ int main() {
     assert(orange2 > 0 && orange2 < orange);                     // the outline: someone is there
   }
 
+  // ---- the list's two pages slide: a sideways drag moves both with the finger, and they settle on the
+  // nearer one or on the one a flick points at; up and down still scrolls; a tap still opens a card
+  for (const SquareSpec& S : {A, specT4S3()}) {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(12);
+    f.agents[1].status = Status::Running;
+    f.agents[4].status = Status::Waiting;
+    PanelUi ui;
+    ui.att = &att;
+    uint32_t ms = 0;
+    squareTick(ui, S, f, ms);
+    const DeckScope sc = DeckScope::Act;
+    const int y = S.headerH + 150;
+    auto slideDone = [&] {                                      // let the pages settle; true if they did in time
+      const uint32_t t0 = ms;
+      while (ui.slideAnim && ms - t0 < 1000) { ms += 16; squareTick(ui, S, f, ms); }
+      return !ui.slideAnim && ms - t0 >= 200 && ms - t0 <= kSettleMs + 16;
+    };
+    assert(pagerPos(ui) == 1 && !squareTick(ui, S, f, ms));
+
+    // One direction to a touch. Inside the slop nothing moves; mostly sideways slides the pages and the
+    // list stays put, even when the finger then wanders up.
+    squareTouch(ui, S, f, true, 300, y, sc, ms = 1000);
+    squareTouch(ui, S, f, true, 290, y + 4, sc, ms += 20);
+    assert(!ui.sliding && !ui.dragging && pagerPos(ui) == 1);
+    squareTouch(ui, S, f, true, 270, y + 10, sc, ms += 20);
+    assert(ui.sliding && !ui.dragging && ui.pressed.kind == Hit::None);
+    squareTouch(ui, S, f, true, 260, y - 120, sc, ms += 20);
+    assert(ui.sliding && !ui.dragging && ui.scroll == 0);
+    assert(squareTick(ui, S, f, ms));                           // the board draws often while it slides
+    // No page right of the list: the pages give a little and come back (no wrap).
+    squareTouch(ui, S, f, true, 100, y, sc, ms += 200);
+    assert(ui.slide > 1 && ui.slide < 1.25f);
+    squareTouch(ui, S, f, true, 100, y, sc, ms += 200);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(!ui.needsYou && ui.slideAnim && ui.slideTo == 1);
+    assert(slideDone() && pagerPos(ui) == 1 && !ui.needsYou);
+    // Mostly up: the list scrolls and the pages stay, even when the finger then wanders sideways.
+    squareTouch(ui, S, f, true, 100, 400, sc, ms += 100);
+    squareTouch(ui, S, f, true, 108, 370, sc, ms += 20);
+    assert(ui.dragging && !ui.sliding);
+    squareTouch(ui, S, f, true, 300, 340, sc, ms += 200);
+    assert(ui.dragging && !ui.sliding && ui.scroll == 60 && pagerPos(ui) == 1);
+    squareTouch(ui, S, f, true, 300, 340, sc, ms += 200);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(!ui.needsYou && !ui.slideAnim && ui.animating);
+    settle(S, ui, f, ms);
+    assert(ui.scroll == 0);
+
+    // The pages follow the finger: 30 % of the width to the right shows 30 % of "Needs you".
+    const int d30 = S.w * 3 / 10, d70 = S.w * 7 / 10;
+    squareTouch(ui, S, f, true, 20, y, sc, ms += 100);
+    squareTouch(ui, S, f, true, 20 + d30, y, sc, ms += 300);
+    assert(ui.sliding && fabsf(pagerPos(ui) - 0.7f) < 0.01f && !ui.needsYou);
+    // Let go slowly there: past the commit point (5 mm on the glass), so on to "Needs you", eased over about
+    // a quarter second.
+    squareTouch(ui, S, f, true, 20 + d30, y, sc, ms += 300);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(!ui.sliding && ui.slideAnim && ui.needsYou && ui.slideFrom < 0.71f && ui.slideTo == 0);
+    squareTick(ui, S, f, ms += 60);
+    const float early = pagerPos(ui);
+    assert(early < 0.7f - 0.7f * 60 / kSettleMs && early > 0);  // ahead of a straight line: it eases out
+    assert(slideDone() && pagerPos(ui) == 0 && !squareTick(ui, S, f, ms + 2000));
+    // Back to the list, then a short slow pull short of the commit point: it springs back.
+    squareButton(ui, S, f);
+    assert(!ui.needsYou);
+    const int commit = pagerCommitPx(S.w, S.h, S.diagIn);
+    squareTouch(ui, S, f, true, 20, y, sc, ms += 100);
+    squareTouch(ui, S, f, true, 20 + commit - 10, y, sc, ms += 300);
+    assert(ui.sliding && fabsf(pagerPos(ui) - (1 - (float)(commit - 10) / S.w)) < 0.01f);
+    squareTouch(ui, S, f, true, 20 + commit - 10, y, sc, ms += 300);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(!ui.needsYou && ui.slideAnim && ui.slideTo == 1);
+    assert(slideDone() && pagerPos(ui) == 1);
+    // Just past it, slowly: on to "Needs you".
+    squareTouch(ui, S, f, true, 20, y, sc, ms += 100);
+    squareTouch(ui, S, f, true, 20 + commit + 10, y, sc, ms += 300);
+    squareTouch(ui, S, f, true, 20 + commit + 10, y, sc, ms += 300);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(ui.needsYou && ui.slideAnim && ui.slideTo == 0);
+    assert(slideDone() && pagerPos(ui) == 0 && ui.needsYou);
+    (void)d70;
+    // No page left of "Needs you" (no wrap); an up-and-down drag there moves nothing.
+    squareTouch(ui, S, f, true, 20, y, sc, ms += 100);
+    squareTouch(ui, S, f, true, 320, y, sc, ms += 300);
+    assert(ui.slide < 0 && ui.slide > -0.3f);
+    squareTouch(ui, S, f, true, 320, y, sc, ms += 300);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(ui.needsYou && slideDone() && pagerPos(ui) == 0);
+    squareTouch(ui, S, f, true, 100, 400, sc, ms += 100);
+    squareTouch(ui, S, f, true, 100, 200, sc, ms += 100);
+    assert(!ui.sliding && !ui.dragging);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(ui.needsYou && !ui.slideAnim && ui.scroll == 0);
+
+    // A flick: a short fast drag goes to the page it points at, though the nearer one is behind it.
+    squareTouch(ui, S, f, true, 300, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 270, y, sc, ms += 16);
+    squareTouch(ui, S, f, true, 230, y, sc, ms += 16);
+    assert(pagerPos(ui) < 0.3f);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    assert(!ui.needsYou && ui.slideTo == 1 && slideDone() && pagerPos(ui) == 1);
+    squareTouch(ui, S, f, true, 60, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 90, y, sc, ms += 16);
+    squareTouch(ui, S, f, true, 130, y, sc, ms += 16);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    assert(ui.needsYou && ui.slideTo == 0 && slideDone());
+    // A flick back at the end of a long drag wins over where the pages are.
+    squareTouch(ui, S, f, true, S.w - 40, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 40, y, sc, ms += 300);
+    squareTouch(ui, S, f, true, 40, y, sc, ms += 100);
+    assert(pagerPos(ui) > 0.75f);
+    squareTouch(ui, S, f, true, 70, y, sc, ms += 16);
+    squareTouch(ui, S, f, true, 110, y, sc, ms += 16);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    assert(ui.needsYou && slideDone());
+
+    // A tap during the slide catches the pages and opens nothing; they settle on the nearer page.
+    squareTouch(ui, S, f, true, 300, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 200, y, sc, ms += 16);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    assert(!ui.needsYou && ui.slideAnim);
+    squareTick(ui, S, f, ms += 16);
+    const float mid = pagerPos(ui);
+    assert(mid > 0 && mid < 0.5f);
+    touchAt(S, ui, f, 100, y, ms, sc);
+    assert(ui.screen == Screen::Home && ui.slideAnim && ui.slideFrom == mid && ui.needsYou && ui.slideTo == 0);
+    ms += 60;
+    assert(slideDone() && pagerPos(ui) == 0);
+    // At rest a tap opens the card, on either page; back is the page it was opened from.
+    const Rect s0 = listTile(S, 0, 0);
+    touchAt(S, ui, f, s0.x + 20, s0.y + 20, ms += 100, sc);
+    assert(ui.screen == Screen::Card && !strcmp(ui.openId, "a1"));
+    squareButton(ui, S, f);
+    assert(ui.screen == Screen::Home && ui.needsYou && pagerPos(ui) == 0);
+    squareButton(ui, S, f);                                     // BOOT: the list, at once
+    assert(!ui.needsYou && pagerPos(ui) == 1 && !squareTick(ui, S, f, ms));
+    const Rect t3 = listTile(S, 3, 0);
+    touchAt(S, ui, f, t3.x + 20, t3.y + 20, ms += 100, sc);
+    assert(ui.screen == Screen::Card && !strcmp(ui.openId, "a3"));
+    // A card opened while the pages slide ends the slide: home is the chosen page.
+    ui.slideAnim = true;
+    squareTick(ui, S, f, ms);
+    assert(!ui.slideAnim);
+    squareHome(ui);
+
+    // The page set from outside while the pages slide (BOOT, the deck): it shows at once, no slide left over.
+    squareTouch(ui, S, f, true, 60, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 200, y, sc, ms += 16);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    assert(ui.needsYou && ui.slideAnim);
+    squareTick(ui, S, f, ms += 16);
+    ui.needsYou = false;                                        // set directly
+    squareTick(ui, S, f, ms += 16);
+    assert(!ui.slideAnim && pagerPos(ui) == 1);
+    squareTouch(ui, S, f, true, 60, y, sc, ms += 500);
+    squareTouch(ui, S, f, true, 200, y, sc, ms += 16);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 8);
+    squareButton(ui, S, f);                                     // BOOT mid-slide
+    assert(!ui.needsYou && !ui.slideAnim && pagerPos(ui) == 1);
+    squareTouch(ui, S, f, true, 60, y, sc, ms += 500);          // BOOT with the finger still down
+    squareTouch(ui, S, f, true, 200, y, sc, ms += 100);
+    squareButton(ui, S, f);
+    assert(ui.needsYou && !ui.sliding && pagerPos(ui) == 0);
+    squareTouch(ui, S, f, true, 205, y, sc, ms += 100);
+    squareTouch(ui, S, f, false, 0, 0, sc, ms += 10);
+    assert(ui.needsYou && ui.screen == Screen::Home && !ui.slideAnim && pagerPos(ui) == 0);
+    settle(S, ui, f, ms);
+    ui.needsYou = false;
+
+    // Drawn mid-slide: both pages side by side under the header, "Needs you" at the left.
+    std::vector<uint16_t> buf(S.w * S.h);
+    Canvas c{buf.data(), S.w, S.h};
+    const Theme T = deckTheme(true);
+    PanelInput in{&f, LinkState::Live, "x", sc, ms, 0, &ui, 0};
+    auto at = [&](int px, int py) { return buf[py * S.w + px]; };
+    ui.sliding = true;
+    ui.slide = 0.7f;
+    SquarePanel(S).draw(c, in);
+    const int listX = S.w - (int)lroundf(0.7f * S.w);
+    const Rect n1 = listTile(S, 1, 0), n3 = listTile(S, 3, 0), l0 = listTile(S, 0, 0);
+    assert(at(n1.x + listX - S.w + n1.w - 30, n1.y + 12) == T.accent);     // the waiting agent's spot, sliding in
+    assert(at(n3.x + listX - S.w + n3.w - 30, n3.y + 60) == T.emptyFill);  // a free spot under it
+    assert(at(l0.x + listX + 30, l0.y + 12) == T.panel);                   // the list's first tile, sliding out
+    assert(at(listX - 4, l0.y + 60) == T.bg);                              // the gap between the pages
+    // The header's marks follow: the list's still the wider, and bright.
+    auto markRun = [&](uint16_t col) { int n = 0; for (int x = 0; x < S.w; x++) n += at(x, 6) == col; return n; };
+    ui.sliding = false;
+    SquarePanel(S).draw(c, in);
+    const int restInk = markRun(T.ink);
+    assert(restInk >= 18 && restInk <= 20);
+    ui.sliding = true;
+    ui.slide = 0.5f;
+    SquarePanel(S).draw(c, in);
+    assert(markRun(T.ink) == 0 && markRun(T.ringTrack) == 0);              // halfway: between bright and dim
+    ui.slide = 0.2f;
+    SquarePanel(S).draw(c, in);
+    assert(markRun(T.accent) >= 16);                                       // "Needs you" filled and wide
+    ui.sliding = false;
+
+    // A board without the screen has no pages: sideways does nothing, as before.
+    PanelUi plain;
+    squareTouch(plain, S, f, true, 60, y, sc, 100);
+    squareTouch(plain, S, f, true, 200, y, sc, 150);
+    assert(!plain.sliding);
+    squareTouch(plain, S, f, false, 0, 0, sc, 160);
+    assert(!plain.needsYou && !plain.slideAnim && !squareTick(plain, S, f, 200));
+  }
+  // A grid's pages slide too: "Needs you", then every page, under the finger.
+  {
+    static Attention att;
+    att = Attention();
+    Fleet f = fleetOf(2);
+    f.agents[1].status = Status::Running;
+    f.agents[1].slot = 17;                                       // two pages
+    PanelUi ui;
+    ui.att = &att;
+    squareTick(ui, L, f, 0);
+    assert(pagerCount(ui, pageCount(L, f)) == 3 && pagerIndex(ui) == 1);
+    squareTouch(ui, L, f, true, 300, 200, DeckScope::Act, 100);
+    squareTouch(ui, L, f, true, 200, 205, DeckScope::Act, 150);   // 100 px to the left: towards page 2
+    assert(ui.sliding && fabsf(pagerAt(ui) - (1 + 100.f / L.w)) < 0.01f);
+    squareTouch(ui, L, f, true, 200, 205, DeckScope::Act, 400);
+    squareTouch(ui, L, f, false, 0, 0, DeckScope::Act, 410);
+    assert(ui.page == 1 && !ui.needsYou && ui.slideAnim && ui.slideTo == 2);
+    for (uint32_t t = 420; ui.slideAnim; t += 16) squareTick(ui, L, f, t);
+    assert(pagerAt(ui) == 2);
+    // Back two pages to "Needs you", one at a time; past it, nothing.
+    for (int k = 0; k < 3; k++) {
+      const uint32_t t0 = 2000 + 1000 * k;
+      squareTouch(ui, L, f, true, 100, 200, DeckScope::Act, t0);
+      squareTouch(ui, L, f, true, 250, 205, DeckScope::Act, t0 + 300);
+      squareTouch(ui, L, f, true, 250, 205, DeckScope::Act, t0 + 500);
+      squareTouch(ui, L, f, false, 0, 0, DeckScope::Act, t0 + 510);
+      for (uint32_t t = t0 + 520; ui.slideAnim; t += 16) squareTick(ui, L, f, t);
+    }
+    assert(ui.needsYou && pagerAt(ui) == 0);
+  }
+
   // ---- the deck's spots on the list screen: lowest spot first, the rest not
   // shown but counted (the fleet above had none: an older deck, deck order)
   {
@@ -298,7 +589,7 @@ int main() {
     assert(ui.needsYou);
     const Rect r0 = cellRect(L, g, 0);
     assert(squareHit(L, ui, f, r0.x + 5, r0.y + 5, DeckScope::Act).agent == 1);
-    squareSwipe(ui, L, f, Swipe::Down);                          // previous: nothing further left
+    squareSwipe(ui, L, f, Swipe::Down);                          // up or down: not a page change
     assert(ui.needsYou);
     squareSwipe(ui, L, f, Swipe::Left);
     assert(!ui.needsYou && ui.page == 0);
@@ -351,11 +642,29 @@ int main() {
 
     DeckCommand c = touchAt(L, ui, f, ba.cx[0], ba.cy, 0, DeckScope::Act);
     assert(c.cmd == DeckCmd::Focus && !strcmp(c.agent, "a0"));
+    // The whole band under the rule answers, split left and right: a corner of the glass is focus.
+    c = touchAt(L, ui, f, 2, L.h - 2, 50, DeckScope::Act);
+    assert(c.cmd == DeckCmd::Focus);
+    // Interrupt asks first; cancel sends nothing, interrupt sends it.
     c = touchAt(L, ui, f, ba.cx[1], ba.cy, 100, DeckScope::Act);
-    assert(c.cmd == DeckCmd::Interrupt);
-    // Stop with scope act: not there (a tap where it would be does nothing).
+    assert(c.cmd == DeckCmd::None && ui.confirm);
+    {
+      const ConfirmGeom g = confirmGeom(L);
+      c = touchAt(L, ui, f, 4, g.titleY + 4, 110, DeckScope::Act);           // the sheet itself: nothing
+      assert(c.cmd == DeckCmd::None && ui.confirm);
+      c = touchAt(L, ui, f, g.no.x + g.no.w / 2, g.no.y + g.no.h / 2, 120, DeckScope::Act);
+      assert(c.cmd == DeckCmd::None && !ui.confirm);
+      touchAt(L, ui, f, ba.cx[1], ba.cy, 130, DeckScope::Act);
+      squareButton(ui, L, f);                                             // BOOT cancels too
+      assert(!ui.confirm && ui.screen == Screen::Card);
+      touchAt(L, ui, f, ba.cx[1], ba.cy, 140, DeckScope::Act);
+      c = touchAt(L, ui, f, g.yes.x + g.yes.w / 2, g.yes.y + g.yes.h / 2, 150, DeckScope::Act);
+      assert(c.cmd == DeckCmd::Interrupt && !ui.confirm);
+    }
+    // Stop with scope act: not there (where it would be is interrupt's half, which asks).
     c = touchAt(L, ui, f, b.cx[2], b.cy, 200, DeckScope::Act);
     assert(c.cmd == DeckCmd::None);
+    ui.confirm = false;
     // Admin: a short tap says to hold; holding 1 s sends Dismiss, once.
     c = touchAt(L, ui, f, b.cx[2], b.cy, 300, DeckScope::Admin, 300);
     assert(c.cmd == DeckCmd::None && !strcmp(ui.toast, "hold to stop"));

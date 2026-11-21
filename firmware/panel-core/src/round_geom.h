@@ -88,7 +88,7 @@ namespace round_detail {
 static inline void blendPx(Canvas& c, int x, int y, uint16_t col, int a15) {
   if (x < 0 || y < c.top || x >= c.w || y >= c.h || a15 <= 0) return;
   uint16_t& p = c.px[y * c.w + x];
-  p = blend565(p, col, (uint8_t)(a15 > 15 ? 15 : a15));
+  p = c.enc(blend565(c.dec(p), col, (uint8_t)(a15 > 15 ? 15 : a15)));
 }
 
 // Coverage (0..15) of a pixel whose centre is `d` from the centre, for a

@@ -180,6 +180,15 @@ static void rec_result(deck_link_t *c, uint32_t seq, uint32_t code, const char *
 static void rec_agent(deck_link_t *c, const agentsdeck_link_v1_Agent *a) { (void)c, (void)a, ev_agents++; }
 static void rec_removed(deck_link_t *c, const char *id) { (void)c, (void)id, ev_removed++; }
 static void rec_sb(deck_link_t *c, const agentsdeck_link_v1_Server *s, uint32_t n) { (void)c, (void)s, (void)n, ev_snap_begin++; }
+static int ev_magic = 0;
+static agentsdeck_link_v1_Magic last_magic;
+static void rec_magic(deck_link_t *ctx, const agentsdeck_link_v1_Magic *m)
+{
+	(void)ctx;
+	ev_magic++;
+	last_magic = *m;
+}
+
 static void rec_se(deck_link_t *c) { (void)c, ev_snap_end++; }
 
 static deck_link_t link;
@@ -207,6 +216,7 @@ static void reset_fake(void)
 	cfg.on_agent_removed = rec_removed;
 	cfg.on_snapshot_begin = rec_sb;
 	cfg.on_snapshot_end = rec_se;
+	cfg.on_magic = rec_magic;
 	deck_link_init(&link, &cfg);
 }
 
@@ -517,6 +527,38 @@ static void test_handshake(void)
 	CHECK(s[5].which_body == agentsdeck_link_v1_Frame_get_state_tag);
 	CHECK(s[6].which_body == agentsdeck_link_v1_Frame_move_attention_tag && s[6].body.move_attention.slot == 7 &&
 	      strcmp(s[6].body.move_attention.agent_id, "k3f9a2") == 0);
+
+	/* Stash: the ids it takes, then none to give them back. */
+	tx_len = 0;
+	const char *two[] = {"a", "b"};
+	uint32_t st1 = deck_stash(&link, two, 2);
+	uint32_t st2 = deck_stash(&link, NULL, 0);
+	CHECK(st1 && st2 == st1 + 1 && sent_frames(s, 16) == 2);
+	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_stash_tag && s[0].body.stash.agent_ids_count == 2 &&
+	      strcmp(s[0].body.stash.agent_ids[1], "b") == 0);
+	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_stash_tag && s[1].body.stash.agent_ids_count == 0 &&
+	      !s[1].body.stash.all);
+	tx_len = 0;
+	deck_stash_all(&link);
+	CHECK(sent_frames(s, 16) == 1 && s[0].body.stash.all && s[0].body.stash.agent_ids_count == 0);
+
+	/* The magic trick: the giver's view goes out; its part comes in. */
+	tx_len = 0;
+	const char *shown[] = {"k1", "k2", "k3"};
+	deck_magic_view(&link, shown, 3);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_magic_view_tag &&
+	      s[0].body.magic_view.agent_ids_count == 3 && strcmp(s[0].body.magic_view.agent_ids[2], "k3") == 0);
+	{
+		agentsdeck_link_v1_Frame m = mk(0, agentsdeck_link_v1_Frame_magic_tag);
+		m.body.magic.role = agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER;
+		m.body.magic.taken = true;
+		m.body.magic.arrive = agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT;
+		m.body.magic.leave = agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT;
+		feed_frame(&m);
+		CHECK(ev_magic == 1 && last_magic.role == agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER && last_magic.taken &&
+		      last_magic.arrive == agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT &&
+		      last_magic.leave == agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT);
+	}
 
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;

@@ -130,7 +130,7 @@ const usage = `agentctl: runs and controls agents deck
                                  that runs an older version installs it with one click
   agentctl firmware rm <board> [<version>]
                                  remove builds made on this computer
-  agentctl serve [--demo] [--log FILE]
+  agentctl serve [--demo [--fixture FILE]] [--log FILE]
                                  run the service (normally started at login, see install)
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now
   agentctl uninstall             stop the service and no longer start it at login
@@ -1094,9 +1094,13 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	demoMode := fs.Bool("demo", false, "serve a simulated fleet instead of real agents")
 	still := fs.Bool("still", false, "with --demo: a fleet that doesn't change (for tests)")
+	fixture := fs.String("fixture", "", "with --demo: the fleet from the dataset `FILE` instead of the built-in one")
 	logFile := fs.String("log", "", "append the log to `FILE` instead of printing it")
 	after := fs.Int(strings.TrimPrefix(service.AfterFlag, "--"), 0, "wait until process `PID` (the service this one replaces) has exited")
 	_ = fs.Parse(args)
+	if *fixture != "" && !*demoMode {
+		return errors.New("--fixture goes with --demo")
+	}
 	if err := paths.Ensure(); err != nil {
 		return err
 	}
@@ -1128,13 +1132,24 @@ func serve(args []string) error {
 	var st *store.Store
 	var ctl server.Controller
 	var lc server.LocalController
+	var fleet *demo.Demo
 	if *demoMode {
 		st = store.New("", strings.TrimSuffix(host, ".local")+" (demo)", version)
-		d, err := demo.Load(st)
+		var d *demo.Demo
+		var err error
+		if *fixture != "" {
+			d, err = demo.LoadFile(st, *fixture) // only the dataset's fleet
+		} else {
+			d, err = demo.Load(st)
+		}
 		if err != nil {
 			return err
 		}
+		if d.Name != "" {
+			st.Name = d.Name // the dataset names the deck
+		}
 		d.Still = *still
+		fleet = d
 		go d.Run()
 		ctl = d
 	} else {
@@ -1160,6 +1175,9 @@ func serve(args []string) error {
 	}
 	book := &hats.Book{Path: paths.Config()}
 	st.Hat = book.For
+	if fleet != nil {
+		st.Hat = demoHats(fleet, book)
+	}
 	st.Account = accounts.Of
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
@@ -1249,6 +1267,19 @@ func serve(args []string) error {
 		st.Flush()
 		log.Printf("stopping (asked from Settings)")
 		return nil
+	}
+}
+
+// demoHats gives a demo agent its hat: one picked by hand on a screen, else
+// the one its dataset names, else the usual one for its folder.
+func demoHats(d *demo.Demo, book *hats.Book) func(cwd string) *model.Hat {
+	return func(cwd string) *model.Hat {
+		if _, byHand := book.Overrides()[hats.Clean(cwd)]; !byHand {
+			if h := d.Hat(cwd); h != nil {
+				return h
+			}
+		}
+		return book.For(cwd)
 	}
 }
 

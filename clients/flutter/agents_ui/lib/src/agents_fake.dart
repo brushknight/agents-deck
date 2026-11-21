@@ -406,6 +406,12 @@ class FakeAgentsSource implements AgentsSource {
   }
 
   @override
+  Future<AgentsResult> magicView(List<String> ids) async {
+    calls.add(('magicView', '', {'ids': ids}));
+    return AgentsResult.ok;
+  }
+
+  @override
   Future<AgentsResult> move(String agentId, int slot) async {
     calls.add(('move', agentId, {'slot': slot}));
     final a = _agent(agentId);

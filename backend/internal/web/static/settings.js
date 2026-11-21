@@ -49,6 +49,7 @@ const S = {
   btAdd: {}, // Bluetooth identifier -> the job adding that board
   file: {}, // fileTarget key -> installing a firmware file: {stage, name, size, up, error, version}
   btScope: {}, // Bluetooth identifier -> the scope picked before Add
+  btFind: {}, // device id -> looking for that board over Bluetooth, to add it from its row
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -289,7 +290,7 @@ const loadAll = (...names) => Promise.all(names.map(load));
 
 function needs(page) {
   return {
-    general: ['settings'], agents: ['agents', 'live', 'settings'], boards: ['devices', 'ports'], network: ['settings', 'devices'],
+    general: ['settings'], agents: ['agents', 'live', 'settings'], boards: ['devices', 'ports', 'settings'], network: ['settings', 'devices'],
     updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
   }[page] || [];
@@ -530,6 +531,7 @@ function morePanel(d) {
     fw.push(btn('Install firmware again', () => { location.hash = `#new-board/${encodeURIComponent(d.port)}`; }));
   }
   if (d.kind === 'serial') lines.push(h('div', { class: 'line' }, ...fw));
+  if (d.state === 'active') lines.push(...magicLines(d));
   const acts = [];
   if (d.state === 'waiting') acts.push(btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'p'));
   if (d.state !== 'revoked') acts.push(btn('Cut it off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`)));
@@ -568,8 +570,16 @@ function uplinkLine(d) {
       seg(`Uplink for ${d.name}`, opts, d.uplinkPref || 'auto',
         (v) => deviceAction(d, 'uplink', { uplink: v }, null, `${d.name} uses ${UPLINKS.find((o) => o.value === v).text.toLowerCase()} off USB`),
         { key: `uplink-${d.id}` })));
-    line.append(h('p', { class: 'note' }, 'Auto: USB, else Wi-Fi, else Bluetooth.',
-      d.bluetooth ? '' : ' Bluetooth: add the board over Bluetooth on this computer first.'));
+    line.append(h('p', { class: 'note' }, 'Auto: USB, else Wi-Fi, else Bluetooth.'));
+    // Not added over Bluetooth on this computer yet: add it from here, in one go.
+    const nb = (S.btBoards?.boards || []).find((b) => b.device === d.id);
+    const job = nb && S.jobs[S.btAdd[nb.id]];
+    if (job) line.append(addFlow(nb, job));
+    else if (!d.bluetooth) {
+      line.append(h('div', { class: 'actions' }, h('div', { class: 'r' },
+        h('span', { class: 'note' }, S.btFind[d.id] ? 'Looking for it over Bluetooth…' : 'Not linked over Bluetooth yet.'),
+        btn('Add over Bluetooth', (e) => btAddFor(d, e.currentTarget), 'p', { 'data-k': `btfor-${d.id}`, disabled: !!S.btFind[d.id] }))));
+    }
   }
   // A Bluetooth link that keeps failing says why (the board forgot this
   // computer, and so on): the person has something to do.
@@ -593,7 +603,7 @@ function deviceRow(d) {
     right.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
   }
   right.push(moreButton(d));
-  const extra = [fwLine(d), uplinkLine(d)];
+  const extra = [fwLine(d), uplinkLine(d), magicRowLine(d)];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
   return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra, name: true });
@@ -875,6 +885,106 @@ function drawBoards() {
     }
     out.push(det);
   }
+  out.push(...drawMagic());
+  return out;
+}
+
+// ---- Magic trick ---------------------------------------------------------------------------
+
+const CORNERS = [
+  { value: 'top-left', text: 'top left' }, { value: 'top-right', text: 'top right' },
+  { value: 'bottom-left', text: 'bottom left' }, { value: 'bottom-right', text: 'bottom right' },
+];
+const cornerWords = (c) => (CORNERS.find((x) => x.value === c) || {}).text || c;
+
+// roleOf: this device's part in the magic trick: giver, receiver or ''.
+function roleOf(d) {
+  const m = S.settings?.magic;
+  if (!m) return '';
+  if (m.giver === d.id) return 'giver';
+  if (m.receiver === d.id) return 'receiver';
+  return '';
+}
+
+// setRole gives d a part (or none). One giver and one receiver: picking a
+// part for d takes it from the device that had it.
+function setRole(d, role) {
+  const m = S.settings?.magic;
+  if (!m) return;
+  const next = { ...m };
+  if (next.giver === d.id) next.giver = '';
+  if (next.receiver === d.id) next.receiver = '';
+  if (role === 'giver') next.giver = d.id;
+  if (role === 'receiver') next.receiver = d.id;
+  if (!next.giver || !next.receiver) next.on = false;   // it needs both
+  patchSettings({ magic: next });
+}
+
+// magicLines: the part and its corners, on the device's own panel.
+function magicLines(d) {
+  const m = S.settings?.magic;
+  if (!m) return [];
+  const role = roleOf(d);
+  const save = (patch) => patchSettings({ magic: { ...m, ...patch } });
+  const out = [h('div', { class: 'line' }, h('span', {}, 'magic trick'),
+    seg(`${d.name}'s part in the magic trick`, [
+      { value: '', text: 'not in it' },
+      { value: 'giver', text: 'giver' },
+      { value: 'receiver', text: 'receiver', disabled: !d.motion, title: d.motion ? null : 'Needs a motion sensor (the 1.8 inch AMOLED)' },
+    ], role, (v) => setRole(d, v), { key: `role-${d.id}` }))];
+  const corner = (label, key) => h('div', { class: 'line' }, h('span', {}, label),
+    seg(`${d.name}: ${label}`, CORNERS, m[key], (v) => save({ [key]: v }), { key: `${key}-${d.id}` }));
+  if (role === 'giver') out.push(corner('they leave to', 'giverLeave'), corner('come back from', 'giverArrive'));
+  if (role === 'receiver') out.push(corner('they arrive from', 'receiverArrive'), corner('leave to', 'receiverLeave'));
+  return out;
+}
+
+// magicRowLine: one line under the device's row when it has a part.
+function magicRowLine(d) {
+  const m = S.settings?.magic;
+  const role = roleOf(d);
+  if (!role) return null;
+  const how = role === 'giver'
+    ? `leaves to ${cornerWords(m.giverLeave)}, back from ${cornerWords(m.giverArrive)}`
+    : `arrives from ${cornerWords(m.receiverArrive)}, leaves to ${cornerWords(m.receiverLeave)}`;
+  return h('div', { class: 'm' }, `Magic trick: ${role} · ${how}${m.on ? '' : ' · the trick is off'}`);
+}
+
+// The magic trick: a knock on the receiver (a board with a motion sensor)
+// takes the agents the giver shows, the next knock gives them back. Off by
+// default; while off, nothing happens.
+function drawMagic() {
+  const m = S.settings?.magic;
+  if (!m) return [];
+  const devs = (S.devices?.devices || []).filter((d) => d.state === 'active');
+  const receivers = devs.filter((d) => d.motion);
+  const save = (patch, el) => patchSettings({ magic: { ...m, ...patch } }, el);
+  const pick = (label, list, current, key) => h('select', {
+    class: 'pick', 'aria-label': label, 'data-k': `magic-${key}`,
+    onchange: (e) => save({ [key]: e.target.value }),
+  },
+  h('option', { value: '', selected: !current }, 'choose a device'),
+  ...list.map((d) => h('option', { value: d.id, selected: d.id === current }, d.name)));
+  const corners = (label, current, key) => seg(label, [
+    { value: 'top-left', text: 'top left' }, { value: 'top-right', text: 'top right' },
+    { value: 'bottom-left', text: 'bottom left' }, { value: 'bottom-right', text: 'bottom right' },
+  ], current, (v) => save({ [key]: v }), { key: `magic-${key}` });
+  const out = [lab('magic trick')];
+  const ready = m.giver && m.receiver;
+  out.push(row('Magic trick',
+    'Knock on the receiver to take the agents the giver shows; knock again to give them back. Off: nothing happens.',
+    [toggle('Magic trick', m.on, (on, el) => save({ on }, el), { disabled: !ready && !m.on })]));
+  out.push(row('Giver', 'Any screen: the agents it shows fly off it, and their places stay empty until they come back.',
+    [pick('Giver', devs.filter((d) => d.id !== m.receiver), m.giver, 'giver')]));
+  out.push(row('Receiver', receivers.length
+    ? 'A board with a motion sensor: you knock on it, the agents fly onto it.'
+    : 'Needs a board with a motion sensor (the 1.8 inch AMOLED). Plug one in and it shows up here.',
+  [pick('Receiver', receivers.filter((d) => d.id !== m.giver), m.receiver, 'receiver')]));
+  out.push(row('On the giver, they leave to', null, [corners('On the giver, they leave to', m.giverLeave, 'giverLeave')]));
+  out.push(row('On the giver, they come back from', null, [corners('On the giver, they come back from', m.giverArrive, 'giverArrive')]));
+  out.push(row('On the receiver, they arrive from', null, [corners('On the receiver, they arrive from', m.receiverArrive, 'receiverArrive')]));
+  out.push(row('On the receiver, they leave to', null, [corners('On the receiver, they leave to', m.receiverLeave, 'receiverLeave')]));
+  if (m.on) out.push(h('p', { class: 'note' }, 'To start: pull the receiver\'s menu down from the top edge and switch Magic trick on. Knock once to take the agents, knock again on its grid to give them back. Then switch it off in the same menu.'));
   return out;
 }
 
@@ -893,6 +1003,34 @@ async function btScan(on, el) {
   await busy(el, () => api('POST', '/admin/v1/bluetooth/scan', { on })); // a refusal says why in a toast
   await loadAll('bt', 'btBoards');
   draw(true);
+}
+
+// btAddFor: add a board you already have over Bluetooth, from its own row:
+// look for it (a few seconds at most), then add it as Look for boards does.
+async function btAddFor(d, el) {
+  if (!S.bt?.available) { toast(S.bt?.why || 'Bluetooth isn\'t available on this computer.', true); return; }
+  S.btFind[d.id] = true;
+  draw(true);
+  try {
+    if (!S.bt.scanning) await api('POST', '/admin/v1/bluetooth/scan', { on: true });
+    for (let i = 0; i < 24; i++) {
+      await loadAll('bt', 'btBoards');
+      const b = (S.btBoards?.boards || []).find((x) => x.device === d.id);
+      if (b) {
+        delete S.btFind[d.id];
+        if (b.added) { toast(`${d.name} is linked over Bluetooth already.`); return; }
+        await btAddBoard(b, el);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    toast(`${d.name} didn't show up over Bluetooth. Bring it closer and check Bluetooth is on in its drawer (pull down from the top of its screen).`, true);
+  } catch (e) {
+    if (e.status !== 401) toast(e.message, true);
+  } finally {
+    delete S.btFind[d.id];
+    draw(true);
+  }
 }
 
 async function btAddBoard(b, el) {
@@ -987,7 +1125,10 @@ function bluetoothPanel() {
   ]));
   const list = (S.btBoards?.boards || []);
   const adding = Object.keys(S.btAdd).filter((id) => !list.some((b) => b.id === id));
-  for (const b of list) out.push(nearbyRow(b));
+  for (const b of list) {
+    if (b.device && S.jobs[S.btAdd[b.id]] && (S.devices?.devices || []).some((d) => d.id === b.device)) continue;   // its row shows the add
+    out.push(nearbyRow(b));
+  }
   for (const id of adding) { // a board being added that the list no longer shows
     const j = S.jobs[S.btAdd[id]];
     if (j) out.push(addFlow({ id, name: 'the board' }, j));

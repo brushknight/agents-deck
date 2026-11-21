@@ -15,7 +15,8 @@ typedef enum _agentsdeck_link_v1_Input {
     agentsdeck_link_v1_Input_INPUT_BUTTON = 1,
     agentsdeck_link_v1_Input_INPUT_ENCODER = 2,
     agentsdeck_link_v1_Input_INPUT_TOUCH = 3,
-    agentsdeck_link_v1_Input_INPUT_KNOB = 4 /* a motorized/haptic knob */
+    agentsdeck_link_v1_Input_INPUT_KNOB = 4, /* a motorized/haptic knob */
+    agentsdeck_link_v1_Input_INPUT_MOTION = 5 /* a motion sensor: knocks and shakes (it can receive the magic trick) */
 } agentsdeck_link_v1_Input;
 
 typedef enum _agentsdeck_link_v1_Scope {
@@ -60,6 +61,19 @@ typedef enum _agentsdeck_link_v1_PromptKind {
     agentsdeck_link_v1_PromptKind_PROMPT_QUESTION = 2,
     agentsdeck_link_v1_PromptKind_PROMPT_INPUT = 3
 } agentsdeck_link_v1_PromptKind;
+
+typedef enum _agentsdeck_link_v1_MagicRole {
+    agentsdeck_link_v1_MagicRole_MAGIC_NONE = 0, /* not in the trick, or the trick is off */
+    agentsdeck_link_v1_MagicRole_MAGIC_GIVER = 1, /* its agents are taken */
+    agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER = 2 /* it takes them, with a knock */
+} agentsdeck_link_v1_MagicRole;
+
+typedef enum _agentsdeck_link_v1_Corner {
+    agentsdeck_link_v1_Corner_CORNER_TOP_LEFT = 0,
+    agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT = 1,
+    agentsdeck_link_v1_Corner_CORNER_BOTTOM_LEFT = 2,
+    agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT = 3
+} agentsdeck_link_v1_Corner;
 
 typedef enum _agentsdeck_link_v1_Transport {
     agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED = 0,
@@ -310,6 +324,31 @@ typedef struct _agentsdeck_link_v1_Order {
     char agent_ids[32][12];
 } agentsdeck_link_v1_Order;
 
+/* The magic trick (docs/features.md): with it switched on in the deck's
+ settings, a knock on the receiver (a board with a motion sensor) takes the
+ agents the giver (any screen) shows, and the next knock gives them back.
+
+ Stash, from the receiver: take, or give back. */
+typedef struct _agentsdeck_link_v1_Stash {
+    pb_size_t agent_ids_count;
+    char agent_ids[16][12]; /* at most 16 */
+    bool all; /* the agents the giver shows, whatever agent_ids says */
+} agentsdeck_link_v1_Stash;
+
+/* MagicView, from the giver: the agents it shows now (what a take takes). */
+typedef struct _agentsdeck_link_v1_MagicView {
+    pb_size_t agent_ids_count;
+    char agent_ids[16][12]; /* at most 16, in the order they are shown */
+} agentsdeck_link_v1_MagicView;
+
+/* Magic, deck to board: its part in the trick and where its tiles fly. */
+typedef struct _agentsdeck_link_v1_Magic {
+    agentsdeck_link_v1_MagicRole role;
+    bool taken; /* the receiver holds the agents now */
+    agentsdeck_link_v1_Corner arrive; /* tiles fly in from this corner (the receiver on a take, the giver on a give-back) */
+    agentsdeck_link_v1_Corner leave; /* and out to this one (the giver on a take, the receiver on a give-back) */
+} agentsdeck_link_v1_Magic;
+
 /* MoveAttention moves an agent on the "Needs you" grid, like Move on the deck. */
 typedef struct _agentsdeck_link_v1_MoveAttention {
     char agent_id[12];
@@ -514,6 +553,7 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_AgentChanged agent_changed; /* …and later, one per agent that changed */
         agentsdeck_link_v1_AgentRemoved agent_removed;
         agentsdeck_link_v1_SnapshotEnd snapshot_end;
+        agentsdeck_link_v1_Magic magic; /* its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow) */
         /* Commands, board → deck: one per web API endpoint (docs/protocol.md). */
         agentsdeck_link_v1_Answer answer; /* POST /v1/agents/{id}/answer */
         agentsdeck_link_v1_Focus focus; /* POST /v1/agents/{id}/focus */
@@ -531,6 +571,8 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_Handoff handoff; /* POST /v1/agents/{id}/handoff */
         agentsdeck_link_v1_ListAccounts list_accounts; /* GET /v1/accounts */
         agentsdeck_link_v1_MoveAttention move_attention; /* POST /v1/agents/{id}/attention */
+        agentsdeck_link_v1_Stash stash; /* POST /v1/stash */
+        agentsdeck_link_v1_MagicView magic_view; /* POST /v1/magic/view */
         /* Replies, deck → board, with the request's seq. */
         agentsdeck_link_v1_Result result; /* every command without a typed reply */
         agentsdeck_link_v1_HatList hat_list; /* reply to ListHats */
@@ -561,8 +603,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _agentsdeck_link_v1_Input_MIN agentsdeck_link_v1_Input_INPUT_UNSPECIFIED
-#define _agentsdeck_link_v1_Input_MAX agentsdeck_link_v1_Input_INPUT_KNOB
-#define _agentsdeck_link_v1_Input_ARRAYSIZE ((agentsdeck_link_v1_Input)(agentsdeck_link_v1_Input_INPUT_KNOB+1))
+#define _agentsdeck_link_v1_Input_MAX agentsdeck_link_v1_Input_INPUT_MOTION
+#define _agentsdeck_link_v1_Input_ARRAYSIZE ((agentsdeck_link_v1_Input)(agentsdeck_link_v1_Input_INPUT_MOTION+1))
 
 #define _agentsdeck_link_v1_Scope_MIN agentsdeck_link_v1_Scope_SCOPE_UNSPECIFIED
 #define _agentsdeck_link_v1_Scope_MAX agentsdeck_link_v1_Scope_SCOPE_ADMIN
@@ -583,6 +625,14 @@ extern "C" {
 #define _agentsdeck_link_v1_PromptKind_MIN agentsdeck_link_v1_PromptKind_PROMPT_UNSPECIFIED
 #define _agentsdeck_link_v1_PromptKind_MAX agentsdeck_link_v1_PromptKind_PROMPT_INPUT
 #define _agentsdeck_link_v1_PromptKind_ARRAYSIZE ((agentsdeck_link_v1_PromptKind)(agentsdeck_link_v1_PromptKind_PROMPT_INPUT+1))
+
+#define _agentsdeck_link_v1_MagicRole_MIN agentsdeck_link_v1_MagicRole_MAGIC_NONE
+#define _agentsdeck_link_v1_MagicRole_MAX agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER
+#define _agentsdeck_link_v1_MagicRole_ARRAYSIZE ((agentsdeck_link_v1_MagicRole)(agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER+1))
+
+#define _agentsdeck_link_v1_Corner_MIN agentsdeck_link_v1_Corner_CORNER_TOP_LEFT
+#define _agentsdeck_link_v1_Corner_MAX agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT
+#define _agentsdeck_link_v1_Corner_ARRAYSIZE ((agentsdeck_link_v1_Corner)(agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT+1))
 
 #define _agentsdeck_link_v1_Transport_MIN agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED
 #define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_BLE
@@ -636,6 +686,12 @@ extern "C" {
 
 
 
+
+
+
+#define agentsdeck_link_v1_Magic_role_ENUMTYPE agentsdeck_link_v1_MagicRole
+#define agentsdeck_link_v1_Magic_arrive_ENUMTYPE agentsdeck_link_v1_Corner
+#define agentsdeck_link_v1_Magic_leave_ENUMTYPE agentsdeck_link_v1_Corner
 
 
 
@@ -698,6 +754,9 @@ extern "C" {
 #define agentsdeck_link_v1_Resume_init_default   {""}
 #define agentsdeck_link_v1_Move_init_default     {"", 0}
 #define agentsdeck_link_v1_Order_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
+#define agentsdeck_link_v1_MagicView_init_default {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Magic_init_default    {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
 #define agentsdeck_link_v1_MoveAttention_init_default {"", 0}
 #define agentsdeck_link_v1_Restore_init_default  {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_default   {"", "", "", "", 0}
@@ -751,6 +810,9 @@ extern "C" {
 #define agentsdeck_link_v1_Resume_init_zero      {""}
 #define agentsdeck_link_v1_Move_init_zero        {"", 0}
 #define agentsdeck_link_v1_Order_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
+#define agentsdeck_link_v1_MagicView_init_zero   {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Magic_init_zero       {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
 #define agentsdeck_link_v1_MoveAttention_init_zero {"", 0}
 #define agentsdeck_link_v1_Restore_init_zero     {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_zero      {"", "", "", "", 0}
@@ -880,6 +942,13 @@ extern "C" {
 #define agentsdeck_link_v1_Move_agent_id_tag     1
 #define agentsdeck_link_v1_Move_slot_tag         2
 #define agentsdeck_link_v1_Order_agent_ids_tag   1
+#define agentsdeck_link_v1_Stash_agent_ids_tag   1
+#define agentsdeck_link_v1_Stash_all_tag         2
+#define agentsdeck_link_v1_MagicView_agent_ids_tag 1
+#define agentsdeck_link_v1_Magic_role_tag        1
+#define agentsdeck_link_v1_Magic_taken_tag       2
+#define agentsdeck_link_v1_Magic_arrive_tag      3
+#define agentsdeck_link_v1_Magic_leave_tag       4
 #define agentsdeck_link_v1_MoveAttention_agent_id_tag 1
 #define agentsdeck_link_v1_MoveAttention_slot_tag 2
 #define agentsdeck_link_v1_Restore_agent_ids_tag 1
@@ -955,6 +1024,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_agent_changed_tag 21
 #define agentsdeck_link_v1_Frame_agent_removed_tag 22
 #define agentsdeck_link_v1_Frame_snapshot_end_tag 23
+#define agentsdeck_link_v1_Frame_magic_tag       24
 #define agentsdeck_link_v1_Frame_answer_tag      30
 #define agentsdeck_link_v1_Frame_focus_tag       31
 #define agentsdeck_link_v1_Frame_interrupt_tag   32
@@ -971,6 +1041,8 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_handoff_tag     43
 #define agentsdeck_link_v1_Frame_list_accounts_tag 44
 #define agentsdeck_link_v1_Frame_move_attention_tag 45
+#define agentsdeck_link_v1_Frame_stash_tag       46
+#define agentsdeck_link_v1_Frame_magic_view_tag  47
 #define agentsdeck_link_v1_Frame_result_tag      50
 #define agentsdeck_link_v1_Frame_hat_list_tag    51
 #define agentsdeck_link_v1_Frame_live_sessions_tag 52
@@ -996,6 +1068,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,snapshot_begin,body.snapshot_begin),  2
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_changed,body.agent_changed),  21) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_removed,body.agent_removed),  22) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,snapshot_end,body.snapshot_end),  23) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic,body.magic),  24) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,answer,body.answer),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,focus,body.focus),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,interrupt,body.interrupt),  32) \
@@ -1012,6 +1085,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,get_state,body.get_state),  42) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,handoff,body.handoff),  43) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_accounts,body.list_accounts),  44) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,move_attention,body.move_attention),  45) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,stash,body.stash),  46) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic_view,body.magic_view),  47) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,result,body.result),  50) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,hat_list,body.hat_list),  51) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,live_sessions,body.live_sessions),  52) \
@@ -1035,6 +1110,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_agent_changed_MSGTYPE agentsdeck_link_v1_AgentChanged
 #define agentsdeck_link_v1_Frame_body_agent_removed_MSGTYPE agentsdeck_link_v1_AgentRemoved
 #define agentsdeck_link_v1_Frame_body_snapshot_end_MSGTYPE agentsdeck_link_v1_SnapshotEnd
+#define agentsdeck_link_v1_Frame_body_magic_MSGTYPE agentsdeck_link_v1_Magic
 #define agentsdeck_link_v1_Frame_body_answer_MSGTYPE agentsdeck_link_v1_Answer
 #define agentsdeck_link_v1_Frame_body_focus_MSGTYPE agentsdeck_link_v1_Focus
 #define agentsdeck_link_v1_Frame_body_interrupt_MSGTYPE agentsdeck_link_v1_Interrupt
@@ -1051,6 +1127,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_handoff_MSGTYPE agentsdeck_link_v1_Handoff
 #define agentsdeck_link_v1_Frame_body_list_accounts_MSGTYPE agentsdeck_link_v1_ListAccounts
 #define agentsdeck_link_v1_Frame_body_move_attention_MSGTYPE agentsdeck_link_v1_MoveAttention
+#define agentsdeck_link_v1_Frame_body_stash_MSGTYPE agentsdeck_link_v1_Stash
+#define agentsdeck_link_v1_Frame_body_magic_view_MSGTYPE agentsdeck_link_v1_MagicView
 #define agentsdeck_link_v1_Frame_body_result_MSGTYPE agentsdeck_link_v1_Result
 #define agentsdeck_link_v1_Frame_body_hat_list_MSGTYPE agentsdeck_link_v1_HatList
 #define agentsdeck_link_v1_Frame_body_live_sessions_MSGTYPE agentsdeck_link_v1_LiveSessions
@@ -1286,6 +1364,25 @@ X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
 #define agentsdeck_link_v1_Order_CALLBACK NULL
 #define agentsdeck_link_v1_Order_DEFAULT NULL
 
+#define agentsdeck_link_v1_Stash_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, STRING,   agent_ids,         1) \
+X(a, STATIC,   SINGULAR, BOOL,     all,               2)
+#define agentsdeck_link_v1_Stash_CALLBACK NULL
+#define agentsdeck_link_v1_Stash_DEFAULT NULL
+
+#define agentsdeck_link_v1_MagicView_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
+#define agentsdeck_link_v1_MagicView_CALLBACK NULL
+#define agentsdeck_link_v1_MagicView_DEFAULT NULL
+
+#define agentsdeck_link_v1_Magic_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    role,              1) \
+X(a, STATIC,   SINGULAR, BOOL,     taken,             2) \
+X(a, STATIC,   SINGULAR, UENUM,    arrive,            3) \
+X(a, STATIC,   SINGULAR, UENUM,    leave,             4)
+#define agentsdeck_link_v1_Magic_CALLBACK NULL
+#define agentsdeck_link_v1_Magic_DEFAULT NULL
+
 #define agentsdeck_link_v1_MoveAttention_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
 X(a, STATIC,   SINGULAR, UINT32,   slot,              2)
@@ -1487,6 +1584,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Dismiss_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Resume_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Move_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Order_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Stash_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_MagicView_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Magic_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_MoveAttention_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restore_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_SetHat_msg;
@@ -1542,6 +1642,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Resume_fields &agentsdeck_link_v1_Resume_msg
 #define agentsdeck_link_v1_Move_fields &agentsdeck_link_v1_Move_msg
 #define agentsdeck_link_v1_Order_fields &agentsdeck_link_v1_Order_msg
+#define agentsdeck_link_v1_Stash_fields &agentsdeck_link_v1_Stash_msg
+#define agentsdeck_link_v1_MagicView_fields &agentsdeck_link_v1_MagicView_msg
+#define agentsdeck_link_v1_Magic_fields &agentsdeck_link_v1_Magic_msg
 #define agentsdeck_link_v1_MoveAttention_fields &agentsdeck_link_v1_MoveAttention_msg
 #define agentsdeck_link_v1_Restore_fields &agentsdeck_link_v1_Restore_msg
 #define agentsdeck_link_v1_SetHat_fields &agentsdeck_link_v1_SetHat_msg
@@ -1601,6 +1704,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_ListLive_size         0
 #define agentsdeck_link_v1_LiveSession_size      300
 #define agentsdeck_link_v1_LiveSessions_size     2424
+#define agentsdeck_link_v1_MagicView_size        208
+#define agentsdeck_link_v1_Magic_size            8
 #define agentsdeck_link_v1_MoveAttention_size    19
 #define agentsdeck_link_v1_Move_size             19
 #define agentsdeck_link_v1_NetStatus_size        96
@@ -1618,6 +1723,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_SetHat_size           175
 #define agentsdeck_link_v1_SnapshotBegin_size    93
 #define agentsdeck_link_v1_SnapshotEnd_size      0
+#define agentsdeck_link_v1_Stash_size            210
 #define agentsdeck_link_v1_Subagent_size         128
 #define agentsdeck_link_v1_Subscribe_size        18
 #define agentsdeck_link_v1_Tokens_size           44
