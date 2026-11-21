@@ -524,6 +524,7 @@ function morePanel(d) {
     fw.push(btn('Install firmware again', () => { location.hash = `#new-board/${encodeURIComponent(d.port)}`; }));
   }
   if (d.kind === 'serial') lines.push(h('div', { class: 'line' }, ...fw));
+  if (d.state === 'active') lines.push(...magicLines(d));
   const acts = [];
   if (d.state === 'waiting') acts.push(btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'p'));
   if (d.state !== 'revoked') acts.push(btn('Cut it off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`)));
@@ -595,7 +596,7 @@ function deviceRow(d) {
     right.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
   }
   right.push(moreButton(d));
-  const extra = [fwLine(d), uplinkLine(d)];
+  const extra = [fwLine(d), uplinkLine(d), magicRowLine(d)];
   if (S.open.wifi === d.id) extra.push(wifiForm(d, () => load('devices')));
   if (S.open.more === d.id) extra.push(morePanel(d));
   return row(d.name, deviceMeta(d), right, { pic: pic(shape, !d.online, d.kind === 'network' ? '' : boardOf(`${d.board} ${d.type} ${d.model} ${d.detail || ''}`)), off: !d.online, id: d.id, extra, name: true });
@@ -882,6 +883,65 @@ function drawBoards() {
 }
 
 // ---- Magic trick ---------------------------------------------------------------------------
+
+const CORNERS = [
+  { value: 'top-left', text: 'top left' }, { value: 'top-right', text: 'top right' },
+  { value: 'bottom-left', text: 'bottom left' }, { value: 'bottom-right', text: 'bottom right' },
+];
+const cornerWords = (c) => (CORNERS.find((x) => x.value === c) || {}).text || c;
+
+// roleOf: this device's part in the magic trick: giver, receiver or ''.
+function roleOf(d) {
+  const m = S.settings?.magic;
+  if (!m) return '';
+  if (m.giver === d.id) return 'giver';
+  if (m.receiver === d.id) return 'receiver';
+  return '';
+}
+
+// setRole gives d a part (or none). One giver and one receiver: picking a
+// part for d takes it from the device that had it.
+function setRole(d, role) {
+  const m = S.settings?.magic;
+  if (!m) return;
+  const next = { ...m };
+  if (next.giver === d.id) next.giver = '';
+  if (next.receiver === d.id) next.receiver = '';
+  if (role === 'giver') next.giver = d.id;
+  if (role === 'receiver') next.receiver = d.id;
+  if (!next.giver || !next.receiver) next.on = false;   // it needs both
+  patchSettings({ magic: next });
+}
+
+// magicLines: the part and its corners, on the device's own panel.
+function magicLines(d) {
+  const m = S.settings?.magic;
+  if (!m) return [];
+  const role = roleOf(d);
+  const save = (patch) => patchSettings({ magic: { ...m, ...patch } });
+  const out = [h('div', { class: 'line' }, h('span', {}, 'magic trick'),
+    seg(`${d.name}'s part in the magic trick`, [
+      { value: '', text: 'not in it' },
+      { value: 'giver', text: 'giver' },
+      { value: 'receiver', text: 'receiver', disabled: !d.motion, title: d.motion ? null : 'Needs a motion sensor (the 1.8 inch AMOLED)' },
+    ], role, (v) => setRole(d, v), { key: `role-${d.id}` }))];
+  const corner = (label, key) => h('div', { class: 'line' }, h('span', {}, label),
+    seg(`${d.name}: ${label}`, CORNERS, m[key], (v) => save({ [key]: v }), { key: `${key}-${d.id}` }));
+  if (role === 'giver') out.push(corner('they leave to', 'giverLeave'), corner('come back from', 'giverArrive'));
+  if (role === 'receiver') out.push(corner('they arrive from', 'receiverArrive'), corner('leave to', 'receiverLeave'));
+  return out;
+}
+
+// magicRowLine: one line under the device's row when it has a part.
+function magicRowLine(d) {
+  const m = S.settings?.magic;
+  const role = roleOf(d);
+  if (!role) return null;
+  const how = role === 'giver'
+    ? `leaves to ${cornerWords(m.giverLeave)}, back from ${cornerWords(m.giverArrive)}`
+    : `arrives from ${cornerWords(m.receiverArrive)}, leaves to ${cornerWords(m.receiverLeave)}`;
+  return h('div', { class: 'm' }, `Magic trick: ${role} · ${how}${m.on ? '' : ' · the trick is off'}`);
+}
 
 // The magic trick: a knock on the receiver (a board with a motion sensor)
 // takes the agents the giver shows, the next knock gives them back. Off by
