@@ -15,7 +15,11 @@ icon, the deck's window and the Settings window. The shells speak the same metho
 | `attention(n)` | Dart → shell | how many agents need you; 0 is the plain icon, more turns it orange |
 | `hide` | Dart → shell | Esc with no card open puts the deck away |
 | `settings(url)` | Dart → shell | open the Settings window on `url`, a one-time login link to the dashboard on 127.0.0.1; the shell puts the deck away. It refuses (`bad-url`) anything that isn't `http://127.0.0.1:<port>` or `http://localhost:<port>` |
+| `isPinned` | Dart → shell | whether the deck is pinned (remembered across launches); macOS only |
+| `pin(bool)` | Dart → shell | the Pin button: pin or unpin the deck; macOS only |
+| `drag` | Dart → shell | the pointer went down on the status line of a pinned deck: move the window with it; macOS only |
 | `visible(bool)` | shell → Dart | the deck was shown or hidden |
+| `pinned(bool)` | shell → Dart | "Keep the Deck on Top" in the icon's menu changed it |
 | `openSettings(page)` | shell → Dart | "Settings…" in the icon's menu; Dart answers `true` once it has called `settings(url)`, `false` when the service didn't answer, and the shell then shows the deck (which says the service isn't running) |
 
 ## The status line
@@ -51,6 +55,12 @@ address: links elsewhere open in the default browser.
 
 `macos/Runner/AppDelegate.swift`: a status item, a borderless window pinned under the menu bar, no
 Dock icon. Right-click the icon for Settings, the web dashboard and Quit.
+
+**Pin** in the status line (or "Keep the Deck on Top" in the icon's menu) keeps the deck open above
+other apps' windows (window level `.floating`, below menus) when you click elsewhere. Drag the status
+line to move it; it stays there while it's pinned. Click **Pinned** to make it a drop-down again.
+The choice is kept in the app's defaults (`deckPinned`). The Linux shell has no Pin yet: Dart shows
+the button only on macOS.
 
 Install it from a release's `.dmg` (drag it to Applications; `agentctl` comes inside the app, in
 `Contents/MacOS/`), with `install.sh --app` (to `~/Applications`), or from a clone with

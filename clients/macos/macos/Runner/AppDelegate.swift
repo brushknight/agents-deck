@@ -10,6 +10,11 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private var channel: FlutterMethodChannel?
   private var attention = 0
   private var settings: SettingsWindowController?
+  /// Pinned, the deck stays open above other windows (also when you click
+  /// elsewhere) and stays where you dragged it. Remembered across launches.
+  private var pinned = UserDefaults.standard.bool(forKey: "deckPinned")
+  /// The deck has been put under the menu bar icon at least once.
+  private var placed = false
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     false
@@ -36,6 +41,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     else { return }
     window.delegate = self
     window.orderOut(nil)
+    applyPin()
 
     let channel = FlutterMethodChannel(
       name: "agents_deck/menubar", binaryMessenger: flutter.engine.binaryMessenger)
@@ -46,6 +52,14 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
         result(nil)
       case "hide":
         self?.hideDeck()
+        result(nil)
+      case "isPinned":
+        result(self?.pinned ?? false)
+      case "pin":
+        self?.setPinned((call.arguments as? Bool) ?? false)
+        result(nil)
+      case "drag":
+        self?.dragDeck()
         result(nil)
       case "settings":
         guard let s = call.arguments as? String,
@@ -80,6 +94,10 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     let deck = NSMenuItem(title: "Show the Deck", action: #selector(showDeckFromMenu(_:)), keyEquivalent: "")
     deck.target = self
     menu.addItem(deck)
+    let pin = NSMenuItem(title: "Keep the Deck on Top", action: #selector(togglePinFromMenu(_:)), keyEquivalent: "")
+    pin.target = self
+    pin.state = pinned ? .on : .off
+    menu.addItem(pin)
     let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
     settings.target = self
     menu.addItem(settings)
@@ -96,6 +114,13 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   /// "Show the Deck" in the icon's menu and the Window menu.
   @objc func showDeckFromMenu(_ sender: Any?) {
     showDeck()
+  }
+
+  /// "Keep the Deck on Top" in the icon's menu: the same as the Pin button.
+  @objc private func togglePinFromMenu(_ sender: Any?) {
+    setPinned(!pinned)
+    channel?.invokeMethod("pinned", arguments: pinned)
+    if pinned { showDeck() }
   }
 
   /// `agentctl web`: opens the dashboard with a one-time login link. The
@@ -144,6 +169,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     // starts fresh with the remembered frame and the saved session cookie.
     settings = nil
     NSApp.setActivationPolicy(.accessory)
+    if pinned { showDeck() }  // it made way for Settings; a pinned deck comes back
   }
 
   /// Clicking the Dock icon while Settings is open brings it to the front.
@@ -163,13 +189,18 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   private func showDeck() {
     guard let window = mainFlutterWindow else { return }
-    // Pinned to the top-right corner of the screen with the menu bar icon,
-    // just under the menu bar (visibleFrame already leaves it out).
-    let screen = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
-    let size = window.frame.size
-    let margin: CGFloat = 8
-    window.setFrameOrigin(
-      NSPoint(x: screen.maxX - size.width - margin, y: screen.maxY - size.height - margin))
+    // In the top-right corner of the screen with the menu bar icon, just
+    // under the menu bar (visibleFrame already leaves it out). A pinned deck
+    // stays where you dragged it, as long as that is still on a screen.
+    let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(window.frame) }
+    if !pinned || !placed || !onScreen {
+      let screen = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+      let size = window.frame.size
+      let margin: CGFloat = 8
+      window.setFrameOrigin(
+        NSPoint(x: screen.maxX - size.width - margin, y: screen.maxY - size.height - margin))
+      placed = true
+    }
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     channel?.invokeMethod("visible", arguments: true)
@@ -180,9 +211,31 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     channel?.invokeMethod("visible", arguments: false)
   }
 
-  /// Clicking anywhere else puts the deck away, like any menu bar popover.
+  /// Clicking anywhere else puts the deck away, like any menu bar popover,
+  /// unless it is pinned.
   func windowDidResignKey(_ notification: Notification) {
-    hideDeck()
+    if !pinned { hideDeck() }
+  }
+
+  /// The Pin button (or the menu): pinned, the deck floats above other apps'
+  /// windows (below menus) and stays open; unpinned, it is a popover again.
+  private func setPinned(_ on: Bool) {
+    pinned = on
+    UserDefaults.standard.set(on, forKey: "deckPinned")
+    applyPin()
+    if !on, let window = mainFlutterWindow, window.isVisible, !window.isKeyWindow {
+      hideDeck()  // unpinned while you work elsewhere: put it away, as a popover would be
+    }
+  }
+
+  private func applyPin() {
+    mainFlutterWindow?.level = pinned ? .floating : .popUpMenu
+  }
+
+  /// Dragging the status line of a pinned deck moves the window.
+  private func dragDeck() {
+    guard pinned, let window = mainFlutterWindow, let event = NSApp.currentEvent else { return }
+    window.performDrag(with: event)
   }
 }
 

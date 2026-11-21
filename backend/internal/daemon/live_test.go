@@ -144,3 +144,74 @@ func TestClaudeAgentsList(t *testing.T) {
 		t.Fatalf("blocked = needs you: %+v %q", e.A, e.LiveAttach)
 	}
 }
+
+// With `sessions auto`, every Claude session found joins the deck by itself;
+// one you take off stays off, until you add it again.
+func TestSessionsAuto(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("AGENTSTERM_HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "cfg"))
+	_ = os.MkdirAll(home, 0o700)
+	old := tmux.Socket
+	tmux.Socket = fmt.Sprintf("agentsdeck-test-s%d", os.Getpid())
+	t.Cleanup(func() { tmux.Socket = old })
+	a, b := "6e7f8091-1111-4222-8333-944455556666", "7f8091a2-1111-4222-8333-944455556666"
+	list := `[{"id":"aa11bb22","cwd":"/work/app","kind":"interactive","startedAt":1791446002609,"sessionId":"` + a + `","name":"first","pid":4242,"status":"idle"},` +
+		`{"id":"cc33dd44","cwd":"/work/api","kind":"background","startedAt":1791446003609,"sessionId":"` + b + `","name":"second","pid":4343,"status":"busy"}]`
+	fake := filepath.Join(root, "claude")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '"+list+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	onDeck := func(d *Daemon, id string) bool { _, ok := d.Store.Get(liveAgentID(id)); return ok }
+
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.live.claudeBin = fake
+	d.syncLive()
+	if onDeck(d, a) || onDeck(d, b) {
+		t.Fatal("pick (the default): nothing joins until you add it")
+	}
+
+	if err := Set("sessions", SessionsAuto); err != nil {
+		t.Fatal(err)
+	}
+	d.syncLive()
+	if !onDeck(d, a) || !onDeck(d, b) {
+		t.Fatalf("auto: both join by themselves: %+v", d.Store.Entries())
+	}
+	for _, c := range d.LiveJSON().([]LiveCandidate) {
+		if !c.OnBoard {
+			t.Errorf("listed as not on the deck: %+v", c)
+		}
+	}
+
+	// Taken off the deck: it stays off, here and after a restart of the service.
+	if err := d.Dismiss(liveAgentID(a)); err != nil {
+		t.Fatal(err)
+	}
+	d.syncLive()
+	if onDeck(d, a) || !onDeck(d, b) {
+		t.Fatal("the one you took off stays off; the other stays on")
+	}
+	d2 := &Daemon{Store: store.New("", "test", "0")}
+	d2.live.claudeBin = fake
+	d2.syncLive()
+	if onDeck(d2, a) || !onDeck(d2, b) {
+		t.Fatal("after a restart: still off, still on")
+	}
+
+	// Added again by hand: on the deck, and auto keeps it there.
+	if err := d2.AddLive(a, -1); err != nil {
+		t.Fatal(err)
+	}
+	d2.syncLive()
+	if !onDeck(d2, a) {
+		t.Fatal("added again")
+	}
+	d3 := &Daemon{Store: store.New("", "test", "0")}
+	d3.live.claudeBin = fake
+	d3.syncLive()
+	if !onDeck(d3, a) || !onDeck(d3, b) {
+		t.Fatal("after a restart: both on")
+	}
+}

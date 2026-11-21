@@ -1317,8 +1317,8 @@ func setCmd(args []string) error {
 }
 
 func getCmd(args []string) error {
-	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse(), "restore": daemon.CurrentRestore(), "header": daemon.CurrentHeader()}
-	keys := []string{"term", "mouse", "restore", "header"}
+	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse(), "restore": daemon.CurrentRestore(), "header": daemon.CurrentHeader(), "sessions": daemon.CurrentSessions()}
+	keys := []string{"term", "mouse", "restore", "header", "sessions"}
 	if len(args) == 1 {
 		v, ok := vals[args[0]]
 		if !ok {
@@ -1328,7 +1328,7 @@ func getCmd(args []string) error {
 		return nil
 	}
 	for _, k := range keys {
-		fmt.Printf("%-7s %-7s %s\n", k, vals[k], daemon.Settings[k].Help)
+		fmt.Printf("%-8s %-7s %s\n", k, vals[k], daemon.Settings[k].Help)
 	}
 	return nil
 }

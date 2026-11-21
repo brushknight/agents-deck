@@ -95,6 +95,9 @@ const (
 
 	RestoreAsk  = "ask"
 	RestoreAuto = "auto"
+
+	SessionsPick = "pick" // Claude sessions started elsewhere join when you add them
+	SessionsAuto = "auto" // each one joins the deck by itself
 )
 
 // Settings is GET /admin/v1/settings: every setting as one document.
@@ -110,8 +113,9 @@ type Settings struct {
 
 	Notifications string `json:"notifications"` // off | attention | finished
 	Sound         bool   `json:"sound"`
-	Restore       string `json:"restore"` // ask | auto
-	Updates       string `json:"updates"` // notify | auto | off
+	Restore       string `json:"restore"`  // ask | auto
+	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
+	Updates       string `json:"updates"`  // notify | auto | off
 
 	// Network: paired boards and phones may connect over the network
 	// (config.json deviceAddr). NetworkRunning is what this run of the
@@ -156,6 +160,9 @@ func (a *Admin) SettingsNow() Settings {
 	if s.Restore != RestoreAuto {
 		s.Restore = RestoreAsk
 	}
+	if s.Sessions = str(cfg, "sessions", SessionsPick); s.Sessions != SessionsAuto {
+		s.Sessions = SessionsPick
+	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
@@ -179,6 +186,7 @@ type SettingsPatch struct {
 	Notifications *string        `json:"notifications"`
 	Sound         *bool          `json:"sound"`
 	Restore       *string        `json:"restore"`
+	Sessions      *string        `json:"sessions"`
 	Updates       *string        `json:"updates"`
 	Network       *bool          `json:"network"`
 	Magic         *devices.Magic `json:"magic"` // the whole setting
@@ -213,6 +221,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	case p.Restore != nil && !oneOf(*p.Restore, RestoreAsk, RestoreAuto):
 		writeErr(w, http.StatusBadRequest, `restore must be "ask" or "auto"`)
+		return
+	case p.Sessions != nil && !oneOf(*p.Sessions, SessionsPick, SessionsAuto):
+		writeErr(w, http.StatusBadRequest, `sessions must be "pick" or "auto"`)
 		return
 	case p.Updates != nil && !oneOf(*p.Updates, UpdatesNotify, UpdatesAuto, UpdatesOff):
 		writeErr(w, http.StatusBadRequest, `updates must be "notify", "auto" or "off"`)
@@ -249,6 +260,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Restore != nil {
 			cfg["restore"] = *p.Restore
+		}
+		if p.Sessions != nil {
+			cfg["sessions"] = *p.Sessions
 		}
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
