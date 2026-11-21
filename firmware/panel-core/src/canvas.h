@@ -161,6 +161,7 @@ struct Canvas {
       take = room - 1;
       if (keepTail) skip = n - take;
     }
+    if (y >= h || y + f.cellH <= top) return (take + (cut ? 1 : 0)) * f.cellW;   // not in these rows (a strip)
     int cx = x;
     if (cut && keepTail) { glyph(f, cx, y, 0x2026, c); cx += f.cellW; }
     for (int i = 0; i < skip; i++) utf8Next(s);

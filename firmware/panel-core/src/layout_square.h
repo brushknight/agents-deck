@@ -1769,8 +1769,9 @@ class SquarePanel : public PanelLayout {
   int width() const override { return S.w; }
   int height() const override { return S.h; }
   bool trueBlack() const override { return S.trueBlack; }
-  // The list boards have the board's panel (control_panel.h), pulled down from the header.
-  bool hasPanel() const { return S.home == HomeKind::List; }
+  // The board's panel (control_panel.h): pulled down from the header on a
+  // list board, from the top strip on a grid (controlEdgeTouch).
+  bool hasPanel() const { return true; }
   void draw(Canvas& c, const PanelInput& in) const override {
     if (in.ui && in.fleet && (S.imu || in.ui->fun.role == 1)) {
       // The trick's empty grid with the board's panel over it (pulled down
@@ -1819,6 +1820,12 @@ class SquarePanel : public PanelLayout {
   }
   bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
     if (!hasPanel()) return false;
+    if (S.home == HomeKind::Grid) {                // tiles reach the top: a tap there stays the tile's
+      const bool was = ui.ctl.down;
+      const bool took = controlEdgeTouch(ui.ctl, G, down, x, y, ms, S.h / 8);
+      if (took && !was) { ui.down = false; ui.pressed = PanelHit(); }   // the screen lets go of the finger
+      return took;
+    }
     // From the top edge of any screen: home, an agent's card, a prompt, a notice.
     const bool mayBegin = !ui.down && y < S.headerH;
     return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);

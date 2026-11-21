@@ -327,6 +327,8 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
                               uint16_t body, uint16_t cut, uint32_t ms, bool bubble,
                               uint8_t hat = 0, uint8_t hatColor = 0) {
   using namespace sprite_detail;
+  // Nothing of it in these rows (a strip of the frame): units -6..9 (hats, a jump, strokes: a margin).
+  if (y + 16 * scale <= c.top || y - 4 * scale >= c.h) return;
   Pen p{c, x, y, scale, body, cut};
   const bool bot = sp == Species::Codex;
   const int half = phase(ms, 500, 2);          // .la / .lb / .bob: two halves of 0.5 s

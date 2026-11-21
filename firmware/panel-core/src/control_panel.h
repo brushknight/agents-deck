@@ -1,6 +1,7 @@
 #pragma once
-// The board's own panel on the small list boards (the 1.8" AMOLED and the
-// T4-S3): pulled down from the top edge of home, over whatever home shows.
+// The board's own panel: pulled down from the top edge of any screen, over
+// whatever the screen shows (the list boards from their header, the 4" from
+// the top strip of its grid, controlEdgeTouch).
 //
 //   header   the board's name on the deck; under it its Bluetooth name and type
 //   switches Wi-Fi and Bluetooth, two tiles: bright when on, outlined when off.
@@ -142,6 +143,40 @@ static inline bool controlTouch(ControlUi& u, const ControlGeom& g, bool touchin
     else if (u.pressed == ControlHit::Magic) u.act = ControlAct::Magic;
   }
   u.pressed = ControlHit::None;
+  return true;
+}
+
+// A grid home has tiles right up to the top edge, so a touch there stays the
+// screen's (a tap opens the tile) until it moves down, more down than across,
+// by kControlEdgeSlop: then the panel takes the finger from where it went down
+// and follows it. Up or sideways first: it stays the screen's (a page swipe).
+// True: the panel took the touch (the screen must forget the finger).
+constexpr int kControlEdgeSlop = 12;
+static inline bool controlEdgeTouch(ControlUi& u, const ControlGeom& g, bool touching, int x, int y, uint32_t ms,
+                                    int strip) {
+  if (u.down || controlShown(u)) {
+    u.edge = 2;
+    return controlTouch(u, g, touching, x, y, ms, false);
+  }
+  if (!touching) {
+    u.edge = 0;
+    return false;
+  }
+  if (u.edge == 0) {
+    u.edge = y < strip ? 1 : 2;
+    u.ex = x;
+    u.ey = y;
+    return false;
+  }
+  if (u.edge != 1) return false;
+  const int dx = x - u.ex, dy = y - u.ey, adx = dx < 0 ? -dx : dx;
+  if (dy < -kControlEdgeSlop || (adx > kControlEdgeSlop && swipeAcross(adx, dy > 0 ? dy : 0))) {
+    u.edge = 2;                                    // up or sideways: the screen's
+    return false;
+  }
+  if (dy <= kControlEdgeSlop || swipeAcross(adx, dy)) return false;   // not far enough yet
+  controlTouch(u, g, true, u.ex, u.ey, ms, true);  // down where the finger went down, then here
+  controlTouch(u, g, true, x, y, ms, false);
   return true;
 }
 

@@ -118,6 +118,10 @@ struct ControlUi {
   ControlHit pressed = ControlHit::None;
   bool holdFired = false;
   ControlAct act = ControlAct::None;   // for the firmware: it takes it and clears it
+  // Grid homes (controlEdgeTouch): the finger that may become a pull. 0: none
+  // yet, 1: it went down in the top strip at (ex, ey), 2: it is the screen's.
+  uint8_t edge = 0;
+  int ex = 0, ey = 0;
 };
 
 static inline bool controlShown(const ControlUi& u) { return u.open > 0.001f || u.animating || u.pulling; }
@@ -216,7 +220,7 @@ struct PanelUi {
   bool backAfterToast = false; // answered: home when "sent" ends
   uint32_t cmdSeq = 0;         // the command waiting for its Result
 
-  ControlUi ctl;               // the board's panel (list boards)
+  ControlUi ctl;               // the board's panel (control_panel.h)
   FunUi fun;                   // the motion tricks (boards with a motion sensor)
 };
 

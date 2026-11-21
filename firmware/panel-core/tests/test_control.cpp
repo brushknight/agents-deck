@@ -5,6 +5,7 @@
 
 #include <initializer_list>
 
+#include "layout_big.h"
 #include "layout_square.h"
 
 static Fleet fleet;   // empty: the panel doesn't need agents
@@ -29,6 +30,112 @@ static void tap(const SquarePanel& L, PanelUi& ui, const Rect& r, uint32_t& ms) 
   ms += 60;
   assert(L.panelTouch(ui, false, x, y, ms));
   ms += 10;
+}
+
+// A grid board's touch as grid_app.h's touchPump passes it on: the panel
+// first, the screen when the panel didn't take it.
+static Fleet gridFleet() {
+  Fleet f;
+  memset(&f, 0, sizeof f);
+  for (int i = 0; i < 2; i++) {
+    Agent& a = f.agents[f.count++];
+    snprintf(a.id, sizeof a.id, "g%d", i);
+    snprintf(a.title, sizeof a.title, "t-g%d", i);
+    a.slot = (uint8_t)(i == 0 ? 0 : 17);           // the first page's first tile, and one on page 2
+    a.status = Status::Idle;
+  }
+  f.total = f.count;
+  return f;
+}
+
+static void feed(const PanelLayout& L, PanelUi& ui, const Fleet& f, bool down, int x, int y, uint32_t ms) {
+  if (!L.panelTouch(ui, down, x, y, ms)) L.touch(ui, f, down, x, y, DeckScope::Act, ms);
+}
+
+static void stroke(const PanelLayout& L, PanelUi& ui, const Fleet& f, int x0, int y0, int x1, int y1, int steps, uint32_t& ms) {
+  for (int i = 0; i <= steps; i++) {
+    feed(L, ui, f, true, x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps, ms);
+    ms += 10;
+  }
+  feed(L, ui, f, false, x1, y1, ms);
+  ms += 10;
+}
+
+static void gridSettle(const PanelLayout& L, PanelUi& ui, const Fleet& f, uint32_t& ms) {
+  for (int i = 0; i < 40; i++) { L.tick(ui, f, ms); ms += 10; }
+}
+
+static void gridChecks(const PanelLayout& L, uint32_t& ms) {
+  const Fleet f = gridFleet();
+  const int W = L.width(), H = L.height();
+  // Where the first tile is: the first cell of the first page (both grids start near the top-left).
+  int tx = -1, ty = -1;
+  for (int y = 2; y < H / 8 && tx < 0; y += 2)
+    for (int x = 2; x < W / 4 && tx < 0; x += 2) {
+      PanelUi probe;
+      feed(L, probe, f, true, x, y, ms);
+      feed(L, probe, f, false, x, y, ms + 50);
+      if (probe.screen != Screen::Home) { tx = x + 10; ty = y; }
+    }
+  assert(tx >= 0 && ty < H / 8);                   // a tile reaches into the top strip
+  {
+    PanelUi ui;                                    // a tap there opens the tile, the panel stays shut
+    stroke(L, ui, f, tx, ty, tx + 2, ty + 3, 3, ms);
+    assert(ui.screen != Screen::Home && !controlShown(ui.ctl));
+  }
+  {
+    PanelUi ui;                                    // a pull down from there opens the panel
+    stroke(L, ui, f, tx, ty, tx + 10, ty + 300, 20, ms);
+    gridSettle(L, ui, f, ms);
+    assert(ui.ctl.open == 1.f && ui.screen == Screen::Home && !ui.down);
+    L.button(ui, f);                               // BOOT closes it
+    assert(!controlShown(ui.ctl));
+    stroke(L, ui, f, tx, ty, tx, ty + 300, 20, ms);
+    gridSettle(L, ui, f, ms);
+    assert(ui.ctl.open == 1.f);
+    stroke(L, ui, f, W / 2, H - 60, W / 2, 80, 10, ms);   // and a swipe up on it
+    gridSettle(L, ui, f, ms);
+    assert(!controlShown(ui.ctl) && ui.page == 0);  // the swipe was the panel's: home's page stays
+  }
+  {
+    PanelUi ui;                                    // sideways from the top strip: the next page, no panel
+    stroke(L, ui, f, W - 40, ty, 60, ty + 30, 10, ms);
+    assert(ui.page == 1 && !controlShown(ui.ctl));
+    // A pull that starts lower down is the screen's (not a page change either: it goes down).
+    stroke(L, ui, f, W / 2, H / 2, W / 2, H - 20, 10, ms);
+    assert(!controlShown(ui.ctl) && ui.page == 1);
+  }
+  // While it moves, the frame is the cached panel over the cached home: the
+  // same picture as drawing both, row for row; and as rows to send.
+  {
+    static uint16_t a[480 * 480], b[480 * 480];
+    Canvas ca{a, W, H}, cb{b, W, H};
+    ControlInfo info;
+    info.name = "test-board";
+    info.board = "board";
+    PanelUi u;
+    u.ctl.animating = true;
+    u.ctl.open = 0.4f;
+    PanelInput in{&f, LinkState::Live, "test-board", DeckScope::Act, ms, 0, &u, 0, nullptr, &info};
+    L.draw(ca, in);                                // the first moving frame draws the pictures
+    assert(L.frameRows() == nullptr);
+    u.ctl.open = 0.6f;
+    L.draw(ca, in);                                // then cut from them
+    u.ctl.animating = false;
+    L.draw(cb, in);                                // the same frame drawn the slow way
+    int diff = 0;
+    for (int i = 0; i < W * H; i++) diff += a[i] != b[i];
+    assert(diff < W * 3);                          // the edge line may sit a row apart
+    u.ctl.animating = true;
+    in.rowsOk = true;
+    L.draw(ca, in);
+    const uint16_t* const* rows = L.frameRows();
+    assert(rows);
+    diff = 0;
+    for (int y = 0; y < H; y++)
+      for (int x = 0; x < W; x++) diff += rows[y][x] != b[y * W + x];
+    assert(diff < W * 3);
+  }
 }
 
 int main() {
@@ -84,10 +191,15 @@ int main() {
   L.button(ui, fleet);
   assert(!controlShown(ui.ctl));
 
-  // The 4" grid has no panel.
-  const SquarePanel G4(specLcd4());
-  PanelUi g;
-  assert(!G4.panelTouch(g, true, 240, 4, ms));
+  // The grids (the 4" big layout, the square grid): the panel comes from the
+  // top strip too, but a tile there still takes a tap, and a sideways swipe
+  // that starts there still turns the page.
+  {
+    const SquarePanel G4(specLcd4());
+    const BigPanel B4(specBig480());
+    gridChecks(G4, ms);
+    gridChecks(B4, ms);
+  }
 
   // Drawn on both list boards, open and halfway, without leaving the canvas.
   for (const SquareSpec& sp : {specAmoled18(), specT4S3()}) {

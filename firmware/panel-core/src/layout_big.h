@@ -530,6 +530,30 @@ namespace big_detail {
 constexpr uint16_t kRowOutline = rgb565(0x2A, 0x29, 0x25);   // agentsRowOutline
 constexpr uint16_t kRowSubOnInk = rgb565(0x3B, 0x3A, 0x36);  // agentsRowSubOnInk
 
+// One corner of a rounded box: the ring between r0 and r1 (a disc when r0 is
+// 0) around the whole-pixel centre (cx, cy), in the quarter on the side of
+// sx, sy (-1 or 1). The same pixels as fillArc over that quarter's 90
+// degrees, without an angle per pixel (pixel centres never sit on the axes).
+static inline void fillQuarter(Canvas& c, int cx, int cy, float r0, float r1, int sx, int sy, uint16_t col) {
+  if (r1 <= 0) return;
+  if (r0 < 0) r0 = 0;
+  const int n = (int)ceilf(r1) + 1;
+  int y0 = sy < 0 ? cy - n : cy, y1 = sy < 0 ? cy : cy + n;   // rows y0..y1-1
+  int x0 = sx < 0 ? cx - n : cx, x1 = sx < 0 ? cx : cx + n;
+  if (y0 < c.top) y0 = c.top;
+  if (y1 > c.h) y1 = c.h;
+  if (x0 < 0) x0 = 0;
+  if (x1 > c.w) x1 = c.w;
+  for (int y = y0; y < y1; y++) {
+    const float dy = y + 0.5f - cy, dy2 = dy * dy;
+    for (int x = x0; x < x1; x++) {
+      const float dx = x + 0.5f - cx;
+      const int a = round_detail::ringCover(sqrtf(dx * dx + dy2), r0, r1);
+      if (a) round_detail::blendPx(c, x, y, col, a);
+    }
+  }
+}
+
 static inline void rrect(Canvas& c, const Rect& r, int rad, uint16_t col) {
   if (rad * 2 > r.h) rad = r.h / 2;
   if (rad * 2 > r.w) rad = r.w / 2;
@@ -537,10 +561,10 @@ static inline void rrect(Canvas& c, const Rect& r, int rad, uint16_t col) {
   c.rect(r.x + rad, r.y, r.w - 2 * rad, r.h, col);
   c.rect(r.x, r.y + rad, rad, r.h - 2 * rad, col);
   c.rect(r.x + r.w - rad, r.y + rad, rad, r.h - 2 * rad, col);
-  fillArc(c, r.x + rad, r.y + rad, 0, rad, 270, 90, col);
-  fillArc(c, r.x + r.w - rad, r.y + rad, 0, rad, 0, 90, col);
-  fillArc(c, r.x + r.w - rad, r.y + r.h - rad, 0, rad, 90, 90, col);
-  fillArc(c, r.x + rad, r.y + r.h - rad, 0, rad, 180, 90, col);
+  fillQuarter(c, r.x + rad, r.y + rad, 0, rad, -1, -1, col);
+  fillQuarter(c, r.x + r.w - rad, r.y + rad, 0, rad, 1, -1, col);
+  fillQuarter(c, r.x + r.w - rad, r.y + r.h - rad, 0, rad, 1, 1, col);
+  fillQuarter(c, r.x + rad, r.y + r.h - rad, 0, rad, -1, 1, col);
 }
 
 // A rounded outline `t` px thick, inside the box.
@@ -550,10 +574,10 @@ static inline void rframe(Canvas& c, const Rect& r, int rad, int t, uint16_t col
   c.rect(r.x + rad, r.y + r.h - t, r.w - 2 * rad, t, col);
   c.rect(r.x, r.y + rad, t, r.h - 2 * rad, col);
   c.rect(r.x + r.w - t, r.y + rad, t, r.h - 2 * rad, col);
-  fillArc(c, r.x + rad, r.y + rad, rad - t, rad, 270, 90, col);
-  fillArc(c, r.x + r.w - rad, r.y + rad, rad - t, rad, 0, 90, col);
-  fillArc(c, r.x + r.w - rad, r.y + r.h - rad, rad - t, rad, 90, 90, col);
-  fillArc(c, r.x + rad, r.y + r.h - rad, rad - t, rad, 180, 90, col);
+  fillQuarter(c, r.x + rad, r.y + rad, rad - t, rad, -1, -1, col);
+  fillQuarter(c, r.x + r.w - rad, r.y + rad, rad - t, rad, 1, -1, col);
+  fillQuarter(c, r.x + r.w - rad, r.y + r.h - rad, rad - t, rad, 1, 1, col);
+  fillQuarter(c, r.x + rad, r.y + r.h - rad, rad - t, rad, -1, 1, col);
 }
 
 // AgentButton: 14 px radius, 2 px outline, the label centred (or left).
@@ -576,12 +600,23 @@ static inline void button(Canvas& c, const BigSpec& S, const Rect& r, const char
 static inline void stripes(Canvas& c, const Rect& r, uint16_t fill, uint16_t accent, uint32_t ms, int period) {
   const uint16_t s = blend565(fill, accent, 2);   // accent at 16 %
   const int shift = (int)((ms / 100) % 6) * period / 6;
-  for (int yy = 0; yy < r.h; yy++)
-    for (int xx = 0; xx < r.w; xx++) {
-      const int u = ((xx + (r.h - yy) - shift) % period + period) % period;
-      const int px = r.x + xx, py = r.y + yy;
-      if (u < period / 2 && px >= 0 && px < c.w && py >= 0 && py < c.h) c.px[py * c.w + px] = c.enc(s);
+  if (period < 2) return;
+  const uint16_t v = c.enc(s);
+  const int half = period / 2;
+  const int y0 = r.y > c.top ? r.y : c.top, y1 = r.y + r.h < c.h ? r.y + r.h : c.h;   // the rows there are
+  const int x0 = r.x > 0 ? r.x : 0, x1 = r.x + r.w < c.w ? r.x + r.w : c.w;
+  for (int py = y0; py < y1; py++) {
+    const int yy = py - r.y;
+    // Pixel xx is lit where (xx + o) mod period < period / 2: runs of half a period.
+    const int o = ((r.h - yy - shift) % period + period) % period;
+    uint16_t* row = c.px + (size_t)py * c.w;
+    for (int xx = -o; r.x + xx < x1; xx += period) {
+      int a = r.x + xx, b = a + half;
+      if (a < x0) a = x0;
+      if (b > x1) b = x1;
+      if (b > a) Canvas::run(row + a, b - a, v);
     }
+  }
 }
 
 // ContextRingPainter: `pct` of the border, clockwise from the top centre.
@@ -615,9 +650,14 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   const float u = side / 170.f;                     // design px -> board px
   auto d = [&](float v) { return (int)lroundf(v * u); };
   const int ox = r.x + (r.w - side) / 2, oy = r.y + (r.h - side) / 2;   // the FittedBox's square
+  SQ_T0(tb);
   c.rect(r.x, r.y, r.w, r.h, fill);
+  SQ_ADD(tileBg, tb);
+  SQ_T0(ts);
   if (k.stripes && !pressed) stripes(c, r, fill, T.accent, ms, d(24));
+  SQ_ADD(other, ts);
   if (!pressed) c.rect(r.x + r.w - d(10) - d(8), r.y + d(10), d(8), d(8), k.chip);   // the tool chip
+  SQ_T0(tp);
   if (a.subagents) {                                 // subagents at work: a small body, and a count
     const Pose sp = a.subTool[0] ? poseOfTool(a.subTool) : Pose::Think;
     const int s = S.subScale;
@@ -635,16 +675,22 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   const int feet = oy + d(30 + 12 * unit);
   drawSprite(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a.species, poseOf(a, now), cc(k.body), fill, ms, true, a.hat,
              a.hatColor);
+  SQ_ADD(sprite, tp);
+  SQ_T0(tt);
   // Title (mono 16) at 30 + 92 x 13/18 + 14; the status line (12.5) 5 px under it.
   const int titleTop = oy + d(30 + 92.f * 13 / 18 + 14);
-  const int tw = r.w - 2 * d(10);
-  const char* title = a.title[0] ? a.title : a.id;
-  const int ttw = textW(*S.tileTitle, title) < tw ? textW(*S.tileTitle, title) : (tw / S.tileTitle->cellW) * S.tileTitle->cellW;
-  textAt(c, *S.tileTitle, r.x + (r.w - ttw) / 2, titleTop, title, cc(k.label), tw);
-  char meta[80];
-  metaLine(a, now, meta, sizeof meta);
-  const int mw = textW(*S.tileMeta, meta) < tw ? textW(*S.tileMeta, meta) : (tw / S.tileMeta->cellW) * S.tileMeta->cellW;
-  textAt(c, *S.tileMeta, r.x + (r.w - mw) / 2, titleTop + d(16 + 5), meta, cc(k.meta), tw);
+  const int textBottom = titleTop + d(16 + 5) + S.tileMeta->cellH + S.tileTitle->cellH;   // with room to spare
+  if (titleTop - S.tileTitle->cellH < c.h && textBottom > c.top) {   // (drawn in strips: only where the lines are)
+    const int tw = r.w - 2 * d(10);
+    const char* title = a.title[0] ? a.title : a.id;
+    const int ttw = textW(*S.tileTitle, title) < tw ? textW(*S.tileTitle, title) : (tw / S.tileTitle->cellW) * S.tileTitle->cellW;
+    textAt(c, *S.tileTitle, r.x + (r.w - ttw) / 2, titleTop, title, cc(k.label), tw);
+    char meta[80];
+    metaLine(a, now, meta, sizeof meta);
+    const int mw = textW(*S.tileMeta, meta) < tw ? textW(*S.tileMeta, meta) : (tw / S.tileMeta->cellW) * S.tileMeta->cellW;
+    textAt(c, *S.tileMeta, r.x + (r.w - mw) / 2, titleTop + d(16 + 5), meta, cc(k.meta), tw);
+  }
+  SQ_ADD(text, tt);
   if (!pressed) ring(c, r, d(4) < 2 ? 2 : d(4), a.ctxWindow ? ctxPct(a) : 0, k.ring, k.ringTrack);
 }
 
@@ -656,6 +702,7 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
   const BigGrid g = bigGridFor(S, ui, pages);
   for (int cell = 0; cell < 16; cell++) {
     const Rect r = bigCell(g, cell);
+    if (r.y >= c.h || r.y + r.h <= c.top) continue;   // drawn in strips: not in this one
     const int i = bigCellAgent(ui, f, page, cell);
     if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i);
     else {
@@ -1025,7 +1072,9 @@ static inline void toast(Canvas& c, const BigSpec& S, const Theme& T, const char
 
 static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in) {
   using namespace big_detail;
+  SQ_T0(tf);
   c.fill(T.bg);
+  SQ_ADD(fill, tf);
   char buf[96];
   const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
@@ -1068,20 +1117,60 @@ static inline void drawBig(Canvas& c, const BigSpec& S, const Theme& T, const Pa
   if (tu) toast(c, S, T, ui.toast);
 }
 
-// The big panels' PanelLayout.
+// The big panels' PanelLayout, with the board's panel (control_panel.h)
+// pulled down from the top strip of any screen, as on the square grid.
+#include "drawer_slide.h"
+#include "layout_square.h"
+
 class BigPanel : public PanelLayout {
  public:
-  explicit BigPanel(const BigSpec& s) : S(s), T(deckTheme(false)) {}
+  explicit BigPanel(const BigSpec& s) : S(s), T(deckTheme(false)), G(controlGeom(s.w, s.h, 16, 4.0f, false)) {}
   int width() const override { return S.w; }
   int height() const override { return S.h; }
   bool trueBlack() const override { return false; }
-  void draw(Canvas& c, const PanelInput& in) const override { drawBig(c, S, T, in); }
+  void draw(Canvas& c, const PanelInput& in) const override {
+    const ControlUi* u = in.ui && in.ctl ? &in.ui->ctl : nullptr;
+    // While the panel moves, the screen and the panel are each drawn once, then slid.
+    if (u && (u->pulling || u->animating)) {
+      ControlUi full = *u;
+      full.open = 1.f;
+      full.pulling = full.animating = full.down = false;
+      full.pressed = ControlHit::None;
+      if (drawer.slide(c, u->open, in.rowsOk, T.ringTrack, [&](Canvas& k) { drawBig(k, S, T, in); },
+                       [&](Canvas& k) { controlDraw(k, G, T, *in.ctl, full, in.ms); }))
+        return;
+    }
+    drawer.reset();
+    const bool covered = u && u->open >= 0.999f && !u->animating && !u->pulling;
+    if (!covered) drawBig(c, S, T, in);              // all the way down, what is under it doesn't show
+    if (u && controlShown(*u)) controlDraw(c, G, T, *in.ctl, *u, in.ms);
+  }
+  const uint16_t* const* frameRows() const override { return drawer.rows(); }
+  bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
+    const bool was = ui.ctl.down;
+    const bool took = controlEdgeTouch(ui.ctl, G, down, x, y, ms, S.h / 8);
+    if (took && !was) { ui.down = false; ui.pressed = PanelHit(); }   // the screen lets go of the finger
+    return took;
+  }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
     return bigTouch(ui, S, f, down, x, y, scope, ms);
   }
-  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override { return bigTick(ui, f, ms); }
-  void button(PanelUi& ui, const Fleet& f) const override { bigButton(ui, f); }
+  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override {
+    const bool panel = controlTick(ui.ctl, ms);
+    return bigTick(ui, f, ms) || panel;
+  }
+  void button(PanelUi& ui, const Fleet& f) const override {
+    if (controlShown(ui.ctl)) {                      // BOOT closes the panel first
+      ui.ctl = ControlUi();
+      return;
+    }
+    bigButton(ui, f);
+  }
   void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const override { bigResult(ui, seq, code, ms); }
   const BigSpec S;
   const Theme T;
+  const ControlGeom G;
+
+ private:
+  mutable DrawerSlide drawer;
 };

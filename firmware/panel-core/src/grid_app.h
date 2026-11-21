@@ -40,6 +40,17 @@ struct GridBoard {
   int bootPin;                             // the BOOT button (active low), -1 for none
   uint8_t brightActive, brightIdle;
   const char* boardId;                     // Hello.board_id; nullptr: DeckLink::chipId() (the MAC, "AA:BB:...")
+  // A board that keeps the frames itself (nullptr: grid_app draws into one
+  // frame of its own and calls push): the frame to draw the next picture
+  // into; push() then gets that same pointer back.
+  uint16_t* (*frameBegin)();
+  // A board that takes a frame in strips (0: whole frames): the frame is drawn
+  // stripRows rows at a time into internal RAM, which is much faster to draw
+  // into than PSRAM, and each strip goes to pushStrip (rows y0..y0+rows-1;
+  // `last`: the frame is complete). While the board's panel slides, whole
+  // frames again (its pictures are whole frames, frameRows).
+  int stripRows;
+  void (*pushStrip)(const uint16_t* px, int y0, int rows, bool last);
 };
 
 namespace grid_app {
@@ -50,6 +61,7 @@ static GridBoard board;
 static DeckLink deck;
 static DeckFleet* fleet = nullptr;         // in PSRAM: up to PANEL_MAX_AGENTS agents, twice
 static uint16_t* frame = nullptr;          // in PSRAM
+static uint16_t* strip = nullptr;          // in internal RAM: board.stripRows rows (nullptr: whole frames)
 static Canvas canvas{nullptr, 0, 0};
 static PanelUi ui;
 static char deviceName[40] = "";
@@ -179,6 +191,35 @@ static void onLink(deck_link_t*) { dirty = true; }
 static uint32_t dbgDrawUs = 0, dbgPushUs = 0, dbgFrames = 0, dbgPanelFrames = 0;   // the debug report: where a frame's time goes
 #endif
 
+// The frame: drawn in strips when the board takes them, else whole.
+static void drawAndSend(const PanelInput& in) {
+#ifdef PANEL_DEBUG
+#define GRID_TIME(acc, stmt) do { const uint32_t t_ = micros(); stmt; acc += micros() - t_; } while (0)
+#else
+#define GRID_TIME(acc, stmt) stmt
+#endif
+  const bool slides = ui.ctl.pulling || ui.ctl.animating;   // the panel's pictures are whole frames
+  if (strip && !slides) {
+    const int W = canvas.w, H = canvas.h, n = board.stripRows;
+    for (int y0 = 0; y0 < H; y0 += n) {
+      const int y1 = y0 + n < H ? y0 + n : H;
+      Canvas sc{strip - (ptrdiff_t)y0 * W, W, y1};   // rows y0..y1-1 are the strip
+      sc.top = y0;
+      sc.be = canvas.be;
+      GRID_TIME(dbgDrawUs, board.layout->draw(sc, in));
+      GRID_TIME(dbgPushUs, board.pushStrip(strip, y0, y1 - y0, y1 == H));
+    }
+    return;
+  }
+  if (board.frameBegin) {
+    if (uint16_t* f = board.frameBegin()) canvas.px = frame = f;
+  }
+  GRID_TIME(dbgDrawUs, board.layout->draw(canvas, in));
+  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) GRID_TIME(dbgPushUs, board.pushRows(rows));
+  else GRID_TIME(dbgPushUs, board.push(frame));
+#undef GRID_TIME
+}
+
 static void render() {
   const uint32_t ms = millis();
   const LinkState ls = linkState();
@@ -218,20 +259,10 @@ static void render() {
   PanelInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, (ms - lastHeardMs) / 1000, &net, &ci};
   in.rowsOk = board.pushRows != nullptr;
 #ifdef PANEL_DEBUG
-  const uint32_t t0 = micros();
-  board.layout->draw(canvas, in);
-  const uint32_t t1 = micros();
-  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) board.pushRows(rows);
-  else board.push(frame);
-  dbgDrawUs += t1 - t0;
-  dbgPushUs += micros() - t1;
   dbgFrames++;
   if (controlShown(ui.ctl)) dbgPanelFrames++;
-#else
-  board.layout->draw(canvas, in);
-  if (const uint16_t* const* rows = board.pushRows ? board.layout->frameRows() : nullptr) board.pushRows(rows);
-  else board.push(frame);
 #endif
+  drawAndSend(in);
 }
 
 // Bright while something happens or someone touched it in the last 30 s;
@@ -338,7 +369,10 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   void* fm = heap_caps_calloc(1, sizeof(DeckFleet), MALLOC_CAP_SPIRAM);
   if (!fm) fm = calloc(1, sizeof(DeckFleet));
   fleet = new (fm) DeckFleet();
-  frame = (uint16_t*)heap_caps_calloc((size_t)W * H, 2, MALLOC_CAP_SPIRAM);
+  // A board that keeps its frames has none here until begin().
+  if (!b.frameBegin) frame = (uint16_t*)heap_caps_calloc((size_t)W * H, 2, MALLOC_CAP_SPIRAM);
+  if (b.stripRows > 0 && b.pushStrip && b.frameBegin)
+    strip = (uint16_t*)heap_caps_malloc((size_t)W * b.stripRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   // The "Needs you" screen (attention.h): the deck's spots as this board draws them, in PSRAM.
   void* am = heap_caps_calloc(1, sizeof(Attention), MALLOC_CAP_SPIRAM);
   if (!am) am = calloc(1, sizeof(Attention));
@@ -347,10 +381,11 @@ static inline void gridAppSetup(const GridBoard& b, const char* firmware) {
   }
   canvas = Canvas{frame, W, H};
 
-  const bool shown = frame && board.begin();
+  const bool shown = (frame || b.frameBegin) && board.begin();
+  if (shown && b.frameBegin) canvas.px = frame = board.frameBegin();
   canvas.be = shown && board.frameSwapped && board.frameSwapped();
-  PANEL_LOG("panel: %s, display %s, fleet %u B, frame %s, psram free %u", b.type, shown ? "up" : "FAILED",
-            (unsigned)sizeof(DeckFleet), frame ? "ok" : "none", (unsigned)ESP.getFreePsram());
+  PANEL_LOG("panel: %s, display %s, fleet %u B, frame %s, strips %s, psram free %u", b.type, shown ? "up" : "FAILED",
+            (unsigned)sizeof(DeckFleet), frame ? "ok" : "none", strip ? "yes" : "no", (unsigned)ESP.getFreePsram());
   if (board.brightness) board.brightness(board.brightActive);
 
   DeckLinkConfig cfg = {};
