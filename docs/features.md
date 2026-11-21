@@ -125,6 +125,8 @@ The list comes from Claude Code itself (`claude agents --json`), so it covers ev
 
 Added sessions are **watched**: status (working, idle, hungry when a turn finishes while watched), activity, context, cost and subagents come from the session's transcript, and **focus** jumps to its terminal tab. Claude Code reports when one is blocked on you, so the tile turns "needs you"; answer it in that session (the deck can't type into it). Focus on a background session opens it in a new iTerm tab with `claude attach`. **remove from deck** takes the session off the deck; the session itself keeps running. Added sessions come back whenever they run again.
 
+To have every one join by itself, set **Put them on the deck** to **automatically** in Settings, Agents (`agentctl set sessions auto`): each Claude session the list shows joins the deck within a few seconds, including the ones the Claude desktop app starts from another session. A session you take off the deck stays off, also after a restart of the service, until you add it again. `pick` (the default) waits for you to add them.
+
 ## Agent terminals
 
 - **Focus.** iTerm's local API selects the agent's tab and pane, then iTerm's `StealFocus` escape brings the window forward, including a hidden hotkey window. `agentctl set term tmux` switches your last-used tab to the agent instead; `window` only raises its window.
@@ -223,7 +225,7 @@ the tray app's Settings window, which shows the same page. Everything on it is a
 | page | what you can do | in a terminal |
 |---|---|---|
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
-| Agents | which tools were found and how many agents each has, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl accounts` |
+| Agents | which tools were found and how many agents each has, whether Claude sessions started elsewhere join the deck by themselves, Claude sessions running outside the deck (Add to deck), accounts and their colours | `agentctl live`, `agentctl set sessions`, `agentctl accounts` |
 | Boards | every board and device: approve, rename, what it may do, cut off, remove, give it Wi-Fi, update its firmware or install a firmware file of your own, how it is connected and its uplink. A new ESP32 on USB appears here; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar. Look for boards finds boards nearby over Bluetooth and adds one with the code on its screen | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | Updates | the version you have, what's new, Check now, Install and restart; tell me, automatic or never check; boards with newer firmware | `agentctl update`, `agentctl devices update` |
@@ -274,5 +276,6 @@ on this computer only, never on the network.
 | `mouse` | `tmux` (default), `native`: who owns the mouse in agent terminals |
 | `restore` | `ask` (default), `auto`: what happens to agents lost with tmux |
 | `header` | `on` (default), `off`: the band at the top of agent terminals |
+| `sessions` | `pick` (default), `auto`: Claude sessions started elsewhere join the deck when you add them, or by themselves |
 | `web` | `local` (default), `lan`: also serve the dashboard on your local network |
 | `hat` | `agentctl set hat <agent|folder> <shape> [colour]`, `none` or `auto`: the hat of a working folder (stored in `config.json` `"hats"`) |

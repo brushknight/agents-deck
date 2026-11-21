@@ -315,7 +315,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	os.WriteFile(r.a.Config, []byte(`{"term":"tmux","link":{"ports":[]}}`), 0o600)
 
 	code, out := r.do(t, "PATCH", "/admin/v1/settings",
-		`{"notifications":"finished","sound":true,"restore":"auto","updates":"off","network":false,"wifi":{"ssid":"Lab","password":"correct horse"}}`)
+		`{"notifications":"finished","sound":true,"restore":"auto","sessions":"auto","updates":"off","network":false,"wifi":{"ssid":"Lab","password":"correct horse"}}`)
 	if code != 200 {
 		t.Fatalf("patch: %d %v", code, out)
 	}
@@ -323,7 +323,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Errorf("turning the network off needs a restart: %v", out)
 	}
 	_, got := r.do(t, "GET", "/admin/v1/settings", "")
-	for k, v := range map[string]any{"notifications": "finished", "sound": true, "restore": "auto", "updates": "off", "network": false} {
+	for k, v := range map[string]any{"notifications": "finished", "sound": true, "restore": "auto", "sessions": "auto", "updates": "off", "network": false} {
 		if got[k] != v {
 			t.Errorf("%s = %v, want %v", k, got[k], v)
 		}
@@ -339,7 +339,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if !strings.Contains(string(cfg), `"term": "tmux"`) || strings.Contains(string(cfg), "correct horse") {
 		t.Errorf("config.json lost a key or holds the password:\n%s", cfg)
 	}
-	for _, bad := range []string{`{"notifications":"loud"}`, `{"updates":"weekly"}`, `{"restore":"never"}`, `{"wifi":{"ssid":"x","password":"short"}}`, `nope`} {
+	for _, bad := range []string{`{"notifications":"loud"}`, `{"updates":"weekly"}`, `{"restore":"never"}`, `{"sessions":"all"}`, `{"wifi":{"ssid":"x","password":"short"}}`, `nope`} {
 		if code, _ := r.do(t, "PATCH", "/admin/v1/settings", bad); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
