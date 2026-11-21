@@ -2904,6 +2904,7 @@ async function route(initial) {
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
   if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; }
   if (page !== 'start') S.startForm = null;
+  if (page !== 'home') S.panel = false; // Panel view is a way to see Home
   const section = SECTION[page] || page;
   document.querySelectorAll('.page > section').forEach((s) => { s.hidden = s.dataset.page !== section; });
   let navPage = NAV[page] || page;
