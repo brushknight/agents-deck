@@ -11,7 +11,7 @@
 #include "link.h"
 #include "lvgl.h"
 
-// The deck's palette (backend/internal/web/static/app.css).
+// The deck's palette (backend/internal/web/static/settings.css).
 #define C_BG 0x0A0A0A
 #define C_PANEL 0x141412
 #define C_INK 0xE8E4DC

@@ -1,5 +1,5 @@
 // The deck's pixel critter, drawn with LVGL: a port of spriteSVG() in
-// backend/internal/web/static/app.js (and critter.dart), poses, hats and
+// backend/internal/web/static/deck-core.js (and critter.dart), poses, hats and
 // animations included. The sprite is 18 x 13 cells (x 0..18, y -4..9);
 // Claude's flat block or Codex's onigiri.
 #pragma once

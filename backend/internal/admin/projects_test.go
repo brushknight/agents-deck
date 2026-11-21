@@ -138,6 +138,9 @@ func TestProjectStart(t *testing.T) {
 	if code, out := r.do(t, "POST", "/admin/v1/projects/shop/start", body(map[string]any{"tool": "codex"})); code != 202 || out["tool"] != "codex" || out["prompted"] != false {
 		t.Errorf("start with codex: %d %v", code, out)
 	}
+	if code, _ := r.do(t, "POST", "/admin/v1/projects/shop/start", body(map[string]any{"account": "nobody"})); code != 400 {
+		t.Errorf("an unknown account: %d", code)
+	}
 	if code, _ := r.do(t, "POST", "/admin/v1/projects/shop/start", body(map[string]any{"tool": "vim"})); code != 400 {
 		t.Errorf("an unknown tool: %d", code)
 	}

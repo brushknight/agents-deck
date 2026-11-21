@@ -193,7 +193,7 @@ func (a *Admin) projectsAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // projectAction is POST /admin/v1/projects/{name}/{action}: update (the
-// whole project, its name too), remove, or start {"prompt", "tool"}.
+// whole project, its name too), remove, or start {"prompt", "tool", "account"}.
 func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	switch r.PathValue("action") {
@@ -252,11 +252,13 @@ var startWait = 60 * time.Second
 
 // projectStart starts an agent in the project's folder, with its tool and
 // account (a tool in the body picks another for this agent), and sends the
-// first prompt once it is ready.
+// first prompt once it is ready. A tool or account in the body picks
+// another for this agent.
 func (a *Admin) projectStart(w http.ResponseWriter, r *http.Request, name string) {
 	var b struct {
-		Prompt string `json:"prompt"`
-		Tool   string `json:"tool"`
+		Prompt  string `json:"prompt"`
+		Tool    string `json:"tool"`
+		Account string `json:"account"`
 	}
 	if err := readBody(r, 16<<10, &b); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -293,6 +295,13 @@ func (a *Admin) projectStart(w http.ResponseWriter, r *http.Request, name string
 		}
 	}
 	account := p.Account
+	if b.Account != "" {
+		if _, ok := accounts.Find(b.Account); !ok {
+			writeErr(w, http.StatusBadRequest, "no Claude account called "+b.Account)
+			return
+		}
+		account = b.Account
+	}
 	if tool != "claude" {
 		account = ""
 	}

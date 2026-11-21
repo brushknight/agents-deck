@@ -63,7 +63,7 @@ func newTestServer() (*Server, *fakeCtl) {
 		testCerts[name], _ = tls.X509KeyPair(certPEM, keyPEM)
 	}
 	_ = reg.Revoke("gone")
-	return &Server{Store: st, Ctl: ctl, Static: fstest.MapFS{"index.html": {Data: []byte("hi")}},
+	return &Server{Store: st, Ctl: ctl, Static: fstest.MapFS{"settings.html": {Data: []byte("hi")}},
 		WebSession: "websession", LocalAddr: "127.0.0.1:7340", CA: ca, Devices: reg,
 		Audit: &devices.Audit{Path: filepath.Join(dir, "audit.log")}}, ctl
 }
@@ -102,7 +102,7 @@ func TestDeviceAuth(t *testing.T) {
 	if c := do(h, "GET", "/v1/state", "", auth).Code; c != 200 {
 		t.Errorf("paired device: %d", c)
 	}
-	if c := do(h, "GET", "/index.html", "", auth).Code; c != 404 {
+	if c := do(h, "GET", "/settings.html", "", auth).Code; c != 404 {
 		t.Errorf("device listener must not serve the web UI: %d", c)
 	}
 	if c := do(h, "POST", "/v1/agents/a1/answer", `{"promptId":"p1","key":"2"}`, auth).Code; c != 204 || ctl.answered != "2" {

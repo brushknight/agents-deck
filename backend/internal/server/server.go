@@ -529,7 +529,7 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			case "/fixture.json":
 				http.NotFound(w, r) // dev-only file never served by the daemon
 				return
-			case "/settings", "/settings/":
+			case "/", "/settings", "/settings/": // one app: the deck (Home) and its settings
 				http.ServeFileFS(w, r, s.Static, "settings.html")
 				return
 			}

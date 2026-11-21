@@ -1,7 +1,7 @@
-// A port of spriteSVG() (backend/internal/web/static/app.js). Shapes are in
+// A port of spriteSVG() (backend/internal/web/static/deck-core.js). Shapes are in
 // sprite cells; a pen maps them to pixels through the group transforms the
 // SVG uses (the bob, the hop, the squash, the mini critter). The CSS
-// animations (app.css) become functions of the time.
+// animations (settings.css) become functions of the time.
 #include "critter.h"
 
 #include <math.h>
@@ -88,7 +88,7 @@ static pen_t moved(pen_t p, float dx, float dy)
 	return p;
 }
 
-// ---- timing (app.css) -----------------------------------------------------
+// ---- timing (settings.css) -----------------------------------------------------
 
 // Where we are in a cycle of `period` ms, 0..1.
 static float phase(const ctx_t *x, uint32_t period, uint32_t delay)
@@ -187,7 +187,7 @@ static void dots(pen_t *p, const ctx_t *x)
 	rect(&q, x, 17.2f, -2.6f, 0.8f, 0.9f, K_BODY);
 }
 
-// The little critter a delegating agent shows (MINI in app.js).
+// The little critter a delegating agent shows (MINI in deck-core.js).
 static void mini(pen_t *p, const ctx_t *x, float ox, float oy, float s)
 {
 	pen_t q = *p;
