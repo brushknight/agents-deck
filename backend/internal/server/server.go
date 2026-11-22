@@ -44,6 +44,14 @@ type Prompter interface {
 	Prompt(id, text string, interrupt bool) error
 }
 
+// Typer types a prompt into a session even while the agent works ("mode":
+// "type"): the tool's own queue takes it, as when you type ahead in its
+// chat (Claude Code reads it at its next step). Refused while the agent
+// asks a question, so a typed prompt never answers one.
+type Typer interface {
+	Type(id, text string) error
+}
+
 // Restorer brings back agents lost with the tmux server (POST /v1/restore):
 // the ones listed, or every lost agent when ids is empty.
 type Restorer interface {
@@ -193,11 +201,11 @@ func (s *Server) api() *http.ServeMux {
 		var body struct {
 			Text      string `json:"text"`
 			Interrupt bool   `json:"interrupt"`
-			Mode      string `json:"mode"`     // now | interrupt | queue ("": now, or interrupt with "interrupt": true)
+			Mode      string `json:"mode"`     // now | interrupt | queue | type ("": now, or interrupt with "interrupt": true)
 			Position  string `json:"position"` // queue only: back (default) | front
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 3*MaxPromptBytes)).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "mode": "now"|"interrupt"|"queue"}`)
+			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "mode": "now"|"interrupt"|"queue"|"type"}`)
 			return
 		}
 		mode := body.Mode
@@ -206,8 +214,8 @@ func (s *Server) api() *http.ServeMux {
 			mode = "interrupt"
 		case mode == "":
 			mode = "now"
-		case mode != "now" && mode != "interrupt" && mode != "queue":
-			writeErr(w, http.StatusBadRequest, `"mode" is now, interrupt or queue`)
+		case mode != "now" && mode != "interrupt" && mode != "queue" && mode != "type":
+			writeErr(w, http.StatusBadRequest, `"mode" is now, interrupt, queue or type`)
 			return
 		case body.Interrupt && mode != "interrupt":
 			writeErr(w, http.StatusBadRequest, `"interrupt": true goes with "mode": "interrupt" only`)
@@ -229,6 +237,19 @@ func (s *Server) api() *http.ServeMux {
 		}
 		if mode == "queue" {
 			s.enqueue(w, r, p, r.PathValue("id"), text, body.Position == "front")
+			return
+		}
+		if mode == "type" {
+			t, ok := s.Ctl.(Typer)
+			if !ok {
+				writeErr(w, http.StatusNotImplemented, "typing ahead is not available here")
+				return
+			}
+			id := r.PathValue("id")
+			unlock := s.queue.lock(id)
+			err := t.Type(id, text)
+			unlock()
+			s.act(w, err)
 			return
 		}
 		s.act(w, s.prompt(p, r.PathValue("id"), text, mode == "interrupt"))

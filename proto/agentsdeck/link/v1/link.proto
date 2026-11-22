@@ -323,6 +323,7 @@ enum SendMode {
   SEND_NOW = 0;        // only when the agent is idle (409 otherwise), unless interrupt is set
   SEND_INTERRUPT = 1;  // stop its turn (Esc), then type
   SEND_QUEUE = 2;      // when its turn ends
+  SEND_TYPE = 3;       // typed in now, also while it works: the tool's own queue takes it (refused while it asks a question)
 }
 
 // Queue lists the prompts queued for an agent (the deck answers QueueList),

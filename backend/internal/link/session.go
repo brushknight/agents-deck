@@ -845,6 +845,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 			if sp.Front {
 				pb["position"] = "front"
 			}
+		case linkpb.SendMode_SEND_TYPE:
+			pb["mode"] = "type"
 		}
 		method, path, body = http.MethodPost, agentPath(sp.AgentId, "prompt"), pb
 	case *linkpb.Frame_Queue:

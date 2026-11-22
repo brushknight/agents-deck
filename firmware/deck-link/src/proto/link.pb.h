@@ -65,7 +65,8 @@ typedef enum _agentsdeck_link_v1_PromptKind {
 typedef enum _agentsdeck_link_v1_SendMode {
     agentsdeck_link_v1_SendMode_SEND_NOW = 0, /* only when the agent is idle (409 otherwise), unless interrupt is set */
     agentsdeck_link_v1_SendMode_SEND_INTERRUPT = 1, /* stop its turn (Esc), then type */
-    agentsdeck_link_v1_SendMode_SEND_QUEUE = 2 /* when its turn ends */
+    agentsdeck_link_v1_SendMode_SEND_QUEUE = 2, /* when its turn ends */
+    agentsdeck_link_v1_SendMode_SEND_TYPE = 3 /* typed in now, also while it works: the tool's own queue takes it (refused while it asks a question) */
 } agentsdeck_link_v1_SendMode;
 
 typedef enum _agentsdeck_link_v1_MagicRole {
@@ -675,8 +676,8 @@ extern "C" {
 #define _agentsdeck_link_v1_PromptKind_ARRAYSIZE ((agentsdeck_link_v1_PromptKind)(agentsdeck_link_v1_PromptKind_PROMPT_INPUT+1))
 
 #define _agentsdeck_link_v1_SendMode_MIN agentsdeck_link_v1_SendMode_SEND_NOW
-#define _agentsdeck_link_v1_SendMode_MAX agentsdeck_link_v1_SendMode_SEND_QUEUE
-#define _agentsdeck_link_v1_SendMode_ARRAYSIZE ((agentsdeck_link_v1_SendMode)(agentsdeck_link_v1_SendMode_SEND_QUEUE+1))
+#define _agentsdeck_link_v1_SendMode_MAX agentsdeck_link_v1_SendMode_SEND_TYPE
+#define _agentsdeck_link_v1_SendMode_ARRAYSIZE ((agentsdeck_link_v1_SendMode)(agentsdeck_link_v1_SendMode_SEND_TYPE+1))
 
 #define _agentsdeck_link_v1_MagicRole_MIN agentsdeck_link_v1_MagicRole_MAGIC_NONE
 #define _agentsdeck_link_v1_MagicRole_MAX agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER

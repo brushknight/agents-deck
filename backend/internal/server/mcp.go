@@ -308,13 +308,15 @@ var mcpTools = []mcpTool{
 			"mode queue (the default) types it in at once when the agent is idle, else keeps it and types it in when the agent's turn ends (status idle), " +
 			"one queued prompt per turn, in order, like typing several prompts one after another in its chat. " +
 			"Queued prompts wait while the agent asks a question: answer it, and the queue goes on after that turn. " +
+			"mode type types it in now even while the agent works, so the tool's own queue takes it, as when you type ahead in its chat " +
+			"(Claude Code reads it at its next step, during the current turn; refused while the agent asks a question). " +
 			"mode now refuses while the agent is working or waiting on a question; mode interrupt presses Esc first to stop it. " +
 			"The result says sent, or queued with its queue_id. Text is at most 4000 bytes; newlines are kept as part of the prompt.",
 		InputSchema: schema([]string{"agent_id", "text"}, map[string]any{
 			"agent_id": agentIDProp,
 			"text":     prop("string", "The prompt, as you would type it to the agent."),
-			"mode": map[string]any{"type": "string", "enum": []string{"now", "interrupt", "queue"},
-				"description": "queue (default): now if idle, else when its turn ends. now: only when the agent is idle. interrupt: stop its turn (Esc), then type."},
+			"mode": map[string]any{"type": "string", "enum": []string{"queue", "type", "now", "interrupt"},
+				"description": "queue (default): now if idle, else when its turn ends (the deck holds it). type: typed in now even while it works (the agent's own queue holds it). now: only when the agent is idle. interrupt: stop its turn (Esc), then type."},
 			"queue_position": map[string]any{"type": "string", "enum": []string{"back", "front"},
 				"description": "mode queue: back (default) waits behind prompts queued earlier; front goes next."},
 			"interrupt": prop("boolean", "Same as mode interrupt (kept for older clients). Default false."),
@@ -593,8 +595,8 @@ func toolSendPrompt(s *Server, who devices.Device, a mcpArgs) (string, error) {
 		mode = "now" // a service without a queue (some tests)
 	case mode == "":
 		mode = "queue"
-	case mode != "now" && mode != "interrupt" && mode != "queue":
-		return "", errors.New("mode is now, interrupt or queue")
+	case mode != "now" && mode != "interrupt" && mode != "queue" && mode != "type":
+		return "", errors.New("mode is queue, type, now or interrupt")
 	case a.flag("interrupt") && mode != "interrupt":
 		return "", errors.New("interrupt true goes with mode interrupt only (or leave mode out)")
 	}
@@ -620,6 +622,9 @@ func toolSendPrompt(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	if r.Status == "queued" {
 		return asJSON(map[string]any{"status": "queued", "agent_id": id, "queue_id": r.ID, "position": r.Position,
 			"note": "typed in when " + id + "'s turn ends (status idle); list_queue shows it, cancel_queued takes it back"}), nil
+	}
+	if mode == "type" {
+		return "typed: " + id + " has the prompt in its own chat; if it was working, its tool holds it and reads it at its next step (the deck's queue doesn't list it)", nil
 	}
 	return "sent: " + id + " has the prompt (list_agents shows it running once it starts)", nil
 }

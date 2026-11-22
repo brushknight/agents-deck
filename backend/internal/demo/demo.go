@@ -415,6 +415,16 @@ func (d *Demo) Interrupt(id string) error {
 	return nil
 }
 
+// Type pretends the agent's own queue took the prompt: a working agent
+// keeps working, an idle one starts.
+func (d *Demo) Type(id, text string) error {
+	if e, ok := d.St.Get(id); ok && e.A.Status == model.Running {
+		d.St.Update(id, func(e *store.Entry) bool { e.A.LastPrompt = text; return true })
+		return nil
+	}
+	return d.Prompt(id, text, false)
+}
+
 // Prompt pretends the agent took a new task: it starts running on it.
 func (d *Demo) Prompt(id, text string, interrupt bool) error {
 	e, ok := d.St.Get(id)

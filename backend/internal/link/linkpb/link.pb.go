@@ -377,6 +377,7 @@ const (
 	SendMode_SEND_NOW       SendMode = 0 // only when the agent is idle (409 otherwise), unless interrupt is set
 	SendMode_SEND_INTERRUPT SendMode = 1 // stop its turn (Esc), then type
 	SendMode_SEND_QUEUE     SendMode = 2 // when its turn ends
+	SendMode_SEND_TYPE      SendMode = 3 // typed in now, also while it works: the tool's own queue takes it (refused while it asks a question)
 )
 
 // Enum value maps for SendMode.
@@ -385,11 +386,13 @@ var (
 		0: "SEND_NOW",
 		1: "SEND_INTERRUPT",
 		2: "SEND_QUEUE",
+		3: "SEND_TYPE",
 	}
 	SendMode_value = map[string]int32{
 		"SEND_NOW":       0,
 		"SEND_INTERRUPT": 1,
 		"SEND_QUEUE":     2,
+		"SEND_TYPE":      3,
 	}
 )
 
@@ -5628,12 +5631,13 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x12PROMPT_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11PROMPT_PERMISSION\x10\x01\x12\x13\n" +
 	"\x0fPROMPT_QUESTION\x10\x02\x12\x10\n" +
-	"\fPROMPT_INPUT\x10\x03*<\n" +
+	"\fPROMPT_INPUT\x10\x03*K\n" +
 	"\bSendMode\x12\f\n" +
 	"\bSEND_NOW\x10\x00\x12\x12\n" +
 	"\x0eSEND_INTERRUPT\x10\x01\x12\x0e\n" +
 	"\n" +
-	"SEND_QUEUE\x10\x02*@\n" +
+	"SEND_QUEUE\x10\x02\x12\r\n" +
+	"\tSEND_TYPE\x10\x03*@\n" +
 	"\tMagicRole\x12\x0e\n" +
 	"\n" +
 	"MAGIC_NONE\x10\x00\x12\x0f\n" +

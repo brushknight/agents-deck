@@ -29,6 +29,28 @@ func (c *promptCtl) Prompt(id, text string, interrupt bool) error {
 	return nil
 }
 
+func (c *promptCtl) Type(id, text string) error {
+	c.calls = append(c.calls, "type "+id+" "+text)
+	return nil
+}
+
+// SEND_TYPE is "mode": "type": typed in now, also while the agent works.
+func TestSessionTypeAhead(t *testing.T) {
+	srv, _ := testDeck(t)
+	ctl := &promptCtl{srv: srv}
+	srv.Ctl = ctl
+	b := start(t, srv, Binary)
+	b.send(hi("board-t"))
+	b.next()
+	_ = srv.Devices.Approve("oled-tile-boardt")
+	_ = srv.Devices.SetScope("oled-tile-boardt", devices.Act)
+	b.next()
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_SendPrompt{SendPrompt: &linkpb.SendPrompt{AgentId: "b2", Text: "also this", Mode: linkpb.SendMode_SEND_TYPE}}})
+	if r := b.next(); r.Seq != 2 || r.GetResult().GetCode() != 204 || len(ctl.calls) != 1 || ctl.calls[0] != "type b2 also this" {
+		t.Fatalf("type ahead: %+v %v", r, ctl.calls)
+	}
+}
+
 // A board queues a prompt for a busy agent, lists the queue and cancels it.
 func TestSessionQueue(t *testing.T) {
 	srv, _ := testDeck(t)

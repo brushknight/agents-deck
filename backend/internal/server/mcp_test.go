@@ -39,6 +39,20 @@ func (c *mcpCtl) Prompt(id, text string, interrupt bool) error {
 	return nil
 }
 
+// Type takes a prompt while the agent works (its tool's own queue), not
+// while it asks a question.
+func (c *mcpCtl) Type(id, text string) error {
+	e, ok := c.st.Get(id)
+	switch {
+	case !ok:
+		return ErrNotFound
+	case e.A.Status == model.Waiting:
+		return ErrAsking
+	}
+	c.prompted = append(c.prompted, fmt.Sprintf("%s %q typed", id, text))
+	return nil
+}
+
 func (c *mcpCtl) Create(o CreateOpts) (string, error) {
 	c.started = append(c.started, o)
 	c.st.Add(&store.Entry{A: model.Agent{ID: "n1", Title: "new", Status: model.Idle, Tool: o.Tool}})

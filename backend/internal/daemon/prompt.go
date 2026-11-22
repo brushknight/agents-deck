@@ -26,10 +26,17 @@ var (
 // terminal can't be typed into. With interrupt, a working agent (or one
 // waiting on a question) gets Esc first.
 func (d *Daemon) Prompt(id, text string, interrupt bool) error {
-	return d.stampActive(id, d.prompt(id, text, interrupt))
+	return d.stampActive(id, d.prompt(id, text, interrupt, false))
 }
 
-func (d *Daemon) prompt(id, text string, interrupt bool) error {
+// Type types the prompt in now, also while the agent works: the tool's own
+// queue takes it, as when you type ahead in its chat. An agent asking a
+// question refuses it (the text would answer the question).
+func (d *Daemon) Type(id, text string) error {
+	return d.stampActive(id, d.prompt(id, text, false, true))
+}
+
+func (d *Daemon) prompt(id, text string, interrupt, ahead bool) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
 		return server.ErrNotFound
@@ -55,6 +62,9 @@ func (d *Daemon) prompt(id, text string, interrupt bool) error {
 		}
 		stop = true
 	case e.A.Status == model.Running:
+		if ahead {
+			break
+		}
 		if !interrupt {
 			return server.ErrBusy
 		}

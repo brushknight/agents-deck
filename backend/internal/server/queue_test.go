@@ -388,3 +388,24 @@ func TestMCPQueuesByDefault(t *testing.T) {
 		t.Errorf("mode now to a busy agent: %s", got)
 	}
 }
+
+// mode type types the prompt in at once, also while the agent works (its
+// tool's own queue takes it), and never while it asks a question. The
+// deck's queue stays out of it.
+func TestTypeAhead(t *testing.T) {
+	s, ctl, tok := newQueueServer(t, "")
+	h := s.LocalHandler()
+	_, out := rpc(h, "/mcp", tok["doer"], call("send_prompt", map[string]any{"agent_id": "busy", "text": "and add a test", "mode": "type"}))
+	if got, isErr := toolText(t, out); isErr || !strings.Contains(got, "typed") || s.Queue.Count("busy") != 0 ||
+		len(ctl.prompted) != 1 || ctl.prompted[0] != `busy "and add a test" typed` {
+		t.Fatalf("type to a busy agent: %s %v", got, ctl.prompted)
+	}
+	_, out = rpc(h, "/mcp", tok["doer"], call("send_prompt", map[string]any{"agent_id": "ask", "text": "2", "mode": "type"}))
+	if got, isErr := toolText(t, out); !isErr || !strings.Contains(got, "question") || len(ctl.prompted) != 1 {
+		t.Errorf("type to an agent asking a question: %s", got)
+	}
+	_, out = rpc(h, "/mcp", tok["looker"], call("send_prompt", map[string]any{"agent_id": "busy", "text": "x", "mode": "type"}))
+	if got, isErr := toolText(t, out); !isErr || !strings.Contains(got, "needs act") {
+		t.Errorf("a view token typed: %s", got)
+	}
+}
