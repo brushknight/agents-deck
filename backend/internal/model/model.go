@@ -39,6 +39,11 @@ type Server struct {
 	Time    time.Time `json:"time"`
 }
 
+// LastPromptMax is how much of an agent's last prompt the deck keeps: enough
+// for the sidebar on Home to show it all, mostly. Boards get the first 160
+// characters (link.options).
+const LastPromptMax = 1000
+
 type Agent struct {
 	ID   string `json:"id"`
 	Slot int    `json:"slot"`
@@ -57,7 +62,7 @@ type Agent struct {
 	ModelLabel    string     `json:"modelLabel"`
 	Effort        string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
 	Activity      *Activity  `json:"activity"`
-	LastPrompt    string     `json:"lastPrompt"`
+	LastPrompt    string     `json:"lastPrompt"` // up to LastPromptMax characters; boards get the first 160
 	Waiting       *Prompt    `json:"waiting"`
 	Error         *ErrInfo   `json:"error"`
 	Tokens        Tokens     `json:"tokens"`

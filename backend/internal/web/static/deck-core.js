@@ -14,9 +14,9 @@ export const fmtN = (n) => {
   n = Number(n) || 0;
   const unit = (v, s) => {
     const r = v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
-    return (r >= 1000 && s === 'k') ? '1m' : `${r}${s}`;
+    return (r >= 1000 && s === 'k') ? '1M' : `${r}${s}`;
   };
-  if (n >= 1e6) return unit(n / 1e6, 'm');
+  if (n >= 1e6) return unit(n / 1e6, 'M');
   if (n >= 1e3) return unit(n / 1e3, 'k');
   return String(Math.round(n));
 };

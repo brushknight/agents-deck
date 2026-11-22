@@ -3,7 +3,7 @@
 // innerHTML: names and messages from the service are always text.
 
 import {
-  setSkew, now, fmtN, fmtCost, rel, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
+  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
 
@@ -103,6 +103,10 @@ function h(tag, attrs, ...kids) {
   }
   return el;
 }
+
+// put: el's children become kids; null, false and undefined are left out
+// (replaceChildren would write them in as text: "null").
+const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
 
 const NS = 'http://www.w3.org/2000/svg';
 function sv(tag, attrs, ...kids) {
@@ -636,7 +640,7 @@ function tileFor(a) {
     const tn = h('span', { class: 'tn' });
     const tm = h('span', { class: 'tm' });
     const qb = h('span', { class: 'qb', hidden: true });
-    const el = h('a', { class: 'tile', href: `#agent/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, qb, spr, tn, tm);
+    const el = h('a', { class: 'tile', href: `#home/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, qb, spr, tn, tm);
     wireDrag(el, a.id);
     t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
@@ -648,7 +652,10 @@ function tileFor(a) {
   const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
   if (t.sig !== sig) {
     t.sig = sig;
-    t.el.className = `tile ${cls}${a.id === S.arg && S.page === 'agent' ? ' cur' : ''}`;
+    const cur = a.id === S.arg && S.page === 'home';
+    t.el.className = `tile ${cls}${cur ? ' cur' : ''}`;
+    t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
+    if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
     t.tm.textContent = meta;
     t.ring.hidden = !pct;
@@ -722,7 +729,7 @@ function qrow(a) {
   const spr = h('span', { class: 'spr c' });
   setSprite(spr, 'wait', a.tool, a.hat, { bubble: false });
   face.append(spr);
-  return h('a', { class: 'qrow', href: `#agent/${encodeURIComponent(a.id)}` }, face,
+  return h('a', { class: 'qrow', href: `#${S.page === 'home' ? 'home' : 'agent'}/${encodeURIComponent(a.id)}` }, face,
     h('span', { class: 'grow' }, h('span', { class: 'eyebrow', title: agentName(a) }, agentName(a)), h('span', { class: 'mono q' }, askOf(a).q)));
 }
 
@@ -750,7 +757,7 @@ function summaryStrip() {
   const nBoards = boardsWaiting(sys);
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   return h('nav', { class: 'strip', 'aria-label': 'Summary' },
-    h('a', { href: need ? `#agent/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
+    h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
     h('a', { class: 'st', href: '#troubleshoot' },
@@ -774,6 +781,7 @@ function drawHome() {
 }
 
 function updateDeck() {
+  syncBar();
   if (S.page === 'agent') return updateAgent();
   if (S.page !== 'home' || !deck || !deck.grid.isConnected) { if (S.page === 'home') draw(true); return; }
   if (!agentsList().length) { draw(true); return; }
@@ -796,7 +804,7 @@ function fillDeck() {
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
     seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
-  deck.strip.replaceChildren(summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+  put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
     btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
@@ -849,6 +857,7 @@ function panelHead() {
     wait ? h('span', { class: 'acc' }, `${wait} wait`) : null, wait && run ? ' · ' : null, run ? h('span', { class: 'acc' }, `${run} run`) : null);
 }
 function updatePanel() {
+  syncBar();
   const g = $('.pgrid');
   if (!g) return draw(true);
   reconcile(g, cells(S.deckPage || 0));
@@ -1004,13 +1013,13 @@ function fillAgent() {
   const i = list.findIndex((x) => x.id === a.id);
   const step = (d) => list[(i + d + list.length) % list.length];
   const nav = (d, label, path) => h('a', { class: 'ico', href: `#agent/${encodeURIComponent(step(d).id)}`, 'aria-label': label }, sv('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'aria-hidden': 'true' }, sv('path', { d: path })));
-  agentView.crumbs.replaceChildren(agentView.back, h('span', { class: 'kl' }, `/ ${agentName(a)}`), h('span', { class: 'sp' }),
+  put(agentView.crumbs, agentView.back, h('span', { class: 'kl' }, `/ ${agentName(a)}`), h('span', { class: 'sp' }),
     list.length > 1 ? nav(-1, 'Previous agent', 'M14.5 5.5L8 12l6.5 6.5') : null,
     h('span', { class: 'sub' }, `${i + 1} of ${list.length}${a.status === 'waiting' ? ' waiting' : ''}`),
     list.length > 1 ? nav(1, 'Next agent', 'M9.5 5.5L16 12l-6.5 6.5') : null);
   const page = Math.floor((a.slot ?? 0) / SPOTS);
   const others = agentsList().filter((x) => needsYou(x) && x.id !== a.id);
-  agentView.side.replaceChildren(h('span', { class: 'kl' }, 'The deck'), miniDeck(page, a.id),
+  put(agentView.side, h('span', { class: 'kl' }, 'The deck'), miniDeck(page, a.id),
     others.length ? h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, a.status === 'waiting' ? 'Next waiting' : 'Needs you')), h('div', { class: 'qlist' }, others.slice(0, 4).map(qrow))) : null);
   const key = agentKey(a);
   if (agentView.key !== key) {
@@ -1048,7 +1057,7 @@ function agentHead(a) {
       const st = { running: ['Working', 'acc'], waiting: ['Needs you', 'fill'], error: ['Error', 'bad'], idle: [x.unseen ? 'Hungry' : 'Idle', x.unseen ? 'acc' : 'off'], starting: ['Starting', 'off'], exited: ['Ended', 'off'] }[x.status] || [x.status, ''];
       status.className = `chip st2 ${st[1]}`;
       status.replaceChildren(h('i', { 'aria-hidden': 'true' }), `${st[0]}${since ? ` · ${since}` : ''}`);
-      chips.replaceChildren(status, x.queued ? chip(`${x.queued} queued`, 'acc', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
+      put(chips, status, x.queued ? chip(`${x.queued} queued`, 'acc', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
         x.aiTitle && x.aiTitle !== agentName(x) ? chip(x.aiTitle, 'off') : null);
     },
   };
@@ -1100,7 +1109,7 @@ function queueBlock(a, note) {
 
 // buildAgent fills the agent's page for its state: working (stats, what it
 // does, a prompt box) or asking (the question and its answers).
-function buildAgent(a, body) {
+function buildAgent(a, body, view = agentView) {
   const hd = agentHead(a);
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
@@ -1154,7 +1163,7 @@ function buildAgent(a, body) {
     }
     const s = sending.get(w.id);
     if (s) { opts.forEach((o) => { o.disabled = true; }); say2(note, s.status === 'sent' ? `Sent ${s.key}. Waiting for the agent…` : `Sending ${s.key}…`); }
-    agentView.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
+    view.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
     const ask = h('div', { class: 'askblk' },
       h('span', { class: 'eyebrow' }, askLabel(w)),
       h('span', { class: 'serif q' }, isQ ? w.title : askOf(a).q),
@@ -1196,11 +1205,11 @@ function buildAgent(a, body) {
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
     const qb = queueBlock(a, note);
-    body.replaceChildren(...[hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el].filter(Boolean));
+    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
     return (x) => { hd.update(x); qb.update(x); };
   }
 
-  agentView.answer = null;
+  view.answer = null;
   const stat = (k) => { const v = h('span', { class: 'v' }); return [h('div', { class: 'stat' }, h('span', { class: 'kl' }, k), v), v]; };
   const [sCtx, vCtx] = stat('Context'), [sTok, vTok] = stat('Tokens'), [sCost, vCost] = stat('Cost'), [sTurns, vTurns] = stat('Turns');
   const prog = h('i', {});
@@ -1234,7 +1243,7 @@ function buildAgent(a, body) {
       h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
       a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
-  body.replaceChildren(hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
+  put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
     h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
@@ -1264,6 +1273,277 @@ function buildAgent(a, body) {
     lastWhen.textContent = lastActive(x);
     foot.textContent = [tilde(x.cwd), S.state?.server?.name].filter(Boolean).join(' · ');
   };
+}
+
+// ---- the sidebar: an agent beside the deck ----------------------------------------------------
+//
+// A tile on Home opens its agent in an orange column on the right (#home/<id>);
+// the deck (or Panel view) gives it room. The same answers, prompt box and
+// queue as the agent's page; Full page ↗ has the rest.
+
+const CTX_TICKS = 28;
+let bar = null; // { el, body, id, key, update, answer }
+
+function barEl() {
+  if (bar) return bar;
+  const body = h('div', { class: 'abbody' });
+  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body));
+  document.body.append(el);
+  bar = { el, body, id: '', key: '', update: null, answer: null };
+  return bar;
+}
+
+function closeBar() { if (S.page === 'home' && S.arg) location.hash = '#home'; }
+
+// syncBar opens, fills or closes the sidebar for the page and the state.
+function syncBar() {
+  const b = barEl();
+  const want = S.page === 'home' ? S.arg : '';
+  const a = want ? agentsList().find((x) => x.id === want) : null;
+  if (want && !a && S.state) { history.replaceState(null, '', '#home'); S.arg = ''; } // it ended
+  const open = !!a;
+  document.documentElement.classList.toggle('barred', open);
+  b.el.setAttribute('aria-hidden', open ? 'false' : 'true');
+  b.el.inert = !open;
+  fitDeck(open);
+  if (!a) { b.key = ''; b.answer = null; return; } // the last agent stays while it slides out
+  const key = agentKey(a);
+  if (b.id !== a.id || b.key !== key) {
+    const hadFocus = b.body.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT';
+    const swapped = b.id !== a.id;
+    b.id = a.id; b.key = key;
+    b.update = buildBar(a, b.body, b);
+    if (swapped) b.el.querySelector('.abin').scrollTop = 0;
+    if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
+  }
+  b.update(a);
+}
+
+// fitDeck scales the deck down (never up) so it keeps clear of the
+// sidebar: a true scale, so names and critters shrink together.
+function fitDeck(open) {
+  const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
+  if (!m) return;
+  let z = 1;
+  if (open && window.innerWidth > 900) {
+    const room = window.innerWidth - barEl().el.offsetWidth - m.getBoundingClientRect().left - 24;
+    z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
+  }
+  m.style.setProperty('--dz', z.toFixed(3));
+}
+window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
+
+// buildBar fills the sidebar as the design draws it: the critter, tool and
+// ×; the name in serif with its state; then the question and its answers, or
+// what it does now and the last prompt; the prompt box and the queue; and at
+// the bottom the numbers, Focus / Interrupt and Full page ↗.
+function buildBar(a, body, view) {
+  const label = (text, more) => h('span', { class: 'ablbl' }, text, more ? h('span', { class: 'dimx' }, ` · ${more}`) : null);
+  const note = h('p', { class: 'abnote', role: 'status', 'aria-live': 'polite' });
+  const external = codexThread(a);
+  const typable = !external && (!a.external || inApp(a));
+
+  // head
+  const spr = h('span', { class: 'spr c dk' });
+  const meta = h('span', { class: 'abmeta' });
+  const tag = h('span', { class: 'abtag' });
+  const sum = h('span', { class: 'absum' });
+  const head = [
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr), meta,
+      h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
+    h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
+    sum,
+  ];
+
+  // an input joined to its button: the design's "own" row
+  const ownRow = (placeholder, go, dark, onSend) => {
+    const input = h('input', { type: 'text', placeholder, maxlength: '4000', autocomplete: 'off', 'aria-label': placeholder, 'data-k': `bar-in-${a.id}` });
+    const send = (e) => { e?.preventDefault(); const text = input.value.trim(); if (text) onSend(text, input); };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(e); });
+    return h('div', { class: `abown${dark ? ' dark' : ''}` }, input, h('button', { type: 'button', class: 'go', onclick: send }, go));
+  };
+
+  // the queue, one line each: "+1 queued · "then open a PR" cancel"
+  const qEl = h('div', { class: 'abq' });
+  let qSig = null;
+  const showQ = (items) => {
+    put(qEl, items.map((it, i) => h('div', { class: 'abqd' }, h('span', { class: 'k2' }, i === 0 ? `+${items.length}` : `${i + 1}.`),
+      h('span', { class: 'qt', title: it.text }, i === 0 ? `queued · “${it.text}”` : `“${it.text}”`),
+      h('button', { type: 'button', class: 'abu', 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, onclick: async () => {
+        try { await api('POST', `/v1/agents/${encodeURIComponent(a.id)}/queue/${encodeURIComponent(it.id)}/cancel`); say2(note, 'Cancelled: it won\'t be sent'); } catch (ex) { say2(note, ex.status === 404 ? 'It was sent already' : ex.message, ex.status !== 404); }
+        qSig = null; await load('state'); updateDeck();
+      } }, 'cancel'))));
+  };
+  const updQ = async (x) => {
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    if (want === qSig) return;
+    qSig = want;
+    if (!x.queued) { showQ([]); return; }
+    try { const r = await api('GET', `/v1/agents/${encodeURIComponent(x.id)}/queue`); if (qSig === want) showQ(r?.queue || []); } catch (ex) { if (ex.status !== 401) say2(note, `Queued prompts: ${ex.message}`, true); }
+  };
+
+  // middle: the question, or what it does
+  let mid = [];
+  let low = null; // the prompt box: at the bottom, over the numbers
+  let liveUpd = () => {};
+  view.answer = null;
+  if (a.status === 'waiting' && a.waiting) {
+    const w = a.waiting;
+    const isQ = w.kind === 'question';
+    const opts = [];
+    const lock = (on) => opts.forEach((o) => { o.disabled = on; });
+    const answer = async (key) => {
+      if (sending.get(w.id)) return;
+      sending.set(w.id, { key, status: 'sending' });
+      lock(true);
+      say2(note, `Sending ${key}…`);
+      try { await post(a, 'answer', { promptId: w.id, key }); sending.set(w.id, { key, status: 'sent' }); say2(note, `Sent ${key}. Waiting for the agent…`); } catch (ex) {
+        sending.delete(w.id); lock(false);
+        say2(note, ex.status === 409 ? 'The question changed: showing the latest.' : `Not sent: ${ex.message}`, true);
+      }
+    };
+    const list = h('div', { class: 'abopts', role: 'group', 'aria-label': 'Answers' });
+    for (const o of w.options || []) {
+      const i = o.label.indexOf(' — ');
+      const [t, sub] = i > 0 ? [o.label.slice(0, i), o.label.slice(i + 3)] : [o.label, ''];
+      const b = h('button', { type: 'button', class: `abopt${o.primary ? ' p' : ''}`, 'aria-keyshortcuts': o.key, 'data-k': `bar-opt-${o.key}`, onclick: () => answer(o.key) },
+        h('span', { class: 'k' }, o.key), h('span', {}, t, sub ? h('span', { class: 'h2' }, ` · ${sub}`) : null), o.selected ? h('span', { class: 'h' }, 'ticked') : null);
+      opts.push(b); list.append(b);
+    }
+    const s = sending.get(w.id);
+    if (s) { lock(true); say2(note, s.status === 'sent' ? `Sent ${s.key}. Waiting for the agent…` : `Sending ${s.key}…`); }
+    view.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
+    const free = w.kind === 'input' || !(w.options || []).length;
+    const own = typable ? ownRow(free ? 'What should it do?' : w.kind === 'permission' ? 'Tell it what to do instead' : 'Type your own answer', 'Send', false, async (text, input) => {
+      if (sending.get(w.id)) return;
+      sending.set(w.id, { key: 'your answer', status: 'sending' }); lock(true);
+      say2(note, 'Sending your answer…');
+      try { await post(a, 'prompt', { text, interrupt: true }); sending.set(w.id, { key: 'your answer', status: 'sent' }); input.value = ''; say2(note, 'Sent your answer. Waiting for the agent…'); } catch (ex) {
+        sending.delete(w.id); lock(false); say2(note, `Not sent: ${ex.message}`, true);
+      }
+    }) : null;
+    const ctxLine = [w.title && !isQ ? cap(w.title) : '', w.context && !isQ ? w.context : ''].filter(Boolean).join(' · ');
+    mid = [label(askLabel(w)), h('b', { class: 'abqn' }, isQ ? w.title : askOf(a).q),
+      !isQ && w.detail ? h('pre', { class: 'abcmd' }, h('span', { class: 'pr' }, '$ '), w.detail) : null,
+      ctxLine ? h('span', { class: 'abctxl' }, ctxLine) : null,
+      isQ && w.detail ? h('p', { class: 'ablast' }, w.detail) : null,
+      free ? null : list, own,
+      free && !own ? h('p', { class: 'abctxl' }, 'It wants free text: answer it in its terminal.') : null];
+  } else {
+    const doingLbl = h('span', { class: 'ablbl' });
+    const doing = h('pre', { class: 'abcmd' });
+    const plain = h('p', { class: 'abplain' });
+    const lastLbl = h('span', { class: 'ablbl' });
+    const last = h('p', { class: 'ablast' });
+    // A long prompt shows 20 lines; "Show all" opens the rest.
+    const more = h('button', { type: 'button', class: 'abu abmore', hidden: true, onclick: () => {
+      const open = last.classList.toggle('open');
+      more.textContent = open ? 'Show less' : 'Show all';
+    } }, 'Show all');
+    let box = null;
+    if (!external && a.status !== 'exited' && a.status !== 'error') {
+      const busyNow = a.status === 'running' || a.status === 'starting';
+      box = ownRow(busyNow ? 'Tell it what to do next (goes in when this turn ends)' : 'Tell it what to do next', busyNow ? 'Queue' : 'Send', true, async (text, input) => {
+        say2(note, 'Sending…');
+        try {
+          const r = await post(a, 'prompt', { text, mode: 'queue' });
+          input.value = '';
+          say2(note, r?.status === 'queued' ? `Queued${r.position > 1 ? `, number ${r.position}` : ''}: it goes in when ${r.position > 1 ? 'the turns before it end' : 'this turn ends'}.` : 'Sent.');
+          if (r?.status === 'queued') { await load('state'); updateDeck(); }
+        } catch (ex) { say2(note, `Not sent: ${ex.message}`, true); }
+      });
+    }
+    mid = [doingLbl, doing, plain, lastLbl, last, more];
+    low = box;
+    liveUpd = (x) => {
+      const subs = x.subagents || [];
+      if (x.status === 'running') {
+        doingLbl.replaceChildren(`Doing now · ${subsOnly(x) || verb(x.activity?.tool)}`, subs.length ? h('span', { class: 'dimx' }, ` · ${plural(subs.length, 'subagent')}`) : '');
+        put(doing, h('div', {}, h('span', { class: 'pr' }, '$ '), x.activity?.detail || 'thinking…'),
+          subs.slice(0, 4).map((sa) => h('div', { class: 'sub2' }, h('span', { class: 'pr' }, '↳ '), sa.title, sa.tool ? ` · ${verb(sa.tool)}` : '')));
+        doing.hidden = false; plain.hidden = true;
+      } else {
+        doingLbl.textContent = x.status === 'error' ? 'Error' : 'Status';
+        plain.textContent = x.status === 'error' ? (x.error?.message || 'unknown error')
+          : x.status === 'idle' ? `Finished ${rel(x.statusSince)} ago${x.unseen ? ' · nobody has looked yet' : ''}`
+            : x.status === 'starting' ? 'Starting…' : `Ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`;
+        doing.hidden = true; plain.hidden = false;
+      }
+      const when = x.lastActive ? rel(x.lastActive) : '';
+      lastLbl.replaceChildren('Last prompt', when ? h('span', { class: 'dimx' }, ` · ${ageMin(x.lastActive) < 1 ? 'just now' : `${when} ago`}`) : '');
+      if (last.textContent !== (x.lastPrompt || '–')) {
+        last.textContent = x.lastPrompt || '–';
+        requestAnimationFrame(() => { more.hidden = !last.classList.contains('open') && last.scrollHeight <= last.clientHeight + 2; });
+      }
+    };
+  }
+
+  // bottom: numbers, actions, keys
+  const nums = barNumbers();
+  const acts = h('div', { class: 'abacts' });
+  if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
+  else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
+  if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
+  acts.append(h('span', { class: 'sp' }), h('a', { class: 'abfull', href: `#agent/${encodeURIComponent(a.id)}`, 'data-k': 'bar-full', title: 'The agent\'s whole page: handoff, Stop and more' }, 'Full page ↗'));
+  const n = (a.waiting?.options || []).length;
+  const hint = h('span', { class: 'abhint' }, [a.status === 'waiting' && n ? `1–${n} answers` : '', 'Esc closes', '← → next agent'].filter(Boolean).join(' · '));
+
+  put(body, head, mid, h('div', { class: 'abbottom' }, qEl, low, nums.el, acts, note, hint));
+  return (x) => {
+    setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+    put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,
+      x.branch ? h('span', { class: 'dimx' }, ` · ${x.branch}`) : null);
+    const since = rel(x.statusSince);
+    const st = { running: 'working', waiting: 'needs you', error: 'error', idle: x.unseen ? 'hungry' : 'idle', starting: 'starting', exited: 'ended' }[x.status] || x.status;
+    tag.textContent = `${st}${since ? ` · ${since}` : ''}`;
+    tag.className = `abtag${['running', 'waiting', 'error'].includes(x.status) || x.unseen ? '' : ' off'}`;
+    const s2 = x.aiTitle && x.aiTitle !== agentName(x) ? x.aiTitle : '';
+    sum.textContent = s2;
+    sum.hidden = !s2;
+    liveUpd(x);
+    updQ(x);
+    nums.update(x);
+  };
+}
+
+// barNumbers: "context 56k / 200k ... 28%", 28 ticks, then tokens in and
+// out, cache read and write, cost and turns, small.
+function barNumbers() {
+  const ticks = h('div', { class: 'abticks', 'aria-hidden': 'true' });
+  for (let i = 0; i < CTX_TICKS; i++) ticks.append(h('i', {}));
+  const used = h('small', {});
+  const pctEl = h('b', {});
+  const cell = (k, extra) => { const v = h('dd', {}); return [h('div', {}, h('dt', {}, k), v), v, extra]; };
+  const [cIn, vIn] = cell('Tokens in'), [cOut, vOut] = cell('Tokens out'), [cRd, vRd] = cell('Cache read'),
+    [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost'), [cTurns, vTurns] = cell('Turns');
+  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' },
+    h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Context'), used), pctEl), ticks,
+    h('dl', {}, cIn, cOut, cRd, cWr, cCost, cTurns));
+  return {
+    el,
+    update: (x) => {
+      const pct = ctxPct(x);
+      const c = x.context || {};
+      used.textContent = c.window ? `${fmtN(c.used)} / ${fmtN(c.window)}` : '';
+      pctEl.textContent = c.window ? `${pct}%` : '–';
+      const lit = Math.round((pct / 100) * CTX_TICKS);
+      [...ticks.children].forEach((t, i) => t.classList.toggle('on', i < lit));
+      const t = x.tokens || {};
+      vIn.textContent = fmtN(t.input); vOut.textContent = fmtN(t.output);
+      vRd.textContent = fmtN(t.cacheRead); vWr.textContent = fmtN(t.cacheWrite);
+      if (codexThread(x)) vCost.textContent = '–';
+      else put(vCost, fmtCost(x.costUsd), h('small', {}, ' est'));
+      vTurns.textContent = String(x.turns ?? 0);
+    },
+  };
+}
+
+// barStep: ← and → while the sidebar is open go to the agent before or after.
+function barStep(d) {
+  const list = bySlot();
+  const i = list.findIndex((x) => x.id === S.arg);
+  if (i < 0 || list.length < 2) return;
+  location.hash = `#home/${encodeURIComponent(list[(i + d + list.length) % list.length].id)}`;
 }
 
 // ---- start an agent, in a project -------------------------------------------------------------
@@ -3176,6 +3456,7 @@ function parseHash() {
   if (page === 'flash') return ['flash', arg];
   if (page === 'board' && arg) return ['board', arg];
   if (page === 'agent' && arg) return ['agent', arg];
+  if (page === 'home' && arg) return ['home', arg];
   if (page === 'start') return ['start', arg];
   if (page === 'agents') return ['agents', arg];
   if (page === 'help') return ['troubleshoot', ''];
@@ -3188,6 +3469,15 @@ const NAV = { newboard: 'boards', flash: 'boards', board: 'boards', agent: 'home
 
 async function route(initial) {
   const [page, arg] = parseHash();
+  // On Home, a tile only opens or swaps the sidebar: the deck stays as it is.
+  if (!initial && page === 'home' && S.page === 'home' && arg !== S.arg && (deck?.grid.isConnected || (S.panel && $('.pgrid')))) {
+    const opening = !S.arg && arg;
+    S.arg = arg;
+    if (S.panel) updatePanel(); else updateDeck();
+    if (opening) bar?.el.querySelector('h2')?.focus({ preventScroll: true });
+    else if (!arg) document.querySelector(`.tile[data-id="${CSS.escape(bar?.id || '')}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
@@ -3212,6 +3502,7 @@ async function route(initial) {
   }
   await loadAll(...needs(page), ...extras(page));
   draw();
+  syncBar();
   if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
   if (changed && !initial) {
     const hd = document.querySelector(`.page > section[data-page="${section}"] h1`);
@@ -3276,11 +3567,14 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   if (e.key === 'Escape') {
+    if (S.page === 'home' && S.arg && (!typing || bar?.el.contains(document.activeElement))) { document.activeElement?.blur(); closeBar(); return; }
     if (S.page === 'home' && S.panel) { S.panel = false; draw(true); return; }
     if ((S.page === 'agent' || S.page === 'start') && !typing) location.hash = '#home';
     return;
   }
   if (!typing && S.page === 'agent' && agentView?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); agentView.answer(e.key); }
+  if (!typing && S.page === 'home' && S.arg && bar?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); bar.answer(e.key); }
+  if (!typing && S.page === 'home' && S.arg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); barStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   const inSwitch = document.activeElement?.getAttribute('role') === 'radio' && !document.activeElement.closest('.pager, .pvbar');
   if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch) {
     e.preventDefault();

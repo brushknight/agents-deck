@@ -152,7 +152,7 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		e.A.Unseen = false // it's being fed
 		e.SetStatus(model.Running)
 		e.Background = false
-		e.A.LastPrompt = clip(oneLine(ev.Prompt), 280)
+		e.A.LastPrompt = clip(oneLine(ev.Prompt), model.LastPromptMax)
 		e.A.Turns++
 	case "PreToolUse":
 		if ev.ToolName == "AskUserQuestion" {
