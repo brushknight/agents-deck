@@ -793,7 +793,7 @@ function fillDeck() {
   }
   deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
-    seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); } }, { key: 'view' }));
+    seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
   deck.strip.replaceChildren(summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
@@ -828,7 +828,7 @@ function slideIn(el) {
 function pageArrows(btns, count) {
   const cur = S.deckPage || 0;
   const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < 0 || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
-  return [arr(-1, 'Previous page', '‹'), ...btns, arr(1, 'Next page', '›'), count > 1 ? h('kbd', { title: 'Arrow keys turn the pages' }, '← →') : null];
+  return [arr(-1, 'Previous page (←)', '‹'), ...btns, arr(1, 'Next page (→)', '›')];
 }
 function panelPager() {
   const pages = pageCount();
@@ -839,11 +839,20 @@ function panelPager() {
   }
   return pageArrows(btns, pages);
 }
+// panelHead: the line over the panel's grid, as the panel draws it: how
+// many agents, how many wait for you and how many run.
+function panelHead() {
+  const all = agentsList();
+  const wait = all.filter(needsYou).length, run = all.filter((a) => a.status === 'running').length;
+  return h('div', { class: 'pvhead mono' }, h('span', { class: 'pvface' }, critter({ pose: 'hi', body: '#FF4D00', cut: '#000' })), h('span', {}, `×${all.length}`), h('span', { class: 'sp' }),
+    wait ? h('span', { class: 'acc' }, `${wait} wait`) : null, wait && run ? ' · ' : null, run ? h('span', { class: 'acc' }, `${run} run`) : null);
+}
 function updatePanel() {
   const g = $('.pgrid');
   if (!g) return draw(true);
   reconcile(g, cells(S.deckPage || 0));
   slideIn(g);
+  $('.pvhead')?.replaceWith(panelHead());
   $('.pvpager')?.replaceChildren(...panelPager());
 }
 
@@ -874,10 +883,10 @@ function drawPanel() {
   const legend = (cls, text) => h('div', { class: 'lg' }, h('span', { class: `sw4 ${cls}`, 'aria-hidden': 'true' }), h('span', { class: 'kl' }, text));
   return h('div', { class: 'panelview', role: 'dialog', 'aria-label': 'Panel view' },
     h('div', { class: 'pvbar' }, h('h1', { class: 'eyebrow acc' }, 'Panel view'), h('span', { class: 'sub' }, 'as the wall panel shows it'), h('span', { class: 'sp' }),
-      seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'panel', (v) => { if (v === 'grid') leave(); }, { key: 'pview' }),
+      seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'panel', (v) => { if (v === 'grid') { leave(); document.activeElement?.blur(); } }, { key: 'pview' }),
       h('button', { type: 'button', class: 'btn sm', 'data-k': 'pv-leave', onclick: leave }, icon('back', 14), 'Leave · Esc')),
     h('div', { class: 'pvbody' }, h('div', { class: 'pvside' }),
-      h('div', { class: 'pvscreen' }, grid),
+      h('div', { class: 'pvscreen' }, panelHead(), grid),
       h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
     h('div', { class: 'pager pvpager' }, ...panelPager()));
 }
@@ -2874,7 +2883,7 @@ function drawNetwork() {
       }
       right.push(btn('Change Wi-Fi', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }, 'sm', { title: 'Give it another network' }));
     } else if (!d.online) right.push(chip('Offline', 'off st', 'offline', { title: d.canWifi !== false ? 'Plug it in to change its Wi-Fi' : null }));
-    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), null, right, { name: true, off: !d.online, below: linkDots(d), pic: thumb(devScreen(d, 'xs')), extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null });
+    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), null, right, { cls: 'fixr', name: true, off: !d.online, below: linkDots(d), pic: thumb(devScreen(d, 'xs')), extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null });
   });
   if (!rows.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'txt dim' }, 'No boards yet.')));
   out.push(sec('Boards on Wi-Fi', boards.length ? `${onWifi} of ${boards.length}` : null, ['Boards', '#boards'], blk(...rows)));
@@ -2907,9 +2916,9 @@ function bluetoothNetwork() {
 function phones(s) {
   const devs = (S.devices?.devices || []).filter((d) => d.kind === 'network');
   const content = [];
-  const pairBtn = h('button', { type: 'button', class: 'btn p', disabled: !s.networkRunning, 'data-k': 'pair', onclick: () => { S.pairing = { form: true }; draw(); $('#pair-name')?.focus(); } }, icon('plus', 14, 2.2), 'Pair a phone or panel');
+  const pairBtn = h('button', { type: 'button', class: 'btn p sm', disabled: !s.networkRunning, 'data-k': 'pair', onclick: () => { S.pairing = { form: true }; draw(); $('#pair-name')?.focus(); } }, icon('plus', 14, 2.2), 'Pair a phone or panel');
   pairBtn.title = 'With a one-time code; it sees the deck while it is on your network';
-  if (!S.pairing) content.push(h('div', { class: 'cards' }, pairBtn));
+  if (!S.pairing) content.push(blk(row('Pair a phone or panel', 'With a one-time code', [pairBtn], { pic: ico('phone') })));
   if (!s.networkRunning && !S.pairing) content.push(note('Turn on Paired devices over the network above to pair one.'));
   if (S.pairing?.form) {
     const scope = S.pairing.scope || 'view';
@@ -3240,7 +3249,9 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (!typing && S.page === 'agent' && agentView?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); agentView.answer(e.key); }
-  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && document.activeElement?.getAttribute('role') !== 'radio') {
+  const inSwitch = document.activeElement?.getAttribute('role') === 'radio' && !document.activeElement.closest('.pager, .pvbar');
+  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch) {
+    e.preventDefault();
     const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
     if (next >= 0 && next < pageCount()) goPage(next);
   }
