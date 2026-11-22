@@ -308,6 +308,10 @@ h1.sm { font-size: 40px; }
 .chip.off { color: var(--muted); }
 .chip.bad { color: var(--bad); border-color: rgba(242, 118, 107, 0.5); }
 .chip.st { width: 120px; overflow: hidden; }
+/* beside buttons in a row, a status chip takes the buttons' height */
+.row > .r:has(> .btn:not(.sm):not(.xs):not(.link)) > .chip { height: 44px; }
+.row > .r:has(> .btn.sm:not(.link)) > .chip { height: 34px; }
+.row > .r:has(> .btn.xs) > .chip { height: 30px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* controls */
@@ -324,6 +328,7 @@ h1.sm { font-size: 40px; }
 .seg button:first-child { border-left: 0; }
 .seg button:hover:not(:disabled) { color: var(--ink); }
 .seg button[aria-checked="true"] { background: var(--ink); color: var(--term); font-weight: 700; }
+.seg button[aria-checked="true"]:hover:not(:disabled) { color: var(--term); background: #FFFFFF; }
 .seg button:disabled { opacity: 0.4; cursor: default; }
 .seg button:focus-visible { outline-offset: -3px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
@@ -498,6 +503,17 @@ a.tile:hover { border-color: var(--edge); }
 .pg[aria-current="page"] { background: var(--ink); color: var(--term); border-color: var(--ink); }
 .pg.hot:not([aria-current]) { border-color: var(--orange); color: var(--orange2); }
 .pager .sub { margin-left: 8px; }
+/* ‹ › around the page numbers; the deck slides the way you turn it */
+.pg.arr { color: var(--ink); }
+.pg.arr:hover:not(:disabled), .pg:hover:not([aria-current]):not(:disabled) { border-color: var(--edge); color: var(--ink); background: var(--hover); }
+.pg:disabled { opacity: 0.3; cursor: default; }
+.pager kbd { font: 500 11px/1 var(--f-mono); color: var(--muted); border: 1px solid var(--rule); padding: 3px 5px; }
+@keyframes deckFromR { from { transform: translateX(12%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes deckFromL { from { transform: translateX(-12%); opacity: 0; } to { transform: none; opacity: 1; } }
+.slide-next { animation: deckFromR 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.slide-prev { animation: deckFromL 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .slide-next, .slide-prev { animation: none; } }
+.pvpager { justify-content: center; padding: 0 0 18px; }
 .sp { margin-left: auto; }
 .qlist { display: flex; flex-direction: column; gap: 10px; padding: 0 4px 4px 0; }
 .qrow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; color: var(--term); background: var(--orange); border: 2px solid var(--term); box-shadow: 4px 4px 0 var(--term); min-width: 0; }
@@ -529,7 +545,7 @@ a.tile:hover { border-color: var(--edge); }
 .pvbar h1 { font-family: var(--f-mono); font-size: 12px; line-height: 16px; letter-spacing: 0.14em; font-weight: 700; }
 .pvbody { flex: 1; display: flex; align-items: center; justify-content: center; gap: 30px; padding: 14px; min-height: 0; }
 .pvside { width: 150px; flex: none; display: flex; flex-direction: column; gap: 14px; }
-.pvscreen { width: min(636px, calc(100vh - 100px), calc(100vw - 380px)); aspect-ratio: 1 / 1; flex: none; background: #000; border-radius: 14px; padding: 14px; box-shadow: 0 0 0 6px var(--hover), 0 0 0 7px var(--rule); }
+.pvscreen { overflow: hidden; width: min(636px, calc(100vh - 150px), calc(100vw - 380px)); aspect-ratio: 1 / 1; flex: none; background: #000; border-radius: 14px; padding: 14px; box-shadow: 0 0 0 6px var(--hover), 0 0 0 7px var(--rule); }
 .pgrid { gap: 8px; }
 .lg { display: flex; align-items: center; gap: 10px; }
 .sw4 { width: 18px; height: 18px; flex: none; }
@@ -665,6 +681,17 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .app-macos { --app-top: 38px; }
 .app-macos .side { padding-top: calc(var(--app-top) + 4px); }
 .app-macos .main { margin-top: var(--app-top); border-top: 1px solid var(--line); }
+/* App builds that say so (.app-row) put the status strip in the title bar
+   row itself, as a macOS toolbar: the sidebar runs to the top with the
+   traffic lights, the strip runs along the top of the content, no empty band.
+   The folded rail widens to clear the traffic lights. */
+.app-row .main { margin-top: 0; border-top: 0; }
+.app-row .topbar { height: var(--app-top); }
+.app-row .topbar a { padding: 0 14px; }
+.app-row .topbar a b { font-size: 15px; }
+.app-row.folded { --side: 84px; }
+/* the panel view covers the window: its bar is the title bar row, clear of the traffic lights */
+.app-row .pvbar { height: var(--app-top); padding-left: 84px; }
 
 /* ---------- narrower windows ---------- */
 @media (max-width: 1100px) {

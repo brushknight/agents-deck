@@ -28,6 +28,28 @@ const APP = (() => {
   return m ? m[1] : '';
 })();
 if (APP) document.documentElement.classList.add('in-app', `app-${APP}`);
+// The macOS app puts the status strip in its title bar row: it drags the
+// window only over the sidebar, so tell it how wide the sidebar is.
+if (window.agentsDeckApp && window.agentsDeckApp.titlebarRow) {
+  document.documentElement.classList.add('app-row');
+  const side = () => document.querySelector('.side');
+  const tell = () => {
+    const el = side();
+    // The panel view covers the window: then only the traffic lights' corner drags.
+    const left = document.querySelector('.panelview') ? 84 : el ? Math.round(el.getBoundingClientRect().width) : -1;
+    if (left < 0 || left === told) return;
+    told = left;
+    try { window.agentsDeckApp.post({ action: 'titlebar', left }); } catch (e) { /* no app */ }
+  };
+  let told = -1;
+  const watch = () => {
+    const el = side();
+    if (el && 'ResizeObserver' in window) new ResizeObserver(tell).observe(el);
+    new MutationObserver(tell).observe(document.body, { childList: true, subtree: true });
+    tell();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch); else watch();
+}
 
 // appPost asks the app for something only it can do; false outside the app.
 function appPost(action) {
@@ -758,14 +780,15 @@ function fillDeck() {
   const pages = pageCount();
   S.deckPage = Math.min(S.deckPage || 0, pages - 1);
   reconcile(deck.grid, cells(S.deckPage));
+  slideIn(deck.grid);
   const onPage = agentsList().filter((a) => Math.floor((a.slot ?? 0) / SPOTS) === S.deckPage).length;
   const pageBtns = [];
   for (let p = 0; p < pages + (onPage === SPOTS && S.deckPage === pages - 1 ? 1 : 0); p++) {
     const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
     pageBtns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === S.deckPage ? 'page' : null, 'aria-label': `Page ${p + 1}${hot ? ', an agent there needs you' : ''}`,
-      onclick: () => { S.deckPage = p; updateDeck(); } }, String(p + 1)));
+      onclick: () => goPage(p) }, String(p + 1)));
   }
-  deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageBtns,
+  deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
     seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
@@ -781,6 +804,44 @@ function fillDeck() {
   const title = need.length ? h('p', { class: 'serif big' }, `${say(need.length)} need`, need.length === 1 ? 's ' : ' ', h('em', {}, 'you.'))
     : h('p', { class: 'serif big' }, 'Nothing needs ', h('em', {}, 'you.'));
   deck.side.replaceChildren(title, needsSec, readySec);
+}
+
+// Turning the deck's pages: the numbers, ‹ ›, and ← → all come here; the
+// tiles slide in from the side you turned to.
+function goPage(p) {
+  const cur = S.deckPage || 0;
+  if (p === cur || p < 0 || p >= Math.max(pageCount(), 1) + 1) return;
+  S.slide = p > cur ? 1 : -1;
+  S.deckPage = p;
+  if (S.panel) updatePanel(); else updateDeck();
+}
+function slideIn(el) {
+  if (!S.slide || !el) return;
+  el.classList.remove('slide-next', 'slide-prev');
+  void el.offsetWidth; // restart the animation
+  el.classList.add(S.slide > 0 ? 'slide-next' : 'slide-prev');
+  S.slide = 0;
+}
+function pageArrows(btns, count) {
+  const cur = S.deckPage || 0;
+  const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < 0 || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
+  return [arr(-1, 'Previous page', '‹'), ...btns, arr(1, 'Next page', '›'), count > 1 ? h('kbd', { title: 'Arrow keys turn the pages' }, '← →') : null];
+}
+function panelPager() {
+  const pages = pageCount();
+  const btns = [];
+  for (let p = 0; p < pages; p++) {
+    const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
+    btns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === (S.deckPage || 0) ? 'page' : null, 'aria-label': `Page ${p + 1}`, onclick: () => goPage(p) }, String(p + 1)));
+  }
+  return pageArrows(btns, pages);
+}
+function updatePanel() {
+  const g = $('.pgrid');
+  if (!g) return draw(true);
+  reconcile(g, cells(S.deckPage || 0));
+  slideIn(g);
+  $('.pvpager')?.replaceChildren(...panelPager());
 }
 
 // Nothing on the deck yet: start one in a project, or add a session.
@@ -814,7 +875,8 @@ function drawPanel() {
       h('button', { type: 'button', class: 'btn sm', 'data-k': 'pv-leave', onclick: leave }, icon('back', 14), 'Leave · Esc')),
     h('div', { class: 'pvbody' }, h('div', { class: 'pvside' }),
       h('div', { class: 'pvscreen' }, grid),
-      h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))));
+      h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
+    h('div', { class: 'pager pvpager' }, ...panelPager()));
 }
 
 // ---- an agent: its page from a tile -------------------------------------------------------
@@ -3079,7 +3141,7 @@ function listenState() {
       stateQueued = false;
       showSystem(S.system);
       if (['home', 'agent'].includes(S.page) && !S.panel) updateDeck();
-      else if (S.page === 'home' && S.panel) { const g = $('.pgrid'); if (g) reconcile(g, cells(S.deckPage || 0)); }
+      else if (S.page === 'home' && S.panel) updatePanel();
     });
   });
   stateES.onerror = () => { if (stateES.readyState === EventSource.CLOSED) setTimeout(listenState, 3000); };
@@ -3098,7 +3160,7 @@ document.addEventListener('keydown', (e) => {
   if (!typing && S.page === 'agent' && agentView?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); agentView.answer(e.key); }
   if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && document.activeElement?.getAttribute('role') !== 'radio') {
     const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
-    if (next >= 0 && next < pageCount()) { S.deckPage = next; if (S.panel) draw(true); else updateDeck(); }
+    if (next >= 0 && next < pageCount()) goPage(next);
   }
 });
 
