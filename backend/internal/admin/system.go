@@ -369,6 +369,7 @@ func (a *Admin) restart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "the service isn't set to start at login, so it can't restart itself: turn on Start when I log in, or stop agentctl serve and start it again")
 		return
 	}
+	log.Printf("restart asked from Settings")
 	a.later(func() error { return a.Login.Install(io.Discard) })
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "The service restarts now. Agents keep running; boards reconnect in a few seconds."})
 }

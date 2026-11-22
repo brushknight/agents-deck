@@ -245,6 +245,7 @@ func (a *Admin) updateApply(w http.ResponseWriter, r *http.Request) {
 				j.Message = "Installing " + s.Version + ". The service and the app restart in a moment; agents keep running."
 				j.Steps = append(j.Steps, "Downloaded and checked "+s.Version)
 			})
+			log.Printf("update to %s asked from Settings: installing, the service restarts", s.Version)
 			return a.Updater.Apply(ctx)
 		})
 	writeJSON(w, http.StatusAccepted, job)
