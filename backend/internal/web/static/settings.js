@@ -3,7 +3,7 @@
 // innerHTML: names and messages from the service are always text.
 
 import {
-  setSkew, now, fmtN, fmtCost, rel, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
+  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
 
@@ -1109,16 +1109,15 @@ function queueBlock(a, note) {
 
 // buildAgent fills the agent's page for its state: working (stats, what it
 // does, a prompt box) or asking (the question and its answers).
-function buildAgent(a, body, view = agentView, side = false) {
-  const hd = side ? barHead(a) : agentHead(a);
-  const nums = side ? barNumbers() : null;
+function buildAgent(a, body, view = agentView) {
+  const hd = agentHead(a);
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
   const external = codexThread(a);
   if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note, 'p'));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
-  if (!side && a.tool === 'claude' && a.account) {
+  if (a.tool === 'claude' && a.account) {
     for (const acc of S.accounts || []) {
       if (acc.name === a.account.name) continue;
       acts.append(twoStep(`Continue on ${acc.name}`, a.external ? `Again: a copy starts in ${acc.name}` : `Again: stops it, resumes in ${acc.name}`, '', async () => {
@@ -1129,8 +1128,7 @@ function buildAgent(a, body, view = agentView, side = false) {
   }
   const quick = a.status === 'exited' || a.external;
   const rmLabel = external || inApp(a) ? 'Hide' : watched(a) ? 'Remove from deck' : a.status === 'exited' ? 'Remove' : 'Stop';
-  if (side) acts.append(h('span', { class: 'sp' }), h('a', { class: 'btn sm', href: `#agent/${encodeURIComponent(a.id)}`, 'data-k': 'bar-full', title: 'The agent\'s whole page: handoff, Stop and more' }, 'Full page ↗'));
-  else acts.append(h('span', { class: 'sp' }), twoStep(rmLabel, quick ? '' : 'Click again to stop', 'd', async () => {
+  acts.append(h('span', { class: 'sp' }), twoStep(rmLabel, quick ? '' : 'Click again to stop', 'd', async () => {
     say2(note, `${rmLabel}: sending…`);
     try { await post(a, 'dismiss', {}); say2(note, `${rmLabel}: done`); } catch (ex) { say2(note, `${rmLabel} didn't work: ${ex.message}`, true); }
   }));
@@ -1207,8 +1205,8 @@ function buildAgent(a, body, view = agentView, side = false) {
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
     const qb = queueBlock(a, note);
-    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), qb.el, nums?.el, acts, note);
-    return (x) => { hd.update(x); qb.update(x); nums?.update(x); };
+    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
+    return (x) => { hd.update(x); qb.update(x); };
   }
 
   view.answer = null;
@@ -1245,15 +1243,12 @@ function buildAgent(a, body, view = agentView, side = false) {
       h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
       a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
-  if (side) put(body, hd.el, h('div', { class: 'term' }, doingBar, doing),
-    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, nums.el, acts, note, foot);
-  else put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
+  put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
     h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
-    nums?.update(x);
     const pct = ctxPct(x);
     vCtx.textContent = `${pct}%`;
     prog.style.width = `${pct}%`;
@@ -1310,67 +1305,225 @@ function syncBar() {
   document.documentElement.classList.toggle('barred', open);
   b.el.setAttribute('aria-hidden', open ? 'false' : 'true');
   b.el.inert = !open;
+  fitDeck(open);
   if (!a) { b.key = ''; b.answer = null; return; } // the last agent stays while it slides out
   const key = agentKey(a);
   if (b.id !== a.id || b.key !== key) {
     const hadFocus = b.body.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT';
     const swapped = b.id !== a.id;
     b.id = a.id; b.key = key;
-    b.update = buildAgent(a, b.body, b, true);
+    b.update = buildBar(a, b.body, b);
     if (swapped) b.el.querySelector('.abin').scrollTop = 0;
     if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
   }
   b.update(a);
 }
 
-// barHead: the critter, the tool, the name in serif, its state, and ×.
-function barHead(a) {
+// fitDeck scales the deck down (never up) so it keeps clear of the
+// sidebar: a true scale, so names and critters shrink together.
+function fitDeck(open) {
+  const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
+  if (!m) return;
+  let z = 1;
+  if (open && window.innerWidth > 900) {
+    const room = window.innerWidth - barEl().el.offsetWidth - m.getBoundingClientRect().left - 24;
+    z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
+  }
+  m.style.setProperty('--dz', z.toFixed(3));
+}
+window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
+
+// buildBar fills the sidebar as the design draws it: the critter, tool and
+// ×; the name in serif with its state; then the question and its answers, or
+// what it does now and the last prompt; the prompt box and the queue; and at
+// the bottom the numbers, Focus / Interrupt and Full page ↗.
+function buildBar(a, body, view) {
+  const label = (text, more) => h('span', { class: 'ablbl' }, text, more ? h('span', { class: 'dimx' }, ` · ${more}`) : null);
+  const note = h('p', { class: 'abnote', role: 'status', 'aria-live': 'polite' });
+  const external = codexThread(a);
+  const typable = !external && (!a.external || inApp(a));
+
+  // head
   const spr = h('span', { class: 'spr c dk' });
-  const face = h('span', { class: 'abface' }, spr);
-  const eyebrow = h('span', { class: 'eyebrow' });
-  const status = h('span', { class: 'chip abst' });
-  const chips = h('div', { class: 'chips' });
-  const close = h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2));
-  const el = h('div', { class: 'abhead' },
-    h('div', { class: 'abtop' }, face, eyebrow, h('span', { class: 'sp' }), close),
-    h('h2', { class: 'serif abname', tabindex: '-1' }, agentName(a)), chips);
-  return {
-    el,
-    update: (x) => {
-      setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
-      eyebrow.textContent = [TOOL_NAMES[x.tool] || x.tool || '', x.account?.name || ''].filter(Boolean).join(' · ');
-      const since = rel(x.statusSince);
-      const st = { running: 'Working', waiting: 'Needs you', error: 'Error', idle: x.unseen ? 'Hungry' : 'Idle', starting: 'Starting', exited: 'Ended' }[x.status] || x.status;
-      status.className = `chip abst${x.status === 'waiting' || x.status === 'error' ? ' fill' : ''}`;
-      status.textContent = `${st}${since ? ` · ${since}` : ''}`;
-      put(chips, status, x.queued ? chip(`+${x.queued} queued`, '', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null);
-    },
+  const meta = h('span', { class: 'abmeta' });
+  const tag = h('span', { class: 'abtag' });
+  const sum = h('span', { class: 'absum' });
+  const head = [
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr), meta,
+      h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
+    h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
+    sum,
+  ];
+
+  // an input joined to its button: the design's "own" row
+  const ownRow = (placeholder, go, dark, onSend) => {
+    const input = h('input', { type: 'text', placeholder, maxlength: '4000', autocomplete: 'off', 'aria-label': placeholder, 'data-k': `bar-in-${a.id}` });
+    const send = (e) => { e?.preventDefault(); const text = input.value.trim(); if (text) onSend(text, input); };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(e); });
+    return h('div', { class: `abown${dark ? ' dark' : ''}` }, input, h('button', { type: 'button', class: 'go', onclick: send }, go));
+  };
+
+  // the queue, one line each: "+1 queued · "then open a PR" cancel"
+  const qEl = h('div', { class: 'abq' });
+  let qSig = null;
+  const showQ = (items) => {
+    put(qEl, items.map((it, i) => h('div', { class: 'abqd' }, h('span', { class: 'k2' }, i === 0 ? `+${items.length}` : `${i + 1}.`),
+      h('span', { class: 'qt', title: it.text }, i === 0 ? `queued · “${it.text}”` : `“${it.text}”`),
+      h('button', { type: 'button', class: 'abu', 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, onclick: async () => {
+        try { await api('POST', `/v1/agents/${encodeURIComponent(a.id)}/queue/${encodeURIComponent(it.id)}/cancel`); say2(note, 'Cancelled: it won\'t be sent'); } catch (ex) { say2(note, ex.status === 404 ? 'It was sent already' : ex.message, ex.status !== 404); }
+        qSig = null; await load('state'); updateDeck();
+      } }, 'cancel'))));
+  };
+  const updQ = async (x) => {
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    if (want === qSig) return;
+    qSig = want;
+    if (!x.queued) { showQ([]); return; }
+    try { const r = await api('GET', `/v1/agents/${encodeURIComponent(x.id)}/queue`); if (qSig === want) showQ(r?.queue || []); } catch (ex) { if (ex.status !== 401) say2(note, `Queued prompts: ${ex.message}`, true); }
+  };
+
+  // middle: the question, or what it does
+  let mid = [];
+  let liveUpd = () => {};
+  view.answer = null;
+  if (a.status === 'waiting' && a.waiting) {
+    const w = a.waiting;
+    const isQ = w.kind === 'question';
+    const opts = [];
+    const lock = (on) => opts.forEach((o) => { o.disabled = on; });
+    const answer = async (key) => {
+      if (sending.get(w.id)) return;
+      sending.set(w.id, { key, status: 'sending' });
+      lock(true);
+      say2(note, `Sending ${key}…`);
+      try { await post(a, 'answer', { promptId: w.id, key }); sending.set(w.id, { key, status: 'sent' }); say2(note, `Sent ${key}. Waiting for the agent…`); } catch (ex) {
+        sending.delete(w.id); lock(false);
+        say2(note, ex.status === 409 ? 'The question changed: showing the latest.' : `Not sent: ${ex.message}`, true);
+      }
+    };
+    const list = h('div', { class: 'abopts', role: 'group', 'aria-label': 'Answers' });
+    for (const o of w.options || []) {
+      const i = o.label.indexOf(' — ');
+      const [t, sub] = i > 0 ? [o.label.slice(0, i), o.label.slice(i + 3)] : [o.label, ''];
+      const b = h('button', { type: 'button', class: `abopt${o.primary ? ' p' : ''}`, 'aria-keyshortcuts': o.key, 'data-k': `bar-opt-${o.key}`, onclick: () => answer(o.key) },
+        h('span', { class: 'k' }, o.key), h('span', {}, t, sub ? h('span', { class: 'h2' }, ` · ${sub}`) : null), o.selected ? h('span', { class: 'h' }, 'ticked') : null);
+      opts.push(b); list.append(b);
+    }
+    const s = sending.get(w.id);
+    if (s) { lock(true); say2(note, s.status === 'sent' ? `Sent ${s.key}. Waiting for the agent…` : `Sending ${s.key}…`); }
+    view.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
+    const free = w.kind === 'input' || !(w.options || []).length;
+    const own = typable ? ownRow(free ? 'What should it do?' : w.kind === 'permission' ? 'Tell it what to do instead' : 'Type your own answer', 'Send', false, async (text, input) => {
+      if (sending.get(w.id)) return;
+      sending.set(w.id, { key: 'your answer', status: 'sending' }); lock(true);
+      say2(note, 'Sending your answer…');
+      try { await post(a, 'prompt', { text, interrupt: true }); sending.set(w.id, { key: 'your answer', status: 'sent' }); input.value = ''; say2(note, 'Sent your answer. Waiting for the agent…'); } catch (ex) {
+        sending.delete(w.id); lock(false); say2(note, `Not sent: ${ex.message}`, true);
+      }
+    }) : null;
+    const ctxLine = [w.title && !isQ ? cap(w.title) : '', w.context && !isQ ? w.context : ''].filter(Boolean).join(' · ');
+    mid = [label(askLabel(w)), h('b', { class: 'abqn' }, isQ ? w.title : askOf(a).q),
+      !isQ && w.detail ? h('pre', { class: 'abcmd' }, h('span', { class: 'pr' }, '$ '), w.detail) : null,
+      ctxLine ? h('span', { class: 'abctxl' }, ctxLine) : null,
+      isQ && w.detail ? h('p', { class: 'ablast' }, w.detail) : null,
+      free ? null : list, own,
+      free && !own ? h('p', { class: 'abctxl' }, 'It wants free text: answer it in its terminal.') : null];
+  } else {
+    const doingLbl = h('span', { class: 'ablbl' });
+    const doing = h('pre', { class: 'abcmd' });
+    const plain = h('p', { class: 'abplain' });
+    const lastLbl = h('span', { class: 'ablbl' });
+    const last = h('p', { class: 'ablast' });
+    let box = null;
+    if (!external && a.status !== 'exited' && a.status !== 'error') {
+      const busyNow = a.status === 'running' || a.status === 'starting';
+      box = ownRow(busyNow ? 'Tell it what to do next (goes in when this turn ends)' : 'Tell it what to do next', busyNow ? 'Queue' : 'Send', true, async (text, input) => {
+        say2(note, 'Sending…');
+        try {
+          const r = await post(a, 'prompt', { text, mode: 'queue' });
+          input.value = '';
+          say2(note, r?.status === 'queued' ? `Queued${r.position > 1 ? `, number ${r.position}` : ''}: it goes in when ${r.position > 1 ? 'the turns before it end' : 'this turn ends'}.` : 'Sent.');
+          if (r?.status === 'queued') { await load('state'); updateDeck(); }
+        } catch (ex) { say2(note, `Not sent: ${ex.message}`, true); }
+      });
+    }
+    mid = [doingLbl, doing, plain, lastLbl, last, box];
+    liveUpd = (x) => {
+      const subs = x.subagents || [];
+      if (x.status === 'running') {
+        doingLbl.replaceChildren(`Doing now · ${subsOnly(x) || verb(x.activity?.tool)}`, subs.length ? h('span', { class: 'dimx' }, ` · ${plural(subs.length, 'subagent')}`) : '');
+        put(doing, h('div', {}, h('span', { class: 'pr' }, '$ '), x.activity?.detail || 'thinking…'),
+          subs.slice(0, 4).map((sa) => h('div', { class: 'sub2' }, h('span', { class: 'pr' }, '↳ '), sa.title, sa.tool ? ` · ${verb(sa.tool)}` : '')));
+        doing.hidden = false; plain.hidden = true;
+      } else {
+        doingLbl.textContent = x.status === 'error' ? 'Error' : 'Status';
+        plain.textContent = x.status === 'error' ? (x.error?.message || 'unknown error')
+          : x.status === 'idle' ? `Finished ${rel(x.statusSince)} ago${x.unseen ? ' · nobody has looked yet' : ''}`
+            : x.status === 'starting' ? 'Starting…' : `Ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`;
+        doing.hidden = true; plain.hidden = false;
+      }
+      const when = x.lastActive ? rel(x.lastActive) : '';
+      lastLbl.replaceChildren('Last prompt', when ? h('span', { class: 'dimx' }, ` · ${ageMin(x.lastActive) < 1 ? 'just now' : `${when} ago`}`) : '');
+      last.textContent = x.lastPrompt || '–';
+      last.title = x.lastPrompt || '';
+    };
+  }
+
+  // bottom: numbers, actions, keys
+  const nums = barNumbers();
+  const acts = h('div', { class: 'abacts' });
+  if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
+  else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
+  if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
+  acts.append(h('span', { class: 'sp' }), h('a', { class: 'abfull', href: `#agent/${encodeURIComponent(a.id)}`, 'data-k': 'bar-full', title: 'The agent\'s whole page: handoff, Stop and more' }, 'Full page ↗'));
+  const n = (a.waiting?.options || []).length;
+  const hint = h('span', { class: 'abhint' }, [a.status === 'waiting' && n ? `1–${n} answers` : '', 'Esc closes', '← → next agent'].filter(Boolean).join(' · '));
+
+  put(body, head, mid, qEl, h('div', { class: 'abbottom' }, nums.el, acts, note, hint));
+  return (x) => {
+    setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+    put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,
+      x.branch ? h('span', { class: 'dimx' }, ` · ${x.branch}`) : null);
+    const since = rel(x.statusSince);
+    const st = { running: 'working', waiting: 'needs you', error: 'error', idle: x.unseen ? 'hungry' : 'idle', starting: 'starting', exited: 'ended' }[x.status] || x.status;
+    tag.textContent = `${st}${since ? ` · ${since}` : ''}`;
+    tag.className = `abtag${['running', 'waiting', 'error'].includes(x.status) || x.unseen ? '' : ' off'}`;
+    const s2 = x.aiTitle && x.aiTitle !== agentName(x) ? x.aiTitle : '';
+    sum.textContent = s2;
+    sum.hidden = !s2;
+    liveUpd(x);
+    updQ(x);
+    nums.update(x);
   };
 }
 
-// barNumbers: context as ticks, then tokens in and out, cache, cost and turns.
+// barNumbers: "context 56k / 200k ... 28%", 28 ticks, then tokens in and
+// out, cache read and write, cost and turns, small.
 function barNumbers() {
-  const ticks = h('div', { class: 'ticks', 'aria-hidden': 'true' });
+  const ticks = h('div', { class: 'abticks', 'aria-hidden': 'true' });
   for (let i = 0; i < CTX_TICKS; i++) ticks.append(h('i', {}));
-  const ctxV = h('span', { class: 'v' });
-  const cell = (k) => { const v = h('b', {}); return [h('div', { class: 'nm1' }, h('span', { class: 'kl' }, k), v), v]; };
+  const used = h('small', {});
+  const pctEl = h('b', {});
+  const cell = (k, extra) => { const v = h('dd', {}); return [h('div', {}, h('dt', {}, k), v), v, extra]; };
   const [cIn, vIn] = cell('Tokens in'), [cOut, vOut] = cell('Tokens out'), [cRd, vRd] = cell('Cache read'),
-    [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost (est.)'), [cTurns, vTurns] = cell('Turns');
+    [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost'), [cTurns, vTurns] = cell('Turns');
   const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' },
-    h('div', { class: 'abctx' }, h('span', { class: 'kl' }, 'Context'), ctxV), ticks,
-    h('div', { class: 'nmgrid' }, cIn, cOut, cRd, cWr, cCost, cTurns));
+    h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Context'), used), pctEl), ticks,
+    h('dl', {}, cIn, cOut, cRd, cWr, cCost, cTurns));
   return {
     el,
     update: (x) => {
       const pct = ctxPct(x);
       const c = x.context || {};
-      ctxV.textContent = c.window ? `${pct}% · ${fmtN(c.used)} of ${fmtN(c.window)}` : '–';
+      used.textContent = c.window ? `${fmtN(c.used)} / ${fmtN(c.window)}` : '';
+      pctEl.textContent = c.window ? `${pct}%` : '–';
       const lit = Math.round((pct / 100) * CTX_TICKS);
       [...ticks.children].forEach((t, i) => t.classList.toggle('on', i < lit));
       const t = x.tokens || {};
       vIn.textContent = fmtN(t.input); vOut.textContent = fmtN(t.output);
       vRd.textContent = fmtN(t.cacheRead); vWr.textContent = fmtN(t.cacheWrite);
-      vCost.textContent = codexThread(x) ? '–' : fmtCost(x.costUsd);
+      if (codexThread(x)) vCost.textContent = '–';
+      else put(vCost, fmtCost(x.costUsd), h('small', {}, ' est'));
       vTurns.textContent = String(x.turns ?? 0);
     },
   };
