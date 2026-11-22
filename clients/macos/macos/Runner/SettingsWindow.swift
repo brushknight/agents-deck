@@ -16,6 +16,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
   static let background = NSColor(red: 0x0A / 255.0, green: 0x0A / 255.0, blue: 0x0A / 255.0, alpha: 1)
 
   private let webView: WKWebView
+  /// Drags the window from the title bar row over the sidebar; the page's
+  /// status strip shares the row to its right and keeps its clicks.
+  private let strip: DragStrip
   /// The dashboard's origin: http, the loopback host and its port.
   private var origin: (host: String, port: Int)?
   /// Where this window belongs: /settings#<page> on the dashboard.
@@ -63,7 +66,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     webView.underPageBackgroundColor = Self.background
     content.addSubview(webView)
     // The strip under the title bar moves the window, as a title bar does.
-    let strip = DragStrip(
+    // It spans the whole row until the page says how wide its sidebar is.
+    strip = DragStrip(
       frame: NSRect(x: 0, y: content.bounds.height - top, width: content.bounds.width, height: top))
     strip.autoresizingMask = [.width, .minYMargin]
     strip.scrollTarget = webView
@@ -86,13 +90,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
   /// app for the deck or the browser.
   static func bridge(top: CGFloat) -> String {
     """
-    window.agentsDeckApp = Object.freeze({ platform: 'macos', titlebar: \(Int(top)),
+    window.agentsDeckApp = Object.freeze({ platform: 'macos', titlebar: \(Int(top)), titlebarRow: true,
       post: function (m) { window.webkit.messageHandlers.agentsDeck.postMessage(m); } });
     (function () {
       var mark = function () {
         var e = document.documentElement;
         if (!e) return false;
-        e.classList.add('in-app', 'app-macos');
+        e.classList.add('in-app', 'app-macos', 'app-row');
         e.style.setProperty('--app-top', '\(Int(top))px');
         return true;
       };
@@ -162,6 +166,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate,
     switch action {
     case "deck": onShowDeck?()
     case "dashboard": onOpenDashboard?()
+    case "titlebar":
+      // The page's status strip sits in the title bar row right of its
+      // sidebar: drag only over the sidebar, so the strip's links click.
+      guard let left = (m["left"] as? NSNumber)?.doubleValue, left >= 0 else { return }
+      let w = min(CGFloat(left), strip.superview?.bounds.width ?? CGFloat(left))
+      strip.autoresizingMask = [.minYMargin]
+      strip.frame.size.width = max(w, 80)
     default: break
     }
   }

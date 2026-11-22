@@ -992,6 +992,7 @@ static void test_tiles(void)
 	f.body.agent_changed.agent.context.used = 50000;
 	f.body.agent_changed.agent.context.window = 200000;
 	f.body.agent_changed.agent.attention_slot = 4;
+	f.body.agent_changed.agent.queued = 300;
 	deck_tiles_handle(&t, &f);
 	f = mk(0, agentsdeck_link_v1_Frame_snapshot_end_tag);
 	deck_tiles_handle(&t, &f);
@@ -1002,6 +1003,7 @@ static void test_tiles(void)
 	CHECK(wt && strcmp(wt->id, "c") == 0 && deck_tile_primary(wt) == 1 && wt->context_permille == 250);
 	CHECK(wt->options[1].selected && !wt->options[0].selected);
 	CHECK(wt->attention_slot == 4 && t.tiles[0].attention_slot == 0);
+	CHECK(wt->queued == 255 && t.tiles[0].queued == 0);
 	CHECK(deck_tiles_count_status(&t, agentsdeck_link_v1_Status_STATUS_RUNNING) == 1);
 
 	/* Move b to slot 0, remove a. */

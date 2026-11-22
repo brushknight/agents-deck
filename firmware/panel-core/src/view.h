@@ -1,7 +1,7 @@
 #pragma once
 // What to show for a fleet: which agent is the hero, which pose it has, and
 // the text lines. No drawing here. The pose and wording tables follow the
-// agents-deck web UI (backend/internal/web/static/app.js).
+// agents-deck web UI (backend/internal/web/static/deck-core.js).
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>

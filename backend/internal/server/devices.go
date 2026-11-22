@@ -197,8 +197,9 @@ func (s *Server) audited(who string, h http.Handler) http.Handler {
 			return
 		}
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		r, note := withNote(r) // a handler may add a detail (queue.go)
 		h.ServeHTTP(sw, r)
-		s.Audit.Log(devices.AuditEntry{Device: who, Action: r.Method + " " + r.URL.Path, Status: sw.code})
+		s.Audit.Log(devices.AuditEntry{Device: who, Action: r.Method + " " + r.URL.Path, Status: sw.code, Detail: *note})
 	})
 }
 

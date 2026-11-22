@@ -36,6 +36,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
+	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
@@ -87,6 +88,10 @@ const usage = `agentctl: runs and controls agents deck
   agentctl pair <name> [--scope view|act|admin] [--bundle FILE]
                                  pair a device: a one-time code it trades for its own certificate,
                                  or (--bundle) a key and certificate to copy to it over SSH
+  agentctl mcp token create <name> [--scope view|act|admin] | token list | token revoke <name>
+                                 MCP tokens: let an agent (Claude Code) run the deck's agents
+  agentctl mcp [--token T]       the MCP server over stdio, for an MCP client (token from
+                                 AGENTSDECK_MCP_TOKEN); see docs/mcp.md
   agentctl devices [revoke|approve|remove <name> | scope <name> <scope>]
                                  paired devices and serial boards; cut one off, approve a board
   agentctl link [ports | add <port> [--baud N] | rm <port>]
@@ -208,6 +213,8 @@ func main() {
 		err = openWeb(args)
 	case "pair":
 		err = pair(args)
+	case "mcp":
+		err = mcpCmd(args)
 	case "devices":
 		err = devicesCmd(args)
 	case "bluetooth", "ble":
@@ -1181,7 +1188,16 @@ func serve(args []string) error {
 	st.Account = accounts.Of
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
-		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()}}
+		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()},
+		Tokens: &devices.Tokens{Path: paths.MCPTokens()}}
+	// Prompts queued for busy agents survive a restart (a demo keeps them in memory).
+	queuePath := paths.PromptQueue()
+	if *demoMode {
+		queuePath = ""
+	}
+	srv.Queue = queue.Open(queuePath)
+	st.Queued = srv.Queue.Agents
+	go srv.RunQueue(context.Background())
 	errc := make(chan error, 4)
 	// The default Wi-Fi network for boards plugged in over USB: its password in
 	// the OS secret store (the login Keychain on macOS), never in a file here.

@@ -78,6 +78,12 @@ PB_BIND(agentsdeck_link_v1_Focus, agentsdeck_link_v1_Focus, AUTO)
 PB_BIND(agentsdeck_link_v1_Interrupt, agentsdeck_link_v1_Interrupt, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_SendPrompt, agentsdeck_link_v1_SendPrompt, 2)
+
+
+PB_BIND(agentsdeck_link_v1_Queue, agentsdeck_link_v1_Queue, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 
 
@@ -147,6 +153,12 @@ PB_BIND(agentsdeck_link_v1_AccountList, agentsdeck_link_v1_AccountList, AUTO)
 PB_BIND(agentsdeck_link_v1_AccountInfo, agentsdeck_link_v1_AccountInfo, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_QueueList, agentsdeck_link_v1_QueueList, 2)
+
+
+PB_BIND(agentsdeck_link_v1_QueuedPrompt, agentsdeck_link_v1_QueuedPrompt, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_RestoreResult, agentsdeck_link_v1_RestoreResult, 2)
 
 
@@ -172,6 +184,8 @@ PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO
 
 
 PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
 
 
 

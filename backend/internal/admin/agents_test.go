@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 )
 
 // No test looks at the real computer's programs, apps or login shell.
@@ -231,5 +233,41 @@ func TestToolsTmux(t *testing.T) {
 	program(t, filepath.Join(root, "bin"), "tmux")
 	if r := rowOf(toolRows(p, map[string]any{}, map[string]int{"tmux": 4}, false), "tmux"); r.State != "connected" || r.Agents != 4 {
 		t.Fatalf("%+v", r)
+	}
+}
+
+// Start here: the account new agents start in, kept in config.json "account"
+// next to the account list (which stays as it was).
+func TestAccountDefault(t *testing.T) {
+	r := newRig(t)
+	home := t.TempDir()
+	if err := accounts.Save([]accounts.Account{
+		{Name: "work", Dir: filepath.Join(home, "work"), Color: "teal"},
+		{Name: "side", Dir: filepath.Join(home, "side"), Color: "pink"},
+	}, "work"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = accounts.Save(nil, "") })
+	if code, _ := r.do(t, "POST", "/admin/v1/accounts/side/default", ""); code != 204 {
+		t.Fatalf("default: %d", code)
+	}
+	if d := accounts.Default(); d.Name != "side" {
+		t.Errorf("new agents start in %q, want side", d.Name)
+	}
+	if n := len(accounts.Configured()); n != 2 {
+		t.Errorf("%d accounts after, want 2", n)
+	}
+	_, out := r.do(t, "GET", "/admin/v1/agents", "")
+	for _, a := range out["accounts"].([]any) {
+		m := a.(map[string]any)
+		if m["default"] != (m["name"] == "side") {
+			t.Errorf("GET /admin/v1/agents: %v", m)
+		}
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/accounts/nobody/default", ""); code != 404 {
+		t.Errorf("an unknown account: %d, want 404", code)
+	}
+	if d := accounts.Default(); d.Name != "side" {
+		t.Errorf("a refused call changed the default to %q", d.Name)
 	}
 }

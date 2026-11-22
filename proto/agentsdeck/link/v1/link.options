@@ -48,6 +48,10 @@ agentsdeck.link.v1.Answer.prompt_id      max_size:16
 agentsdeck.link.v1.Answer.key            max_size:8
 agentsdeck.link.v1.Focus.agent_id        max_size:12
 agentsdeck.link.v1.Interrupt.agent_id    max_size:12
+agentsdeck.link.v1.SendPrompt.agent_id   max_size:12
+agentsdeck.link.v1.SendPrompt.text       max_size:384
+agentsdeck.link.v1.Queue.agent_id        max_size:12
+agentsdeck.link.v1.Queue.cancel_id       max_size:8
 agentsdeck.link.v1.Dismiss.agent_id      max_size:12
 agentsdeck.link.v1.Resume.agent_id       max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12
@@ -77,6 +81,10 @@ agentsdeck.link.v1.LiveSession.folder    max_size:48
 agentsdeck.link.v1.AccountList.accounts  max_count:4
 agentsdeck.link.v1.AccountInfo.name      max_size:16
 agentsdeck.link.v1.AccountInfo.color     max_size:12
+agentsdeck.link.v1.QueueList.prompts     max_count:4
+agentsdeck.link.v1.QueuedPrompt.id       max_size:8
+agentsdeck.link.v1.QueuedPrompt.text     max_size:64
+agentsdeck.link.v1.QueuedPrompt.by       max_size:24
 agentsdeck.link.v1.Restore.agent_ids     max_size:12 max_count:16
 agentsdeck.link.v1.RestoreResult.results max_count:16
 agentsdeck.link.v1.Restored.id           max_size:12

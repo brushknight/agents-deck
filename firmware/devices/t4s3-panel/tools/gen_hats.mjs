@@ -1,4 +1,4 @@
-// Generates src/hats.c from the web deck's HAT_ART (backend/internal/web/static/app.js),
+// Generates src/hats.c from the web deck's HAT_ART (backend/internal/web/static/deck-core.js),
 // so the panel's hats are the deck's. Run after the hats change:
 //   node tools/gen_hats.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const js = readFileSync(join(here, '../../../../backend/internal/web/static/app.js'), 'utf8');
+const js = readFileSync(join(here, '../../../../backend/internal/web/static/deck-core.js'), 'utf8');
 const start = js.indexOf('const HAT_ART = {');
 const end = js.indexOf('\n};', start);
 const HAT_ART = new Function(js.slice(start, end + 3) + '\nreturn HAT_ART;')();

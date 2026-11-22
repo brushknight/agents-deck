@@ -35,7 +35,7 @@ extern "C" {
 
 /* The largest frame (before COBS) this build accepts. The protocol allows
  * 4096; with link.options the deck never sends more than
- * agentsdeck_link_v1_Frame_size + 5 (3406). Lower it (>= 512) to save RAM;
+ * agentsdeck_link_v1_Frame_size + 5 (3413). Lower it (>= 512) to save RAM;
  * the deck then clips what it sends (Hello.max_frame). */
 #ifndef DECK_LINK_MAX_FRAME
 #define DECK_LINK_MAX_FRAME 4096

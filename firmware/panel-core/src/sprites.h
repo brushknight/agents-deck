@@ -1,13 +1,13 @@
 #pragma once
 // The mascots of agents-deck, ported from spriteSVG() and hatSVG() in
-// backend/internal/web/static/app.js: Claude's flat block with arms, the
+// backend/internal/web/static/deck-core.js: Claude's flat block with arms, the
 // Codex onigiri, and the pixel hat of the agent's working folder.
 //
 // All geometry is in the SVG's own units: an 18 x 13 box whose top-left is
 // (0, -4). The body sits at x 0..14, y 0..8; the "bubble" (what the agent is
 // doing) sits at x 14..18. A still hat can rise to y -5 and a cap's brim
 // reaches x -3; a working hat's frames can rise to y -6. Leave that much
-// room. One unit is `scale` pixels. Animation timing follows app.css.
+// room. One unit is `scale` pixels. Animation timing follows settings.css.
 #include <initializer_list>
 #include <math.h>
 #include <stdint.h>
@@ -104,7 +104,7 @@ static inline void dots(Pen& p, int shown) {
 // Every hat has a still version and the frames it cycles through while its
 // agent works, each shown for `ms`. The onigiri wears a narrower version that
 // sits down over its tip. The bandana's knot and tails sit on the left.
-// Order as kHatShapes in model.h. Mirrors HAT_ART in app.js and hats.dart in
+// Order as kHatShapes in model.h. Mirrors HAT_ART in deck-core.js and hats.dart in
 // the Flutter deck: edit all three together.
 constexpr int kHatRowsMax = 5, kHatExtrasMax = 5, kHatFramesMax = 4;
 struct HatCell { int8_t x, y; char key; };                 // key 0 ends the list
@@ -276,7 +276,7 @@ static const uint16_t kHatPalette[kHatColorCount][2] = {
 };
 
 // Poses of a working agent: its hat animates; every other pose keeps it still
-// (WORKING_POSES in app.js).
+// (WORKING_POSES in deck-core.js).
 static inline bool poseWorking(Pose pose) {
   switch (pose) {
     case Pose::Run: case Pose::Think: case Pose::Read: case Pose::Write: case Pose::Bash:
@@ -333,7 +333,7 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
   const bool bot = sp == Species::Codex;
   const int half = phase(ms, 500, 2);          // .la / .lb / .bob: two halves of 0.5 s
   const bool working = poseWorking(pose);
-  if (pose == Pose::Write) pose = Pose::Bash;  // "writing looks like bash for now" (app.js)
+  if (pose == Pose::Write) pose = Pose::Bash;  // "writing looks like bash for now" (deck-core.js)
 
   // Group motion comes first: the body, the arms, the face and the hat share it.
   int legSet = 0;

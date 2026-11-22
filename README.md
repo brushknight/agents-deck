@@ -79,7 +79,7 @@ What each download puts where, how to update and how to remove it: [docs/install
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-board-v3.png" alt="the deck in the browser: one tile per agent"></td>
+<td width="62%"><img src="docs/images/web-board-v4.png" alt="the deck in the browser: one tile per agent"></td>
 <td><img src="docs/images/menubar-deck-v3.png" alt="the same deck dropped down from the menu bar"></td>
 </tr>
 </table>
@@ -96,7 +96,7 @@ last one is done. Each agent wears a pixel hat picked by its folder, so a projec
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-needs-you-v3.png" alt="the Needs you page in the browser: only the agents at work, asking or not checked yet"></td>
+<td width="62%"><img src="docs/images/web-needs-you-v4.png" alt="Home in the browser: the agents that need you, listed beside the deck"></td>
 <td><img src="docs/images/devices/lcd4-needs-you.png" alt="the same Needs you page on the 4-inch board"></td>
 </tr>
 </table>
@@ -108,8 +108,9 @@ It looks like any page of the deck.
 
 The service decides who sits in which spot, so the browser, the menu bar, the desk panel and the
 boards show the same agents **in the same places**, and an agent keeps its spot while others come and
-go. To get there: press ←, swipe or scroll left, or click the mark at the left of the page bars (it
-shows how many agents are there; it turns solid orange while you are on it). On the boards: swipe
+go. In the browser, Home lists the agents asking you something beside the deck (here). In the menu
+bar app and on the desk panel: press ←, swipe or scroll left, or click the mark at the left of the
+page bars (it shows how many agents are there; it turns solid orange while you are on it). On the boards: swipe
 right on the first page (or press BOOT) on the 4″, the 1.8″ AMOLED and the T4-S3, and hold BOOT on
 the 1.47″. The round boards don't have it yet. [Features](docs/features.md#the-board) has every rule.
 
@@ -117,7 +118,7 @@ the 1.47″. The round boards don't have it yet. [Features](docs/features.md#the
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-permission-v3.png" alt="answering a permission prompt from the browser"></td>
+<td width="62%"><img src="docs/images/web-permission-v4.png" alt="answering a permission prompt from the browser"></td>
 <td><img src="docs/images/panel-detail-v3.png" alt="an agent's card on the desk panel, with its subagents"></td>
 </tr>
 </table>
@@ -125,33 +126,33 @@ the 1.47″. The round boards don't have it yet. [Features](docs/features.md#the
 Click or tap a tile for its card: what it's doing now and its subagents, context, tokens, estimated
 cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop**. A permission
 prompt shows the exact command with Claude's own options, a question shows its choices, and your
-answer is typed into the agent's terminal. Text you'd have to type yourself sends you to the
-terminal.
+answer is typed into the agent's terminal. In the browser you can also type your own answer instead
+of picking one; elsewhere, text you'd have to type yourself sends you to the terminal.
 
 ### Settings
 
 <table>
 <tr>
-<td width="50%"><img src="docs/images/settings-boards-v3.png" alt="Settings, Boards: each board with its connection, firmware and uplink"></td>
-<td><img src="docs/images/settings-updates-v3.png" alt="Settings, Updates: the app and each board with newer firmware"></td>
+<td width="50%"><img src="docs/images/settings-boards-v4.png" alt="Settings, Boards: each board with its connection, firmware and uplink"></td>
+<td><img src="docs/images/settings-updates-v4.png" alt="Settings, Updates: the app and each board with newer firmware"></td>
 </tr>
 <tr>
 <td><b>Boards.</b> Every board and device: how it's connected (USB, Wi-Fi or Bluetooth), which firmware it runs and one line about updates with its button, what it may do, rename, remove. A new board on USB appears at the top with <b>Set it up</b>.</td>
 <td><b>Updates.</b> The version you have and whether to tell you, install automatically or never check, and every board that has newer firmware. Boards never update by themselves.</td>
 </tr>
 <tr>
-<td><img src="docs/images/settings-network-v3.png" alt="Settings, Network: the Wi-Fi boards get, each board's network, Bluetooth and pairing a phone"></td>
+<td><img src="docs/images/settings-network-v4.png" alt="Settings, Network: the Wi-Fi boards get, each board's network, Bluetooth and pairing a phone"></td>
 <td><img src="docs/images/menubar-needs-you-v3.png" alt="the Needs you page in the menu bar"></td>
 </tr>
 <tr>
 <td><b>Network.</b> Whether paired devices may connect over the network, the Wi-Fi network boards get, each board's network, whether Bluetooth is on, and pairing a phone.</td>
-<td>The menu bar app shows the same deck and Needs you page (here). Settings opens in its own window from the gear; in the browser it's the <b>Settings</b> button.</td>
+<td>The menu bar app shows the same deck and Needs you page (here). Settings opens in its own window from the gear; in the browser it's in the sidebar.</td>
 </tr>
 </table>
 
 Also in Settings: **General** (start at login, notifications), **Agents** (the tools found, Claude
 sessions outside the deck, accounts) and **Troubleshoot** (restart the service, a report to copy, the
-log). Every page is also a command ([features](docs/features.md#the-settings-page)).
+log). Every page is also a command ([features](docs/features.md#the-app-in-the-browser)).
 
 ## Pick a display
 
@@ -201,7 +202,7 @@ rectangular screen and has the Needs you screen.
 
 ## Flash a board
 
-<p align="center"><img src="docs/images/settings-new-board-v3.png" alt="Settings, Set up a new board: pick which board it is from the pictures" width="80%"></p>
+<p align="center"><img src="docs/images/settings-new-board-v4.png" alt="Settings, Set up a new board: pick which board it is from the pictures" width="80%"></p>
 
 You do this once per board. Plug it in with a USB-C cable that carries data (many cables that come
 with chargers only carry power). Then pick one way:
@@ -224,6 +225,14 @@ interrupt an agent (scope `act`): plugging it into your computer counts as your 
 **admin** (it adds stop), approving boards by hand, renaming or removing one: all in Settings,
 Boards. Something not working? See [troubleshooting](docs/flashing.md#troubleshooting).
 
+## One agent runs the others (MCP)
+
+agents deck is an MCP server too. Make a token in Settings, **Agents**, MCP, add it to Claude Code
+(`claude mcp add --transport http agents-deck http://127.0.0.1:7340/mcp --header "Authorization:
+Bearer …"`), and that agent can see every agent on your deck, give them tasks, answer their questions,
+interrupt them and start new ones in a project folder. Local only, scoped and audited:
+[docs/mcp.md](docs/mcp.md).
+
 ## Wi-Fi
 
 Every touch board except the 4″ (for now) can leave your computer and run from any USB charger. Set
@@ -235,7 +244,7 @@ the deck. Plug it back in and it's on USB again at once. Boards use 2.4 GHz Wi-F
 
 <table>
 <tr>
-<td width="68%"><img src="docs/images/settings-bluetooth-v3.png" alt="Settings, Boards, Look for boards: boards nearby over Bluetooth, each with an Add button"></td>
+<td width="68%"><img src="docs/images/settings-bluetooth-v4.png" alt="Settings, Boards, Add a board: Look for Bluetooth boards finds boards nearby, each with an Add button"></td>
 <td><img src="docs/images/devices/amoled18-bluetooth.png" alt="the board shows a 6-digit code to type on the computer"></td>
 </tr>
 </table>
@@ -244,7 +253,7 @@ New in 0.2.0, Bluetooth is a third way for a board to reach the deck, next to US
 for a board next to a laptop with no Wi-Fi and no cable, or to set up a board without plugging it in:
 over Bluetooth it shows your agents and can get your Wi-Fi network.
 
-**Add a board.** In Settings, **Boards**, turn on **Look for boards**. Boards nearby appear with
+**Add a board.** In Settings, **Boards**, **Add a board**, turn on **Look for Bluetooth boards**. Boards nearby appear with
 their name (`deck-` and six characters, shown on the board's screen). Click **Add** next to yours; the
 board shows a 6-digit code, and you type it into the window macOS opens. Nothing is added on sight:
 only a board whose code you typed. Each board then has an **uplink**: Auto (USB, else Wi-Fi, else

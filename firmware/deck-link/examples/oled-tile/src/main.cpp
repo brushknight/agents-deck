@@ -170,8 +170,13 @@ static void draw()
 			for (int i = first, row = 1; i < tiles.count && row < 8; i++, row++) {
 				const deck_tile_t *x = &tiles.tiles[i];
 				char title[22];
-				ascii(title, sizeof title, x->title, 12);
-				snprintf(b, sizeof b, "%-12s %s", title, deck_status_name(x->status));
+				if (x->queued) { // prompts waiting for its turn to end: "+2"
+					ascii(title, sizeof title, x->title, 10);
+					snprintf(b, sizeof b, "%-10s %-7s+%u", title, deck_status_name(x->status), x->queued > 9 ? 9u : (unsigned)x->queued);
+				} else {
+					ascii(title, sizeof title, x->title, 12);
+					snprintf(b, sizeof b, "%-12s %s", title, deck_status_name(x->status));
+				}
 				line(row, b, i == sel);
 			}
 		}

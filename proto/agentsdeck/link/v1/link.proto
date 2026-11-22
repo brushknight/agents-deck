@@ -49,6 +49,8 @@ message Frame {
     MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
     Stash stash = 46;              // POST /v1/stash
     MagicView magic_view = 47;     // POST /v1/magic/view
+    SendPrompt send_prompt = 48;   // POST /v1/agents/{id}/prompt
+    Queue queue = 49;              // GET /v1/agents/{id}/queue, POST /v1/agents/{id}/queue/{qid}/cancel
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -56,6 +58,7 @@ message Frame {
     LiveSessions live_sessions = 52;  // reply to ListLive
     RestoreResult restore_result = 53;  // reply to Restore
     AccountList account_list = 54;  // reply to ListAccounts
+    QueueList queue_list = 55;     // reply to Queue (listing)
 
     // Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
     // web API commands: they set up the board itself.
@@ -140,7 +143,7 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued
   FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
@@ -228,6 +231,7 @@ message Agent {
   Account account = 34;  // the Claude account it runs in; unset while only one is set up
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
+  uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
 }
 
 message Activity {
@@ -299,6 +303,36 @@ message Answer {
 
 message Focus { string agent_id = 1; }
 message Interrupt { string agent_id = 1; }
+
+// SendPrompt types a task into the agent's session and presses Enter. text
+// is at most 383 bytes (link.options), so the whole frame fits a board's
+// smallest frame (512 bytes); the web API takes up to 4000.
+//
+// mode SEND_QUEUE keeps the prompt while the agent works or waits on a
+// question and types it in when its turn ends (one queued prompt per turn);
+// the Result is 200 when it went in at once, 202 when it was queued.
+message SendPrompt {
+  string agent_id = 1;
+  string text = 2;
+  bool interrupt = 3;  // the agent is working: press Esc first, then type (same as SEND_INTERRUPT)
+  SendMode mode = 4;
+  bool front = 5;      // SEND_QUEUE: go before the prompts queued earlier
+}
+
+enum SendMode {
+  SEND_NOW = 0;        // only when the agent is idle (409 otherwise), unless interrupt is set
+  SEND_INTERRUPT = 1;  // stop its turn (Esc), then type
+  SEND_QUEUE = 2;      // when its turn ends
+  SEND_TYPE = 3;       // typed in now, also while it works: the tool's own queue takes it (refused while it asks a question)
+}
+
+// Queue lists the prompts queued for an agent (the deck answers QueueList),
+// or, with cancel_id, takes one back (the deck answers a Result: 204, or 404
+// when it was sent or cancelled already).
+message Queue {
+  string agent_id = 1;
+  string cancel_id = 2;  // QueuedPrompt.id
+}
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
 
@@ -432,6 +466,20 @@ message AccountInfo {
   string name = 1;
   string color = 2;
   bool is_default = 3;  // new agents start in it (JSON API: "default")
+}
+
+// The prompts queued for an agent, next first: the first few (total says how
+// many there are).
+message QueueList {
+  repeated QueuedPrompt prompts = 1;
+  uint32 total = 2;
+}
+
+message QueuedPrompt {
+  string id = 1;       // send it back in Queue.cancel_id
+  string text = 2;     // clipped
+  string by = 3;       // who queued it: "mcp:<token>", a device's name, "web" or "local"
+  int64 queued_at_ms = 4;
 }
 
 message RestoreResult {

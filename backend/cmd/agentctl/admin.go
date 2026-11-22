@@ -37,6 +37,7 @@ func newAdmin(st *store.Store, srv *server.Server, self, logFile string) *admin.
 		// share its cache and its one-download-at-a-time lock.
 		Updater: upd, Firmware: &firmware.Client{Releases: upd.Releases},
 		Open: proc.Open, Exe: self, MagicChanged: srv.MagicChanged,
+		Tokens: srv.Tokens, MCPURL: "http://" + srv.LocalAddr + "/mcp",
 	}
 	if home != "" {
 		a.CLIDir = filepath.Join(home, ".local", "bin")
@@ -72,6 +73,9 @@ func wireAdmin(a *admin.Admin, srv *server.Server, hub *link.Hub, links *link.Ma
 		hub.SetFirmwareSource(admin.OTASource{Client: c})
 	}
 	a.OTA, a.Local = hub, hub
+	if st, ok := srv.Ctl.(admin.Starter); ok {
+		a.Starter = st // Home starts agents in a project
+	}
 
 	if demo {
 		if err := admin.UseDemo(a); err != nil {

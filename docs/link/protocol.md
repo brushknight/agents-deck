@@ -37,7 +37,7 @@ COBS( 0xDE 0xC1 | 0x01 | <Frame, protobuf> | CRC16 hi | CRC16 lo ) 0x00
   removes every zero byte, so `0x00` ends a frame. After any noise or a corrupt frame, a reader
   resynchronises at the next `0x00`.
 - A frame is at most **4096 bytes** before COBS, unless the board asks for less in `Hello.max_frame`
-  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3406 bytes.
+  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3413 bytes.
 
 Anything that isn't a valid frame is ignored, including the ESP32's boot log. Since `0xDE 0xC1` never
 occurs in UTF-8 text, printing text on the same port is harmless.
@@ -99,7 +99,7 @@ board                                   deck
 
   | bit | group | fields |
   |---|---|---|
-  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot` |
+  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot queued` |
   | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms` |
   | 4 | `FIELDS_PROMPT` | `waiting` |
   | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns` |
@@ -131,6 +131,9 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `ListHats` | `GET /v1/hats` | view | `HatList` |
 | `ListAccounts` | `GET /v1/accounts` | view | `AccountList` |
 | `Answer {agent_id, prompt_id, key}` | `POST /v1/agents/{id}/answer` | act | `Result`: 204; 409 if the prompt changed; 400 if `key` isn't an option. A question with several parts comes one step at a time, each a new prompt; `Option.selected` marks ticked answers of a pick-any question (see the web API's Prompt) |
+| `SendPrompt {agent_id, text, interrupt, mode, front}` | `POST /v1/agents/{id}/prompt` | act | `Result`: 204; with `mode` `SEND_NOW` (the default), 409 while the agent works (unless `interrupt`), asks a question, starts or has exited; `SEND_INTERRUPT` is `interrupt`; `SEND_QUEUE` answers 200 when the prompt went in at once, 202 when it was queued to go in once the agent's turn ends (`front`: before the prompts queued earlier; `Agent.queued` counts them); `SEND_TYPE` types it in now even while the agent works (the tool's own queue holds it), 204, and 409 while it asks a question, starts or has exited. 422 for a session the deck can't type into. `text` is at most 383 bytes (384 with its NUL in `link.options`), so the whole frame fits the smallest frame a board may ask for (512 bytes); the web API takes up to 4000 |
+| `Queue {agent_id}` | `GET /v1/agents/{id}/queue` | view | `QueueList`: the first 4 queued prompts, next first, text clipped to 63 bytes; `total` says how many there are |
+| `Queue {agent_id, cancel_id}` | `POST /v1/agents/{id}/queue/{qid}/cancel` | act | `Result`: 204; 404 when it was sent or cancelled already |
 | `Focus`, `Interrupt` `{agent_id}` | `POST /v1/agents/{id}/focus`, `…/interrupt` | act | `Result` |
 | `Move {agent_id, slot}` | `POST /v1/agents/{id}/move` | act | `Result` |
 | `MoveAttention {agent_id, slot}` | `POST /v1/agents/{id}/attention` | act | `Result`: 204; 409 if the agent isn't on the "Needs you" grid; 400 if `slot` isn't 1 to 16 |

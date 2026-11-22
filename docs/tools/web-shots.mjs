@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// The browser pictures in docs/images (web-*-v3.png, settings-*-v3.png), taken
+// The browser pictures in docs/images (web-*-v4.png, settings-*-v4.png), taken
 // from `agentctl serve --demo`: the made-up fleet in docs/fixtures/state.json
-// and the demo's made-up boards, ports and release.
+// and the demo's made-up boards, ports and release. One app: Home is the deck,
+// an agent's page answers its questions, the rest is Settings.
 //
 // Usage, from the repository's root (Node 22 or later, Google Chrome, Go):
 //
@@ -93,53 +94,56 @@ const shot = async (name, clip) => {
   console.log(`${join(out, name)}.png`);
 };
 const pad = (r, p = 24) => ({ x: r.x - p, y: r.y - p, width: r.width + 2 * p, height: r.height + 2 * p });
-const label = (page, text) => `[...document.querySelectorAll('section[data-page=${page}] .lab')].find((e) => e.textContent.trim() === ${JSON.stringify(text)})`;
-// from the label's top to the next label's top (or the end of the page's section)
-const fromLabel = (page, text) => `(() => { const a = ${label(page, text)}, labs = [...document.querySelectorAll('section[data-page=${page}] .lab')];
-  const next = labs[labs.indexOf(a) + 1], ra = a.getBoundingClientRect(), sec = a.closest('section').getBoundingClientRect();
-  const bottom = next ? next.getBoundingClientRect().y - 16 : sec.bottom;
-  return new DOMRect(sec.x, ra.y, sec.width, bottom - ra.y); })()`;
+// the main column, from its top to the bottom of what the page shows
+const mainRect = `(() => { const main = document.getElementById('main'), m = main.getBoundingClientRect();
+  const bottom = Math.max(m.top + 400, ...[...main.querySelectorAll('*')].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().bottom));
+  return new DOMRect(m.x, m.y, m.width, Math.min(m.bottom, bottom + 40) - m.y); })()`;
+// a viewport tall enough for the whole page (the main column scrolls by itself)
+const fit = async () => {
+  const hgt = await js(`Math.ceil(document.getElementById('main').scrollHeight)`);
+  await view(Math.max(900, hgt)); await sleep(600);
+};
 
 await send('Page.enable');
 await send('Runtime.enable');
 await send('Network.enable');
 await send('Network.setCookie', { name: 'agentsterm_session', value: cookie, url: base + '/', httpOnly: true, sameSite: 'Strict' });
 
-// The deck, the Needs you page (the mark left of the page bars) and a prompt.
+// Home: the deck with Needs you beside it; an agent asking for permission.
 await view(900);
-await go('/');
-await shot('web-board-v3');
-await js(`document.querySelector('#pagebar .attn-mark').click()`);
-await sleep(1200);
-await shot('web-needs-you-v3');
-await go('/');
-await click('.tile', 'infra-network', true);
-await sleep(1000);
-await shot('web-permission-v3');
+await go('/#home');
+await shot('web-board-v4');
+await shot('web-needs-you-v4', pad(await rect(`(() => { const n = document.getElementById('needs').getBoundingClientRect(), t = document.getElementById('needs').parentElement.getBoundingClientRect();
+  return new DOMRect(t.x, t.y, t.width, n.bottom - t.y - 12); })()`)));
+await go('/#agent/h0m3l4', 2000);
+await shot('web-permission-v4');
 
-// Settings: Boards as it opens, the new board on USB, Updates, Network, Bluetooth.
-await go('/settings#boards', 3500);
-await shot('settings-boards-v3');
+// Boards as it opens, then the new board on USB: Set it up, Yes, it's mine.
+await go('/#boards', 3500);
+await shot('settings-boards-v4');
 await click('button', 'Set it up');
 await sleep(1500);
 await click('button', "Yes, it's mine");
 await sleep(3000);
-await shot('settings-new-board-v3', { x: 0, y: 0, width: 1440, height: 760 });
+await shot('settings-new-board-v4', await rect(mainRect));
 
-await view(2400);
-await go('/settings#updates', 3500);
-await shot('settings-updates-v3', pad(await rect(`(() => { const a = (${label('updates', 'how to update')}).getBoundingClientRect(),
-  s = document.querySelector('section[data-page=updates]').getBoundingClientRect(); return new DOMRect(s.x, a.y, s.width, s.bottom - a.y); })()`)));
-await go('/settings#network', 3500);
-await shot('settings-network-v3', pad(await rect(`document.querySelector('section[data-page=network]').getBoundingClientRect()`), 24));
+// Updates and Network, the whole page.
+await go('/#updates', 3500);
+await fit();
+await shot('settings-updates-v4', await rect(mainRect));
+await view(900);
+await go('/#network', 3500);
+await fit();
+await shot('settings-network-v4', await rect(mainRect));
 
-await view(3400);
-await go('/settings#boards', 3500);
-await js(`(() => { let r = [...document.querySelectorAll('section[data-page=boards] *')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Look for boards');
-  for (let i = 0; i < 5 && r; i++, r = r.parentElement) { const c = r.querySelector('input,button,[role=switch]'); if (c) { c.click(); return; } }
-  throw new Error('no Look for boards switch'); })()`);
+// Boards, Add a board: Look for Bluetooth boards, with the demo's boards found.
+await view(900);
+await go('/#boards/add', 3000);
+await js(`(() => { const s = document.querySelector('[aria-label="Look for boards over Bluetooth"]');
+  if (!s) throw new Error('no Look for boards switch'); s.click(); })()`);
 await sleep(7000); // the demo's boards turn up one by one
-await shot('settings-bluetooth-v3', pad(await rect(fromLabel('boards', 'bluetooth'))));
+await fit();
+await shot('settings-bluetooth-v4', await rect(mainRect));
 
 ws.close();
 await Promise.all(procs.map((p) => new Promise((r) => { if (p.exitCode !== null) r(); else { p.once('exit', r); p.kill(); } })));

@@ -44,15 +44,16 @@ func TestPagesAndFilesServed(t *testing.T) {
 			t.Errorf("%s: no CSP", page)
 		}
 	}
-	if !strings.Contains(get(t, h, "/settings").Body.String(), `href="/"`) {
-		t.Error("settings links back to the deck")
+	// One app: the deck (Home) and its settings are the same page.
+	if get(t, h, "/").Body.String() != get(t, h, "/settings").Body.String() {
+		t.Error("/ and /settings serve different pages")
 	}
-	if !strings.Contains(get(t, h, "/").Body.String(), `href="/settings"`) {
-		t.Error("the deck links to settings")
+	if !strings.Contains(get(t, h, "/").Body.String(), `href="#home"`) {
+		t.Error("the page has no way to Home, the deck")
 	}
 	// Every static file, and the fonts the stylesheets name.
 	_ = fs.WalkDir(web.Static(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || p == "fixture.json" || p == "index.html" { // index.html is served as /
+		if err != nil || d.IsDir() || p == "fixture.json" {
 			return err
 		}
 		if c := get(t, h, "/"+p).Code; c != 200 {
@@ -78,9 +79,11 @@ func TestNoInlineCode(t *testing.T) {
 	if regexp.MustCompile(`<script(?:\s[^>]*)?>[^<]`).MatchString(html) || strings.Contains(html, "<style") || strings.Contains(html, " style=") {
 		t.Error("settings.html has inline script or style")
 	}
-	js, _ := fs.ReadFile(web.Static(), "settings.js")
-	if strings.Contains(string(js), ".innerHTML") || strings.Contains(string(js), "setAttribute('style'") {
-		t.Error("settings.js builds HTML from strings or sets style attributes")
+	for _, name := range []string{"settings.js", "deck-core.js"} {
+		js, _ := fs.ReadFile(web.Static(), name)
+		if strings.Contains(string(js), ".innerHTML") || strings.Contains(string(js), "setAttribute('style'") {
+			t.Errorf("%s builds HTML from strings or sets style attributes", name)
+		}
 	}
 }
 
@@ -91,7 +94,7 @@ func TestScriptsParse(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"settings.js", "app.js", "attention.js"} {
+	for _, name := range []string{"settings.js", "deck-core.js"} {
 		b, err := fs.ReadFile(web.Static(), name)
 		if err != nil {
 			t.Fatal(err)
@@ -106,32 +109,25 @@ func TestScriptsParse(t *testing.T) {
 	}
 }
 
-// The "needs you" screen's spots (static/attention.js): attention_test.mjs,
-// with node's own test runner, when node is installed.
-func TestAttentionSpots(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not installed")
+// The page knows when it runs in the app's own window. Home, the deck, is
+// the first page and counts the agents that need you; there is no separate
+// way "back to the deck".
+func TestInAppAndHome(t *testing.T) {
+	html, _ := fs.ReadFile(web.Static(), "settings.html")
+	if !regexp.MustCompile(`<div class="grp">Deck</div>\s*<a href="#home" data-page="home"[^>]*>(?s:.*?)<span>Home</span><span class="nb" id="n-home"`).Match(html) {
+		t.Error("Home isn't the first page, with the count of agents that need you")
 	}
-	if out, err := exec.Command(node, "--test", "attention_test.mjs").CombinedOutput(); err != nil {
-		t.Errorf("node --test attention_test.mjs: %v\n%s", err, out)
-	}
-}
-
-// In the app's own window the page drops its top bar (the window's title bar
-// takes its place); in a browser it keeps it. The dashboard names Settings in
-// words, not only with an icon.
-func TestInAppAndSettingsEntry(t *testing.T) {
-	css, _ := fs.ReadFile(web.Static(), "settings.css")
-	if !strings.Contains(string(css), ".in-app .tb { display: none; }") {
-		t.Error("settings.css keeps the top bar in the app")
+	if strings.Contains(string(html), "Back to the deck") {
+		t.Error("a way back to the deck, which is Home now")
 	}
 	js, _ := fs.ReadFile(web.Static(), "settings.js")
 	if !strings.Contains(string(js), "window.agentsDeckApp") || !strings.Contains(string(js), "AgentsDeckApp") {
 		t.Error("settings.js doesn't know when it runs in the app")
 	}
-	html, _ := fs.ReadFile(web.Static(), "index.html")
-	if !regexp.MustCompile(`id="settings-link"[^>]*>.*<span>Settings</span></a>`).Match(html) {
-		t.Error("the deck's header has no Settings entry in words")
+	// The critters keep still for reduced motion, the propeller too.
+	css, _ := fs.ReadFile(web.Static(), "settings.css")
+	if !regexp.MustCompile(`prefers-reduced-motion: reduce\) \{ \.spin \.hp \{ animation: none; \} \}`).Match(css) ||
+		!strings.Contains(string(css), "@media (prefers-reduced-motion: reduce) { .dk svg *, .dk svg { animation: none !important; }") {
+		t.Error("settings.css moves critters for reduced motion")
 	}
 }

@@ -45,7 +45,7 @@ them again.
   board shows them in the same places as the browser, the menu bar and the desk panel. Each board
   below says how to get to it; [features.md](features.md#the-board) has the details.
 - **Bluetooth, if you like** (the touch boards on their `idf5` firmware, with the macOS app). In
-  Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name and type the
+  Settings, Boards, Add a board, turn on **Look for Bluetooth boards**, click **Add** next to the board's name and type the
   6-digit code the board shows into the window macOS opens. The board then shows your agents with no
   cable and no Wi-Fi, and can get your Wi-Fi network over Bluetooth. Firmware updates still need
   Wi-Fi or the cable. Linux and Windows don't have Bluetooth yet.

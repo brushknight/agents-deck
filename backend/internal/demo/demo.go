@@ -415,6 +415,40 @@ func (d *Demo) Interrupt(id string) error {
 	return nil
 }
 
+// Type pretends the agent's own queue took the prompt: a working agent
+// keeps working, an idle one starts.
+func (d *Demo) Type(id, text string) error {
+	if e, ok := d.St.Get(id); ok && e.A.Status == model.Running {
+		d.St.Update(id, func(e *store.Entry) bool { e.A.LastPrompt = text; return true })
+		return nil
+	}
+	return d.Prompt(id, text, false)
+}
+
+// Prompt pretends the agent took a new task: it starts running on it.
+func (d *Demo) Prompt(id, text string, interrupt bool) error {
+	e, ok := d.St.Get(id)
+	if !ok {
+		return server.ErrNotFound
+	}
+	switch {
+	case e.A.Status == model.Exited:
+		return server.ErrExited
+	case e.A.External && e.A.App == "":
+		return fmt.Errorf("%w: this session runs in another terminal", server.ErrReadOnly)
+	case e.A.Status == model.Waiting && !interrupt:
+		return server.ErrAsking
+	case e.A.Status == model.Running && !interrupt:
+		return server.ErrBusy
+	}
+	d.St.Update(id, func(e *store.Entry) bool {
+		e.SetStatus(model.Running)
+		e.A.Waiting, e.A.LastPrompt = nil, text
+		return true
+	})
+	return nil
+}
+
 func (d *Demo) Resume(id string) error {
 	if !d.St.Update(id, func(e *store.Entry) bool { e.SetStatus(model.Idle); e.A.Resumable = false; return true }) {
 		return server.ErrNotFound
