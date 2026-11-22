@@ -63,7 +63,7 @@ interrupt to stop it first".
 |---|---|---|---|
 | `list_agents` | view | – | every agent, compact: `id`, `title`, `folder`, `tool`, `runsIn` (`deck`, `herdr`, `cmux`, `orca`, or read-only elsewhere), `status`, how long in it, what it is doing, its last prompt, the question it waits on (`promptId`, option keys and labels), `contextPct`, working `subagents`, `queued` (prompts waiting for its turn to end), `acceptsPrompts` |
 | `get_agent` | view | `agent_id` | one agent in full: the whole question, subagents, `queued`, model, branch, folder, tokens, cost, turns |
-| `send_prompt` | act | `agent_id`, `text`, `mode` (`now`, `interrupt` or `queue`; default `now`), `queue_position` (`back` or `front`; default `back`), `interrupt` (the same as `mode: interrupt`, for older clients) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`), now or once its turn ends: see [Queue a prompt](#queue-a-prompt-for-a-busy-agent). Answers `sent: …`, or, when queued, `{"status": "queued", "queue_id", "position", …}` |
+| `send_prompt` | act | `agent_id`, `text`, `mode` (`queue`, `now` or `interrupt`; default `queue`), `queue_position` (`back` or `front`; default `back`), `interrupt` (the same as `mode: interrupt`, for older clients) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`), now or once its turn ends: see [Queue a prompt](#queue-a-prompt-for-a-busy-agent). Answers `sent: …`, or, when queued, `{"status": "queued", "queue_id", "position", …}` |
 | `list_queue` | view | `agent_id` | the prompts queued for the agent, next first: `queue_id`, `position`, `text`, `by` (who queued it), `queuedAt` |
 | `cancel_queued` | act | `agent_id`, `queue_id` | takes a queued prompt back before it is typed in |
 | `answer` | act | `agent_id`, `prompt_id`, `key` | picks an option of the question the agent waits on |
@@ -86,11 +86,12 @@ interrupt to stop it first".
 
 `send_prompt` has three modes:
 
-- **`now`** (the default): refused (`409`) while the agent is working on a turn, waiting on a question
+- **`queue`** (the default): at once when the agent is idle, else when its turn ends, in order. Send
+  five and they go in one after another, as if you typed five prompts into its chat. See below.
+- **`now`**: refused (`409`) while the agent is working on a turn, waiting on a question
   (use `answer`), still starting, or exited.
 - **`interrupt`**: a working or asking agent gets Esc first, then the prompt. `interrupt: true` does
   the same, for clients written before `mode`.
-- **`queue`**: see below.
 
 Agents whose status the deck can't see (Codex or a shell started here) take a prompt at any time, in
 every mode. Text: up to 4000 bytes, newlines and tabs but no other control characters (an escape
@@ -98,7 +99,7 @@ sequence could press keys of its own).
 
 ## Queue a prompt for a busy agent
 
-With `mode: queue` you don't have to poll until an agent is idle, or stop it. The deck keeps the
+With `mode: queue` (or no mode) you don't have to poll until an agent is idle, or stop it. The deck keeps the
 prompt and types it in the moment the agent's turn ends (its status goes `idle`). If the agent is idle
 already and nothing is queued for it, the prompt goes in at once and the answer is `sent`.
 

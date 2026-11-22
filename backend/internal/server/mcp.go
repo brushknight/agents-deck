@@ -305,15 +305,16 @@ var mcpTools = []mcpTool{
 	{Name: "send_prompt", Title: "Send a prompt",
 		Description: "Types a task into the agent's session and presses Enter, as if you typed it there. Works for agents the deck started " +
 			"and agents in herdr, cmux or Orca (acceptsPrompts true); sessions started by hand in another terminal are read-only. " +
-			"mode now (the default) refuses while the agent is working or waiting on a question; mode interrupt presses Esc first to stop it; " +
-			"mode queue keeps the prompt and types it in when the agent's turn ends (status idle), one queued prompt per turn, " +
-			"or at once when it is idle already. Queued prompts wait while the agent asks a question: answer it, and the queue goes on after that turn. " +
+			"mode queue (the default) types it in at once when the agent is idle, else keeps it and types it in when the agent's turn ends (status idle), " +
+			"one queued prompt per turn, in order, like typing several prompts one after another in its chat. " +
+			"Queued prompts wait while the agent asks a question: answer it, and the queue goes on after that turn. " +
+			"mode now refuses while the agent is working or waiting on a question; mode interrupt presses Esc first to stop it. " +
 			"The result says sent, or queued with its queue_id. Text is at most 4000 bytes; newlines are kept as part of the prompt.",
 		InputSchema: schema([]string{"agent_id", "text"}, map[string]any{
 			"agent_id": agentIDProp,
 			"text":     prop("string", "The prompt, as you would type it to the agent."),
 			"mode": map[string]any{"type": "string", "enum": []string{"now", "interrupt", "queue"},
-				"description": "now (default): only when the agent is idle. interrupt: stop its turn (Esc), then type. queue: when its turn ends."},
+				"description": "queue (default): now if idle, else when its turn ends. now: only when the agent is idle. interrupt: stop its turn (Esc), then type."},
 			"queue_position": map[string]any{"type": "string", "enum": []string{"back", "front"},
 				"description": "mode queue: back (default) waits behind prompts queued earlier; front goes next."},
 			"interrupt": prop("boolean", "Same as mode interrupt (kept for older clients). Default false."),
@@ -588,8 +589,10 @@ func toolSendPrompt(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	switch {
 	case mode == "" && a.flag("interrupt"):
 		mode = "interrupt"
+	case mode == "" && s.Queue == nil:
+		mode = "now" // a service without a queue (some tests)
 	case mode == "":
-		mode = "now"
+		mode = "queue"
 	case mode != "now" && mode != "interrupt" && mode != "queue":
 		return "", errors.New("mode is now, interrupt or queue")
 	case a.flag("interrupt") && mode != "interrupt":

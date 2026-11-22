@@ -368,3 +368,23 @@ func TestQueueOverMCP(t *testing.T) {
 		t.Error("scopes of the queue endpoints")
 	}
 }
+
+// Over MCP, send_prompt without a mode queues: a busy agent gets it when its
+// turn ends, like typing several prompts one after another in its chat.
+// mode now still refuses a busy agent.
+func TestMCPQueuesByDefault(t *testing.T) {
+	s, _, tok := newQueueServer(t, "")
+	h := s.LocalHandler()
+	for i, text := range []string{"one", "two"} {
+		_, out := rpc(h, "/mcp", tok["doer"], call("send_prompt", map[string]any{"agent_id": "busy", "text": text}))
+		got, isErr := toolText(t, out)
+		var r map[string]any
+		if json.Unmarshal([]byte(got), &r); isErr || r["status"] != "queued" || int(r["position"].(float64)) != i+1 {
+			t.Fatalf("send_prompt %q: %s", text, got)
+		}
+	}
+	_, out := rpc(h, "/mcp", tok["doer"], call("send_prompt", map[string]any{"agent_id": "busy", "text": "three", "mode": "now"}))
+	if got, isErr := toolText(t, out); !isErr || !strings.Contains(got, "working") || s.Queue.Count("busy") != 2 {
+		t.Errorf("mode now to a busy agent: %s", got)
+	}
+}
