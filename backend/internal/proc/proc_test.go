@@ -3,6 +3,7 @@ package proc
 import (
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -47,5 +48,23 @@ func TestParseList(t *testing.T) {
 	}
 	if ps, err := parseList([]byte("\r\n")); err != nil || ps != nil {
 		t.Errorf("empty: %v %v", ps, err)
+	}
+}
+
+// A helper that outlives its time limit is stopped, together with what it
+// started, and Output returns soon after.
+func TestOutputTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no sh")
+	}
+	start := time.Now()
+	_, err := Output(300*time.Millisecond, "/bin/sh", "-c", "sleep 30 & sleep 30; wait")
+	// Under WaitDelay (2 s): the background sleep, holding stdout, was killed too.
+	if err == nil || time.Since(start) > 1500*time.Millisecond {
+		t.Fatalf("err %v after %s", err, time.Since(start))
+	}
+	out, err := Output(5*time.Second, "/bin/sh", "-c", "echo hi")
+	if err != nil || string(out) != "hi\n" {
+		t.Errorf("echo: %q %v", out, err)
 	}
 }

@@ -61,8 +61,8 @@ func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map
 	cmd := exec.CommandContext(ctx, claudeBin, "agents", "--json")
 	cmd.Dir = os.TempDir() // no project folder: nothing to trust or read
 	cmd.Env = ConfigEnv(os.Environ(), configDir)
-	proc.NoWindow(cmd) // Windows: no console window flashing up every few seconds
-	raw, err := cmd.Output()
+	proc.Tidy(cmd) // and on Windows no console window flashing up every few seconds
+	raw, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	if err != nil {
 		return nil, false
 	}

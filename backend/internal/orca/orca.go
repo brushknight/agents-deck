@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // BundleID is the macOS app, for bringing it to the front.
@@ -140,7 +142,8 @@ func (c Client) call(out any, args ...string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Bin, append(args, "--json")...)
 	cmd.Dir = os.TempDir()
-	raw, err := cmd.Output()
+	proc.Tidy(cmd) // the CLI is the Orca app itself: on a timeout, its helpers go too
+	raw, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	var env envelope
 	if jerr := json.Unmarshal(raw, &env); jerr != nil {
 		if err != nil {
