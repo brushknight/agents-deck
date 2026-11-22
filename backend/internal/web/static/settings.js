@@ -104,6 +104,10 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 
+// put: el's children become kids; null, false and undefined are left out
+// (replaceChildren would write them in as text: "null").
+const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+
 const NS = 'http://www.w3.org/2000/svg';
 function sv(tag, attrs, ...kids) {
   const el = document.createElementNS(NS, tag);
@@ -636,7 +640,7 @@ function tileFor(a) {
     const tn = h('span', { class: 'tn' });
     const tm = h('span', { class: 'tm' });
     const qb = h('span', { class: 'qb', hidden: true });
-    const el = h('a', { class: 'tile', href: `#agent/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, qb, spr, tn, tm);
+    const el = h('a', { class: 'tile', href: `#home/${encodeURIComponent(a.id)}`, draggable: 'true', 'data-id': a.id }, ring, ch, qb, spr, tn, tm);
     wireDrag(el, a.id);
     t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
@@ -648,7 +652,10 @@ function tileFor(a) {
   const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
   if (t.sig !== sig) {
     t.sig = sig;
-    t.el.className = `tile ${cls}${a.id === S.arg && S.page === 'agent' ? ' cur' : ''}`;
+    const cur = a.id === S.arg && S.page === 'home';
+    t.el.className = `tile ${cls}${cur ? ' cur' : ''}`;
+    t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
+    if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
     t.tm.textContent = meta;
     t.ring.hidden = !pct;
@@ -722,7 +729,7 @@ function qrow(a) {
   const spr = h('span', { class: 'spr c' });
   setSprite(spr, 'wait', a.tool, a.hat, { bubble: false });
   face.append(spr);
-  return h('a', { class: 'qrow', href: `#agent/${encodeURIComponent(a.id)}` }, face,
+  return h('a', { class: 'qrow', href: `#${S.page === 'home' ? 'home' : 'agent'}/${encodeURIComponent(a.id)}` }, face,
     h('span', { class: 'grow' }, h('span', { class: 'eyebrow', title: agentName(a) }, agentName(a)), h('span', { class: 'mono q' }, askOf(a).q)));
 }
 
@@ -750,7 +757,7 @@ function summaryStrip() {
   const nBoards = boardsWaiting(sys);
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   return h('nav', { class: 'strip', 'aria-label': 'Summary' },
-    h('a', { href: need ? `#agent/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
+    h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
     h('a', { class: 'st', href: '#troubleshoot' },
@@ -774,6 +781,7 @@ function drawHome() {
 }
 
 function updateDeck() {
+  syncBar();
   if (S.page === 'agent') return updateAgent();
   if (S.page !== 'home' || !deck || !deck.grid.isConnected) { if (S.page === 'home') draw(true); return; }
   if (!agentsList().length) { draw(true); return; }
@@ -796,7 +804,7 @@ function fillDeck() {
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
     seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
-  deck.strip.replaceChildren(summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+  put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
     btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
@@ -849,6 +857,7 @@ function panelHead() {
     wait ? h('span', { class: 'acc' }, `${wait} wait`) : null, wait && run ? ' · ' : null, run ? h('span', { class: 'acc' }, `${run} run`) : null);
 }
 function updatePanel() {
+  syncBar();
   const g = $('.pgrid');
   if (!g) return draw(true);
   reconcile(g, cells(S.deckPage || 0));
@@ -1004,13 +1013,13 @@ function fillAgent() {
   const i = list.findIndex((x) => x.id === a.id);
   const step = (d) => list[(i + d + list.length) % list.length];
   const nav = (d, label, path) => h('a', { class: 'ico', href: `#agent/${encodeURIComponent(step(d).id)}`, 'aria-label': label }, sv('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'aria-hidden': 'true' }, sv('path', { d: path })));
-  agentView.crumbs.replaceChildren(agentView.back, h('span', { class: 'kl' }, `/ ${agentName(a)}`), h('span', { class: 'sp' }),
+  put(agentView.crumbs, agentView.back, h('span', { class: 'kl' }, `/ ${agentName(a)}`), h('span', { class: 'sp' }),
     list.length > 1 ? nav(-1, 'Previous agent', 'M14.5 5.5L8 12l6.5 6.5') : null,
     h('span', { class: 'sub' }, `${i + 1} of ${list.length}${a.status === 'waiting' ? ' waiting' : ''}`),
     list.length > 1 ? nav(1, 'Next agent', 'M9.5 5.5L16 12l-6.5 6.5') : null);
   const page = Math.floor((a.slot ?? 0) / SPOTS);
   const others = agentsList().filter((x) => needsYou(x) && x.id !== a.id);
-  agentView.side.replaceChildren(h('span', { class: 'kl' }, 'The deck'), miniDeck(page, a.id),
+  put(agentView.side, h('span', { class: 'kl' }, 'The deck'), miniDeck(page, a.id),
     others.length ? h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, a.status === 'waiting' ? 'Next waiting' : 'Needs you')), h('div', { class: 'qlist' }, others.slice(0, 4).map(qrow))) : null);
   const key = agentKey(a);
   if (agentView.key !== key) {
@@ -1048,7 +1057,7 @@ function agentHead(a) {
       const st = { running: ['Working', 'acc'], waiting: ['Needs you', 'fill'], error: ['Error', 'bad'], idle: [x.unseen ? 'Hungry' : 'Idle', x.unseen ? 'acc' : 'off'], starting: ['Starting', 'off'], exited: ['Ended', 'off'] }[x.status] || [x.status, ''];
       status.className = `chip st2 ${st[1]}`;
       status.replaceChildren(h('i', { 'aria-hidden': 'true' }), `${st[0]}${since ? ` · ${since}` : ''}`);
-      chips.replaceChildren(status, x.queued ? chip(`${x.queued} queued`, 'acc', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
+      put(chips, status, x.queued ? chip(`${x.queued} queued`, 'acc', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null,
         x.aiTitle && x.aiTitle !== agentName(x) ? chip(x.aiTitle, 'off') : null);
     },
   };
@@ -1100,15 +1109,16 @@ function queueBlock(a, note) {
 
 // buildAgent fills the agent's page for its state: working (stats, what it
 // does, a prompt box) or asking (the question and its answers).
-function buildAgent(a, body) {
-  const hd = agentHead(a);
+function buildAgent(a, body, view = agentView, side = false) {
+  const hd = side ? barHead(a) : agentHead(a);
+  const nums = side ? barNumbers() : null;
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
   const external = codexThread(a);
   if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note, 'p'));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
-  if (a.tool === 'claude' && a.account) {
+  if (!side && a.tool === 'claude' && a.account) {
     for (const acc of S.accounts || []) {
       if (acc.name === a.account.name) continue;
       acts.append(twoStep(`Continue on ${acc.name}`, a.external ? `Again: a copy starts in ${acc.name}` : `Again: stops it, resumes in ${acc.name}`, '', async () => {
@@ -1119,7 +1129,8 @@ function buildAgent(a, body) {
   }
   const quick = a.status === 'exited' || a.external;
   const rmLabel = external || inApp(a) ? 'Hide' : watched(a) ? 'Remove from deck' : a.status === 'exited' ? 'Remove' : 'Stop';
-  acts.append(h('span', { class: 'sp' }), twoStep(rmLabel, quick ? '' : 'Click again to stop', 'd', async () => {
+  if (side) acts.append(h('span', { class: 'sp' }), h('a', { class: 'btn sm', href: `#agent/${encodeURIComponent(a.id)}`, 'data-k': 'bar-full', title: 'The agent\'s whole page: handoff, Stop and more' }, 'Full page ↗'));
+  else acts.append(h('span', { class: 'sp' }), twoStep(rmLabel, quick ? '' : 'Click again to stop', 'd', async () => {
     say2(note, `${rmLabel}: sending…`);
     try { await post(a, 'dismiss', {}); say2(note, `${rmLabel}: done`); } catch (ex) { say2(note, `${rmLabel} didn't work: ${ex.message}`, true); }
   }));
@@ -1154,7 +1165,7 @@ function buildAgent(a, body) {
     }
     const s = sending.get(w.id);
     if (s) { opts.forEach((o) => { o.disabled = true; }); say2(note, s.status === 'sent' ? `Sent ${s.key}. Waiting for the agent…` : `Sending ${s.key}…`); }
-    agentView.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
+    view.answer = (key) => { if ((w.options || []).some((o) => o.key === key)) answer(key); };
     const ask = h('div', { class: 'askblk' },
       h('span', { class: 'eyebrow' }, askLabel(w)),
       h('span', { class: 'serif q' }, isQ ? w.title : askOf(a).q),
@@ -1196,11 +1207,11 @@ function buildAgent(a, body) {
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
     const qb = queueBlock(a, note);
-    body.replaceChildren(...[hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el].filter(Boolean));
-    return (x) => { hd.update(x); qb.update(x); };
+    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), qb.el, nums?.el, acts, note);
+    return (x) => { hd.update(x); qb.update(x); nums?.update(x); };
   }
 
-  agentView.answer = null;
+  view.answer = null;
   const stat = (k) => { const v = h('span', { class: 'v' }); return [h('div', { class: 'stat' }, h('span', { class: 'kl' }, k), v), v]; };
   const [sCtx, vCtx] = stat('Context'), [sTok, vTok] = stat('Tokens'), [sCost, vCost] = stat('Cost'), [sTurns, vTurns] = stat('Turns');
   const prog = h('i', {});
@@ -1234,12 +1245,15 @@ function buildAgent(a, body) {
       h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
       a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
-  body.replaceChildren(hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
+  if (side) put(body, hd.el, h('div', { class: 'term' }, doingBar, doing),
+    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, nums.el, acts, note, foot);
+  else put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
     h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
+    nums?.update(x);
     const pct = ctxPct(x);
     vCtx.textContent = `${pct}%`;
     prog.style.width = `${pct}%`;
@@ -1264,6 +1278,110 @@ function buildAgent(a, body) {
     lastWhen.textContent = lastActive(x);
     foot.textContent = [tilde(x.cwd), S.state?.server?.name].filter(Boolean).join(' · ');
   };
+}
+
+// ---- the sidebar: an agent beside the deck ----------------------------------------------------
+//
+// A tile on Home opens its agent in an orange column on the right (#home/<id>);
+// the deck (or Panel view) gives it room. The same answers, prompt box and
+// queue as the agent's page; Full page ↗ has the rest.
+
+const CTX_TICKS = 28;
+let bar = null; // { el, body, id, key, update, answer }
+
+function barEl() {
+  if (bar) return bar;
+  const body = h('div', { class: 'abbody' });
+  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body));
+  document.body.append(el);
+  bar = { el, body, id: '', key: '', update: null, answer: null };
+  return bar;
+}
+
+function closeBar() { if (S.page === 'home' && S.arg) location.hash = '#home'; }
+
+// syncBar opens, fills or closes the sidebar for the page and the state.
+function syncBar() {
+  const b = barEl();
+  const want = S.page === 'home' ? S.arg : '';
+  const a = want ? agentsList().find((x) => x.id === want) : null;
+  if (want && !a && S.state) { history.replaceState(null, '', '#home'); S.arg = ''; } // it ended
+  const open = !!a;
+  document.documentElement.classList.toggle('barred', open);
+  b.el.setAttribute('aria-hidden', open ? 'false' : 'true');
+  b.el.inert = !open;
+  if (!a) { b.key = ''; b.answer = null; return; } // the last agent stays while it slides out
+  const key = agentKey(a);
+  if (b.id !== a.id || b.key !== key) {
+    const hadFocus = b.body.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT';
+    const swapped = b.id !== a.id;
+    b.id = a.id; b.key = key;
+    b.update = buildAgent(a, b.body, b, true);
+    if (swapped) b.el.querySelector('.abin').scrollTop = 0;
+    if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
+  }
+  b.update(a);
+}
+
+// barHead: the critter, the tool, the name in serif, its state, and ×.
+function barHead(a) {
+  const spr = h('span', { class: 'spr c dk' });
+  const face = h('span', { class: 'abface' }, spr);
+  const eyebrow = h('span', { class: 'eyebrow' });
+  const status = h('span', { class: 'chip abst' });
+  const chips = h('div', { class: 'chips' });
+  const close = h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2));
+  const el = h('div', { class: 'abhead' },
+    h('div', { class: 'abtop' }, face, eyebrow, h('span', { class: 'sp' }), close),
+    h('h2', { class: 'serif abname', tabindex: '-1' }, agentName(a)), chips);
+  return {
+    el,
+    update: (x) => {
+      setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+      eyebrow.textContent = [TOOL_NAMES[x.tool] || x.tool || '', x.account?.name || ''].filter(Boolean).join(' · ');
+      const since = rel(x.statusSince);
+      const st = { running: 'Working', waiting: 'Needs you', error: 'Error', idle: x.unseen ? 'Hungry' : 'Idle', starting: 'Starting', exited: 'Ended' }[x.status] || x.status;
+      status.className = `chip abst${x.status === 'waiting' || x.status === 'error' ? ' fill' : ''}`;
+      status.textContent = `${st}${since ? ` · ${since}` : ''}`;
+      put(chips, status, x.queued ? chip(`+${x.queued} queued`, '', null, { 'data-k': 'queued-chip' }) : null, x.branch ? chip(x.branch) : null, x.modelLabel || x.model ? chip(x.modelLabel || x.model) : null);
+    },
+  };
+}
+
+// barNumbers: context as ticks, then tokens in and out, cache, cost and turns.
+function barNumbers() {
+  const ticks = h('div', { class: 'ticks', 'aria-hidden': 'true' });
+  for (let i = 0; i < CTX_TICKS; i++) ticks.append(h('i', {}));
+  const ctxV = h('span', { class: 'v' });
+  const cell = (k) => { const v = h('b', {}); return [h('div', { class: 'nm1' }, h('span', { class: 'kl' }, k), v), v]; };
+  const [cIn, vIn] = cell('Tokens in'), [cOut, vOut] = cell('Tokens out'), [cRd, vRd] = cell('Cache read'),
+    [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost (est.)'), [cTurns, vTurns] = cell('Turns');
+  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' },
+    h('div', { class: 'abctx' }, h('span', { class: 'kl' }, 'Context'), ctxV), ticks,
+    h('div', { class: 'nmgrid' }, cIn, cOut, cRd, cWr, cCost, cTurns));
+  return {
+    el,
+    update: (x) => {
+      const pct = ctxPct(x);
+      const c = x.context || {};
+      ctxV.textContent = c.window ? `${pct}% · ${fmtN(c.used)} of ${fmtN(c.window)}` : '–';
+      const lit = Math.round((pct / 100) * CTX_TICKS);
+      [...ticks.children].forEach((t, i) => t.classList.toggle('on', i < lit));
+      const t = x.tokens || {};
+      vIn.textContent = fmtN(t.input); vOut.textContent = fmtN(t.output);
+      vRd.textContent = fmtN(t.cacheRead); vWr.textContent = fmtN(t.cacheWrite);
+      vCost.textContent = codexThread(x) ? '–' : fmtCost(x.costUsd);
+      vTurns.textContent = String(x.turns ?? 0);
+    },
+  };
+}
+
+// barStep: ← and → while the sidebar is open go to the agent before or after.
+function barStep(d) {
+  const list = bySlot();
+  const i = list.findIndex((x) => x.id === S.arg);
+  if (i < 0 || list.length < 2) return;
+  location.hash = `#home/${encodeURIComponent(list[(i + d + list.length) % list.length].id)}`;
 }
 
 // ---- start an agent, in a project -------------------------------------------------------------
@@ -3176,6 +3294,7 @@ function parseHash() {
   if (page === 'flash') return ['flash', arg];
   if (page === 'board' && arg) return ['board', arg];
   if (page === 'agent' && arg) return ['agent', arg];
+  if (page === 'home' && arg) return ['home', arg];
   if (page === 'start') return ['start', arg];
   if (page === 'agents') return ['agents', arg];
   if (page === 'help') return ['troubleshoot', ''];
@@ -3188,6 +3307,15 @@ const NAV = { newboard: 'boards', flash: 'boards', board: 'boards', agent: 'home
 
 async function route(initial) {
   const [page, arg] = parseHash();
+  // On Home, a tile only opens or swaps the sidebar: the deck stays as it is.
+  if (!initial && page === 'home' && S.page === 'home' && arg !== S.arg && (deck?.grid.isConnected || (S.panel && $('.pgrid')))) {
+    const opening = !S.arg && arg;
+    S.arg = arg;
+    if (S.panel) updatePanel(); else updateDeck();
+    if (opening) bar?.el.querySelector('h2')?.focus({ preventScroll: true });
+    else if (!arg) document.querySelector(`.tile[data-id="${CSS.escape(bar?.id || '')}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
@@ -3212,6 +3340,7 @@ async function route(initial) {
   }
   await loadAll(...needs(page), ...extras(page));
   draw();
+  syncBar();
   if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
   if (changed && !initial) {
     const hd = document.querySelector(`.page > section[data-page="${section}"] h1`);
@@ -3276,11 +3405,14 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   if (e.key === 'Escape') {
+    if (S.page === 'home' && S.arg && (!typing || bar?.el.contains(document.activeElement))) { document.activeElement?.blur(); closeBar(); return; }
     if (S.page === 'home' && S.panel) { S.panel = false; draw(true); return; }
     if ((S.page === 'agent' || S.page === 'start') && !typing) location.hash = '#home';
     return;
   }
   if (!typing && S.page === 'agent' && agentView?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); agentView.answer(e.key); }
+  if (!typing && S.page === 'home' && S.arg && bar?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); bar.answer(e.key); }
+  if (!typing && S.page === 'home' && S.arg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); barStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   const inSwitch = document.activeElement?.getAttribute('role') === 'radio' && !document.activeElement.closest('.pager, .pvbar');
   if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch) {
     e.preventDefault();

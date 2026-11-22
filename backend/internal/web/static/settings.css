@@ -859,3 +859,96 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .folderrow { display: flex; gap: 8px; align-items: center; width: 100%; }
 .folderrow input { flex: 1; min-width: 0; }
 .folderrow .btn.icon { width: 34px; height: 34px; padding: 0; justify-content: center; flex-shrink: 0; }
+
+/* ---------- the sidebar: an agent beside the deck ----------
+   An orange column with black ink. It grows in from the right and the page
+   beside it gets narrower, so the deck shrinks with it; Panel view does the
+   same. Its content keeps its width while it moves, so nothing reflows. */
+:root { --bar: 480px; --bar-ink: #0A0A0A; --bar-soft: rgba(10, 10, 10, 0.72); --bar-line: rgba(10, 10, 10, 0.28); }
+.agentbar { flex: none; width: 0; height: 100vh; height: 100dvh; overflow: hidden; background: var(--orange); color: var(--bar-ink);
+  border-left: 0 solid var(--bar-ink); transition: width 240ms cubic-bezier(.2, .7, .2, 1), border-width 240ms; position: relative; z-index: 31; }
+.barred .agentbar { width: var(--bar); border-left-width: 2px; }
+.abin { width: calc(var(--bar) - 2px); height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--bar-ink) transparent; }
+.abbody { display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 28px; }
+.barred .panelview { right: var(--bar); }
+.panelview { transition: right 240ms cubic-bezier(.2, .7, .2, 1); }
+.pvscreen { transition: width 240ms cubic-bezier(.2, .7, .2, 1); }
+.barred .pvside { display: none; }
+.barred .pvscreen { width: min(636px, calc(100vh - 150px), calc(100vw - var(--bar) - 60px)); }
+.barred .main .page { transition: padding 240ms; }
+@media (prefers-reduced-motion: reduce) { .agentbar, .panelview, .pvscreen { transition: none; } }
+
+/* head: critter, tool, ×; the name in serif; its state */
+.abhead { display: flex; flex-direction: column; gap: 10px; }
+.abtop { display: flex; align-items: center; gap: 10px; }
+.abface { width: 36px; height: 36px; flex: none; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bar-ink); --body: var(--bar-ink); --cut: var(--orange); }
+.abface .spr { width: 24px; }
+.agentbar .eyebrow { color: var(--bar-ink); font-weight: 700; }
+.abx { width: 34px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bar-ink); background: transparent; color: var(--bar-ink); cursor: pointer; border-radius: 0; padding: 0; }
+.abx:hover { background: var(--bar-ink); color: var(--orange); }
+.abname { font-size: 40px; line-height: 0.98; overflow-wrap: anywhere; outline: none; }
+.agentbar .chip { background: transparent; border-color: var(--bar-ink); color: var(--bar-ink); font-weight: 700; }
+.agentbar .chip.fill { background: var(--bar-ink); color: var(--orange); }
+
+/* text and labels in black */
+.agentbar .kl, .agentbar .field label { color: var(--bar-soft); font-weight: 700; }
+.agentbar .sub, .agentbar .txt { color: var(--bar-soft); }
+.agentbar .sub.err { color: var(--bar-ink); font-weight: 700; }
+.agentbar .grow .txt { color: var(--bar-ink); font-size: 14px; line-height: 20px; }
+
+/* the question: no box of its own here, the column is the box */
+.agentbar .askblk { background: none; border: 0; box-shadow: none; padding: 0; margin: 0; }
+.agentbar .askblk .q { font-size: 30px; line-height: 1.02; }
+.agentbar .term { border: 2px solid var(--bar-ink); }
+
+/* answers: square, black edges; the suggested one filled black */
+.agentbar .opts { padding-right: 0; }
+.agentbar .opt { background: transparent; border: 2px solid var(--bar-ink); color: var(--bar-ink); font-weight: 700; min-height: 48px; }
+.agentbar .opt:hover:not(:disabled) { background: rgba(10, 10, 10, 0.1); border-color: var(--bar-ink); }
+.agentbar .opt .k { border: 2px solid var(--bar-ink); }
+.agentbar .opt .h2, .agentbar .opt .h { color: var(--bar-soft); }
+.agentbar .opt.p { background: var(--bar-ink); color: var(--orange); box-shadow: none; }
+.agentbar .opt.p .k { border-color: var(--orange); }
+.agentbar .opt.p .h2 { color: var(--orange2); }
+
+/* fields and buttons */
+.agentbar input[type="text"] { background: rgba(255, 255, 255, 0.16); border: 2px solid var(--bar-ink); color: var(--bar-ink); font-weight: 600; }
+.agentbar input::placeholder { color: rgba(10, 10, 10, 0.6); }
+.agentbar input[type="text"]:focus-visible { border-color: var(--bar-ink); background: rgba(255, 255, 255, 0.28); }
+.agentbar .btn { border: 2px solid var(--bar-ink); color: var(--bar-ink); font-weight: 700; }
+.agentbar .btn:hover:not(:disabled) { background: var(--bar-ink); color: var(--orange); border-color: var(--bar-ink); }
+.agentbar .btn.p { background: var(--bar-ink); color: var(--orange); box-shadow: none; }
+.agentbar .btn.p:hover:not(:disabled) { background: #222; border-color: #222; }
+.agentbar .promptrow { flex-wrap: wrap; }
+.agentbar .promptrow .field { flex: 1 1 100%; }
+.agentbar .actions { gap: 8px; }
+.agentbar :focus-visible { outline: 2px solid var(--bar-ink); outline-offset: 2px; }
+
+/* the queue */
+.agentbar .rule { border-bottom-color: var(--bar-ink); font-weight: 700; }
+.agentbar .rule .m { color: var(--bar-soft); }
+.agentbar .blk { background: transparent; border: 2px solid var(--bar-ink); }
+.agentbar .row { border-top-color: var(--bar-line); }
+.agentbar .row .nm, .agentbar .qitem .ttl { color: var(--bar-ink); }
+
+/* the numbers, small, as on the website */
+.abnums { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 2px solid var(--bar-ink); }
+.abctx { display: flex; align-items: baseline; gap: 10px; }
+.abctx .v { margin-left: auto; font: 700 12px/16px var(--f-mono); }
+.ticks { display: grid; grid-template-columns: repeat(28, minmax(0, 1fr)); gap: 3px; height: 14px; }
+.ticks i { background: var(--bar-line); }
+.ticks i.on { background: var(--bar-ink); }
+.nmgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 2px solid var(--bar-ink); margin-top: 4px; }
+.nm1 { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; min-width: 0; border-left: 1px solid var(--bar-line); }
+.nm1:nth-child(3n+1) { border-left: 0; }
+.nm1:nth-child(n+4) { border-top: 1px solid var(--bar-line); }
+.nm1 .kl { font-size: 10px; }
+.nm1 b { font: 700 16px/20px var(--f-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* narrow windows: the sidebar goes over the deck instead */
+@media (max-width: 900px) {
+  .agentbar { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; box-shadow: -8px 0 0 rgba(0, 0, 0, 0.35); }
+  .barred .agentbar { width: min(var(--bar), 100vw); }
+  .abin { width: min(calc(var(--bar) - 2px), 100vw); }
+  .barred .panelview { right: 0; }
+}
