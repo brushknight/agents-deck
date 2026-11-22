@@ -9,9 +9,9 @@ import {
 
 const PAGES = ['home', 'agents', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
 const SCOPES = [
-  { value: 'view', text: 'Look only' },
-  { value: 'act', text: 'Can answer' },
-  { value: 'admin', text: 'Can manage' },
+  { value: 'view', text: 'Look only', icon: 'eye', title: 'Sees the deck, nothing more' },
+  { value: 'act', text: 'Can answer', icon: 'reply', title: 'Sees the deck and answers agents' },
+  { value: 'admin', text: 'Can manage', icon: 'key', title: 'Also starts and stops agents' },
 ];
 const scopeWords = (s) => (SCOPES.find((x) => x.value === s) || { text: s }).text;
 const scopeLower = (s) => scopeWords(s).toLowerCase();
@@ -242,6 +242,9 @@ const ICONS = {
   back: [['path', { d: 'M14.5 5.5L8 12l6.5 6.5' }]],
   restart: [['path', { d: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7' }]],
   out: [['path', { d: 'M7 17L17 7M9 7h8v8' }]],
+  eye: [['path', { d: 'M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z' }], ['circle', { cx: 12, cy: 12, r: 2.6 }]],
+  reply: [['path', { d: 'M10 7L4.5 12l5.5 5M5 12h9a5.5 5.5 0 0 1 5.5 5.5V19' }]],
+  auto: [['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17.5 3v3.6h-3.6M6.5 21v-3.6h3.6' }]],
   power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
 };
 function icon(name, size = 14, width = 2) {
@@ -313,7 +316,7 @@ function seg(label, options, current, onChange, opts = {}) {
       disabled: opts.disabled || o.disabled, title: o.title, 'data-k': `${opts.key || label}:${o.value}`,
       onclick: () => { if (!on) onChange(o.value); },
       onkeydown: (e) => radioKeys(e, group, onChange, options),
-    }, o.text));
+    }, o.icon ? icon(o.icon, 13) : null, o.iconOnly ? h('span', { class: 'sr' }, o.text) : o.text));
   });
   if (!options.some((o) => o.value === current) && group.firstChild) group.firstChild.tabIndex = 0;
   return group;
@@ -2071,11 +2074,99 @@ function drawBoards() {
 // ---- a board's page ------------------------------------------------------------------------
 
 // The uplink preference: what the board uses when it isn't on USB.
-const UPLINKS = [{ value: 'auto', text: 'Auto' }, { value: 'wifi', text: 'Wi-Fi' }, { value: 'ble', text: 'Bluetooth' }];
+const UPLINKS = [{ value: 'auto', text: 'Auto', icon: 'auto', title: 'USB, else Wi-Fi, else Bluetooth' }, { value: 'wifi', text: 'Wi-Fi', icon: 'wifi' }, { value: 'ble', text: 'Bluetooth', icon: 'bluetooth' }];
 
 function upChip(u) {
   const cls = u.state === 'in use' ? 'ok' : u.state === 'connecting' ? 'acc' : (u.state === 'off' || u.state === 'not used' || u.state === 'not connected') ? 'off' : '';
   return chip(`${VIA[u.via] || u.via} ${u.state}`, cls, null, { title: u.detail || null, role: 'listitem' });
+}
+
+// A status dot: on (green), wait (orange), standby (hollow), off (grey).
+const dot = (kind, label) => h('i', { class: `dot ${kind}`, role: 'img', 'aria-label': label, title: label });
+const LANE_STATE = { 'in use': ['on', 'in use'], 'standing by': ['sb', 'standby'], connecting: ['wait', 'connecting'], 'not used': ['off', 'off'], off: ['off', 'off'], 'not connected': ['off', 'off'] };
+
+// lane: one way a board reaches this computer, as a tile: its icon, a dot
+// for its state, a short word, and what it is on (the Wi-Fi's name).
+function lane(ic, label, kind, word, sub, acts) {
+  return h('div', { class: `lane ${kind}`, role: 'listitem', 'aria-label': `${label}: ${word}${sub ? `, ${sub}` : ''}` },
+    h('div', { class: 'lhd' }, icon(ic, 18, 1.8), h('span', { class: 'ln' }, label)),
+    h('div', { class: 'lst' }, dot(kind, word), h('span', {}, word)),
+    sub ? h('span', { class: 'lsub', title: sub }, sub) : h('span', { class: 'lsub dim' }, '·'),
+    acts && acts.filter(Boolean).length ? h('div', { class: 'lact' }, acts) : null);
+}
+
+// linkStates: USB, Wi-Fi and Bluetooth for a board, each as [kind, word, sub].
+function linkStates(d) {
+  const ups = d.uplinks || [];
+  const up = (via) => ups.find((u) => u.via === via);
+  const state = (u) => LANE_STATE[u?.state] || ['off', 'off'];
+  const out = {};
+  const usb = up('usb');
+  out.usb = [...(usb ? state(usb) : d.connection === 'usb' ? ['on', 'in use'] : ['off', 'unplugged']), d.connection === 'usb' ? (d.port || '').replace(/^.*\//, '') : null];
+  if (d.canWifi !== false || d.wifi) {
+    const w = up('wifi');
+    out.wifi = [...(w ? state(w) : d.connection === 'wifi' ? ['on', 'in use'] : d.wifi?.ssid ? ['sb', 'standby'] : ['off', 'not set']), d.wifi?.ssid || (d.canWifi === false ? 'no Wi-Fi' : null)];
+  }
+  if (d.hasBluetooth) {
+    const b = up('bluetooth');
+    out.bluetooth = [...(b ? state(b) : d.bluetooth ? ['sb', 'standby'] : ['off', 'not linked']), d.bluetooth && d.bleState && d.bleState !== 'paired' ? d.bleState : null];
+  }
+  if (!d.online) for (const k of Object.keys(out)) out[k] = ['off', k === 'usb' ? 'unplugged' : 'off', out[k][2]];
+  return out;
+}
+
+// linkDots: the same, small, on one line: a glyph and a dot each, the Wi-Fi's name.
+function linkDots(d) {
+  const st = linkStates(d);
+  return h('span', { class: 'ldots', role: 'list', 'aria-label': 'Connections' }, Object.entries(st).map(([k, [kind, word, sub]]) =>
+    h('span', { class: `ld ${kind}`, role: 'listitem', title: `${VIA[k]}: ${word}${sub ? ` · ${sub}` : ''}` }, icon(VIA_ICON[k], 13, 1.8), dot(kind, `${VIA[k]} ${word}`), k === 'wifi' && sub ? h('span', { class: 'ssid' }, sub) : null)));
+}
+
+function lanes(d) {
+  const st = linkStates(d);
+  const s = S.settings || {};
+  const inHand = d.connection === 'usb' || d.connection === 'bluetooth';
+  const out = [];
+  out.push(lane('usb', 'USB', ...st.usb));
+  if (st.wifi) {
+    const [k, word] = st.wifi;
+    const acts = [];
+    if (d.online && inHand && d.canWifi !== false && S.open.wifi !== d.id) {
+      if (s.wifi?.ssid && (d.wifi?.own || !d.wifi?.ssid)) acts.push(btn('Send', (e) => deviceAction(d, 'wifi', { useDefault: true }, e.currentTarget, (r) => r?.message || 'Sent'), 'xs', { title: `Send ${s.wifi.ssid} to it` }));
+      acts.push(btn(d.wifi?.ssid ? 'Change' : 'Set up', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }, 'xs', { title: 'Give it another Wi-Fi network' }));
+    }
+    out.push(lane('wifi', 'Wi-Fi', k, word, st.wifi[2], acts));
+  }
+  if (st.bluetooth) {
+    const nb = (S.btBoards?.boards || []).find((x) => x.device === d.id);
+    const acts = !d.bluetooth && !(nb && S.jobs[S.btAdd[nb.id]])
+      ? [btn(S.btFind[d.id] ? 'Looking…' : 'Link', (e) => btAddFor(d, e.currentTarget), 'xs', { 'data-k': `btfor-${d.id}`, disabled: !!S.btFind[d.id], title: 'Add it over Bluetooth' })] : [];
+    out.push(lane('bluetooth', 'Bluetooth', ...st.bluetooth, acts));
+  }
+  return h('div', { class: 'lanes', role: 'list', 'aria-label': `How ${d.name} reaches this computer` }, out);
+}
+
+// connectionTiles: the board page's Connection row: a tile per link, the
+// preference off USB under them, the Wi-Fi form or Bluetooth flow when open.
+function connectionTiles(d) {
+  const content = [lanes(d)];
+  if (d.hasBluetooth && d.state !== 'revoked') {
+    const opts = UPLINKS.map((o) => (o.value === 'ble' && !d.bluetooth
+      ? { ...o, disabled: true, title: 'Link it over Bluetooth first' } : o));
+    content.push(h('div', { class: 'pref' }, h('span', { class: 'kl' }, 'Off USB'),
+      seg(`When ${d.name} is off USB, use`, opts, d.uplinkPref || 'auto',
+        (v) => deviceAction(d, 'uplink', { uplink: v }, null, `${d.name} uses ${UPLINKS.find((o) => o.value === v).text} off USB`),
+        { key: `uplink-${d.id}` })));
+  }
+  for (const u of d.uplinks || []) {
+    if (u.via === 'bluetooth' && u.state === 'connecting' && u.detail && u.detail !== 'waiting for it to come in range') content.push(h('p', { class: 'sub err' }, `Bluetooth: ${u.detail}`));
+  }
+  if (d.wifi?.note) content.push(h('p', { class: 'sub' }, `Wi-Fi: ${d.wifi.note}`));
+  if (d.uplinkNote) content.push(h('p', { class: 'sub err' }, d.uplinkNote));
+  const nb = (S.btBoards?.boards || []).find((b) => b.device === d.id);
+  const job = nb && S.jobs[S.btAdd[nb.id]];
+  const extra = S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : job ? addFlow(nb, job) : null;
+  return labelled('Connection', content, null, { extra });
 }
 
 function connectionLine(d) {
@@ -2142,7 +2233,6 @@ function firmwareLine(d) {
     if (upNote) content.push(h('p', { class: 'sub' }, `${st.state === 'local' ? 'To install it' : 'To update'}: ${upNote}.`));
     if (!canFile && d.fileNote) content.push(h('p', { class: d.online ? 'sub' : 'sr', id: `fwn-${t.key}` }, `A firmware file: ${d.fileNote}.`));
   }
-  content.push(h('span', { class: 'sub' }, 'A .bin you built or downloaded.'));
   const right = [...fileButton(t, canFile, d.fileNote)];
   if (d.connection === 'usb' && d.port) right.push(btn('Reinstall', () => { location.hash = `#new-board/${encodeURIComponent(d.port)}`; }, '', { title: 'Install the firmware again over the cable' }));
   return labelled('Firmware', content, right, { extra: S.file[t.key] ? filePanel(t, S.file[t.key]) : null });
@@ -2165,7 +2255,7 @@ function drawBoard() {
   for (const j of S.jobList?.jobs || []) putJob(j);
   const st = d.status;
   const chips = [connChip(d)];
-  if (d.online && VIA[d.connection]) chips[0] = chip(`${VIA[d.connection]} · connected`, 'ok', VIA_ICON[d.connection]);
+  if (d.online && VIA[d.connection]) chips[0] = chip(VIA[d.connection], 'ok', VIA_ICON[d.connection], { title: `Connected over ${VIA[d.connection]}` });
   if (d.firmware) chips.push(chip(`Firmware ${d.firmware}`));
   if (d.kind === 'network') chips.push(chip(scopeWords(d.scope), 'acc'));
   let side = null;
@@ -2188,21 +2278,18 @@ function drawBoard() {
 
   const rows = [];
   if (d.kind === 'serial' && d.state !== 'revoked') {
-    rows.push(connectionLine(d));
-    if (d.canWifi !== false || d.wifi) rows.push(wifiLine(d));
-    if (d.hasBluetooth) rows.push(bluetoothLine(d));
+    rows.push(connectionTiles(d));
   } else {
-    rows.push(labelled('Connection', h('span', { class: 'sub' }, d.online ? 'Connected over the network' : d.lastSeen ? `Last seen ${ago(d.lastSeen)}` : 'Never connected')));
+    rows.push(labelled('Connection', h('div', { class: 'lanes', role: 'list' }, lane('wifi', 'Network', d.online ? 'on' : 'off', d.online ? 'connected' : d.lastSeen ? `seen ${ago(d.lastSeen)}` : 'never', null))));
   }
   if (d.state !== 'revoked') {
-    rows.push(labelled('It may', h('span', { class: 'sub' }, d.scope === 'admin' ? 'Also starts agents.' : d.scope === 'act' ? 'Can answer also sends answers.' : 'It sees the deck and nothing more.'),
-      [seg(`What ${d.name} may do`, SCOPES, d.scope, (v) => deviceAction(d, 'scope', { scope: v }, null, `${d.name} may now: ${scopeLower(v)}`), { key: `scope-${d.id}` })]));
+    rows.push(labelled('Access', seg(`What ${d.name} may do`, SCOPES, d.scope, (v) => deviceAction(d, 'scope', { scope: v }, null, `${d.name} may now: ${scopeLower(v)}`), { key: `scope-${d.id}` })));
   }
   if (d.state === 'active' && S.settings?.magic) rows.push(magicLine(d));
   if (d.kind === 'serial' && d.state === 'active') rows.push(firmwareLine(d));
-  const foot = h('div', { class: 'actions' }, h('span', { class: 'sub grow' }, d.state === 'revoked' ? 'It can\'t connect any more. Remove forgets it.' : 'Cut off stops it connecting now. Remove forgets it.'),
-    d.state !== 'revoked' ? btn('Cut it off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`), 'd') : null,
-    btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`), 'd'));
+  const foot = h('div', { class: 'actions end' }, d.state === 'revoked' ? h('span', { class: 'sub grow' }, 'Cut off: it can\'t connect any more.') : null,
+    d.state !== 'revoked' ? btn('Cut it off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`), 'd', { title: 'It stops connecting now, and stays in the list' }) : null,
+    btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`), 'd', { title: 'Forget it; it pairs again over USB' }));
   return [back, header, blk(...rows), foot];
 }
 
@@ -2248,17 +2335,16 @@ function magicLine(d) {
   const m = S.settings.magic;
   const role = roleOf(d);
   const save = (patch) => patchSettings({ magic: { ...m, ...patch } });
-  const content = [h('span', { class: 'sub' }, d.motion ? 'Has a motion sensor, so it can receive.' : 'Any screen can give; receiving needs a motion sensor.')];
+  const content = [seg(`${d.name}'s part in the magic trick`, [
+    { value: '', text: 'Not in it' },
+    { value: 'giver', text: 'Giver', title: 'Its agents fly to the receiver' },
+    { value: 'receiver', text: 'Receiver', disabled: !d.motion, title: d.motion ? 'Knock on it to take the agents' : 'Needs a motion sensor (the 1.8 inch AMOLED)' },
+  ], role, (v) => setRole(d, v), { key: `role-${d.id}` })];
   const corner = (label, key) => h('div', { class: 'actions' }, h('span', { class: 'kl' }, label), pickSel(`${d.name}: ${label}`, CORNERS, m[key], (v) => save({ [key]: v }), `${key}-${d.id}`));
   if (role === 'giver') content.push(corner('They leave to', 'giverLeave'), corner('They come back from', 'giverArrive'));
   if (role === 'receiver') content.push(corner('They arrive from', 'receiverArrive'), corner('They leave to', 'receiverLeave'));
   if (role && !m.on) content.push(h('span', { class: 'sub' }, 'The trick is off.'));
-  content.push(h('a', { class: 'btn link small', href: '#boards/magic' }, 'Set up the magic trick →'));
-  return labelled('Magic trick', content, [seg(`${d.name}'s part in the magic trick`, [
-    { value: '', text: 'Not in it' },
-    { value: 'giver', text: 'Giver' },
-    { value: 'receiver', text: 'Receiver', disabled: !d.motion, title: d.motion ? null : 'Needs a motion sensor (the 1.8 inch AMOLED)' },
-  ], role, (v) => setRole(d, v), { key: `role-${d.id}` })]);
+  return labelled('Magic trick', content, [h('a', { class: 'btn xs', href: '#boards/magic', title: 'Set up the magic trick' }, icon('magic', 13), 'Set up')]);
 }
 
 // The magic trick: a knock on the receiver (a board with a motion sensor)
@@ -2736,24 +2822,28 @@ function drawNetwork() {
   const s = S.settings;
   const out = [head('Network', 'No cable', 'needed.')];
   const pending = s.network !== s.networkRunning;
-  out.push(blk(
-    row('Let paired devices connect over the network',
-      pending ? `${s.network ? 'On' : 'Off'} after the service restarts. Encrypted, and only devices you paired.` : 'Encrypted, and only devices you paired. Off means USB and Bluetooth only.',
-      [pending ? btn('Restart now', (e) => restartService(e.currentTarget)) : null,
+  out.push(h('div', { class: 'cards' }, h('div', { class: 'blk fit' },
+    row('Paired devices over the network',
+      pending ? `${s.network ? 'On' : 'Off'} after the service restarts.` : 'Encrypted · only devices you paired',
+      [pending ? btn('Restart now', (e) => restartService(e.currentTarget), 'sm') : null,
         toggle('Let paired devices connect over the network', s.network, (on, el) => patchSettings({ network: on }, el))],
-      { pic: ico('lock') }),
-    h('div', { class: 'row thin tint' }, h('span', { class: 'kl' }, 'This computer'), h('span', { class: 'sub grow' }, s.networkRunning ? 'Listening for paired devices.' : 'Not listening on the network.'),
-      s.networkRunning ? chip('On', 'ok st', 'dot') : chip('Off', 'off st'))));
+      { pic: ico('lock') }))));
 
   const err = h('p', { class: 'sub err', role: 'alert' });
-  out.push(sec('Wi-Fi for boards', 'one network for every board', null, h('div', { class: 'blk pad' },
+  const editing = !s.wifi?.ssid || S.open.wifiMain;
+  const wifiCard = h('div', { class: 'cards' }, h('div', { class: 'blk fit' }, row(h('span', { class: 'ssidbig' }, s.wifi?.ssid), null, [
+    chip('2.4 GHz', '', null, { title: 'Boards use 2.4 GHz Wi-Fi only' }),
+    btn('Change', () => { S.open.wifiMain = true; draw(); $('#ssid')?.focus(); }, 'sm'),
+    btn('Forget', (e) => patchSettings({ wifi: { forget: true } }, e.currentTarget), 'sm')], { pic: ico('wifi', 'ok') })));
+  if (!editing) out.push(sec('Wi-Fi for boards', 'sent to boards on USB or Bluetooth', null, wifiCard));
+  else out.push(sec('Wi-Fi for boards', 'sent to boards on USB or Bluetooth', null, h('div', { class: 'blk pad' },
     h('div', { class: 'fields' },
       h('div', { class: 'field' }, h('label', { for: 'ssid' }, 'Network name'), h('input', { id: 'ssid', type: 'text', autocomplete: 'off', value: s.wifi?.ssid || '', 'data-k': 'ssid' })),
       h('div', { class: 'field' }, h('label', { for: 'pw' }, 'Password'), h('input', { id: 'pw', type: 'password', autocomplete: 'new-password', placeholder: s.wifi?.ssid ? 'type it again to change it' : '', 'data-k': 'pw' }))),
     err,
     h('div', { class: 'actions' },
-      h('span', { class: 'sub grow' }, '2.4 GHz only. Boards get it while on USB or Bluetooth.'),
-      s.wifi?.ssid ? btn('Forget', (e) => patchSettings({ wifi: { forget: true } }, e.currentTarget)) : null,
+      h('span', { class: 'sub grow' }, '2.4 GHz only.'),
+      s.wifi?.ssid ? btn('Cancel', () => { S.open.wifiMain = false; draw(true); }) : null,
       btn('Save and send to boards', async (e) => {
         err.textContent = '';
         const b = e.currentTarget;
@@ -2764,6 +2854,7 @@ function drawNetwork() {
           const n = (r.sent || []).length;
           toast(n ? `Saved and sent to ${plural(n, 'board')} on USB or Bluetooth` : 'Saved. Boards get it when they\'re plugged in or on Bluetooth.');
           $('#pw').value = '';
+          S.open.wifiMain = false;
           draw(true);
         } catch (ex) {
           err.textContent = ex.message;
@@ -2775,26 +2866,15 @@ function drawNetwork() {
   const boards = (S.devices?.devices || []).filter((d) => d.kind === 'serial' && d.state === 'active');
   const onWifi = boards.filter((d) => d.wifi?.state === 'connected' || d.connection === 'wifi').length;
   const rows = boards.map((d) => {
-    let meta;
-    if (d.wifi?.ssid) meta = `On ${d.wifi.ssid} · ${d.wifi.state || 'unknown'}`;
-    else if (d.connection === 'usb') meta = d.canWifi === false && d.board ? 'On USB · this board has no Wi-Fi' : 'On USB · no Wi-Fi yet';
-    else if (d.connection === 'bluetooth') meta = d.canWifi === false && d.board ? 'On Bluetooth · this board has no Wi-Fi' : 'On Bluetooth · no Wi-Fi yet';
-    else if (d.connection === 'wifi') meta = 'On Wi-Fi';
-    else meta = 'Not connected';
-    if (d.wifi?.note) meta += ` · ${d.wifi.note}`;
     const right = [];
     const inHand = d.connection === 'usb' || d.connection === 'bluetooth';
     if (inHand && d.canWifi !== false && S.open.wifi !== d.id) {
       if (s.wifi?.ssid && (d.wifi?.own || !d.wifi?.ssid)) {
-        right.push(btn('Send Wi-Fi', (e) => deviceAction(d, 'wifi', { useDefault: true }, e.currentTarget, (r) => r?.message || 'Sent')));
+        right.push(btn('Send Wi-Fi', (e) => deviceAction(d, 'wifi', { useDefault: true }, e.currentTarget, (r) => r?.message || 'Sent'), 'sm', { title: `Send ${s.wifi.ssid} to it` }));
       }
-      right.push(btn('Use another network', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }));
-    } else if (!inHand) {
-      if (d.connection === 'wifi' || d.wifi?.state === 'connected') right.push(chip('Wi-Fi', 'ok st', 'wifi'));
-      else if (!d.online) right.push(chip('Offline', 'off st', 'offline'));
-      if (d.canWifi !== false && !d.online) meta += ' · plug it in to change its Wi-Fi';
-    }
-    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), meta, right, { name: true, off: !d.online, pic: thumb(devScreen(d, 'xs')), extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null });
+      right.push(btn('Change Wi-Fi', () => { S.open.wifi = d.id; draw(); $(`#ssid-${CSS.escape(d.id)}`)?.focus(); }, 'sm', { title: 'Give it another network' }));
+    } else if (!d.online) right.push(chip('Offline', 'off st', 'offline', { title: d.canWifi !== false ? 'Plug it in to change its Wi-Fi' : null }));
+    return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), null, right, { name: true, off: !d.online, below: linkDots(d), pic: thumb(devScreen(d, 'xs')), extra: S.open.wifi === d.id ? wifiForm(d, () => load('devices')) : null });
   });
   if (!rows.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'txt dim' }, 'No boards yet.')));
   out.push(sec('Boards on Wi-Fi', boards.length ? `${onWifi} of ${boards.length}` : null, ['Boards', '#boards'], blk(...rows)));
@@ -2814,7 +2894,8 @@ function bluetoothNetwork() {
     title = { none: 'Bluetooth isn\'t available here', unauthorized: 'Bluetooth needs your permission', off: 'Bluetooth is off' }[bt.helper === 'none' ? 'none' : bt.radio] || 'Bluetooth is starting';
     meta = bt.why || '';
   }
-  const content = [blk(row(title, meta, bt.available ? [chip('On', 'ok st', 'dot'), link('Add a board', '#boards/add')] : [chip(bt.radio === 'unauthorized' ? 'Blocked' : 'Off', 'off st')], { pic: ico('bluetooth') }))];
+  const content = [h('div', { class: 'cards' }, h('div', { class: 'blk fit' }, row(bt.available ? h('span', { class: 'ttl' }, 'Bluetooth ', dot('on', 'on')) : title, bt.available ? null : meta,
+    bt.available ? [link('Add a board', '#boards/add', '', { title: 'New boards can be set up over Bluetooth' })] : [chip(bt.radio === 'unauthorized' ? 'Blocked' : 'Off', 'off st')], { pic: ico('bluetooth', bt.available ? 'ok' : '') })))];
   if (bt.radio === 'unauthorized' || (bt.available === false && bt.helper !== 'none' && bt.radio !== 'off')) {
     content.push(note('macOS asks once whether "agents deck Bluetooth" may use Bluetooth. If the answer was no, turn it on in System Settings, Privacy & Security, Bluetooth.'));
   }
@@ -2827,8 +2908,9 @@ function phones(s) {
   const devs = (S.devices?.devices || []).filter((d) => d.kind === 'network');
   const content = [];
   const pairBtn = h('button', { type: 'button', class: 'btn p', disabled: !s.networkRunning, 'data-k': 'pair', onclick: () => { S.pairing = { form: true }; draw(); $('#pair-name')?.focus(); } }, icon('plus', 14, 2.2), 'Pair a phone or panel');
-  content.push(h('div', { class: 'intro' }, h('p', { class: 'txt' }, 'Pair a phone or a desk panel with a one-time code. It sees the deck while it is on your network.'), S.pairing ? null : pairBtn));
-  if (!s.networkRunning && !S.pairing) content.push(note('Turn on Let paired devices connect over the network (and restart the service) to pair one.'));
+  pairBtn.title = 'With a one-time code; it sees the deck while it is on your network';
+  if (!S.pairing) content.push(h('div', { class: 'cards' }, pairBtn));
+  if (!s.networkRunning && !S.pairing) content.push(note('Turn on Paired devices over the network above to pair one.'));
   if (S.pairing?.form) {
     const scope = S.pairing.scope || 'view';
     content.push(h('div', { class: 'blk pad' },
@@ -2863,7 +2945,7 @@ function phones(s) {
       if (d.state === 'waiting') right.push(btn('Approve', (e) => deviceAction(d, 'approve', {}, e.currentTarget, `${d.name} approved`), 'p'));
       if (d.state === 'revoked') right.push(btn('Remove', (e) => deviceAction(d, 'remove', {}, e.currentTarget, `${d.name} removed`)));
       else right.push(btn('Cut off', (e) => deviceAction(d, 'revoke', {}, e.currentTarget, `${d.name} can't connect any more`), 'd', { 'aria-label': `Cut off ${d.name}` }));
-      return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), `${d.model || 'Phone or panel'} · ${seen}`, right, { name: true, off: d.state === 'revoked', pic: ico(/panel/i.test(d.model || d.type || '') ? 'panel' : 'phone') });
+      return row(h('a', { href: `#board/${encodeURIComponent(d.id)}` }, d.name), null, right, { below: h('span', { class: 'ldots' }, h('span', { class: `ld ${d.online ? 'on' : 'off'}` }, dot(d.online ? 'on' : 'off', d.online ? 'connected' : 'not connected'), h('span', { class: 'ssid' }, d.online ? 'connected' : seen))), name: true, off: d.state === 'revoked', pic: ico(/panel/i.test(d.model || d.type || '') ? 'panel' : 'phone') });
     })));
   }
   return sec('Phones and panels', devs.length ? `${devs.length} paired` : null, null, ...content);

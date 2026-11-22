@@ -799,3 +799,43 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .dk .hf-4-280-2 { animation: hf4 1120ms linear infinite; animation-delay: -560ms; }
 .dk .hf-4-280-3 { animation: hf4 1120ms linear infinite; animation-delay: -280ms; }
 @media (prefers-reduced-motion: reduce) { .dk svg *, .dk svg { animation: none !important; } .dk .lb, .dk .hfo { opacity: 0; } }
+
+/* ---------- status at a glance: dots, link tiles, cards that fit ---------- */
+.dot { display: inline-block; width: 8px; height: 8px; flex: none; background: var(--rule); }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(111, 214, 154, 0.15); }
+.dot.wait { background: var(--orange); }
+.dot.sb { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.dot.off { background: var(--rule); }
+.seg button { display: inline-flex; align-items: center; gap: 7px; }
+.seg button svg { flex: none; }
+/* a board's links: one tile each, all the same size */
+.lanes { display: grid; grid-template-columns: repeat(auto-fill, 168px); gap: 10px; }
+.lane { height: 112px; display: flex; flex-direction: column; gap: 6px; padding: 12px; background: var(--ground); border: 1px solid var(--rule); color: var(--soft); min-width: 0; }
+.lane.on { border-color: rgba(111, 214, 154, 0.55); color: var(--ink); }
+.lane.wait { border-color: var(--orange); color: var(--ink); }
+.lane.off { color: var(--muted); }
+.lane .lhd { display: flex; align-items: center; gap: 8px; }
+.lane .ln { font: 700 12px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.lane .lst { display: flex; align-items: center; gap: 8px; font: 500 12px/1 var(--f-mono); }
+.lane .lsub { font: 400 12px/16px var(--f-mono); color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .lsub.dim { color: transparent; }
+.lane .lact { margin-top: auto; display: flex; gap: 6px; }
+.pref { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+/* the same, small, under a board's name in a list */
+.ldots { display: flex; align-items: center; gap: 14px; margin-top: 4px; color: var(--soft); }
+.ld { display: inline-flex; align-items: center; gap: 6px; font: 400 12px/1 var(--f-mono); }
+.ld.off { color: var(--muted); }
+.ld .ssid { color: var(--text); }
+.ld.off .ssid { color: var(--muted); }
+/* cards that are as wide as what they hold */
+.cards { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.blk.fit { width: auto; max-width: 100%; }
+.blk.fit > .row { border-top: 0; min-height: 64px; gap: 10px 20px; }
+.ssidbig { font: 700 16px/1.2 var(--f-mono); color: var(--ink); }
+.ico.ok { color: var(--ok); border-color: rgba(111, 214, 154, 0.45); }
+.ttl .dot { margin-left: 6px; vertical-align: middle; }
+.actions.end { justify-content: flex-end; }
+.grow > .seg { align-self: flex-start; }
+.lane { height: auto; min-height: 104px; }
+.lane > * { flex-shrink: 0; }
+.lanes { align-items: stretch; }

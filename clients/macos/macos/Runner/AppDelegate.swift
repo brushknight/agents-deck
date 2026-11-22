@@ -15,6 +15,8 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private var pinned = UserDefaults.standard.bool(forKey: "deckPinned")
   /// The deck has been put under the menu bar icon at least once.
   private var placed = false
+  /// While the unpinned deck is open: a click outside it puts it away.
+  private var clickMonitors: [Any] = []
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     false
@@ -203,18 +205,38 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     }
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
+    watchClicks()
     channel?.invokeMethod("visible", arguments: true)
   }
 
   private func hideDeck() {
+    unwatchClicks()
     mainFlutterWindow?.orderOut(nil)
     channel?.invokeMethod("visible", arguments: false)
   }
 
   /// Clicking anywhere else puts the deck away, like any menu bar popover,
-  /// unless it is pinned.
-  func windowDidResignKey(_ notification: Notification) {
-    if !pinned { hideDeck() }
+  /// unless it is pinned. Only a click does: another app taking the focus by
+  /// itself (a permission prompt, an alert) leaves the deck where it is.
+  private func watchClicks() {
+    guard clickMonitors.isEmpty else { return }
+    let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+    if let g = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+      guard let self, !self.pinned else { return }
+      self.hideDeck()
+    }) { clickMonitors.append(g) }
+    // In this app's own other windows (Settings); the menu bar icon toggles by itself.
+    if let l = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] e in
+      if let self, !self.pinned, let w = e.window, w !== self.mainFlutterWindow, w !== self.statusItem.button?.window {
+        self.hideDeck()
+      }
+      return e
+    }) { clickMonitors.append(l) }
+  }
+
+  private func unwatchClicks() {
+    clickMonitors.forEach(NSEvent.removeMonitor)
+    clickMonitors.removeAll()
   }
 
   /// The Pin button (or the menu): pinned, the deck floats above other apps'
