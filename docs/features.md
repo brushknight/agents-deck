@@ -269,9 +269,12 @@ to icons (the browser remembers which). Everything on it is also a command.
 | Troubleshoot | is the service running and for how long, restart it, a report to copy (versions, platform, board models; no names, folders or prompts), the last lines of the log, where its files are | `agentctl status`, `agentctl diagnostics` |
 | About | version, how it was installed, links | `agentctl version` |
 
-**Projects** are the folders you start agents in, each with a name and, if you like, the tool it runs
+**Projects** are what you start agents in: a name and one or more folders (an app, its website and its
+server can be one project; new agents start in the first folder, or pick another when you start one;
+an agent working in a project folder, or a folder inside one such as a worktree, counts as the
+project's), each with, if you like, the tool it runs
 (Claude Code, Codex or a shell), the Claude account and a hat. Add, change and remove them in Agents,
-Projects; folders your agents already work in are offered there too (**Keep it**). Agents in a project
+Projects; folders your agents already work in are offered there too (**Keep it** as a project of their own, or **Add to…** an existing one). Agents in a project
 wear its hat, since a hat belongs to the folder. Home starts an agent in a project from a free spot:
 pick the project, the tool and account (the project's by default) and a first prompt. They are kept in
 `projects.json` in the data folder.

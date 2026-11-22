@@ -161,3 +161,77 @@ func TestProjectStart(t *testing.T) {
 		t.Errorf("canStart: %v", out["canStart"])
 	}
 }
+
+// A project spans several folders (an app, its web front end, its server):
+// repeats are dropped, each must exist, agents start in the first unless
+// another of its folders is picked, and the id stays through a rename.
+func TestProjectFolders(t *testing.T) {
+	r := newRig(t)
+	app, web, api := t.TempDir(), t.TempDir(), t.TempDir()
+	code, out := r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "shop", "folders": []string{app, " " + web + " ", app, "", api}}))
+	if code != 200 {
+		t.Fatalf("add: %d %v", code, out)
+	}
+	if fs, _ := out["folders"].([]any); len(fs) != 3 || fs[0] != app || fs[1] != web || fs[2] != api || out["folder"] != app || out["path"] != app {
+		t.Fatalf("folders: %v", out)
+	}
+	id, _ := out["id"].(string)
+	if len(id) != 9 || id[0] != 'p' {
+		t.Fatalf("id: %q", id)
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "x", "folders": []string{app, filepath.Join(app, "gone")}})); code != 400 {
+		t.Errorf("a folder that isn't there: %d", code)
+	}
+	many := make([]string, 21)
+	for i := range many {
+		many[i] = t.TempDir()
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "x", "folders": many})); code != 400 {
+		t.Errorf("21 folders: %d", code)
+	}
+	// Renamed by its id, with one folder fewer: the same id.
+	code, out = r.do(t, "POST", "/admin/v1/projects/"+id+"/update", body(map[string]any{"name": "store", "folders": []string{web, api}, "id": "pforged00"}))
+	if code != 200 || out["id"] != id || out["folder"] != web {
+		t.Fatalf("update: %d %v", code, out)
+	}
+
+	st := &fakeStarter{}
+	r.a.Starter = st
+	if code, out := r.do(t, "POST", "/admin/v1/projects/store/start", ""); code != 202 || out["folder"] != web {
+		t.Errorf("start: %d %v", code, out)
+	}
+	if code, out := r.do(t, "POST", "/admin/v1/projects/"+id+"/start", body(map[string]any{"folder": api + "/"})); code != 202 || out["folder"] != api {
+		t.Errorf("start in another folder: %d %v", code, out)
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/projects/store/start", body(map[string]any{"folder": app})); code != 400 {
+		t.Errorf("start in a folder that isn't the project's: %d", code)
+	}
+	st.mu.Lock()
+	if len(st.created) != 2 || st.created[0].Dir != web || st.created[1].Dir != api {
+		t.Errorf("created: %+v", st.created)
+	}
+	st.mu.Unlock()
+}
+
+// projects.json from an older version (one folder, no id) reads as a
+// project with that folder, and gets an id that it keeps.
+func TestProjectsOlderFile(t *testing.T) {
+	r := newRig(t)
+	work := t.TempDir()
+	old := `{"projects": [{"name": "shop", "folder": "` + work + `", "tool": "codex"}]}`
+	if err := os.WriteFile(filepath.Join(r.a.DataDir, "projects.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ps := r.a.Projects()
+	if len(ps) != 1 || len(ps[0].Folders) != 1 || ps[0].Folders[0] != work || ps[0].ID == "" || ps[0].Tool != "codex" {
+		t.Fatalf("read: %+v", ps)
+	}
+	if again := r.a.Projects(); again[0].ID != ps[0].ID {
+		t.Errorf("the id changed: %s, then %s", ps[0].ID, again[0].ID)
+	}
+	// Still readable by the older version: "folder" stays.
+	b, _ := os.ReadFile(filepath.Join(r.a.DataDir, "projects.json"))
+	if !strings.Contains(string(b), `"folder": "`+work+`"`) {
+		t.Errorf("projects.json: %s", b)
+	}
+}

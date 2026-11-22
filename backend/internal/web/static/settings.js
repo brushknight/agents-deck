@@ -231,6 +231,7 @@ const ICONS = {
   bluetooth: [['path', { d: 'M7 7.5l10 9-5 4.5V3l5 4.5-10 9' }]],
   offline: [['path', { d: 'M4 4l16 16' }], ['path', { d: 'M8.8 16a4.8 4.8 0 0 1 6.4 0M5.5 12.5a9.5 9.5 0 0 1 4-2.3' }]],
   plus: [['path', { d: 'M12 5v14M5 12h14' }]],
+  x: [['path', { d: 'M6.5 6.5l11 11M17.5 6.5l-11 11' }]],
   check: [['path', { d: 'M5 12.5l4.5 4.5L19 7.5' }]],
   copy: [['rect', { x: 8, y: 8, width: 12, height: 12, rx: 1 }], ['path', { d: 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3' }]],
   key: [['circle', { cx: 8, cy: 15, r: 4 }], ['path', { d: 'M11 12l8.5-8.5M16 7l3 3' }]],
@@ -1278,8 +1279,10 @@ function drawStart() {
   const slot = slotStr === '' || slotStr === undefined ? null : Number(slotStr);
   const projects = S.projects?.projects || [];
   const accs = S.agents?.accounts || [];
-  const st = S.startForm && S.startForm.slot === slot ? S.startForm : (S.startForm = { slot, project: decodeURIComponent(nameArg || '') || projects[0]?.name || '', tool: '', account: '', prompt: '' });
+  const st = S.startForm && S.startForm.slot === slot ? S.startForm : (S.startForm = { slot, project: decodeURIComponent(nameArg || '') || projects[0]?.name || '', tool: '', account: '', prompt: '', folder: '' });
   const p = projects.find((x) => x.name === st.project) || null;
+  const pfs = p ? (p.folders?.length ? p.folders : [p.folder]) : [];
+  const folder = pfs.includes(st.folder) ? st.folder : pfs[0] || '';
   const tool = st.tool || p?.tool || 'claude';
   const account = st.account || p?.account || (accs.find((x) => x.default) || {}).name || '';
   const back = h('div', { class: 'crumbs' }, h('a', { class: 'btn link', href: '#home' }, icon('back', 14), 'Deck'), h('span', { class: 'kl' }, '/ Start an agent'));
@@ -1291,12 +1294,14 @@ function drawStart() {
     const radios = h('div', { class: 'qlist', role: 'radiogroup', 'aria-label': 'Project' }, projects.map((x) => {
       const on = x.name === st.project;
       return h('button', { type: 'button', class: `rrow pick2${on ? ' on' : ''}`, role: 'radio', 'aria-checked': on ? 'true' : 'false', 'data-k': `sp-${x.name}`,
-        onclick: () => { st.project = x.name; st.tool = ''; st.account = ''; st.prompt = $('#fp')?.value || st.prompt; draw(true); } },
-      projectFace(x), h('span', { class: 'grow' }, h('span', { class: 'nm' }, x.name), h('span', { class: 'sub' }, `${x.folder}${x.tool ? ` · ${TOOL_NAMES[x.tool]}` : ''}`)));
+        onclick: () => { st.project = x.name; st.tool = ''; st.account = ''; st.folder = ''; st.prompt = $('#fp')?.value || st.prompt; draw(true); } },
+      projectFace(x), h('span', { class: 'grow' }, h('span', { class: 'nm' }, x.name), h('span', { class: 'sub' }, `${x.folders?.length > 1 ? plural(x.folders.length, 'folder') : x.folder}${x.tool ? ` · ${TOOL_NAMES[x.tool]}` : ''}`)));
     }));
     const err = h('p', { class: 'sub err', role: 'alert' });
     const keep = () => { st.prompt = $('#fp')?.value ?? st.prompt; };
     main.append(sec('Project', null, ['Manage projects', '#agents/projects'], radios),
+      pfs.length > 1 ? h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Folder'),
+        seg('Folder', pfs.map((x) => ({ value: x, text: lastPart(x) })), folder, (v) => { keep(); st.folder = v; draw(true); }, { key: 'st-folder' })) :'',
       h('div', { class: 'fields' },
         h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Runs'), seg('Runs', [{ value: 'claude', text: 'Claude Code' }, { value: 'codex', text: 'Codex' }, { value: 'shell', text: 'Shell' }], tool, (v) => { keep(); st.tool = v; draw(true); }, { key: 'st-tool' })),
         tool === 'claude' && accs.length ? h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Claude account'), seg('Claude account', accs.map((x) => ({ value: x.name, text: x.name })), account, (v) => { keep(); st.account = v; draw(true); }, { key: 'st-acc' })) : null),
@@ -1309,7 +1314,7 @@ function drawStart() {
           const b = e.currentTarget;
           b.disabled = true;
           try {
-            const r = await api('POST', `/admin/v1/projects/${encodeURIComponent(p.name)}/start`, { prompt: st.prompt, tool, account: tool === 'claude' ? account : '' });
+            const r = await api('POST', `/admin/v1/projects/${encodeURIComponent(p.name)}/start`, { prompt: st.prompt, tool, account: tool === 'claude' ? account : '', folder });
             S.startForm = null;
             if (slot != null && r?.id) {
               for (let i = 0; i < 20 && !agentsList().some((x) => x.id === r.id); i++) { await new Promise((res) => setTimeout(res, 250)); await load('state'); }
@@ -1324,8 +1329,8 @@ function drawStart() {
           }
         }, 'p', { disabled: !p || S.projects?.canStart === false, 'data-k': 'st-go' }),
         link('Cancel', '#home'),
-        p ? h('span', { class: 'term cmd' }, h('span', { class: 'p' }, '$ '), `agentctl new ${p.folder}`) : null),
-      S.projects?.canStart === false ? note('This service can\'t start agents (demo mode).') : null);
+        p ? h('span', { class: 'term cmd' }, h('span', { class: 'p' }, '$ '), `agentctl new ${folder}`) : null),
+      S.projects?.canStart === false ? note('This service can\'t start agents (demo mode).') :'');
   }
   const live = (S.live?.sessions || []).filter((x) => !x.onBoard);
   if (live.length) {
@@ -1540,12 +1545,23 @@ function drawAgents() {
 let notProjects = [];
 try { notProjects = JSON.parse(localStorage.getItem('settings.notProjects') || '[]'); } catch (e) { notProjects = []; }
 const sameFolder = (cwd, folder) => !!cwd && (cwd === folder || tilde(cwd) === folder || tilde(cwd) === tilde(folder));
+// A project's folders, in full where the service says (older ones have one).
+const projFolders = (p) => (p.paths?.length ? p.paths : p.folders?.length ? p.folders : [p.path || p.folder]).filter(Boolean);
+// An agent works in a project when its folder is one of the project's, or inside one (a worktree, a package).
+const inFolder = (cwd, folder) => {
+  if (!cwd || !folder) return false;
+  const a = tilde(cwd).replace(/\/+$/, ''), b = tilde(folder).replace(/\/+$/, '');
+  return a === b || a.startsWith(`${b}/`);
+};
+const inProject = (cwd, p) => projFolders(p).some((f) => inFolder(cwd, f));
+const lastPart = (f) => tilde(f).split('/').filter(Boolean).pop() || f;
 
 function projectForm(accs) {
   const f = S.projForm;
   const editing = f.orig;
   const err = h('p', { class: 'sub err', role: 'alert' });
-  const keep = () => { f.name = $('#pj-name')?.value ?? f.name; f.folder = $('#pj-folder')?.value ?? f.folder; };
+  if (!f.folders?.length) f.folders = [f.folder || ''];
+  const keep = () => { f.name = $('#pj-name')?.value ?? f.name; f.folders = f.folders.map((x, i) => $(`#pj-folder-${i}`)?.value ?? x); };
   const hat = f.hat || null;
   const shapeOpts = [{ value: '', text: 'The folder\'s own' }, ...HAT_SHAPES.map((x) => ({ value: x, text: x }))];
   const colors = HAT_COLOR_NAMES.map((color) => {
@@ -1559,11 +1575,11 @@ function projectForm(accs) {
     err.textContent = '';
     const b = e.currentTarget;
     b.disabled = true;
-    const body = { name: f.name, folder: f.folder, tool: f.tool || '', account: f.tool && f.tool !== 'claude' ? '' : (f.account || ''), hat: f.hat || null };
+    const body = { name: f.name, folders: f.folders.map((x) => x.trim()).filter(Boolean), tool: f.tool || '', account: f.tool && f.tool !== 'claude' ? '' : (f.account || ''), hat: f.hat || null };
     try {
       const r = editing ? await api('POST', `/admin/v1/projects/${encodeURIComponent(editing)}/update`, body) : await api('POST', '/admin/v1/projects', body);
-      // Agents in a project wear its hat: it is the folder's hat.
-      if (r?.hat) await api('POST', '/v1/hats', { folder: r.path || r.folder, shape: r.hat.shape, color: r.hat.color }).catch(() => null);
+      // Agents in a project wear its hat: it is each of its folders' hat.
+      if (r?.hat) for (const folder of projFolders(r)) await api('POST', '/v1/hats', { folder, shape: r.hat.shape, color: r.hat.color }).catch(() => null);
       S.projForm = null; S.open.project = '';
       await load('projects');
       toast(editing ? 'Saved' : `Added ${r.name}`);
@@ -1573,8 +1589,13 @@ function projectForm(accs) {
   return h('div', { class: 'blk pad' },
     h('span', { class: 'eyebrow acc2' }, editing ? `Edit ${editing}` : 'New project'),
     h('div', { class: 'fields' },
-      h('div', { class: 'field' }, h('label', { for: 'pj-name' }, 'Name'), h('input', { id: 'pj-name', type: 'text', value: f.name || '', maxlength: '40', autocomplete: 'off', 'data-k': 'pj-name' })),
-      h('div', { class: 'field' }, h('label', { for: 'pj-folder' }, 'Folder'), h('input', { id: 'pj-folder', type: 'text', value: f.folder || '', placeholder: '~/dev/my-app', autocomplete: 'off', spellcheck: 'false', 'data-k': 'pj-folder' }))),
+      h('div', { class: 'field' }, h('label', { for: 'pj-name' }, 'Name'), h('input', { id: 'pj-name', type: 'text', value: f.name || '', maxlength: '40', autocomplete: 'off', 'data-k': 'pj-name' }))),
+    h('div', { class: 'field' }, h('span', { class: 'kl' }, f.folders.length > 1 ? 'Folders · new agents start in the first' : 'Folder'),
+      h('div', { class: 'folders' }, ...f.folders.map((x, i) => h('div', { class: 'folderrow' },
+        h('label', { for: `pj-folder-${i}`, class: 'sr' }, `Folder ${i + 1}`),
+        h('input', { id: `pj-folder-${i}`, type: 'text', value: x || '', placeholder: i ? '~/dev/my-app-server' : '~/dev/my-app', autocomplete: 'off', spellcheck: 'false', 'data-k': `pj-folder-${i}` }),
+        f.folders.length > 1 ? h('button', { type: 'button', class: 'btn sm icon', title: 'Remove this folder', 'aria-label': `Remove folder ${i + 1}`, onclick: () => { keep(); f.folders.splice(i, 1); draw(true); } }, icon('x', 14)) : null)),
+      f.folders.length < 20 ? h('button', { type: 'button', class: 'btn sm link', 'data-k': 'pj-folder-add', onclick: () => { keep(); f.folders.push(''); draw(true); $(`#pj-folder-${f.folders.length - 1}`)?.focus(); } }, icon('plus', 12, 2.2), 'Add a folder') : null)),
     h('div', { class: 'fields' },
       h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Runs'), seg('Runs', [{ value: '', text: 'Claude Code' }, { value: 'codex', text: 'Codex' }, { value: 'shell', text: 'Shell' }], f.tool === 'claude' ? '' : (f.tool || ''), (v) => { keep(); f.tool = v; draw(true); }, { key: 'pj-tool' })),
       (!f.tool || f.tool === 'claude') && accs.length ? h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Claude account'),
@@ -1599,23 +1620,24 @@ function projectsSection(accs) {
   if (S.errors.projects || !S.projects) return null; // an older service has no projects
   const list = S.projects.projects || [];
   const agents = agentsList();
-  const content = [h('div', { class: 'intro' }, h('p', { class: 'txt' }, 'Folders your agents work in. Start agents in one from Home; agents in one project share its hat.'),
+  const content = [h('div', { class: 'intro' }, h('p', { class: 'txt' }, 'What your agents work on: one or more folders each (an app, its website, its server). Start agents in one from Home; agents in a project share its hat.'),
     S.projForm ? null : h('button', { type: 'button', class: 'btn p', 'data-k': 'pj-add', onclick: () => { S.projForm = { tool: '', account: '' }; S.open.project = 'new'; draw(true); $('#pj-name')?.focus(); } }, icon('plus', 14, 2.2), 'Add a project'))];
   if (S.projForm) content.push(projectForm(accs));
   const rows = list.map((p) => {
-    const n = agents.filter((a) => sameFolder(a.cwd, p.path || p.folder)).length;
+    const n = agents.filter((a) => inProject(a.cwd, p)).length;
+    const fs = p.folders?.length ? p.folders : [p.folder];
     const acc = accs.find((x) => x.name === p.account);
     const accChip = p.account ? h('span', { class: 'chip st' }, h('i', { 'aria-hidden': 'true' }), p.account) : h('span', { class: 'chip st off' }, 'Default account');
     if (acc) accChip.firstChild.style.background = (HAT_COLORS[acc.color] || HAT_COLORS.ink)[0];
-    return row(p.name, `${p.folder} · ${n ? plural(n, 'agent') : 'no agents'}`, [
+    return row(p.name, `${fs.length > 1 ? fs.map(lastPart).join(', ') : p.folder} · ${n ? plural(n, 'agent') : 'no agents'}`, [
       chip(TOOL_NAMES[p.tool || 'claude'], 'st'), !p.tool || p.tool === 'claude' ? accChip : null,
       link('Start agent', `#start//${encodeURIComponent(p.name)}`, '', { 'aria-label': `Start an agent in ${p.name}` }),
-      btn('Edit', () => { S.projForm = { ...p, orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, '', { 'aria-label': `Edit ${p.name}` }),
+      btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, '', { 'aria-label': `Edit ${p.name}` }),
     ], { name: true, pic: projectFace(p) });
   });
   // Folders agents work in that aren't projects yet.
   const seen = [...new Set(agents.map((a) => a.cwd).filter(Boolean))]
-    .filter((cwd) => !list.some((p) => sameFolder(cwd, p.path || p.folder)) && !notProjects.includes(cwd)).slice(0, 3);
+    .filter((cwd) => !list.some((p) => inProject(cwd, p)) && !notProjects.includes(cwd)).slice(0, 3);
   for (const cwd of seen) {
     const name = cwd.split('/').filter(Boolean).pop() || cwd;
     rows.push(row(name, `${tilde(cwd)} · seen on the deck`, [
@@ -1623,6 +1645,16 @@ function projectsSection(accs) {
         await api('POST', '/admin/v1/projects', { name: name.slice(0, 40), folder: cwd });
         await load('projects'); draw(true);
       }, `Added ${name}`), '', { 'aria-label': `Keep ${name} as a project` }),
+      list.length ? pickSel(`Add ${name} to a project`, list.map((p) => ({ value: p.name, text: p.name })), '', async (v) => {
+        const p = list.find((x) => x.name === v);
+        if (!p) return;
+        try {
+          await api('POST', `/admin/v1/projects/${encodeURIComponent(p.name)}/update`, { ...p, folders: [...(p.folders?.length ? p.folders : [p.folder]), cwd], path: undefined, paths: undefined });
+          if (p.hat) await api('POST', '/v1/hats', { folder: cwd, shape: p.hat.shape, color: p.hat.color }).catch(() => null);
+          toast(`Added to ${p.name}`);
+        } catch (ex) { toast(ex.message); }
+        await load('projects'); draw(true);
+      }, `pj-to-${name}`, { empty: 'Add to…' }) : null,
       btn('Not a project', () => {
         notProjects = [...notProjects, cwd].slice(-100);
         try { localStorage.setItem('settings.notProjects', JSON.stringify(notProjects)); } catch (e) { /* private window */ }
@@ -1631,7 +1663,7 @@ function projectsSection(accs) {
     ], { name: true, off: true, cls: 'tint', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
   }
   if (rows.length) content.push(blk(...rows));
-  const s = sec('Projects', list.length ? plural(list.length, 'folder') : null, null, ...content);
+  const s = sec('Projects', list.length ? plural(list.length, 'project') : null, null, ...content);
   s.id = 'projects';
   return s;
 }
