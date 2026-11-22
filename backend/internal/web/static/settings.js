@@ -1384,6 +1384,7 @@ function buildBar(a, body, view) {
 
   // middle: the question, or what it does
   let mid = [];
+  let low = null; // the prompt box: at the bottom, over the numbers
   let liveUpd = () => {};
   view.answer = null;
   if (a.status === 'waiting' && a.waiting) {
@@ -1434,6 +1435,11 @@ function buildBar(a, body, view) {
     const plain = h('p', { class: 'abplain' });
     const lastLbl = h('span', { class: 'ablbl' });
     const last = h('p', { class: 'ablast' });
+    // A long prompt shows 20 lines; "Show all" opens the rest.
+    const more = h('button', { type: 'button', class: 'abu abmore', hidden: true, onclick: () => {
+      const open = last.classList.toggle('open');
+      more.textContent = open ? 'Show less' : 'Show all';
+    } }, 'Show all');
     let box = null;
     if (!external && a.status !== 'exited' && a.status !== 'error') {
       const busyNow = a.status === 'running' || a.status === 'starting';
@@ -1447,7 +1453,8 @@ function buildBar(a, body, view) {
         } catch (ex) { say2(note, `Not sent: ${ex.message}`, true); }
       });
     }
-    mid = [doingLbl, doing, plain, lastLbl, last, box];
+    mid = [doingLbl, doing, plain, lastLbl, last, more];
+    low = box;
     liveUpd = (x) => {
       const subs = x.subagents || [];
       if (x.status === 'running') {
@@ -1464,8 +1471,10 @@ function buildBar(a, body, view) {
       }
       const when = x.lastActive ? rel(x.lastActive) : '';
       lastLbl.replaceChildren('Last prompt', when ? h('span', { class: 'dimx' }, ` · ${ageMin(x.lastActive) < 1 ? 'just now' : `${when} ago`}`) : '');
-      last.textContent = x.lastPrompt || '–';
-      last.title = x.lastPrompt || '';
+      if (last.textContent !== (x.lastPrompt || '–')) {
+        last.textContent = x.lastPrompt || '–';
+        requestAnimationFrame(() => { more.hidden = !last.classList.contains('open') && last.scrollHeight <= last.clientHeight + 2; });
+      }
     };
   }
 
@@ -1479,7 +1488,7 @@ function buildBar(a, body, view) {
   const n = (a.waiting?.options || []).length;
   const hint = h('span', { class: 'abhint' }, [a.status === 'waiting' && n ? `1–${n} answers` : '', 'Esc closes', '← → next agent'].filter(Boolean).join(' · '));
 
-  put(body, head, mid, qEl, h('div', { class: 'abbottom' }, nums.el, acts, note, hint));
+  put(body, head, mid, h('div', { class: 'abbottom' }, qEl, low, nums.el, acts, note, hint));
   return (x) => {
     setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
     put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,

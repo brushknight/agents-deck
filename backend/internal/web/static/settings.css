@@ -910,7 +910,11 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .abplain { margin: -4px 0 0; font-size: 13px; line-height: 18px; }
 .abplain[hidden] { display: none; }
 .ablast { margin: -4px 0 0; font-family: var(--f-text); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 20; -webkit-box-orient: vertical; overflow: hidden; }
+.ablast.open { display: block; -webkit-line-clamp: unset; }
+.abmore { align-self: flex-start; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: -4px; }
+.abmore[hidden] { display: none; }
+.abbottom > .abown { margin-top: 0; }
 
 /* answers: the suggested one filled black */
 .abopts { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
@@ -945,7 +949,7 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .abu { flex: none; border: 0; background: none; padding: 0; color: var(--bar-ink); font: inherit; text-decoration: underline; cursor: pointer; }
 
 /* bottom: the numbers, then the actions and the keys */
-.abbottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; }
+.abbottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 18px; }
 .abnums { padding-top: 12px; border-top: 2px solid var(--bar-ink); display: flex; flex-direction: column; gap: 8px; }
 .abctxh { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; text-transform: lowercase; }
 .abctxh small { font-size: 11px; margin-left: 6px; }

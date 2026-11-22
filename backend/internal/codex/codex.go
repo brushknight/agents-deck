@@ -270,7 +270,7 @@ func apply(e *store.Entry, kind string, p payload, replay bool) bool {
 			for i := len(p.Content) - 1; i >= 0; i-- {
 				t := strings.TrimSpace(p.Content[i].Text)
 				if t != "" && !strings.HasPrefix(t, "<") {
-					e.A.LastPrompt = clip(strings.Join(strings.Fields(t), " "), 280)
+					e.A.LastPrompt = clip(strings.Join(strings.Fields(t), " "), model.LastPromptMax)
 					e.A.Turns++
 					return true
 				}
