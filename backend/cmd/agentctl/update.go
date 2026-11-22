@@ -161,6 +161,7 @@ func updateCmd(args []string) error {
 			return nil
 		}
 	}
+	noteInServiceLog("agentctl update: installing " + st.Version + ", the service restarts")
 	if err := u.Apply(ctx); err != nil {
 		return err
 	}

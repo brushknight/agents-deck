@@ -258,6 +258,17 @@ the key is gone. A reset means every device paired over the network has to pair 
 
 ## Troubleshooting
 
+### The deck says the service isn't answering
+
+`agentctl status` says whether the service is running. If it runs but doesn't answer, it is busy or
+stuck: after 10 seconds without an answer, the service writes what it is doing to `agentd.log` (lines
+starting `stalled:`, with the stack of everything it runs), and `answering again after …` once it
+recovers. Commands it runs for itself (`ps`, `lsof`, Orca's and Claude Code's command line tools) have
+time limits, and a slow one shows as `helper … took …`. When the service stops, the log says why:
+`stopping (SIGTERM)` is launchd or systemd stopping it, and the line before it names what asked
+(`agentctl install … (run by …)`, `restart asked from Settings`, or an update). Send that part of the
+log with a bug report.
+
 ### A board stopped connecting after an update
 
 The board shows "deck not reachable" over Wi-Fi and keeps retrying, or a panel says the TLS handshake

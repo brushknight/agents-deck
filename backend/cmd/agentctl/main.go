@@ -1269,15 +1269,16 @@ func serve(args []string) error {
 		}()
 	}
 	log.Printf("agentctl %s serving web on http://%s", version, cfg.LocalAddr)
+	go watchStalls(paths.Socket()) // watchdog.go
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	select {
 	case err := <-errc:
 		st.Flush()
 		return err
-	case <-sig:
+	case s := <-sig:
 		st.Flush()
-		log.Printf("stopping")
+		log.Printf("stopping (%s)", sigName(s))
 		return nil
 	case <-serveStop:
 		st.Flush()
@@ -1477,4 +1478,17 @@ func simAgent(args []string) error {
 	}
 	return sim.Run(sim.Config{ID: id, Socket: sock, Dir: *dir, Transcript: *transcript,
 		Seed: time.Now().UnixNano() ^ int64(len(id))<<20, Speed: *speed, Patience: pat})
+}
+
+// sigName says which signal stopped the service, for the log: SIGTERM is
+// launchd or systemd (agentctl install, a restart, logging out), SIGINT is
+// Ctrl-C.
+func sigName(s os.Signal) string {
+	switch s {
+	case syscall.SIGTERM:
+		return "SIGTERM"
+	case syscall.SIGINT:
+		return "SIGINT"
+	}
+	return s.String()
 }
