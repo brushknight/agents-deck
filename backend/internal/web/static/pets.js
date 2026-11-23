@@ -85,6 +85,31 @@ const AURA = {
   mighty: { outer: '#3FA9F5', spark: '#FFFFFF', h: [2, 4, 2, 3, 5, 2], n: 7 },
   legend: { outer: '#E8A317', spark: '#FFF6C8', h: [3, 5, 2, 6, 3, 4, 5], n: 10 },
 };
+export const AURA_COLORS = Object.fromEntries(Object.entries(AURA).map(([k, v]) => [k, v.outer]));
+
+// Hats stay readable inside an aura: a hat in the aura's colour family (WCAG
+// contrast under 1.6 and hue within 40 degrees) is drawn in its shade.
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+function luminance(hex) {
+  const [r, g, b] = rgb(hex).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+export function contrast(a, b) {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+export function hue(hex) {
+  const [r, g, b] = rgb(hex);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  if (!d) return 0;
+  const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+export function clashes(hatColor, auraColor) {
+  const dh = Math.abs(hue(hatColor) - hue(auraColor));
+  return contrast(hatColor, auraColor) < 1.6 && Math.min(dh, 360 - dh) <= 40;
+}
+const darker = (hex, f = 0.72) => `#${rgb(hex).map((v) => Math.round(v * f * 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
 
 export const STAGES = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legend'];
 export const STAGE_NAMES = { egg: 'Egg', baby: 'Baby', kid: 'Kid', grown: 'Grown-up', strong: 'Strong', mighty: 'Mighty', legend: 'Legend' };
@@ -194,13 +219,15 @@ export function petLook(pet, opts = {}) {
     } else if (asleep || weak || opts.idle) shutEyes(pix);
   }
   // Its own mystery hat, once it shows; before that, "?" where asked.
-  if (name !== 'baby' && !egg && pet?.hat) putHat(pix, name, pet.hat);
-  else if (opts.mystery && MYSTERY_AT[name]) {
+  const hatPix = new Map();
+  if (name !== 'baby' && !egg && pet?.hat) putHat(hatPix, name, pet.hat);
+  for (const [k, ch] of hatPix) pix.set(k, ch);
+  if (!hatPix.size && opts.mystery && MYSTERY_AT[name]) {
     const [x0, y0] = MYSTERY_AT[name];
     MYSTERY.forEach((r, y) => [...r].forEach((ch, x) => { if (ch === 'q') pix.set(key(x0 + x, y0 + y), 'q'); }));
   }
   const aura = !weak && !asleep && AURA[stage] ? stage : '';
-  return { name, pix, weak, asleep, aura, egg };
+  return { name, pix, weak, asleep, aura, egg, hatKeys: new Set(hatPix.keys()) };
 }
 
 // cells → one <path> per (fill, opacity, class), each row's neighbouring
@@ -237,7 +264,16 @@ function colours(hat, spots, weak, sil) {
   return c;
 }
 
-function auraSVG(filled, kind) {
+// near: k or one of its 8 neighbours is in set.
+function near(set, k) {
+  const [x, y] = at(k);
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (set.has(key(x + dx, y + dy))) return true;
+  return false;
+}
+
+// auraSVG: the flames never touch the hat: a pixel of background stays
+// between them.
+function auraSVG(filled, kind, hatKeys = new Set()) {
   const a = AURA[kind];
   const pts = [...filled].map(at);
   const xs = [...new Set(pts.map(([x]) => x))].sort((p, q) => p - q);
@@ -265,7 +301,7 @@ function auraSVG(filled, kind) {
       const t = (top.get(x) ?? top.get(x - 1) ?? top.get(x + 1) ?? ys[0]) - 2;
       for (let k = 0; k < h; k++) fl.add(key(x, t - k));
     }
-    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k)).map((k) => [...at(k), a.outer, 1, f ? 'pfc' : '']);
+    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k) && !near(hatKeys, k)).map((k) => [...at(k), a.outer, 1, f ? 'pfc' : '']);
     out += paths(cells);
   }
   const x0 = xs[0], x1 = xs[xs.length - 1], cxm = Math.floor((x0 + x1) / 2);
@@ -325,6 +361,9 @@ export function petSVG(pet, opts = {}) {
   if (!pet) return '';
   const look = petLook(pet, opts);
   const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
+  const glow = look.aura && !opts.sil && !opts.still;
+  // A hat in the aura's colour family takes its shade, so it stands out.
+  if (glow && look.hatKeys.size && clashes(c.h, AURA[look.aura].outer)) { c.h = c.H; c.H = darker(c.H); }
   const filled = new Set(look.pix.keys());
   const body = paths([...look.pix].map(([k, ch]) => [...at(k), c[ch] || c.b]));
   let behind = '', front = '', under = '', over = '';
@@ -332,7 +371,7 @@ export function petSVG(pet, opts = {}) {
     const ice = iceSVG(filled, opts.waking);
     under = ice.under; over = ice.over;
   }
-  if (look.aura && !opts.sil && !opts.still) ({ behind, front } = auraSVG(filled, look.aura));
+  if (glow) ({ behind, front } = auraSVG(filled, look.aura, look.hatKeys));
   const bob = opts.working && !opts.still && !look.asleep ? ' class="pbob"' : '';
   const moving = !opts.still && !opts.sil;
   const cls = `pet${opts.waking ? ' pwk' : ''}${moving && opts.hatching ? ' phx' : moving && pet.ready ? ' prdy' : ''}${moving && opts.born ? ' pborn' : ''}`;
