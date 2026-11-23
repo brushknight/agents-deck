@@ -378,7 +378,13 @@ func init() {
 		"start_agent":   toolStartAgent,
 		"list_sessions": toolListSessions,
 		"add_session":   toolAddSession,
+		// mcp_projects.go
+		"list_projects":  toolListProjects,
+		"create_project": toolCreateProject,
+		"update_project": toolUpdateProject,
+		"remove_project": toolRemoveProject,
 	}
+	mcpTools = append(mcpTools, projectTools...)
 }
 
 // call runs one API request as who and turns a failure into a plain error.

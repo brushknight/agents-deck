@@ -15,9 +15,9 @@ In **Settings, Agents, MCP**, click **New token**, give it a name and pick what 
 
 | scope | in Settings | may |
 |---|---|---|
-| `view` | look only | `list_agents`, `get_agent`, `list_queue` |
+| `view` | look only | `list_agents`, `get_agent`, `list_queue`, `list_projects` |
 | `act` | can answer (the default) | also `send_prompt` (every mode), `cancel_queued`, `answer`, `interrupt` |
-| `admin` | can manage | also `start_agent`, `list_sessions`, `add_session` |
+| `admin` | can manage | also `start_agent`, `list_sessions`, `add_session`, `create_project`, `update_project`, `remove_project` |
 
 The token (`adk_` and 64 hex digits) is shown once, with the commands below filled in. The deck keeps
 only its SHA-256, so a lost token can't be shown again: revoke it and make another. The list shows
@@ -71,6 +71,10 @@ interrupt to stop it first".
 | `start_agent` | admin | `folder`, `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent in the folder, on the deck; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
 | `list_sessions` | admin | `project` (a project's name, any case, or its id: only sessions working in its folders) | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
 | `add_session` | admin | `session_id` | puts one of them on the deck, watched (read-only) |
+| `list_projects` | view | – | the projects: `id`, `name`, `folders` (full paths), `tool` and `account` their agents start with, and `agents` (how many on the deck work in them now) |
+| `create_project` | admin | `name`, `folders` (full paths or `~/…`, at most 20), `tool`, `account` | adds a project, with the same checks as Settings: the folders exist, and a folder belongs to one project |
+| `update_project` | admin | `project` (name or id), `name`, `add_folders`, `remove_folders`, `tool`, `account` | renames it, adds or removes folders, changes what its agents start with; what is left out stays. The id stays the same |
+| `remove_project` | admin | `project` (name or id) | takes it off the list; its folders and agents stay, with no project |
 
 ## What can take a prompt
 

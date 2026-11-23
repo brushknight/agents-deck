@@ -1212,6 +1212,8 @@ func serve(args []string) error {
 	adm := newAdmin(st, srv, self, *logFile)
 	// Each agent's project, by its folder.
 	st.Project = adm.ProjectOf
+	// MCP's project tools change the same list, through the same checks.
+	srv.Projects = adm.MCPProjects()
 	meter := proc.NewCPUMeter()
 	go meter.Run()
 	adm.CPU = meter.Report
