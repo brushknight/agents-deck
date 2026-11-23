@@ -8,6 +8,7 @@ import 'agents_client.dart';
 import 'agents_model.dart';
 import 'agents_style.dart';
 import 'critter.dart';
+import 'pet_card.dart';
 
 /// The header's left column: the 54 px critter (13/18 as tall as wide) and
 /// the 30 px title; the right column lines up with them.
@@ -568,6 +569,19 @@ class _AgentDetailState extends State<AgentDetail> {
                       cut: cut,
                     ),
                   ),
+                  // Its pet (Agent pets on), in the room beside it: name,
+                  // what it is, level, hearts.
+                  if (a.pet case final pet?) ...[
+                    const SizedBox(width: 22),
+                    Expanded(
+                      child: PetSummary(
+                        pet: pet,
+                        hat: a.hat,
+                        idle: petAgentIdle(a),
+                        ink: ink,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 10),
