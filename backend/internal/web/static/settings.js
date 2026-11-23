@@ -560,8 +560,10 @@ const machine = () => ((S.system?.platform || '').startsWith('darwin') ? 'Mac' :
 const cpuOf = () => (S.system?.cpu?.available ? S.system.cpu : null);
 const pct = (n) => `${Math.round(n)}%`;
 const minutesSince = (iso) => plural(Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60000)), 'minute');
-// The guard's window in words: "2m" is "2 minutes", "1m" is "minute".
-const forWords = (f) => { const m = /^(\d+)m$/.exec(f || ''); return !m ? f : m[1] === '1' ? 'minute' : `${m[1]} minutes`; };
+// What Using the most measures over: it comes from ps, whose %cpu is a
+// decaying average of about the last minute on macOS, and each process's
+// average since it started on Linux.
+const topWindow = () => ((S.system?.platform || '').startsWith('darwin') ? 'about the last minute' : 'since each program started');
 
 // cpuRelease is Send them now: queued prompts go in although the computer
 // is busy, until it is calm again.
@@ -653,7 +655,7 @@ function cpuBlock() {
       h('span', {}, what)),
     c.hold && c.held ? btn('Send them now', (e) => cpuRelease(e.currentTarget), 'dark fix', { 'data-k': 'cpu-release' }) : null);
   const top = users.length ? h('section', { class: 'sec', 'data-sec': 'cpu-top' },
-    h('div', { class: 'rule' }, h('h2', {}, 'Using the most'), h('span', { class: 'm' }, `last ${forWords(c.for)} · 100% = every core`)),
+    h('div', { class: 'rule' }, h('h2', {}, 'Using the most'), h('span', { class: 'm' }, `${topWindow()} · 100% = every core`)),
     h('div', { class: 'blk cputop' }, users.map((u) => cpuUserRow(u, slots(u))))) : null;
   return [warn, top];
 }
