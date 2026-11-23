@@ -29,8 +29,8 @@ typedef enum _agentsdeck_link_v1_Scope {
 /* Bits of Subscribe.fields. id and slot are always sent. */
 typedef enum _agentsdeck_link_v1_FieldGroup {
     agentsdeck_link_v1_FieldGroup_FIELDS_NONE = 0,
-    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued */
-    agentsdeck_link_v1_FieldGroup_FIELDS_CARD = 2, /* ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active */
+    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, project */
+    agentsdeck_link_v1_FieldGroup_FIELDS_CARD = 2, /* ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder */
     agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT = 4, /* waiting */
     agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS = 8 /* tokens, cost_usd, turns */
 } agentsdeck_link_v1_FieldGroup;
@@ -245,60 +245,6 @@ typedef struct _agentsdeck_link_v1_Subagent {
     char type[24];
     char tool[24];
 } agentsdeck_link_v1_Subagent;
-
-/* Agent mirrors the JSON Agent of docs/protocol.md field for field (times as
- Unix milliseconds); a CI test keeps them in step. */
-typedef struct _agentsdeck_link_v1_Agent {
-    char id[12];
-    uint32_t slot;
-    char title[64];
-    char ai_title[96];
-    agentsdeck_link_v1_Tool tool;
-    agentsdeck_link_v1_Status status;
-    int64_t status_since_ms;
-    char cwd[128];
-    char folder[48];
-    char branch[48];
-    char model[40];
-    char model_label[24];
-    char effort[12];
-    bool has_activity;
-    agentsdeck_link_v1_Activity activity;
-    char last_prompt[160];
-    bool has_waiting;
-    agentsdeck_link_v1_Prompt waiting;
-    char error[128]; /* the error message, when status is ERROR */
-    bool has_tokens;
-    agentsdeck_link_v1_Tokens tokens;
-    bool has_context;
-    agentsdeck_link_v1_Context context;
-    double cost_usd;
-    uint32_t turns;
-    bool focused;
-    bool attached;
-    bool resumable;
-    bool lost;
-    bool unseen;
-    bool external;
-    bool has_hat;
-    agentsdeck_link_v1_Hat hat;
-    pb_size_t subagents_count;
-    agentsdeck_link_v1_Subagent subagents[6];
-    uint32_t subagent_count; /* len(subagents), sent with TILE so a small board can show it */
-    int64_t started_at_ms;
-    int64_t updated_at_ms;
-    char app[12]; /* the app it runs in when not agentctl's: "orca", "herdr", "cmux" */
-    bool has_account;
-    agentsdeck_link_v1_Account account; /* the Claude account it runs in; unset while only one is set up */
-    int64_t last_active_ms; /* its latest message sent or received; 0 = not known yet */
-    uint32_t attention_slot; /* its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there */
-    uint32_t queued; /* prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE) */
-} agentsdeck_link_v1_Agent;
-
-typedef struct _agentsdeck_link_v1_AgentChanged {
-    bool has_agent;
-    agentsdeck_link_v1_Agent agent; /* complete for the subscribed field groups */
-} agentsdeck_link_v1_AgentChanged;
 
 typedef struct _agentsdeck_link_v1_Answer {
     char agent_id[12];
@@ -584,6 +530,70 @@ typedef struct _agentsdeck_link_v1_FirmwareStatus {
     char error[96]; /* for FAILED and REFUSED */
 } agentsdeck_link_v1_FirmwareStatus;
 
+/* An agent's project (Agent.project): the one whose folder holds its working
+ folder, the deepest such folder winning. */
+typedef struct _agentsdeck_link_v1_Project {
+    char id[12];
+    char name[48];
+} agentsdeck_link_v1_Project;
+
+/* Agent mirrors the JSON Agent of docs/protocol.md field for field (times as
+ Unix milliseconds); a CI test keeps them in step. */
+typedef struct _agentsdeck_link_v1_Agent {
+    char id[12];
+    uint32_t slot;
+    char title[64];
+    char ai_title[96];
+    agentsdeck_link_v1_Tool tool;
+    agentsdeck_link_v1_Status status;
+    int64_t status_since_ms;
+    char cwd[128];
+    char folder[48];
+    char branch[48];
+    char model[40];
+    char model_label[24];
+    char effort[12];
+    bool has_activity;
+    agentsdeck_link_v1_Activity activity;
+    char last_prompt[160];
+    bool has_waiting;
+    agentsdeck_link_v1_Prompt waiting;
+    char error[128]; /* the error message, when status is ERROR */
+    bool has_tokens;
+    agentsdeck_link_v1_Tokens tokens;
+    bool has_context;
+    agentsdeck_link_v1_Context context;
+    double cost_usd;
+    uint32_t turns;
+    bool focused;
+    bool attached;
+    bool resumable;
+    bool lost;
+    bool unseen;
+    bool external;
+    bool has_hat;
+    agentsdeck_link_v1_Hat hat;
+    pb_size_t subagents_count;
+    agentsdeck_link_v1_Subagent subagents[6];
+    uint32_t subagent_count; /* len(subagents), sent with TILE so a small board can show it */
+    int64_t started_at_ms;
+    int64_t updated_at_ms;
+    char app[12]; /* the app it runs in when not agentctl's: "orca", "herdr", "cmux" */
+    bool has_account;
+    agentsdeck_link_v1_Account account; /* the Claude account it runs in; unset while only one is set up */
+    int64_t last_active_ms; /* its latest message sent or received; 0 = not known yet */
+    uint32_t attention_slot; /* its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there */
+    uint32_t queued; /* prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE) */
+    bool has_project;
+    agentsdeck_link_v1_Project project; /* the project its working folder is in; unset for none */
+    char project_folder[128]; /* the project folder it matched, in full; "" for none */
+} agentsdeck_link_v1_Agent;
+
+typedef struct _agentsdeck_link_v1_AgentChanged {
+    bool has_agent;
+    agentsdeck_link_v1_Agent agent; /* complete for the subscribed field groups */
+} agentsdeck_link_v1_AgentChanged;
+
 typedef struct _agentsdeck_link_v1_Frame {
     uint32_t seq;
     pb_size_t which_body;
@@ -783,6 +793,7 @@ extern "C" {
 #define agentsdeck_link_v1_FirmwareStatus_state_ENUMTYPE agentsdeck_link_v1_FirmwareState
 
 
+
 /* Initializer values for message structs */
 #define agentsdeck_link_v1_Frame_init_default    {0, 0, {agentsdeck_link_v1_Hello_init_default}}
 #define agentsdeck_link_v1_Hello_init_default    {0, "", "", "", false, agentsdeck_link_v1_Display_init_default, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
@@ -796,7 +807,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_default   {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
-#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0, false, agentsdeck_link_v1_Project_init_default, ""}
 #define agentsdeck_link_v1_Activity_init_default {"", ""}
 #define agentsdeck_link_v1_Prompt_init_default   {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default}}
 #define agentsdeck_link_v1_Option_init_default   {"", "", 0, 0}
@@ -844,6 +855,7 @@ extern "C" {
 #define agentsdeck_link_v1_LinkConfig_init_default {_agentsdeck_link_v1_Uplink_MIN}
 #define agentsdeck_link_v1_FirmwareOffer_init_default {"", "", 0, {0, {0}}, ""}
 #define agentsdeck_link_v1_FirmwareStatus_init_default {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
+#define agentsdeck_link_v1_Project_init_default  {"", ""}
 #define agentsdeck_link_v1_Frame_init_zero       {0, 0, {agentsdeck_link_v1_Hello_init_zero}}
 #define agentsdeck_link_v1_Hello_init_zero       {0, "", "", "", false, agentsdeck_link_v1_Display_init_zero, 0, {_agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN, _agentsdeck_link_v1_Input_MIN}, 0}
 #define agentsdeck_link_v1_Display_init_zero     {0, 0, 0}
@@ -856,7 +868,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
-#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0, false, agentsdeck_link_v1_Project_init_zero, ""}
 #define agentsdeck_link_v1_Activity_init_zero    {"", ""}
 #define agentsdeck_link_v1_Prompt_init_zero      {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero}}
 #define agentsdeck_link_v1_Option_init_zero      {"", "", 0, 0}
@@ -904,6 +916,7 @@ extern "C" {
 #define agentsdeck_link_v1_LinkConfig_init_zero  {_agentsdeck_link_v1_Uplink_MIN}
 #define agentsdeck_link_v1_FirmwareOffer_init_zero {"", "", 0, {0, {0}}, ""}
 #define agentsdeck_link_v1_FirmwareStatus_init_zero {_agentsdeck_link_v1_FirmwareState_MIN, 0, ""}
+#define agentsdeck_link_v1_Project_init_zero     {"", ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define agentsdeck_link_v1_Display_width_tag     1
@@ -961,44 +974,6 @@ extern "C" {
 #define agentsdeck_link_v1_Subagent_title_tag    2
 #define agentsdeck_link_v1_Subagent_type_tag     3
 #define agentsdeck_link_v1_Subagent_tool_tag     4
-#define agentsdeck_link_v1_Agent_id_tag          1
-#define agentsdeck_link_v1_Agent_slot_tag        2
-#define agentsdeck_link_v1_Agent_title_tag       3
-#define agentsdeck_link_v1_Agent_ai_title_tag    4
-#define agentsdeck_link_v1_Agent_tool_tag        5
-#define agentsdeck_link_v1_Agent_status_tag      6
-#define agentsdeck_link_v1_Agent_status_since_ms_tag 7
-#define agentsdeck_link_v1_Agent_cwd_tag         8
-#define agentsdeck_link_v1_Agent_folder_tag      9
-#define agentsdeck_link_v1_Agent_branch_tag      10
-#define agentsdeck_link_v1_Agent_model_tag       11
-#define agentsdeck_link_v1_Agent_model_label_tag 12
-#define agentsdeck_link_v1_Agent_effort_tag      13
-#define agentsdeck_link_v1_Agent_activity_tag    14
-#define agentsdeck_link_v1_Agent_last_prompt_tag 15
-#define agentsdeck_link_v1_Agent_waiting_tag     16
-#define agentsdeck_link_v1_Agent_error_tag       17
-#define agentsdeck_link_v1_Agent_tokens_tag      18
-#define agentsdeck_link_v1_Agent_context_tag     19
-#define agentsdeck_link_v1_Agent_cost_usd_tag    20
-#define agentsdeck_link_v1_Agent_turns_tag       21
-#define agentsdeck_link_v1_Agent_focused_tag     22
-#define agentsdeck_link_v1_Agent_attached_tag    23
-#define agentsdeck_link_v1_Agent_resumable_tag   24
-#define agentsdeck_link_v1_Agent_lost_tag        25
-#define agentsdeck_link_v1_Agent_unseen_tag      26
-#define agentsdeck_link_v1_Agent_external_tag    27
-#define agentsdeck_link_v1_Agent_hat_tag         28
-#define agentsdeck_link_v1_Agent_subagents_tag   29
-#define agentsdeck_link_v1_Agent_subagent_count_tag 30
-#define agentsdeck_link_v1_Agent_started_at_ms_tag 31
-#define agentsdeck_link_v1_Agent_updated_at_ms_tag 32
-#define agentsdeck_link_v1_Agent_app_tag         33
-#define agentsdeck_link_v1_Agent_account_tag     34
-#define agentsdeck_link_v1_Agent_last_active_ms_tag 35
-#define agentsdeck_link_v1_Agent_attention_slot_tag 36
-#define agentsdeck_link_v1_Agent_queued_tag      37
-#define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Answer_agent_id_tag   1
 #define agentsdeck_link_v1_Answer_prompt_id_tag  2
 #define agentsdeck_link_v1_Answer_key_tag        3
@@ -1094,6 +1069,48 @@ extern "C" {
 #define agentsdeck_link_v1_FirmwareStatus_state_tag 1
 #define agentsdeck_link_v1_FirmwareStatus_percent_tag 2
 #define agentsdeck_link_v1_FirmwareStatus_error_tag 3
+#define agentsdeck_link_v1_Project_id_tag        1
+#define agentsdeck_link_v1_Project_name_tag      2
+#define agentsdeck_link_v1_Agent_id_tag          1
+#define agentsdeck_link_v1_Agent_slot_tag        2
+#define agentsdeck_link_v1_Agent_title_tag       3
+#define agentsdeck_link_v1_Agent_ai_title_tag    4
+#define agentsdeck_link_v1_Agent_tool_tag        5
+#define agentsdeck_link_v1_Agent_status_tag      6
+#define agentsdeck_link_v1_Agent_status_since_ms_tag 7
+#define agentsdeck_link_v1_Agent_cwd_tag         8
+#define agentsdeck_link_v1_Agent_folder_tag      9
+#define agentsdeck_link_v1_Agent_branch_tag      10
+#define agentsdeck_link_v1_Agent_model_tag       11
+#define agentsdeck_link_v1_Agent_model_label_tag 12
+#define agentsdeck_link_v1_Agent_effort_tag      13
+#define agentsdeck_link_v1_Agent_activity_tag    14
+#define agentsdeck_link_v1_Agent_last_prompt_tag 15
+#define agentsdeck_link_v1_Agent_waiting_tag     16
+#define agentsdeck_link_v1_Agent_error_tag       17
+#define agentsdeck_link_v1_Agent_tokens_tag      18
+#define agentsdeck_link_v1_Agent_context_tag     19
+#define agentsdeck_link_v1_Agent_cost_usd_tag    20
+#define agentsdeck_link_v1_Agent_turns_tag       21
+#define agentsdeck_link_v1_Agent_focused_tag     22
+#define agentsdeck_link_v1_Agent_attached_tag    23
+#define agentsdeck_link_v1_Agent_resumable_tag   24
+#define agentsdeck_link_v1_Agent_lost_tag        25
+#define agentsdeck_link_v1_Agent_unseen_tag      26
+#define agentsdeck_link_v1_Agent_external_tag    27
+#define agentsdeck_link_v1_Agent_hat_tag         28
+#define agentsdeck_link_v1_Agent_subagents_tag   29
+#define agentsdeck_link_v1_Agent_subagent_count_tag 30
+#define agentsdeck_link_v1_Agent_started_at_ms_tag 31
+#define agentsdeck_link_v1_Agent_updated_at_ms_tag 32
+#define agentsdeck_link_v1_Agent_app_tag         33
+#define agentsdeck_link_v1_Agent_account_tag     34
+#define agentsdeck_link_v1_Agent_last_active_ms_tag 35
+#define agentsdeck_link_v1_Agent_attention_slot_tag 36
+#define agentsdeck_link_v1_Agent_queued_tag      37
+#define agentsdeck_link_v1_Agent_project_tag     38
+#define agentsdeck_link_v1_Agent_project_folder_tag 39
+#define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Frame_seq_tag         1
 #define agentsdeck_link_v1_Frame_hello_tag       10
 #define agentsdeck_link_v1_Frame_welcome_tag     11
@@ -1345,7 +1362,9 @@ X(a, STATIC,   SINGULAR, STRING,   app,              33) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  account,          34) \
 X(a, STATIC,   SINGULAR, INT64,    last_active_ms,   35) \
 X(a, STATIC,   SINGULAR, UINT32,   attention_slot,   36) \
-X(a, STATIC,   SINGULAR, UINT32,   queued,           37)
+X(a, STATIC,   SINGULAR, UINT32,   queued,           37) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  project,          38) \
+X(a, STATIC,   SINGULAR, STRING,   project_folder,   39)
 #define agentsdeck_link_v1_Agent_CALLBACK NULL
 #define agentsdeck_link_v1_Agent_DEFAULT NULL
 #define agentsdeck_link_v1_Agent_activity_MSGTYPE agentsdeck_link_v1_Activity
@@ -1355,6 +1374,7 @@ X(a, STATIC,   SINGULAR, UINT32,   queued,           37)
 #define agentsdeck_link_v1_Agent_hat_MSGTYPE agentsdeck_link_v1_Hat
 #define agentsdeck_link_v1_Agent_subagents_MSGTYPE agentsdeck_link_v1_Subagent
 #define agentsdeck_link_v1_Agent_account_MSGTYPE agentsdeck_link_v1_Account
+#define agentsdeck_link_v1_Agent_project_MSGTYPE agentsdeck_link_v1_Project
 
 #define agentsdeck_link_v1_Activity_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   tool,              1) \
@@ -1676,6 +1696,12 @@ X(a, STATIC,   SINGULAR, STRING,   error,             3)
 #define agentsdeck_link_v1_FirmwareStatus_CALLBACK NULL
 #define agentsdeck_link_v1_FirmwareStatus_DEFAULT NULL
 
+#define agentsdeck_link_v1_Project_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   id,                1) \
+X(a, STATIC,   SINGULAR, STRING,   name,              2)
+#define agentsdeck_link_v1_Project_CALLBACK NULL
+#define agentsdeck_link_v1_Project_DEFAULT NULL
+
 extern const pb_msgdesc_t agentsdeck_link_v1_Frame_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Hello_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Display_msg;
@@ -1736,6 +1762,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_NetStatus_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_LinkConfig_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareOffer_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Project_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define agentsdeck_link_v1_Frame_fields &agentsdeck_link_v1_Frame_msg
@@ -1798,6 +1825,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_LinkConfig_fields &agentsdeck_link_v1_LinkConfig_msg
 #define agentsdeck_link_v1_FirmwareOffer_fields &agentsdeck_link_v1_FirmwareOffer_msg
 #define agentsdeck_link_v1_FirmwareStatus_fields &agentsdeck_link_v1_FirmwareStatus_msg
+#define agentsdeck_link_v1_Project_fields &agentsdeck_link_v1_Project_msg
 
 /* Maximum encoded size of messages (where known) */
 #define AGENTSDECK_LINK_V1_LINK_PB_H_MAX_SIZE    agentsdeck_link_v1_Frame_size
@@ -1806,9 +1834,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3398
+#define agentsdeck_link_v1_AgentChanged_size     3594
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3395
+#define agentsdeck_link_v1_Agent_size            3591
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_CertIssued_size       1788
 #define agentsdeck_link_v1_CertRequest_size      603
@@ -1818,7 +1846,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_FirmwareOffer_size    200
 #define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3408
+#define agentsdeck_link_v1_Frame_size            3604
 #define agentsdeck_link_v1_GetState_size         0
 #define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732
@@ -1841,6 +1869,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Order_size            416
 #define agentsdeck_link_v1_Ping_size             11
 #define agentsdeck_link_v1_Pong_size             11
+#define agentsdeck_link_v1_Project_size          62
 #define agentsdeck_link_v1_Prompt_size           1399
 #define agentsdeck_link_v1_QueueList_size        454
 #define agentsdeck_link_v1_Queue_size            22

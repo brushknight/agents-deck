@@ -1207,6 +1207,8 @@ func serve(args []string) error {
 	}
 	wifiDefault := &link.WifiDefault{Store: wifiStore}
 	adm := newAdmin(st, srv, self, *logFile)
+	// Each agent's project, by its folder.
+	st.Project = adm.ProjectOf
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}

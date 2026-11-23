@@ -1827,13 +1827,10 @@ try { notProjects = JSON.parse(localStorage.getItem('settings.notProjects') || '
 const sameFolder = (cwd, folder) => !!cwd && (cwd === folder || tilde(cwd) === folder || tilde(cwd) === tilde(folder));
 // A project's folders, in full where the service says (older ones have one).
 const projFolders = (p) => (p.paths?.length ? p.paths : p.folders?.length ? p.folders : [p.path || p.folder]).filter(Boolean);
-// An agent works in a project when its folder is one of the project's, or inside one (a worktree, a package).
-const inFolder = (cwd, folder) => {
-  if (!cwd || !folder) return false;
-  const a = tilde(cwd).replace(/\/+$/, ''), b = tilde(folder).replace(/\/+$/, '');
-  return a === b || a.startsWith(`${b}/`);
-};
-const inProject = (cwd, p) => projFolders(p).some((f) => inFolder(cwd, f));
+// The service says which project each agent works in (agent.project): the one whose folder holds its
+// folder, the deepest winning. Until the deck's state catches up with a project just saved, an agent
+// right in one of its folders counts.
+const inProject = (a, p) => (a.project ? a.project.id === p.id : projFolders(p).some((f) => sameFolder(a.cwd, f)));
 const lastPart = (f) => tilde(f).split('/').filter(Boolean).pop() || f;
 
 function projectForm(accs) {
@@ -1904,7 +1901,7 @@ function projectsSection(accs) {
     S.projForm ? null : h('button', { type: 'button', class: 'btn p', 'data-k': 'pj-add', onclick: () => { S.projForm = { tool: '', account: '' }; S.open.project = 'new'; draw(true); $('#pj-name')?.focus(); } }, icon('plus', 14, 2.2), 'Add a project'))];
   if (S.projForm) content.push(projectForm(accs));
   const rows = list.map((p) => {
-    const n = agents.filter((a) => inProject(a.cwd, p)).length;
+    const n = agents.filter((a) => inProject(a, p)).length;
     const fs = p.folders?.length ? p.folders : [p.folder];
     const acc = accs.find((x) => x.name === p.account);
     const accChip = p.account ? h('span', { class: 'chip st' }, h('i', { 'aria-hidden': 'true' }), p.account) : h('span', { class: 'chip st off' }, 'Default account');
@@ -1916,8 +1913,8 @@ function projectsSection(accs) {
     ], { name: true, pic: projectFace(p) });
   });
   // Folders agents work in that aren't projects yet.
-  const seen = [...new Set(agents.map((a) => a.cwd).filter(Boolean))]
-    .filter((cwd) => !list.some((p) => inProject(cwd, p)) && !notProjects.includes(cwd)).slice(0, 3);
+  const seen = [...new Set(agents.filter((a) => !list.some((p) => inProject(a, p))).map((a) => a.cwd).filter(Boolean))]
+    .filter((cwd) => !notProjects.includes(cwd)).slice(0, 3);
   for (const cwd of seen) {
     const name = cwd.split('/').filter(Boolean).pop() || cwd;
     rows.push(row(name, `${tilde(cwd)} · seen on the deck`, [

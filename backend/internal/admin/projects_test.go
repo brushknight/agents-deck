@@ -92,8 +92,9 @@ func TestProjects(t *testing.T) {
 	if code, _ := r.do(t, "POST", "/admin/v1/projects/checkout/update", body(map[string]any{"name": "x", "folder": work})); code != 404 {
 		t.Errorf("update a gone name: %d", code)
 	}
-	r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "docs", "folder": work}))
-	if code, _ := r.do(t, "POST", "/admin/v1/projects/docs/update", body(map[string]any{"name": "shop", "folder": work})); code != 409 {
+	docs := t.TempDir()
+	r.do(t, "POST", "/admin/v1/projects", body(map[string]any{"name": "docs", "folder": docs}))
+	if code, _ := r.do(t, "POST", "/admin/v1/projects/docs/update", body(map[string]any{"name": "shop", "folder": docs})); code != 409 {
 		t.Errorf("rename onto another project: %d, want 409", code)
 	}
 	if code, _ := r.do(t, "POST", "/admin/v1/projects/docs/remove", ""); code != 204 {

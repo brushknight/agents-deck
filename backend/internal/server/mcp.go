@@ -296,8 +296,9 @@ var mcpTools = []mcpTool{
 	{Name: "list_agents", Title: "List agents",
 		Description: "Every agent on the deck, compact: id, title, folder, tool, where it runs, status (starting, running, waiting, idle, error, exited), " +
 			"what it is doing, the question it waits on (with option keys to pass to answer), context use, working subagents, " +
-			"queued (prompts waiting for its turn to end) and acceptsPrompts (whether send_prompt can reach it). Start here, and call again to follow progress.",
-		InputSchema: schema(nil, map[string]any{}), Annotations: map[string]any{"readOnlyHint": true}},
+			"queued (prompts waiting for its turn to end), acceptsPrompts (whether send_prompt can reach it) and project (the project its folder is in). " +
+			"Pass project (a project's name or id) to list only that project's agents. Start here, and call again to follow progress.",
+		InputSchema: schema(nil, map[string]any{"project": prop("string", "Only agents in this project: its name (any case) or its id.")}), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_agent", Title: "Get an agent",
 		Description: "Everything about one agent: status, its last prompt, current activity, the full waiting question (detail and options), " +
 			"working subagents, queued prompts (how many; list_queue lists them), tokens, cost, model, branch and folder.",
@@ -479,6 +480,7 @@ type mcpAgentRow struct {
 	Queued         int        `json:"queued"`
 	Unseen         bool       `json:"finishedUnseen,omitempty"`
 	AcceptsPrompts bool       `json:"acceptsPrompts"`
+	Project        string     `json:"project,omitempty"` // its project's name
 }
 
 func rowOf(a model.Agent) mcpAgentRow {
@@ -496,6 +498,9 @@ func rowOf(a model.Agent) mcpAgentRow {
 	}
 	if a.Error != nil {
 		r.Error = a.Error.Message
+	}
+	if a.Project != nil {
+		r.Project = a.Project.Name
 	}
 	if a.Context.Window > 0 {
 		r.ContextPct = int(a.Context.Used * 100 / a.Context.Window)
@@ -518,13 +523,17 @@ func asJSON(v any) string {
 	return string(b)
 }
 
-func toolListAgents(s *Server, who devices.Device, _ mcpArgs) (string, error) {
+func toolListAgents(s *Server, who devices.Device, args mcpArgs) (string, error) {
 	list, err := s.agents(who)
 	if err != nil {
 		return "", err
 	}
+	project := args.str("project")
 	rows := make([]mcpAgentRow, 0, len(list))
 	for _, a := range list {
+		if project != "" && (a.Project == nil || (a.Project.ID != project && !strings.EqualFold(a.Project.Name, project))) {
+			continue
+		}
 		rows = append(rows, rowOf(a))
 	}
 	return asJSON(map[string]any{"agents": rows}), nil

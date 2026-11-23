@@ -155,6 +155,7 @@ func TestAgentParity(t *testing.T) {
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
+		Project: &model.Project{ID: "p0a1b2c3d", Name: "harbor"}, ProjectFolder: "/x",
 		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
@@ -177,6 +178,22 @@ func TestAgentParity(t *testing.T) {
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
 	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
 		t.Errorf("tile fields: %+v", tile)
+	}
+	// The project goes with the tile, the folder it matched with the card;
+	// an agent in no project has neither.
+	if tile.GetProject().GetId() != "p0a1b2c3d" || tile.GetProject().GetName() != "harbor" || tile.ProjectFolder != "" {
+		t.Errorf("tile project: %v, folder %q", tile.GetProject(), tile.ProjectFolder)
+	}
+	if card := toPB(full, uint32(linkpb.FieldGroup_FIELDS_CARD)); card.ProjectFolder != "/x" || card.Project != nil {
+		t.Errorf("card project: %v, folder %q", card.GetProject(), card.ProjectFolder)
+	}
+	if none := toPB(model.Agent{ID: "a3"}, 1|2); none.Project != nil || none.ProjectFolder != "" {
+		t.Errorf("no project: %v, folder %q", none.GetProject(), none.ProjectFolder)
+	}
+	long := full
+	long.Project = &model.Project{ID: "p0a1b2c3d", Name: strings.Repeat("n", 60)}
+	if n := toPB(long, 1).GetProject().GetName(); len(n) > 47 || !strings.HasSuffix(n, "…") {
+		t.Errorf("a long project name isn't clipped to Project.name: %q", n)
 	}
 }
 

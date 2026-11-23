@@ -95,7 +95,15 @@ func newProjectID() string {
 	return "p" + hex.EncodeToString(b)
 }
 
+// readProjects reads projects.json and builds the index agents are matched
+// against from it (projectmatch.go).
 func (a *Admin) readProjects() []Project {
+	list := a.loadProjects()
+	a.reindex(list)
+	return list
+}
+
+func (a *Admin) loadProjects() []Project {
 	var file struct {
 		Projects []Project `json:"projects"`
 	}
@@ -142,7 +150,23 @@ func (a *Admin) writeProjects(list []Project) error {
 	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, a.projectsPath())
+	if err := os.Rename(tmp, a.projectsPath()); err != nil {
+		return err
+	}
+	a.reindex(list)
+	return nil
+}
+
+// folderTaken refuses a folder another project lists already: a folder
+// belongs to one project. A folder inside another project's folder is fine
+// (the deepest wins).
+func folderTaken(w http.ResponseWriter, list []Project, self string, p Project) bool {
+	i, f := folderOwner(list, self, p.Folders)
+	if i < 0 {
+		return false
+	}
+	writeErr(w, http.StatusConflict, f+" is a folder of "+list[i].Name+" already: a folder belongs to one project")
+	return true
 }
 
 // expandHome turns a leading ~/ into the home folder.
@@ -253,6 +277,9 @@ func (a *Admin) projectsAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "there is a project called "+p.Name+" already")
 		return
 	}
+	if folderTaken(w, list, "", p) {
+		return
+	}
 	if len(list) >= MaxProjects {
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("at most %d projects", MaxProjects))
 		return
@@ -293,6 +320,9 @@ func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if j := findProject(list, p.Name); j >= 0 && j != i {
 			writeErr(w, http.StatusConflict, "there is a project called "+p.Name+" already")
+			return
+		}
+		if folderTaken(w, list, list[i].ID, p) {
 			return
 		}
 		p.ID = list[i].ID

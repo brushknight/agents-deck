@@ -179,6 +179,9 @@ type Store struct {
 	// Account gives each agent its Claude account, from the account it was
 	// started in or its transcript's folder (nil: accounts aren't shown).
 	Account func(name, transcript string) *model.Account
+	// Project gives each agent its project and the project folder it
+	// matched, by working folder, from memory (nil: no projects).
+	Project func(cwd string) (*model.Project, string)
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
 
@@ -464,7 +467,7 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued := s.Hat, s.Account, s.Queued
+	hat, account, project, queued := s.Hat, s.Account, s.Project, s.Queued
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
@@ -477,6 +480,9 @@ func (s *Store) Snapshot() model.State {
 		}
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
+		}
+		if project != nil {
+			agents[i].Project, agents[i].ProjectFolder = project(agents[i].Cwd)
 		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })

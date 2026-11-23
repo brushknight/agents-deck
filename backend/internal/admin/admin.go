@@ -139,6 +139,7 @@ type Admin struct {
 
 	cfgMu    sync.Mutex
 	projects projectStore
+	index    projectIndex // which project each agent is in (projectmatch.go)
 	jobs     jobs
 	ports    portHolds
 	catMu    sync.Mutex
