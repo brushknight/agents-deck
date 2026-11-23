@@ -15,6 +15,9 @@ const psFixture = `    1     0 ??         0.0 /sbin/launchd
   601   600 ??         1.0 /usr/sbin/iostat
   700   690 ttys003   30.0 claude
   701   700 ttys003   50.0 /usr/local/go/bin/go
+  703   701 ttys003   12.0 /usr/local/go/pkg/tool/compile
+  704   701 ttys003    8.0 /usr/local/go/pkg/tool/compile
+  705   700 ttys003    0.0 /bin/sleep
   702   700 ttys003    0.7 /usr/local/bin/agentctl
   710   690 ttys004    8.0 claude
   720   719 ttys009    5.0 -zsh
@@ -24,7 +27,7 @@ const psFixture = `    1     0 ??         0.0 /sbin/launchd
 
 func TestParsePS(t *testing.T) {
 	rows := parsePS(psFixture)
-	if len(rows) != 11 {
+	if len(rows) != 14 {
 		t.Fatalf("%d rows: %+v", len(rows), rows)
 	}
 	if r := rows[2]; r.pid != 501 || r.ppid != 500 || r.tty != "??" || r.cpu != 20 ||
@@ -49,7 +52,8 @@ func TestProgramName(t *testing.T) {
 	}
 }
 
-// Each agent gets every process on its terminal; agentctl anywhere and the
+// Each agent gets every process on its terminal, with its biggest programs
+// (the compiler it runs, more than the agent itself); agentctl anywhere and the
 // service's children are the deck; the rest goes by program (an app with
 // its helpers); idle programs are left out. Percent is of the whole
 // machine (10 cores here).
@@ -61,9 +65,10 @@ func TestGroupCPU(t *testing.T) {
 	}
 	got := groupCPU(parsePS(psFixture), agents, 600, 10, 10)
 	want := []CPUUser{
-		{Kind: "agent", Name: "fix the login page", Agent: "a1", Percent: 8, Processes: 2},
+		{Kind: "agent", Name: "fix the login page", Agent: "a1", Percent: 10, Processes: 5,
+			Commands: []Command{{"go", 5}, {"claude", 3}, {"compile", 2}}},
 		{Kind: "program", Name: "Example Browser", Percent: 6, Processes: 2},
-		{Kind: "agent", Name: "write the docs", Agent: "a2", Percent: 0.8, Processes: 1},
+		{Kind: "agent", Name: "write the docs", Agent: "a2", Percent: 0.8, Processes: 1, Commands: []Command{{"claude", 0.8}}},
 		{Kind: "program", Name: "zsh", Percent: 0.5, Processes: 1},
 		{Kind: "deck", Name: "agents deck", Percent: 0.4, Processes: 3},
 	}

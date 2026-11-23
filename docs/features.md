@@ -178,7 +178,15 @@ While the Mac is busy:
   sessions, are not slowed for now.
 
 Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
-long (1, 2 or 5 minutes), whether to hold and whether to slow.
+long (1, 2 or 5 minutes), whether to hold and whether to slow. It is stored in `config.json` as
+`"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
+can't read the CPU, it says so and holds nothing.
+
+**What an agent runs.** The load usually comes from what an agent starts (a build, the tests, a
+simulator), not from the agent itself, so each agent in Using the most lists its biggest programs,
+such as `xcodebuild 30%, swift-frontend 12%`. They are the programs on the agent's terminal; an app
+the build opens on its own (the iOS Simulator) shows as a program of its own. The log line on
+getting busy names them too.
 
 **A schedule for the limit.** Turn on Follow a schedule to give parts of the week their own limit:
 say 60% on weekdays from 09:00 to 18:00, when you work next to the agents, and the plain limit (80%)
@@ -186,9 +194,12 @@ the rest of the week. Blocks go in half hours, on the Mac's own clock, and a blo
 it starts runs past midnight; two blocks can't cover the same time. The deck looks every minute and
 logs each change ("limit 60% from the schedule (Mon 09:00-18:00)"). A limit you pick by hand while
 the schedule is on lasts until the schedule's next change, then the schedule takes over again;
-Back to schedule ends it sooner. It is stored in `config.json` as
-`"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
-can't read the CPU, it says so and holds nothing.
+Back to schedule ends it sooner.
+
+From a terminal: `agentctl cpu` prints the limit and where it comes from, `agentctl cpu schedule`
+the week, `agentctl cpu limit 70` picks a limit until the schedule's next change (`--for 3h` for a
+set time; with no schedule, without `--for`, it is the plain limit), and `agentctl cpu limit
+schedule` goes back to the schedule.
 
 ## Agent terminals
 
@@ -311,7 +322,7 @@ to icons (the browser remembers which). Everything on it is also a command.
 | page | what you can do | in a terminal |
 |---|---|---|
 | Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
-| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token` |
+| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token`, `agentctl cpu limit` |
 | Boards | tabs: **Your boards** (what waits for your approval, then each board with its screen and how it is connected), **Add a board** (over USB, or Look for Bluetooth boards nearby and add one with the code on its screen), **Magic trick**, **USB ports** (forget a port, or say a port is a board). A board's own page: rename, how it is connected and its uplink, its Wi-Fi, Bluetooth, what it may do, its part in the magic trick, update its firmware or install a firmware file of your own, cut off, remove. A new ESP32 on USB appears under Waiting for you; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone or desk panel and the ones paired | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |

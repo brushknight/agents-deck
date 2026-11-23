@@ -28,7 +28,20 @@ type CPUUser struct {
 	Agent     string  `json:"agent,omitempty"` // the agent's id
 	Percent   float64 `json:"percent"`         // of the whole machine, as MachineCPU
 	Processes int     `json:"processes"`
+	// Commands: for an agent, what on its terminal uses the most, by
+	// program (the build or test it runs, more often than the agent
+	// itself), at most TopCommands. Omitted for the others.
+	Commands []Command `json:"commands,omitempty"`
 }
+
+// Command is one program on an agent's terminal and its share of the CPU.
+type Command struct {
+	Name    string  `json:"name"`
+	Percent float64 `json:"percent"` // of the whole machine
+}
+
+// TopCommands is how many of an agent's programs CPUUser.Commands lists.
+const TopCommands = 3
 
 // CPUTop is who uses the machine's CPU, biggest first.
 type CPUTop struct {
@@ -155,6 +168,7 @@ func groupCPU(rows []psRow, agents []AgentTerminal, self, cores, n int) []CPUUse
 	}
 	deck := &CPUUser{Kind: "deck", Name: "agents deck"}
 	groups := map[string]*CPUUser{"deck": deck}
+	commands := map[string]map[string]float64{} // by group: each program's share
 	for _, r := range rows {
 		name := programName(r.comm)
 		key, u := "deck", CPUUser{}
@@ -171,12 +185,20 @@ func groupCPU(rows []psRow, agents []AgentTerminal, self, cores, n int) []CPUUse
 			g = &u
 			groups[key] = g
 		}
-		g.Percent += r.cpu / float64(max(cores, 1))
+		share := r.cpu / float64(max(cores, 1))
+		g.Percent += share
 		g.Processes++
+		if g.Kind == "agent" {
+			if commands[key] == nil {
+				commands[key] = map[string]float64{}
+			}
+			commands[key][name] += share
+		}
 	}
 	var out []CPUUser
-	for _, g := range groups {
+	for key, g := range groups {
 		g.Percent = math.Round(g.Percent*10) / 10
+		g.Commands = topCommands(commands[key])
 		if g.Percent > 0 || g == deck {
 			out = append(out, *g)
 		}
@@ -193,4 +215,22 @@ func groupCPU(rows []psRow, agents []AgentTerminal, self, cores, n int) []CPUUse
 		}
 	}
 	return out[:min(n, len(out))]
+}
+
+// topCommands is the TopCommands biggest programs, in percent of the whole
+// machine; nil when none uses any.
+func topCommands(by map[string]float64) []Command {
+	var out []Command
+	for name, p := range by {
+		if p = math.Round(p*10) / 10; p > 0 {
+			out = append(out, Command{name, p})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Percent != out[j].Percent {
+			return out[i].Percent > out[j].Percent
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out[:min(TopCommands, len(out))]
 }

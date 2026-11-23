@@ -125,8 +125,13 @@ const usage = `agentctl: runs and controls agents deck
   agentctl bluetooth [scan | ls | add <name>]
                                  boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
-  agentctl cpu [--top]           how much CPU the service and its helpers use, and the whole
-                                 machine; --top: who uses it (each agent, the deck, other programs)
+  agentctl cpu [--top]           how much CPU the service and its helpers use, the whole machine
+                                 and the CPU guard's limit; --top: who uses it (each agent with its
+                                 biggest programs, the deck, other programs)
+  agentctl cpu limit <60-95> [--for 3h] | schedule
+                                 the CPU guard's limit for now: until the schedule's next change
+                                 (or for the time given); schedule: back to the schedule
+  agentctl cpu schedule          the week's schedule for the CPU guard's limit
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)

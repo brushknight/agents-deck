@@ -342,7 +342,15 @@ func (g *Guard) Step() {
 	if g.Top != nil {
 		var top []string
 		for _, u := range g.Top() {
-			top = append(top, fmt.Sprintf("%s %.0f%%", u.Name, u.Percent))
+			line := fmt.Sprintf("%s %.0f%%", u.Name, u.Percent)
+			var cmds []string
+			for _, c := range u.Commands {
+				cmds = append(cmds, fmt.Sprintf("%s %.0f%%", c.Name, c.Percent))
+			}
+			if len(cmds) > 0 {
+				line += " (" + strings.Join(cmds, ", ") + ")"
+			}
+			top = append(top, line)
 		}
 		if len(top) > 0 {
 			change += "; using it: " + strings.Join(top, ", ")

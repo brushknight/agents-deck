@@ -56,7 +56,7 @@ func newTest(t *testing.T) (*Guard, *fakeMeter, *[]string) {
 	g.Now = func() time.Time { return m.now }
 	g.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
 	g.Top = func() []proc.CPUUser {
-		return []proc.CPUUser{{Name: "fix-tests", Percent: 61}, {Name: "agents deck", Percent: 1}}
+		return []proc.CPUUser{{Name: "fix-tests", Percent: 61, Commands: []proc.Command{{Name: "xcodebuild", Percent: 30}, {Name: "claude", Percent: 4}}}, {Name: "agents deck", Percent: 1}}
 	}
 	return g, m, &logs
 }
@@ -79,7 +79,7 @@ func TestBusyAndCalm(t *testing.T) {
 	if !s.Busy || s.Since == nil || !s.Since.Equal(m.now.Add(-2*time.Minute).UTC()) || !s.Hold || s.Limit != 80 {
 		t.Fatalf("after 2 minutes at 95%%: %+v", s)
 	}
-	if len(*logs) != 1 || !strings.Contains((*logs)[0], "95% of the CPU for 2m, over your limit of 80%") || !strings.Contains((*logs)[0], "fix-tests 61%") {
+	if len(*logs) != 1 || !strings.Contains((*logs)[0], "95% of the CPU for 2m, over your limit of 80%") || !strings.Contains((*logs)[0], "fix-tests 61% (xcodebuild 30%, claude 4%), agents deck 1%") {
 		t.Fatalf("log %q", *logs)
 	}
 	if held, why := g.Holding(); !held || !strings.Contains(why, "busy (95% CPU for 2 minutes); try again in a few minutes") {

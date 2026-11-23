@@ -154,6 +154,19 @@ func (b Block) Label() string {
 	return daysLabel(b.Days) + " " + b.From + "-" + b.To
 }
 
+// DaysLabel is the block's days in words: "Weekdays", "Mon, Wed".
+func (b Block) DaysLabel() string { return daysLabel(b.Days) }
+
+// Start is where the block first starts in the week, in minutes from
+// Monday 00:00, to list blocks in the order of the week.
+func (b Block) Start() int {
+	first := week
+	for _, sp := range b.spans(0) {
+		first = min(first, sp.start)
+	}
+	return first
+}
+
 func daysLabel(days []string) string {
 	on := map[string]bool{}
 	for _, d := range days {
