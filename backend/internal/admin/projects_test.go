@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,5 +235,75 @@ func TestProjectsOlderFile(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(r.a.DataDir, "projects.json"))
 	if !strings.Contains(string(b), `"folder": "`+work+`"`) {
 		t.Errorf("projects.json: %s", b)
+	}
+}
+
+// The project methods the web API and MCP share: refusals carry the status
+// they answer with, and an edit keeps the id and is checked like a new one.
+func TestProjectMethods(t *testing.T) {
+	r := newRig(t)
+	app, web, other := t.TempDir(), t.TempDir(), t.TempDir()
+	code := func(err error) int {
+		var pe *ProjectError
+		if errors.As(err, &pe) {
+			return pe.Code
+		}
+		return 0
+	}
+	p, err := r.a.AddProject(Project{Name: "harbor", Folders: []string{app}})
+	if err != nil || p.ID == "" || p.Path != app {
+		t.Fatalf("add: %+v %v", p, err)
+	}
+	if _, err := r.a.AddProject(Project{Name: "HARBOR", Folders: []string{web}}); code(err) != 409 {
+		t.Errorf("same name: %v", err)
+	}
+	if _, err := r.a.AddProject(Project{Name: "quay", Folders: []string{app}}); code(err) != 409 {
+		t.Errorf("a folder of harbor's: %v", err)
+	}
+	if _, err := r.a.AddProject(Project{Name: "quay"}); code(err) != 400 {
+		t.Errorf("no folder: %v", err)
+	}
+	if _, err := r.a.AddProject(Project{Name: "quay", Folders: []string{other}}); err != nil {
+		t.Fatal(err)
+	}
+
+	e, err := r.a.EditProject(p.ID, func(p *Project) error { p.Folders = append(p.Folders, web); return nil })
+	if err != nil || e.ID != p.ID || len(e.Folders) != 2 || e.Paths[1] != web {
+		t.Fatalf("add a folder: %+v %v", e, err)
+	}
+	if _, err := r.a.EditProject("harbor", func(p *Project) error { p.Folders = append(p.Folders, other); return nil }); code(err) != 409 {
+		t.Errorf("quay's folder: %v", err)
+	}
+	if _, err := r.a.EditProject("harbor", func(p *Project) error { p.Name = "Quay"; return nil }); code(err) != 409 {
+		t.Errorf("rename onto quay: %v", err)
+	}
+	if _, err := r.a.EditProject("nope", func(*Project) error { return nil }); code(err) != 404 {
+		t.Errorf("no such project: %v", err)
+	}
+	if got := r.a.Projects(); len(got[0].Folders) != 2 || got[0].Name != "harbor" {
+		t.Errorf("a refused edit changed the list: %+v", got[0])
+	}
+
+	if _, err := r.a.StartInProject("harbor", ProjectStart{}); code(err) != 503 {
+		t.Errorf("start without a starter: %v", err)
+	}
+	st := &fakeStarter{}
+	r.a.Starter = st
+	s, err := r.a.StartInProject("harbor", ProjectStart{Folder: web, Prompt: "fix it"})
+	if err != nil || s.Folder != web || s.Tool != "claude" || s.Prompt != "fix it" || len(st.created) != 1 || st.created[0].Dir != web {
+		t.Fatalf("start: %+v %v %+v", s, err, st.created)
+	}
+	if len(st.prompted) != 0 {
+		t.Error("StartInProject sent the prompt itself")
+	}
+	if _, err := r.a.StartInProject("harbor", ProjectStart{Folder: other}); code(err) != 400 {
+		t.Errorf("a folder of another project: %v", err)
+	}
+
+	if err := r.a.RemoveProject("harbor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.a.RemoveProject("harbor"); code(err) != 404 {
+		t.Errorf("removed twice: %v", err)
 	}
 }
