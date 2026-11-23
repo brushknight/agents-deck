@@ -103,7 +103,7 @@ at the critter's scale; the pet's middle is the body's, and a grown-up's feet ar
 are. Its hat rises a unit higher than a critter's (the 1.47" hero stands it a unit lower), and an
 aura or the ice reach two units round it: the spring carousel's critter box grows to match
 (`critterBox()`), so the partial redraw and the strips still cover it. On an orange background (a
-waiting tile, the accent disc) the pet gets a dark edge. A working agent's pet bobs and an egg
+waiting tile, the accent disc) the pet stands on a dark square plate, one cell larger than it on every side. A working agent's pet bobs and an egg
 waiting to be seen rocks, on the animation clock the critters already use.
 
 The screens that show one agent in detail show the pet's name, stage and level (`petLine()`: "Pip

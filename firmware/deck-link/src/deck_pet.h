@@ -105,7 +105,7 @@ typedef struct {
 	uint8_t hat_color; /* index in DECK_PET_HAT_COLORS; out of range: teal */
 	bool idle;         /* its agent is idle or exited: eyes shut */
 	bool working;      /* its agent is running: it bobs (deck_pet_motion) */
-	bool outline;      /* a dark edge round it, for a background in its own orange */
+	bool plate;        /* a dark square plate under it, for a background in its own orange */
 } deck_pet_opts_t;
 
 /* The deck's hats, in the protocol's order (docs/protocol.md). */
@@ -129,7 +129,8 @@ typedef struct {
 	uint8_t aura; /* deck_pet_aura_t */
 	bool ice;     /* asleep: drawn in an ice cube */
 	bool weak;    /* the body is the weak brown */
-	bool outline;
+	bool plate;
+	int8_t plate_x0, plate_y0, plate_x1, plate_y1; /* the plate's cells, inclusive */
 	bool ready;   /* an egg waiting to be seen */
 	bool bob;     /* working and awake */
 	int8_t x0, y0, x1, y1; /* the cells drawn, inclusive (the art and hat, not the aura or ice) */
@@ -165,7 +166,7 @@ uint32_t deck_pet_rgb(const deck_pet_look_t *look, char key);
 typedef void (*deck_pet_fill_fn)(void *user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha);
 
 /* Draws the look with cell (0, 0) at pixel (x, y), each cell scale x scale
- * pixels: the aura or dark edge, the art and its hat, then the ice. Runs of
+ * pixels: the plate, the aura, the art and its hat, then the ice. Runs of
  * one colour along a row are one rectangle. */
 void deck_pet_draw(const deck_pet_look_t *look, int x, int y, int scale, deck_pet_fill_fn fill, void *user);
 

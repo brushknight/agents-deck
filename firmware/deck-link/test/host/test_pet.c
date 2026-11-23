@@ -1,6 +1,6 @@
 /* Host tests for deck_pet: the looks match the web deck's pets.js cell for
  * cell (pet_golden.h, from tools/pet_golden.mjs), the state from Deck Link,
- * and the drawing: colours, scale, the aura, the dark edge, the ice, the
+ * and the drawing: colours, scale, the aura, the plate, the ice, the
  * bounds and the moves. Build with make. */
 #include <math.h>
 #include <stdio.h>
@@ -242,13 +242,12 @@ static void test_draw(void)
 		CHECK(ring_cells(&l, 40, 40, 2, ring) > 30);
 		CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == ring);  /* right under a foot */
 		CHECK(px[40 + (l.y1 + 2) * 2][40 + 4 * 2] == BG);    /* and only one cell deep */
-		/* With a dark edge the aura moves out a cell. */
-		o.outline = true;
+		/* On the plate the aura sits where it was, over the dark. */
+		o.plate = true;
 		deck_pet_look(&l, &p, &o);
 		draw(&l, 40, 40, 2);
-		CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == 0x0A0A0A);
-		CHECK(px[40 + (l.y1 + 2) * 2][40 + 4 * 2] == ring);
-		o.outline = false;
+		CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == mix(0x0A0A0A, aura_rgb[st - DECK_PET_STRONG], aura_a[st - DECK_PET_STRONG]));
+		o.plate = false;
 	}
 	p = pet_of(DECK_PET_GROWN, DECK_PET_FED, false);
 	deck_pet_look(&l, &p, &o);
@@ -266,11 +265,12 @@ static void test_draw(void)
 	CHECK(deck_pet_at(&l, 6, 7) == 'b');
 	CHECK(px[cy][cx] == mix(0xFF4D00, 0x8FD0F2, 102));
 	CHECK(px[40 + (l.y1 + 2) * 3][40 + 8 * 3] == mix(BG, 0xDFF4FF, 115)); /* the frost */
-	o.outline = true;
+	o.plate = true; /* the plate covers the cube and its frost */
 	deck_pet_look(&l, &p, &o);
+	CHECK(l.plate_x0 <= l.x0 - 2 && l.plate_x1 >= l.x1 + 2 && l.plate_y0 <= l.y0 - 1 && l.plate_y1 >= l.y1 + 2);
 	draw(&l, 40, 40, 3);
-	CHECK(px[40 + (l.y0 - 2) * 3][40 + 8 * 3] == 0x0A0A0A); /* the dark frame above the cube */
-	o.outline = false;
+	CHECK(px[40 + (l.y1 + 2) * 3][40 + 8 * 3] == mix(0x0A0A0A, 0xDFF4FF, 115));
+	o.plate = false;
 
 	/* Hungry: the open mouth; idle: eyes shut (the mouth wins). */
 	p = pet_of(DECK_PET_GROWN, DECK_PET_HUNGRY, false);
@@ -332,12 +332,12 @@ static void test_hat_in_aura(void)
 	for (int st = DECK_PET_KID; st <= DECK_PET_LEGEND; st++)
 		for (int hat = 1; hat <= DECK_PET_HAT_SHAPE_COUNT; hat++)
 			for (int col = 0; col < DECK_PET_HAT_COLOR_COUNT; col++)
-				for (int outline = 0; outline < 2; outline++) {
+				for (int plate = 0; plate < 2; plate++) {
 					deck_pet_t p = pet_of(st, DECK_PET_FED, false);
 					deck_pet_opts_t o = {0};
 					o.hat = (uint8_t)hat;
 					o.hat_color = (uint8_t)col;
-					o.outline = outline;
+					o.plate = plate;
 					deck_pet_look_t l;
 					deck_pet_look(&l, &p, &o);
 					/* In its shade when close to the aura, else its own colour. */
@@ -345,7 +345,7 @@ static void test_hat_in_aura(void)
 					CHECK(l.hat_toned == toned);
 					CHECK(deck_pet_rgb(&l, 'h') == (toned ? hat_shade[col] : hat_main[col]));
 					CHECK(deck_pet_rgb(&l, 'H') == hat_shade[col]);
-					/* Every empty cell next to the hat stays background (or the dark edge). */
+					/* Every empty cell next to the hat stays background (or the plate). */
 					draw(&l, 40, 40, 1);
 					int hat_cells = 0;
 					for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
@@ -359,16 +359,47 @@ static void test_hat_in_aura(void)
 								if (deck_pet_at(&l, nx, ny))
 									continue;
 								const uint32_t v = px[40 + ny][40 + nx];
-								CHECK(v == BG || (outline && v == 0x0A0A0A));
+								CHECK(v == (plate ? 0x0A0A0Au : BG));
 							}
 						}
 					CHECK(hat_cells > 0);
 					/* The aura is still there round the body. */
 					if (l.aura) {
-						const uint32_t ring = mix(BG, aura_rgb[l.aura], l.aura == 1 ? 191 : l.aura == 2 ? 179 : 217);
+						const uint32_t ring = mix(plate ? 0x0A0A0Au : BG, aura_rgb[l.aura], l.aura == 1 ? 191 : l.aura == 2 ? 179 : 217);
 						CHECK(ring_cells(&l, 40, 40, 1, ring) > 20);
 					}
 				}
+}
+
+/* The plate: a dark square one cell larger than the art and hat on every
+ * side, under every look, and only with .plate. */
+static void test_plate(void)
+{
+	for (int st = 0; st < 7; st++)
+		for (int mood = 0; mood < 4; mood++)
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat++) {
+				deck_pet_t p = pet_of(st, mood, st == 0 && hat % 2);
+				deck_pet_opts_t o = {0};
+				o.hat = (uint8_t)hat;
+				deck_pet_look_t l;
+				deck_pet_look(&l, &p, &o);
+				CHECK(!l.plate);
+				draw(&l, 40, 40, 2);
+				for (int y = 0; y < CH; y++)
+					for (int x = 0; x < CW; x++)
+						CHECK(px[y][x] != 0x0A0A0Au || deck_pet_at(&l, (x - 40) >> 1, (y - 40) >> 1)); /* no dark but the art's */
+				o.plate = true;
+				deck_pet_look(&l, &p, &o);
+				const int w = l.plate_x1 - l.plate_x0 + 1, h = l.plate_y1 - l.plate_y0 + 1;
+				CHECK(w == h || l.plate_x0 == DECK_PET_GRID_X0 || l.plate_y0 == DECK_PET_GRID_Y0 ||
+				      l.plate_x1 == DECK_PET_GRID_X0 + DECK_PET_GRID_W - 1 || l.plate_y1 == DECK_PET_GRID_Y0 + DECK_PET_GRID_H - 1);
+				CHECK(l.plate_x0 <= l.x0 - 1 && l.plate_x1 >= l.x1 + 1 && l.plate_y0 <= l.y0 - 1 && l.plate_y1 >= l.y1 + 1);
+				draw(&l, 40, 40, 2); /* (draw checks the bounds hold it) */
+				CHECK(px[40 + l.plate_y0 * 2][40 + l.plate_x0 * 2] == 0x0A0A0Au);
+				const uint32_t corner = px[40 + l.plate_y1 * 2 + 1][40 + l.plate_x1 * 2 + 1];
+				CHECK(l.ice ? corner != BG : corner == 0x0A0A0Au); /* asleep: the frost lies over it */
+				CHECK(px[40 + (l.plate_y1 + 1) * 2][40 + l.plate_x1 * 2] == BG);
+			}
 }
 
 static void test_motion(void)
@@ -418,6 +449,7 @@ int main(void)
 	test_state();
 	test_draw();
 	test_hat_in_aura();
+	test_plate();
 	test_motion();
 	if (failures) {
 		fprintf(stderr, "test_pet: %d of %d checks failed\n", failures, checks);
