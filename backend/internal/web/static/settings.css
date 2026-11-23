@@ -739,7 +739,7 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 
 @keyframes la { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
 @keyframes lb { 0%, 49% { opacity: 0 } 50%, 100% { opacity: 1 } }
-@keyframes bob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-0.5px) } }
+@keyframes bob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-1px) } }
 @keyframes blink { 0%, 59% { opacity: 1 } 60%, 100% { opacity: 0.15 } }
 @keyframes dots { 0% { opacity: .2 } 50% { opacity: 1 } 100% { opacity: .2 } }
 @keyframes zz { 0%, 100% { transform: translateY(0); opacity: .9 } 50% { transform: translateY(-0.6px); opacity: .4 } }
@@ -802,14 +802,34 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 
 /* ---------- agent pets (pets.js): every colour layer is one path, and these
    classes move them. Auras glow outside the box. Reduced motion: still. ---------- */
-.spr.pet svg { overflow: visible; }
-.petpic .spr.pet { width: 30px; }
+.spr.pet svg { overflow: visible; shape-rendering: crispEdges; }
+/* Pets are drawn at whole multiples of their 20 x 17 viewBox (20, 40, 60,
+   200 px wide), so every pixel lands on whole screen pixels: no blur, no
+   grey seams. */
+.petpic .spr.pet { width: 40px; }
+.tile .spr.pet { width: 60px; max-width: none; }
+@media (max-width: 1100px) { .tile .spr.pet { width: 40px; } }
+/* On an orange tile (it needs you) the pet keeps its own colours on a small
+   dark plate, like the sidebar's corner. */
+.tile.wait .spr.pet { background: #0A0A0A; padding: 4px; box-sizing: content-box; }
+.rrow > .vis .spr.pet { width: 40px; }
+.rrow > .vis:has(.spr.pet) { overflow: hidden; background: #0A0A0A; }
+/* A ready egg wobbles and glows a little; hatching it shakes, flashes and
+   bursts; the new pet pops in. Whole-pixel steps keep it crisp. */
+@keyframes prdy { 0%, 60%, 100% { transform: translateX(0) } 70% { transform: translateX(-1px) } 80% { transform: translateX(1px) } 90% { transform: translateX(-1px) } }
+@keyframes pglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 224, 138, 0)) } 50% { filter: drop-shadow(0 0 6px rgba(255, 224, 138, .55)) } }
+@keyframes phx { 0% { transform: translateX(0) } 10% { transform: translateX(-2px) } 20% { transform: translateX(2px) } 30% { transform: translateX(-2px) } 40% { transform: translateX(2px) }
+  50% { transform: translateX(-3px) } 60% { transform: translateX(3px) } 70% { transform: none; filter: brightness(1) } 85% { transform: scale(1.15); filter: brightness(4); opacity: 1 } 100% { transform: scale(1.3); filter: brightness(4); opacity: 0 } }
+@keyframes pborn { 0% { transform: scale(.5); opacity: 0 } 25% { transform: scale(.75); opacity: 1 } 50% { transform: scale(1.1) } 75%, 100% { transform: scale(1) } }
+svg.pet.prdy { animation: prdy 1.6s steps(1) infinite, pglow 1.6s ease-in-out infinite; }
+svg.pet.phx { animation: phx 1.4s linear forwards; transform-origin: 50% 80%; }
+svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 @keyframes pfc { 0%, 100% { opacity: 0 } 50% { opacity: .75 } }
 @keyframes prs { 0% { transform: translateY(0); opacity: 0 } 15% { opacity: 1 } 100% { transform: translateY(-9px); opacity: 0 } }
 @keyframes ptw { 0%, 100% { opacity: .15; transform: scale(.6) } 50% { opacity: 1; transform: scale(1.2) } }
 @keyframes pfall { 0% { transform: translateY(-3px); opacity: 0 } 20% { opacity: 1 } 100% { transform: translateY(9px); opacity: 0 } }
 @keyframes pgl { 0%, 80% { opacity: 0 } 85%, 95% { opacity: 1 } 100% { opacity: 0 } }
-@keyframes pbob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-0.5px) } }
+@keyframes pbob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-1px) } }
 .pet .pfc { animation: pfc 1.8s ease-in-out infinite; }
 .pet .prs { animation: prs 2.4s linear infinite; opacity: 0; }
 .pet .ptw { animation: ptw 1.1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
@@ -834,6 +854,7 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .pwk .ps0 { animation-name: ps0; } .pwk .ps1 { animation-name: ps1; } .pwk .ps2 { animation-name: ps2; } .pwk .ps3 { animation-name: ps3; } .pwk .ps4 { animation-name: ps4; }
 @media (prefers-reduced-motion: reduce) {
   .pet *, .pet { animation: none !important; }
+  svg.pet.phx { opacity: .4; }
   .pet .pfc, .pet .prs, .pet .pfall, .pet .pgl, .pet .pws, .pet .pwc, .pwk .pwg { opacity: 0; }
 }
 
@@ -921,13 +942,20 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 
 /* head: critter, tool · account, ×; the name with its state; what it's on */
 .abtop { display: flex; align-items: flex-start; gap: 12px; }
-.abpic { width: 52px; flex: none; --body: var(--bar-ink); --cut: var(--orange); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.abpic { width: 52px; flex: none; --body: var(--bar-ink); --cut: var(--orange); }
 .abpic .spr { width: 52px; }
 /* its pet, on a black square that turns white on hover */
 .abpet { width: 52px; height: 52px; flex: none; background: var(--bar-ink); border: 0; border-radius: 0; padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; }
 .abpet:hover { background: #FFFFFF; }
 .abpic .abpet .spr.pet { width: 40px; }
-.abpetl { font-size: 11px; line-height: 14px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+/* beside it: tool · branch, the pet's name · stage · level, its bar */
+.abhd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.abpetln { font-size: 11px; line-height: 16px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.abpetln[hidden], .abprog[hidden] { display: none; }
+.abprog { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 10px; line-height: 14px; letter-spacing: 0.1em; text-transform: uppercase; }
+.abpbar { flex: 1; min-width: 40px; height: 4px; background: rgba(10, 10, 10, 0.22); }
+.abpbar i { display: block; height: 100%; background: var(--bar-ink); }
+.abptx { flex: none; white-space: nowrap; }
 
 /* the pet's view: the sidebar widens over the deck, up to the menu on the left */
 .agentbar { transition: transform 240ms var(--bar-ease), width 240ms var(--bar-ease); }
@@ -939,37 +967,54 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .pvback:hover { background: var(--bar-ink); color: var(--orange); }
 .pvt { font-size: 11px; line-height: 16px; letter-spacing: 0.12em; text-transform: uppercase; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pvbd { flex: 1; padding: 28px; display: flex; flex-direction: column; gap: 24px; color: var(--ink); }
-.pvtop { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
-.pvbox { width: 360px; max-width: 100%; height: 280px; flex: none; background: var(--panel); border: 2px solid var(--rule); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.pvbox .spr.pet { width: 176px; }
+/* the square stage on the left, its name and level bar beside it */
+.pvtop { display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr); gap: 32px; align-items: stretch; }
+.pvbox { width: 100%; aspect-ratio: 1 / 1; background: var(--panel); border: 2px solid var(--rule); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pvbox .spr.pet { width: 200px; }
+.petid { display: flex; flex-direction: column; justify-content: space-between; gap: 24px; min-width: 0; }
 .pvinfo { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.pvlevel { --acc: #FF8A4C; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; background: var(--panel); border-top: 3px solid var(--acc); font-family: var(--f-mono); }
+.pvlh { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pvpct { font-size: 28px; line-height: 1; color: var(--ink); }
+.pvlevel .petbar { height: 14px; }
+.pvnums { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; line-height: 18px; color: var(--muted); }
+.pvnums b { color: var(--ink); font-size: 15px; }
+.pvleft { font-size: 13px; line-height: 18px; color: var(--text); }
 .pvname { font-size: 56px; line-height: 0.95; overflow-wrap: anywhere; }
 .pvkind { font: 700 13px/18px var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--orange2); }
 .pvline { font: 400 13px/18px var(--f-mono); color: var(--text); }
 .pvline.dim { color: var(--muted); }
-.pvstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-family: var(--f-mono); }
+.pvstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; font-family: var(--f-mono); }
 .pvstat { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--panel); border-top: 3px solid var(--acc); min-width: 0; }
-.pvstat.lv { --acc: #FF8A4C; } .pvstat.hp { --acc: #E8452B; } .pvstat.ate { --acc: #5EC4D6; }
+.pvstat.hp { --acc: #E8452B; } .pvstat.ate { --acc: #5EC4D6; } .pvstat.hat { --acc: #B48CE0; } .pvstat.age { --acc: #8FCB6B; }
 .pvk { font: 700 11px/14px var(--f-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--acc, var(--muted)); }
 .pvv { font-size: 24px; line-height: 1.1; color: var(--ink); }
 .pvs { font-size: 12px; line-height: 16px; color: var(--muted); }
-.pvbar { display: block; height: 8px; background: #2E2D2A; }
-.pvbar i { display: block; height: 100%; background: var(--acc); }
+.petbar { display: block; height: 8px; background: #2E2D2A; }
+.petbar i { display: block; height: 100%; background: var(--acc); }
 .pvhearts { display: flex; gap: 4px; }
 .pvhearts svg { width: 21px; height: 18px; display: block; }
 .pvsec { display: flex; flex-direction: column; gap: 10px; }
-.pvgrow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.pvgrow li { display: flex; flex-direction: column; align-items: center; gap: 6px; font: 400 11px/14px var(--f-mono); color: var(--muted); }
-.pvgrow li.sep { align-self: flex-start; height: 64px; justify-content: center; font-size: 16px; color: var(--dim); }
+/* growth: the stages across the full width */
+.pvgrow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.pvgrow li { display: flex; flex-direction: column; align-items: stretch; gap: 4px; font: 400 11px/14px var(--f-mono); color: var(--muted); min-width: 0; }
+.pvgrow .pvsn { color: inherit; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.pvgrow .pvsl { color: var(--dim); }
 .pvgrow li.on { color: var(--ink); }
 .pvgrow li.on .pvst { border-color: var(--orange); }
 .pvgrow li.off { color: var(--dim); }
-.pvst { width: 72px; height: 64px; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 2px solid var(--line); }
-.pvst .spr.pet { width: 44px; }
+.pvst { height: 72px; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 2px solid var(--line); }
+.pvnext .pvst { width: 72px; flex: none; }
+.pvst .spr.pet { width: 40px; }
 .pvnext { display: flex; align-items: center; gap: 14px; font-family: var(--f-mono); }
 .pvnext > div { display: flex; flex-direction: column; gap: 3px; }
 .pvnext b { font-size: 15px; color: var(--ink); }
-@media (max-width: 900px) { .agentbar.petv { width: 100vw; } .pvname { font-size: 40px; } }
+@media (max-width: 900px) {
+  .agentbar.petv { width: 100vw; } .pvname { font-size: 40px; }
+  .pvtop { grid-template-columns: minmax(0, 1fr); } .pvbox { max-width: 380px; }
+  .pvgrow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) { .pvbox .spr.pet { width: 160px; } }
 @media (prefers-reduced-motion: reduce) { .agentbar { transition: none; } }
 .abmeta { margin-top: 4px; font-size: 11px; line-height: 16px; letter-spacing: 0.12em; text-transform: uppercase; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .abmeta .sw { display: inline-block; width: 9px; height: 9px; border: 1px solid var(--bar-ink); flex: none; }

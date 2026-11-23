@@ -596,7 +596,8 @@ function setSprite(el, pose, tool, hat, opts = {}) {
 const petCache = new Map();
 const PET_IDLE = new Set(['idle', 'exited']);
 function petNode(pet, opts) {
-  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, opts.hat?.shape, opts.hat?.color, !!opts.idle, !!opts.working, !!opts.outline, !!opts.waking, opts.sil || '', !!opts.still]);
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, !!opts.idle, !!opts.working,
+    !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
   let node = petCache.get(k);
   if (!node) {
     const doc = new DOMParser().parseFromString(petSVG(pet, opts).replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
@@ -605,14 +606,37 @@ function petNode(pet, opts) {
   }
   return { k, node: node.cloneNode(true) };
 }
-// setPet fills el with an agent's pet: eyes shut while it is idle, a dark
-// edge on an orange tile, and the ice cracking off when it wakes.
-function setPet(el, a, outline, waking) {
-  const { k, node } = petNode(a.pet, { hat: a.hat, idle: PET_IDLE.has(a.status), working: a.status === 'running', outline, waking });
+// setPet fills el with an agent's pet: eyes shut while it is idle, the ice
+// cracking off when it wakes, the egg bursting while it hatches and the new
+// pet popping in. more: waking, mystery ("?" where its hat will be).
+function setPet(el, a, more = {}) {
+  const { k, node } = petNode(a.pet, { hat: a.hat, idle: PET_IDLE.has(a.status), working: a.status === 'running', ...more,
+    hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
   if (el.dataset.pose === `pet${k}`) return;
   el.dataset.pose = `pet${k}`;
   el.className = 'spr pet';
   el.replaceChildren(node);
+}
+
+// Hatching you witness: an egg that has eaten enough waits, ready, until you
+// open its agent or its pet. Then it bursts (1.4 s) and the service hatches
+// it; every screen sees the new pet. hatching: id → when the burst ends (0
+// once asked, until the state shows it hatched); bornUntil: the pop-in.
+const hatching = new Map();
+const bornUntil = new Map();
+const HATCH_MS = 1400;
+function seeHatch(a) {
+  if (!a?.pet?.ready || hatching.has(a.id) || document.visibilityState !== 'visible') return;
+  hatching.set(a.id, Date.now() + HATCH_MS);
+  setTimeout(async () => {
+    hatching.set(a.id, 0);
+    try {
+      await post(a, 'pet/hatch');
+      bornUntil.set(a.id, Date.now() + 1500);
+    } catch (ex) { if (ex.status !== 409 && ex.status !== 401) toast(ex.message, true); }
+    await load('state');
+    updateDeck();
+  }, HATCH_MS);
 }
 
 const bySlot = () => [...agentsList()].sort((x, y) => (x.slot ?? 999) - (y.slot ?? 999));
@@ -670,15 +694,16 @@ function tileFor(a) {
     t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
   }
-  const meta = tileMeta(a);
   const cls = tileClass(a);
+  const ready = !!a.pet?.ready && cls !== 'wait' && cls !== 'err';
+  const meta = ready ? 'ready to hatch' : tileMeta(a);
   const pct = a.status === 'running' ? ctxPct(a) : 0;
   const queued = a.queued || 0;
   const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
   if (t.sig !== sig) {
     t.sig = sig;
     const cur = a.id === S.arg && S.page === 'home';
-    t.el.className = `tile ${cls}${cur ? ' cur' : ''}`;
+    t.el.className = `tile ${cls}${ready ? ' hatchy' : ''}${cur ? ' cur' : ''}`;
     t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
     if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
@@ -696,7 +721,7 @@ function tileFor(a) {
     // Woken from hibernation (it ate): the ice cracks off, once.
     if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
     t.mood = a.pet.mood;
-    setPet(t.spr, a, cls === 'wait', Date.now() < (t.wakeUntil || 0));
+    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0) });
   } else {
     t.spr.className = 'spr c dk';
     setSprite(t.spr, poseOf(a), a.tool, a.hat);
@@ -779,6 +804,12 @@ function readyRows() {
   for (const d of (S.devices?.devices || []).filter((x) => x.state === 'waiting')) rows.push(rrow(devScreen(d, 'xs'), 'Wants to join', d.name, `#board/${encodeURIComponent(d.id)}`));
   for (const p of (S.ports?.ports || []).filter((x) => x.state === 'new')) rows.push(rrow(icon('usb', 18, 1.8), 'New USB port', p.likely === 'esp32-usb' || p.likelyName ? 'ESP32 board' : p.id, `#new-board/${encodeURIComponent(p.id)}`));
   if (sys.firmware_updates) rows.push(rrow(icon('board', 18, 1.8), 'Board firmware', sys.firmware_updates === 1 ? 'One board can update' : `${say(sys.firmware_updates)} boards can update`, '#updates'));
+  // An egg ready to hatch: opening its agent hatches it.
+  for (const a of agentsList().filter((x) => x.pet?.ready)) {
+    const egg = h('span', { class: 'spr pet' });
+    egg.append(petNode(a.pet, { hat: a.hat, still: true }).node);
+    rows.push(rrow(egg, 'An egg is ready', `${agentName(a)}: open it to see it hatch`, `#home/${encodeURIComponent(a.id)}`));
+  }
   return rows;
 }
 
@@ -930,7 +961,7 @@ function drawPanel() {
       h('button', { type: 'button', class: 'btn sm', 'data-k': 'pv-leave', onclick: leave }, icon('back', 14), 'Leave · Esc')),
     h('div', { class: 'pvbody' }, h('div', { class: 'pvside' }),
       h('div', { class: 'pvscreen' }, panelHead(), grid),
-      h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
+      h('div', { class: 'pvid' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
     h('div', { class: 'pager pvpager' }, ...panelPager()));
 }
 
@@ -1340,39 +1371,58 @@ function openPet(on) {
 }
 const petOpen = () => !!bar?.pet && bar.pet === bar.id && bar.el.classList.contains('petv');
 
-// fillPet draws the pet's view: the pet big and moving, its name, what it
-// is, its level and when it hatched; then its numbers, each with its own
-// colour, the stages it grows through and what it unlocks next.
+// fillPet draws the pet's view across the widened sidebar: the pet big on a
+// square stage, beside it its name, what it is and its level bar with the
+// numbers; then its numbers in a row, the stages it grows through and what
+// comes next.
 function fillPet(pane, a) {
   const p = a.pet;
-  const sig = JSON.stringify([p, a.hat, a.status, a.id]);
+  const hatch = Date.now() < (hatching.get(a.id) || 0), born = Date.now() < (bornUntil.get(a.id) || 0);
+  const sig = JSON.stringify([p, a.hat, a.status, a.id, hatch, born]);
   if (bar.petSig === sig) return;
   bar.petSig = sig;
+  const mystery = !p.hat && (p.level || 0) < 5;
   const big = h('span', { class: 'spr pet' });
-  setPet(big, a, false, false);
+  setPet(big, a, { mystery });
   const lv = p.level || 0;
-  const from = levelAt(lv), to = p.nextAt || levelAt(lv + 1);
+  const egg = p.stage === 'egg';
+  const from = egg ? 0 : (p.levelFrom ?? levelAt(lv, p)), to = p.nextAt || levelAt(lv + 1, p);
   const pct = Math.max(0, Math.min(100, Math.round(((p.ate - from) / Math.max(1, to - from)) * 100)));
+  const left = Math.max(0, to - p.ate);
+  const N = (n) => Math.round(n).toLocaleString();
   const hatched = p.hatchedAt ? new Date(p.hatchedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   const stat = (name, cls, value, sub, extra) => h('div', { class: `pvstat ${cls}` }, h('span', { class: 'pvk' }, name), h('b', { class: 'pvv' }, value), extra || null, h('span', { class: 'pvs' }, sub));
   const hearts = h('span', { class: 'pvhearts' });
   for (let i = 0; i < MAX_HEARTS; i++) hearts.append(svgNode(heartSVG(i < (p.hearts || 0))));
+  // The level bar: where this level started, the tokens now, the next level.
+  const level = h('div', { class: 'pvlevel' },
+    h('div', { class: 'pvlh' },
+      h('span', { class: 'pvk' }, egg ? (p.ready ? 'Ready to hatch' : 'Until it hatches') : `Level ${lv} → ${lv + 1}`),
+      h('b', { class: 'pvpct' }, `${pct}%`)),
+    h('span', { class: 'petbar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct),
+      'aria-label': egg ? 'Food until it hatches' : `Food to level ${lv + 1}` }, barFill(pct)),
+    h('div', { class: 'pvnums' },
+      h('span', {}, h('b', {}, N(p.ate)), ' tokens now'),
+      h('span', { class: 'r' }, h('b', {}, N(to)), egg ? ' to hatch' : ` for level ${lv + 1}`)),
+    h('span', { class: 'pvleft' }, egg && p.ready ? (hatch ? 'Hatching…' : 'It hatches now that you are here.') : `${N(left)} tokens to go${egg ? '' : `, from ${N(from)} where level ${lv} began`}`));
   const at = STAGES.indexOf(p.stage);
   const small = (stage, sil) => {
-    const s = h('span', { class: 'spr pet' });
-    s.append(petNode({ stage, mood: 'fed', ate: 0 }, { hat: a.hat, still: true, sil }).node);
-    return s;
+    const s2 = h('span', { class: 'spr pet' });
+    s2.append(petNode({ stage, mood: 'fed', ate: 0 }, { hat: a.hat, still: true, sil }).node);
+    return s2;
   };
-  const growth = h('ol', { class: 'pvgrow' }, STAGES.flatMap((s, i) => [
-    i ? h('li', { class: 'sep', 'aria-hidden': 'true' }, '›') : null,
+  const growth = h('ol', { class: 'pvgrow' }, STAGES.map((st, i) =>
     h('li', { class: i === at ? 'on' : i > at ? 'off' : '', 'aria-current': i === at ? 'step' : null },
-      h('span', { class: 'pvst' }, small(s, i > at ? '#3B3A36' : '')), h('span', { class: 'pvsn' }, i > at ? `${STAGE_NAMES[s]} · not yet` : STAGE_NAMES[s]))]));
+      h('span', { class: 'pvst' }, small(st, i > at ? '#3B3A36' : '')),
+      h('span', { class: 'pvsn' }, STAGE_NAMES[st]), h('span', { class: 'pvsl' }, i > at ? `level ${STAGE_LEVEL[st]}` : i === at ? 'now' : 'done'))));
   const next = STAGES[at + 1];
+  const nextAt = next ? levelAt(STAGE_LEVEL[next], p) : 0;
   const nextEl = next
     ? h('div', { class: 'pvnext' }, h('span', { class: 'pvst' }, small(next, '#55524B')), h('div', {},
-      h('span', { class: 'pvk' }, `Next · level ${STAGE_LEVEL[next]}`), h('b', {}, next === 'baby' ? 'It hatches' : `${STAGE_NAMES[next]}${STAGE_LEVEL[next] >= 20 ? ': a new glow' : ''}`),
-      h('span', { class: 'pvs' }, `at ${fmtN(levelAt(STAGE_LEVEL[next]))} tokens eaten, ${fmtN(Math.max(0, levelAt(STAGE_LEVEL[next]) - p.ate))} to go`)))
+      h('span', { class: 'pvk' }, `Next · level ${STAGE_LEVEL[next]}`), h('b', {}, next === 'baby' ? 'It hatches' : `${STAGE_NAMES[next]}${next === 'kid' ? ': its hat shows' : STAGE_LEVEL[next] >= 20 ? ': a new glow' : ''}`),
+      h('span', { class: 'pvs' }, `at ${N(nextAt)} tokens eaten, ${N(Math.max(0, nextAt - p.ate))} to go`)))
     : h('div', { class: 'pvnext' }, h('div', {}, h('span', { class: 'pvk' }, 'Next'), h('b', {}, 'Every stage reached'), h('span', { class: 'pvs' }, 'Levels go on: there is no top.')));
+  const hatName = p.hat ? `${p.hat.color} ${p.hat.shape}` : '?';
   put(pane,
     h('div', { class: 'pvhd' },
       h('button', { type: 'button', class: 'pvback', 'data-k': 'pet-back', onclick: () => openPet(false) }, icon('back', 14, 2.2), 'Back to the chat'),
@@ -1381,15 +1431,17 @@ function fillPet(pane, a) {
     h('div', { class: 'pvbd' },
       h('div', { class: 'pvtop' },
         h('div', { class: 'pvbox' }, big),
-        h('div', { class: 'pvinfo' },
-          h('h2', { class: 'serif pvname' }, p.name || 'An egg'),
-          h('span', { class: 'pvkind' }, petKind(p)),
-          h('span', { class: 'pvline' }, `Level ${lv}`),
-          h('span', { class: 'pvline dim' }, hatched ? `Hatched ${hatched}` : `Hatches at ${fmtN(levelAt(1))} tokens`))),
+        h('div', { class: 'petid' },
+          h('div', { class: 'pvinfo' },
+            h('h2', { class: 'serif pvname' }, p.name || (p.ready ? 'An egg, ready' : 'An egg')),
+            h('span', { class: 'pvkind' }, `${petKind(p)} · level ${lv}`),
+            h('span', { class: 'pvline dim' }, hatched ? `Hatched ${hatched}` : p.ready ? 'Ready to hatch' : `Hatches at ${N(to)} tokens`)),
+          level)),
       h('div', { class: 'pvstats' },
-        stat('Level', 'lv', String(lv), `${pct}% of the way to level ${lv + 1} · ${fmtN(to)}`, h('span', { class: 'pvbar' }, barFill(pct))),
         stat('Strength', 'hp', `${p.hearts || 0} of ${MAX_HEARTS}`, MOOD_NAMES[p.mood] || p.mood || '', hearts),
-        stat('Ate', 'ate', `${fmtN(p.ate)} tokens`, 'input and output, all time')),
+        stat('Ate', 'ate', N(p.ate), 'tokens, input and output, all time'),
+        stat('Hat', 'hat', hatName, p.hat ? 'found when it hatched' : 'a surprise: it shows at level 5'),
+        stat('Hatched', 'age', hatched || 'not yet', hatched ? `as ${p.name}` : p.ready ? 'open its agent to see it' : `at ${N(to)} tokens`)),
       h('div', { class: 'pvsec' }, h('span', { class: 'pvk' }, 'Growth'), growth),
       nextEl));
 }
@@ -1421,12 +1473,15 @@ function syncBar() {
     if (swapped) b.el.querySelector('.abin').scrollTop = 0;
     if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
   }
+  if (!a.pet?.ready && hatching.get(a.id) === 0) hatching.delete(a.id); // it hatched
+  seeHatch(a); // you see its sidebar: a ready egg hatches
   b.update(a);
   const pet = !!b.pet && !!a.pet; // pets turned off: back to the chat
   b.el.classList.toggle('petv', pet);
   b.body.hidden = pet;
   b.pane.hidden = !pet;
   if (pet) fillPet(b.pane, a);
+  fitDeck(open); // again, now that it is the chat or the pet: back to the chat scales the deck back at once
 }
 
 // fitDeck scales the deck down (never up) so it keeps clear of the
@@ -1435,8 +1490,13 @@ function fitDeck(open) {
   const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
   if (!m) return;
   let z = 1;
+  const b = barEl();
+  if (open && b.el.classList.contains('petv')) return; // the pet covers the deck: it keeps its size for the way back
   if (open && window.innerWidth > 900) {
-    const room = window.innerWidth - barEl().el.offsetWidth - m.getBoundingClientRect().left - 24;
+    // The sidebar's width as it will be, not as it is mid-slide: reading
+    // offsetWidth while the pet view shrinks back gave the old, wide one.
+    const w = Math.min(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480, window.innerWidth);
+    const room = window.innerWidth - w - m.getBoundingClientRect().left - 24;
     z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
   }
   m.style.setProperty('--dz', z.toFixed(3));
@@ -1455,16 +1515,20 @@ function buildBar(a, body, view) {
 
   // head
   const spr = h('span', { class: 'spr c dk' });
-  // With pets on, its pet takes the corner, on a black square: a click (or
-  // Pet under it) opens the pet's view.
+  // With pets on, its pet takes the corner, on a black square: a click opens
+  // the pet's view. Beside it two lines (tool · branch; the pet's name, stage
+  // and level), and under them a slim bar to its next level.
   const petSpr = h('span', { class: 'spr pet' });
   const petBtn = h('button', { type: 'button', class: 'abpet', hidden: true, 'aria-label': 'Its pet', title: 'Its pet', 'data-k': 'bar-pet', onclick: () => openPet(true) }, petSpr);
-  const petLink = h('button', { type: 'button', class: 'abu abpetl', hidden: true, onclick: () => openPet(true) }, 'Pet');
   const meta = h('span', { class: 'abmeta' });
+  const petLine = h('span', { class: 'abpetln', hidden: true });
+  const progFill = h('i', {});
+  const progTxt = h('span', { class: 'abptx' });
+  const prog = h('div', { class: 'abprog', hidden: true }, h('span', { class: 'abpbar', 'aria-hidden': 'true' }, progFill), progTxt);
   const tag = h('span', { class: 'abtag' });
   const sum = h('span', { class: 'absum' });
   const head = [
-    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn, petLink), meta,
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn), h('div', { class: 'abhd' }, meta, petLine, prog),
       h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
     h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
     sum,
@@ -1606,9 +1670,19 @@ function buildBar(a, body, view) {
   put(body, head, mid, h('div', { class: 'abbottom' }, qEl, low, nums.el, acts, note, hint));
   return (x) => {
     spr.hidden = !!x.pet;
-    petBtn.hidden = petLink.hidden = !x.pet;
-    if (x.pet) setPet(petSpr, x, false, false);
-    else setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+    petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
+    if (x.pet) {
+      const p = x.pet;
+      setPet(petSpr, x);
+      petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${p.name} · ${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
+      const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
+      const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));
+      progFill.style.width = `${pct.toFixed(1)}%`;
+      const left = fmtN(Math.max(0, p.nextAt - p.ate));
+      progTxt.textContent = p.stage !== 'egg' ? `${left} to Lv ${p.level + 1}` : p.ready ? 'hatching' : `${left} tokens to hatch`;
+      petBtn.title = p.name ? `${p.name}, its pet: open` : 'Its egg: open';
+      petBtn.setAttribute('aria-label', petBtn.title);
+    } else setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
     put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,
       x.branch ? h('span', { class: 'dimx' }, ` · ${x.branch}`) : null);
     const since = rel(x.statusSince);
@@ -1852,7 +1926,7 @@ function drawGeneral() {
   const pets = [];
   if (s.pets !== undefined) { // an older service has no pets
     const sampleHat = agentsList().find((a) => a.hat)?.hat || { shape: 'top hat', color: 'yellow' };
-    const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000 }, { hat: sampleHat, still: true }).node));
+    const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000, hat: sampleHat }, { hat: sampleHat, still: true }).node));
     pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again. Pets never use tokens of their own: it is all counted from the agent\'s numbers.',
       [toggle('Agent pets', s.pets, (on, el) => patchSettings({ pets: on }, el))], { name: true, pic }));
   }

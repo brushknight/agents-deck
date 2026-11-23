@@ -1,8 +1,10 @@
 // Agent pets: the pixel art. Pure functions, no DOM: petSVG returns the SVG
 // markup for an agent's pet (the /v1 Agent "pet"), drawn on a 16-pixel grid
-// with its working folder's hat. Every colour layer is one path and every
-// moving part one CSS class (settings.css, "agent pets"), so a tile holds a
-// handful of shapes and no inline styles (the page's CSP allows none).
+// with its mystery hat once that shows (a kid, level 5). Every colour layer
+// is one path of whole pixels, opaque, and every moving part one CSS class
+// (settings.css, "agent pets"), so a tile holds a handful of shapes and no
+// inline styles (the page's CSP allows none). Draw it at a whole multiple of
+// its 20 x 17 viewBox (40, 60, 200 px wide) so every pixel stays crisp.
 
 import { HAT_ART, HAT_COLORS } from './deck-core.js';
 
@@ -44,6 +46,10 @@ const ART = {
 // Where the hat sits on each art: the body's top row, its centre column, and
 // whether it takes the small cut (the kid).
 const HAT_AT = { kid: [5, 7.5, true], builder: [3, 7.5, false], weak: [5, 8, false] };
+// The mystery hat before it shows: a "?" where the hat will be (x, y of its
+// top-left corner); the egg's floats beside it.
+const MYSTERY = ['.qq.', 'q..q', '..q.', '....', '..q.'];
+const MYSTERY_AT = { egg: [13, -3], crack: [13, -3], baby: [6, -1] };
 // Smaller cuts of the deck's hats, for the kid. a = hat colour, b = shade,
 // c = highlight, d = near-black.
 const SMALL_HATS = {
@@ -66,17 +72,18 @@ const COL = {
   b: '#FF4D00', d: '#C23A00', e: '#141412', w: '#F4F0E6', v: '#B9B4A8', k: '#0A0A0A', g: '#55524B', p: '#E8E4DC',
   m: '#BDB8AD', // the open mouth of a hungry pet: light grey, so it reads on the dark tile
   c: '#F7F4EC',
+  q: '#8A867C', // the mystery hat's "?"
 };
 const WEAK_BODY = '#B0673F';
-const OUTLINE = '#0A0A0A';
 
-// Power-up auras: flame tongues around the body (the first frame holds
-// still, a second layer glows in and out), a light edge hugging the
-// outline, sparks drifting up; Legend adds twinkling stars.
+// Power-up auras: flame tongues around the body, a pixel clear of it (the
+// first frame holds still, a second layer glows in and out), sparks drifting
+// up; Legend adds twinkling stars. Opaque pixels only: nothing half see-
+// through sits next to the body, so no grey edge.
 const AURA = {
-  strong: { outer: '#FFE08A', inner: '#FFF8E6', spark: '#FFFFFF', h: [1, 3, 1, 2, 2], n: 5, op: 0.75 },
-  mighty: { outer: '#3FA9F5', inner: '#BDE7FF', spark: '#FFFFFF', h: [2, 4, 2, 3, 5, 2], n: 7, op: 0.7 },
-  legend: { outer: '#E8A317', inner: '#FFE58A', spark: '#FFF6C8', h: [3, 5, 2, 6, 3, 4, 5], n: 10, op: 0.85 },
+  strong: { outer: '#FFE08A', spark: '#FFFFFF', h: [1, 3, 1, 2, 2], n: 5 },
+  mighty: { outer: '#3FA9F5', spark: '#FFFFFF', h: [2, 4, 2, 3, 5, 2], n: 7 },
+  legend: { outer: '#E8A317', spark: '#FFF6C8', h: [3, 5, 2, 6, 3, 4, 5], n: 10 },
 };
 
 export const STAGES = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legend'];
@@ -87,7 +94,19 @@ export const MAX_HEARTS = 4;
 export const MOOD_NAMES = { fed: 'fed', hungry: 'hungry', weak: 'weak', asleep: 'hibernating' };
 
 // The food that reaches level n, as the service counts it (internal/pets).
-export const levelAt = (n) => (n < 1 ? 0 : Math.round(50000 * 1.25 ** (n - 1)));
+// The levels can be changed in config.json, so they are worked out from the
+// pet's own numbers: a hatched pet's levelFrom and nextAt give the step, an
+// egg's nextAt the first level (its step is the default, 1.25).
+export function levelAt(n, pet) {
+  if (n < 1) return 0;
+  let first = 50000, step = 1.25;
+  const lv = pet?.level || 0;
+  if (lv >= 1 && pet.levelFrom > 0 && pet.nextAt > pet.levelFrom) {
+    step = pet.nextAt / pet.levelFrom;
+    first = pet.levelFrom / step ** (lv - 1);
+  } else if (pet?.nextAt > 0 && !lv) first = pet.nextAt;
+  return Math.round(first * step ** (n - 1));
+}
 // What it is: "Egg", "Kid", "Builder", "Strong Builder". Builder is the only
 // grown-up shape so far.
 export function petKind(pet) {
@@ -117,7 +136,13 @@ function gridOf(name) {
 // The deck's hat on an art: its still frame, moved from the critter's spot to
 // the pet's. a/b/c/d become h (hat colour), H (shade), c, k.
 const HAT_KEY = { a: 'h', b: 'H', c: 'c', d: 'k' };
+// Devil horns, the hat only pets find: two small horns on the head.
+const HORNS = { kid: [[3, 3], [3, 4], [4, 4], [12, 3], [12, 4], [11, 4]], builder: [[2, 1], [2, 2], [3, 2], [13, 1], [13, 2], [12, 2]], weak: [[2, 3], [2, 4], [3, 4], [13, 3], [13, 4], [12, 4]] };
 function putHat(pix, name, hat) {
+  if (hat?.shape === 'devil horns' && HORNS[name]) {
+    HORNS[name].forEach(([x, y], i) => pix.set(key(x, y), i % 3 === 0 ? 'H' : 'h'));
+    return;
+  }
   const art = HAT_ART[hat?.shape];
   const place = HAT_AT[name];
   if (!art || !place) return;
@@ -155,7 +180,7 @@ const MOUTH = { builder: [7, 7], kid: [7, 9], baby: [7, 9] };
 export function petLook(pet, opts = {}) {
   const stage = pet?.stage || 'egg';
   const mood = pet?.mood || 'fed';
-  let name = stage === 'egg' ? (pet?.ate >= CRACK_AT ? 'crack' : 'egg') : stage === 'baby' ? 'baby' : stage === 'kid' ? 'kid' : 'builder';
+  let name = stage === 'egg' ? (pet?.ate >= CRACK_AT || pet?.ready ? 'crack' : 'egg') : stage === 'baby' ? 'baby' : stage === 'kid' ? 'kid' : 'builder';
   const egg = stage === 'egg';
   const weak = mood === 'weak' && !egg;
   const asleep = mood === 'asleep';
@@ -168,46 +193,48 @@ export function petLook(pet, opts = {}) {
       for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) pix.set(key(mx + dx, my + dy), 'm');
     } else if (asleep || weak || opts.idle) shutEyes(pix);
   }
-  if (name !== 'baby' && !egg) putHat(pix, name, opts.hat);
+  // Its own mystery hat, once it shows; before that, "?" where asked.
+  if (name !== 'baby' && !egg && pet?.hat) putHat(pix, name, pet.hat);
+  else if (opts.mystery && MYSTERY_AT[name]) {
+    const [x0, y0] = MYSTERY_AT[name];
+    MYSTERY.forEach((r, y) => [...r].forEach((ch, x) => { if (ch === 'q') pix.set(key(x0 + x, y0 + y), 'q'); }));
+  }
   const aura = !weak && !asleep && AURA[stage] ? stage : '';
   return { name, pix, weak, asleep, aura, egg };
 }
 
-// cells → one <path> per (fill, opacity, class).
+// cells → one <path> per (fill, opacity, class), each row's neighbouring
+// pixels joined into one rectangle, so no seams show between them.
 function paths(cells) {
   const groups = new Map();
   for (const [x, y, fill, op = 1, cls = ''] of cells) {
     const g = `${fill}|${op}|${cls}`;
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(`M${x} ${y}h1v1h-1z`);
+    if (!groups.has(g)) groups.set(g, new Set());
+    groups.get(g).add(key(x, y));
   }
   let out = '';
-  for (const [g, d] of groups) {
+  for (const [g, set] of groups) {
     const [fill, op, cls] = g.split('|');
-    out += `<path d="${d.join('')}" fill="${fill}"${op !== '1' ? ` opacity="${op}"` : ''}${cls ? ` class="${cls}"` : ''}/>`;
+    const pts = [...set].map(at).sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+    let d = '';
+    for (let i = 0; i < pts.length;) {
+      const [x, y] = pts[i];
+      let n = 1;
+      while (i + n < pts.length && pts[i + n][1] === y && pts[i + n][0] === x + n) n++;
+      d += `M${x} ${y}h${n}v1h-${n}z`;
+      i += n;
+    }
+    out += `<path d="${d}" fill="${fill}"${op !== '1' ? ` opacity="${op}"` : ''}${cls ? ` class="${cls}"` : ''}/>`;
   }
   return out;
 }
 
-function colours(hat, weak, sil) {
+function colours(hat, spots, weak, sil) {
   const [ha, hb] = HAT_COLORS[hat?.color] || HAT_COLORS.teal;
-  const c = { ...COL, s: ha, h: ha, H: hb };
+  const c = { ...COL, s: (HAT_COLORS[spots?.color] || HAT_COLORS[hat?.color] || HAT_COLORS.teal)[0], h: ha, H: hb };
   if (weak) { c.b = WEAK_BODY; c.d = WEAK_BODY; }
   if (sil) for (const k of Object.keys(c)) c[k] = sil;
   return c;
-}
-
-function outlineOf(filled) {
-  const out = [];
-  const seen = new Set();
-  for (const k of filled) {
-    const [x, y] = at(k);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const n = key(x + dx, y + dy);
-      if (!filled.has(n) && !seen.has(n)) { seen.add(n); out.push([x + dx, y + dy, OUTLINE]); }
-    }
-  }
-  return out;
 }
 
 function auraSVG(filled, kind) {
@@ -238,10 +265,9 @@ function auraSVG(filled, kind) {
       const t = (top.get(x) ?? top.get(x - 1) ?? top.get(x + 1) ?? ys[0]) - 2;
       for (let k = 0; k < h; k++) fl.add(key(x, t - k));
     }
-    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k)).map((k) => [...at(k), a.outer, a.op, f ? 'pfc' : '']);
+    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k)).map((k) => [...at(k), a.outer, 1, f ? 'pfc' : '']);
     out += paths(cells);
   }
-  const glow = paths([...inner].map((k) => [...at(k), a.inner, 0.9]));
   const x0 = xs[0], x1 = xs[xs.length - 1], cxm = Math.floor((x0 + x1) / 2);
   const sx = [x0 - 2, x1 + 2, x0 + 2, x1 - 2, cxm, x0 - 1, x1 + 1, x0 + 4, x1 - 4, cxm + 2];
   let sparks = '';
@@ -252,12 +278,12 @@ function auraSVG(filled, kind) {
       stars += paths([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dy]) => [x + dx, y + dy, '#FFF6C8', 1, `ptw pt${i}`]));
     });
   }
-  return { behind: out + glow, front: sparks + stars };
+  return { behind: out, front: sparks + stars };
 }
 
 // The ice cube of a hibernating pet: still, with a glint now and then and
 // snow falling past. waking: it cracks and flies apart once.
-function iceSVG(filled, waking, outline) {
+function iceSVG(filled, waking) {
   const pts = [...filled].map(at);
   const x0 = Math.min(...pts.map(([x]) => x)) - 1, x1 = Math.max(...pts.map(([x]) => x)) + 1;
   const y0 = Math.min(...pts.map(([, y]) => y)) - 1, y1 = Math.max(...pts.map(([, y]) => y)) + 1;
@@ -273,7 +299,7 @@ function iceSVG(filled, waking, outline) {
   for (let x = x0 - 1; x <= x1 + 1; x++) floor.push([x, y1 + 1, '#DFF4FF', 0.45]);
   const snow = [[x0 - 2, 0], [x1 + 2, 1], [x0 + 3, 2], [x1 - 3, 3]].map(([x, i]) => [x, y0 - 3, '#E8F6FF', 1, `pfall pf${i}`]);
   const cube = `<rect x="${x0}" y="${y0}" width="${x1 - x0 + 1}" height="${y1 - y0 + 1}" fill="#8FD0F2" fill-opacity="0.4"/>${paths([...edge, ...shine])}`;
-  let out = { under: paths(floor) + (outline ? paths(outlineOf(box)) : ''), over: '' };
+  let out = { under: paths(floor), over: '' };
   if (!waking) {
     out.over = `<g>${cube}${paths(glint)}</g>${paths(snow)}`;
     return out;
@@ -287,24 +313,28 @@ function iceSVG(filled, waking, outline) {
   return out;
 }
 
-// petSVG: the pet as SVG markup. opts: hat (the agent's hat), idle (eyes
-// shut), working (it bobs), outline (a dark edge, for orange tiles), waking
-// (the ice cracks off), sil (one colour, no aura: a stage not reached yet),
-// still (no aura or motion). The viewBox is the same for every pet, so all
-// of them are drawn at one scale; auras glow outside it.
+// petSVG: the pet as SVG markup. opts: hat (the agent's hat: only the
+// egg's spots take its colour; the pet wears its own pet.hat), idle (eyes
+// shut), working (it bobs), waking (the ice cracks off), mystery (a "?"
+// where the hat will be, until it shows), hatching (the ready egg shakes and
+// bursts), born (the new pet pops in), sil (one colour, no aura: a stage not
+// reached yet), still (no aura or motion). A ready egg wobbles. The viewBox
+// is the same for every pet, so all of them are drawn at one scale; auras
+// glow outside it.
 export function petSVG(pet, opts = {}) {
   if (!pet) return '';
   const look = petLook(pet, opts);
-  const c = colours(opts.hat, look.weak, opts.sil);
+  const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
   const filled = new Set(look.pix.keys());
   const body = paths([...look.pix].map(([k, ch]) => [...at(k), c[ch] || c.b]));
   let behind = '', front = '', under = '', over = '';
   if ((look.asleep || opts.waking) && !opts.sil) {
-    const ice = iceSVG(filled, opts.waking, opts.outline);
+    const ice = iceSVG(filled, opts.waking);
     under = ice.under; over = ice.over;
-  } else if (opts.outline) under = paths(outlineOf(filled));
+  }
   if (look.aura && !opts.sil && !opts.still) ({ behind, front } = auraSVG(filled, look.aura));
   const bob = opts.working && !opts.still && !look.asleep ? ' class="pbob"' : '';
-  const cls = `pet${opts.waking ? ' pwk' : ''}`;
+  const moving = !opts.still && !opts.sil;
+  const cls = `pet${opts.waking ? ' pwk' : ''}${moving && opts.hatching ? ' phx' : moving && pet.ready ? ' prdy' : ''}${moving && opts.born ? ' pborn' : ''}`;
   return `<svg class="${cls}" viewBox="-2 -3 20 17" shape-rendering="crispEdges" aria-hidden="true" focusable="false">${behind}${under}<g${bob}>${body}</g>${over}${front}</svg>`;
 }
