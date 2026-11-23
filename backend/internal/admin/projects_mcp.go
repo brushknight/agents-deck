@@ -67,3 +67,11 @@ func (m mcpProjects) ChangeProject(project string, c server.ProjectChange) (serv
 }
 
 func (m mcpProjects) RemoveProject(project string) error { return m.a.RemoveProject(project) }
+
+func (m mcpProjects) StartInProject(project string, o server.ProjectStartOpts) (server.ProjectStartedAgent, error) {
+	s, err := m.a.StartInProject(project, ProjectStart{Folder: o.Folder, Tool: o.Tool, Account: o.Account, Title: o.Title})
+	if err != nil {
+		return server.ProjectStartedAgent{}, err
+	}
+	return server.ProjectStartedAgent{ID: s.ID, Project: s.Project, Folder: s.Folder, Tool: s.Tool}, nil
+}

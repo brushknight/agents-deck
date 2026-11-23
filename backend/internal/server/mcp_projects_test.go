@@ -16,6 +16,7 @@ type fakeBook struct {
 	created []ProjectInfo
 	changed map[string]ProjectChange
 	removed []string
+	started []ProjectStartOpts
 }
 
 func (f *fakeBook) ListProjects() []ProjectInfo { return append([]ProjectInfo(nil), f.list...) }
@@ -33,6 +34,13 @@ func (f *fakeBook) ChangeProject(project string, c ProjectChange) (ProjectInfo, 
 	}
 	f.changed[project] = c
 	return ProjectInfo{ID: "p0a1b2c3d", Name: project}, nil
+}
+func (f *fakeBook) StartInProject(project string, o ProjectStartOpts) (ProjectStartedAgent, error) {
+	if project != "harbor" {
+		return ProjectStartedAgent{}, errors.New("no project called " + project)
+	}
+	f.started = append(f.started, o)
+	return ProjectStartedAgent{ID: "new1", Project: "harbor", Folder: "/work/harbor", Tool: "codex"}, nil
 }
 func (f *fakeBook) RemoveProject(project string) error {
 	f.removed = append(f.removed, project)
@@ -98,5 +106,38 @@ func TestMCPProjectTools(t *testing.T) {
 	_, out = rpc(h, "/mcp", tok["chief"], call("remove_project", map[string]any{"project": "quay"}))
 	if _, isErr := toolText(t, out); isErr || len(book.removed) != 1 || book.removed[0] != "quay" {
 		t.Errorf("remove_project: %v", book.removed)
+	}
+}
+
+// start_agent with a project starts through the project service (its folder,
+// tool and account); without one, in the folder as before.
+func TestMCPStartInProject(t *testing.T) {
+	s, ctl, tok := newMCPServer(t)
+	h := s.LocalHandler()
+	book := &fakeBook{}
+	s.Projects = book
+
+	_, out := rpc(h, "/mcp", tok["chief"], call("start_agent", map[string]any{}))
+	if text, isErr := toolText(t, out); !isErr || !strings.Contains(text, "project") {
+		t.Errorf("neither project nor folder: %s", text)
+	}
+	_, out = rpc(h, "/mcp", tok["chief"], call("start_agent", map[string]any{"project": "harbor", "folder": "/work/harbor-api", "title": "api"}))
+	text, isErr := toolText(t, out)
+	if isErr || !strings.Contains(text, "new1") || len(book.started) != 1 {
+		t.Fatalf("start in a project: %s", text)
+	}
+	if o := book.started[0]; o.Folder != "/work/harbor-api" || o.Title != "api" || o.Tool != "" {
+		t.Errorf("passed on: %+v", o)
+	}
+	if len(ctl.started) != 0 {
+		t.Error("a project start also created an agent by folder")
+	}
+	_, out = rpc(h, "/mcp", tok["chief"], call("start_agent", map[string]any{"project": "nope"}))
+	if text, isErr := toolText(t, out); !isErr || !strings.Contains(text, "no project called nope") {
+		t.Errorf("unknown project: %s", text)
+	}
+	_, out = rpc(h, "/mcp", tok["doer"], call("start_agent", map[string]any{"project": "harbor"}))
+	if _, isErr := toolText(t, out); !isErr || len(book.started) != 1 {
+		t.Error("scope act started an agent in a project")
 	}
 }

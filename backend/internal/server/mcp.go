@@ -343,13 +343,15 @@ var mcpTools = []mcpTool{
 		Description: "Presses Esc in the agent's session: stops its current turn (and closes a question unanswered). The agent stays, idle.",
 		InputSchema: schema([]string{"agent_id"}, map[string]any{"agent_id": agentIDProp})},
 	{Name: "start_agent", Title: "Start an agent",
-		Description: "Starts a new agent in a folder on this computer, on the deck, and (with prompt) waits until it is ready and gives it " +
+		Description: "Starts a new agent on the deck, in a project (in its first folder, or the folder you pick, with the project's tool and account) " +
+			"or in any folder on this computer, and (with prompt) waits until it is ready and gives it " +
 			"that first task. If it asks something first (trust this folder?), the result says so: answer it, then send_prompt. Needs a token with scope admin.",
-		InputSchema: schema([]string{"folder"}, map[string]any{
-			"folder":  prop("string", "Absolute path of the project folder to work in."),
-			"tool":    map[string]any{"type": "string", "enum": []string{"claude", "codex", "shell"}, "description": "claude (default), codex, or a plain shell."},
-			"title":   prop("string", "Name on the deck (default: the folder's name)."),
-			"account": prop("string", "claude only: the Claude account to run in, when several are set up (default: the default one)."),
+		InputSchema: schema(nil, map[string]any{
+			"project": prop("string", "A project from list_projects (its name or id) to start the agent in. Give project, folder, or both."),
+			"folder":  prop("string", "Absolute path of the folder to work in; with project, one of its folders."),
+			"tool":    map[string]any{"type": "string", "enum": []string{"claude", "codex", "shell"}, "description": "claude, codex, or a plain shell (default: the project's, or claude)."},
+			"title":   prop("string", "Name on the deck (default: the project's or the folder's name)."),
+			"account": prop("string", "claude only: the Claude account to run in, when several are set up (default: the project's, or the default one)."),
 			"prompt":  prop("string", "The first task to send once it is ready (optional)."),
 		})},
 	{Name: "list_sessions", Title: "List other sessions",
@@ -725,19 +727,18 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	if !ok {
 		return "", errors.New("starting agents is not available on this service (demo mode)")
 	}
-	folder, err := a.need("folder")
-	if err != nil {
-		return "", err
+	project, folder := a.str("project"), a.str("folder")
+	if project == "" && folder == "" {
+		return "", errors.New("give project (from list_projects) or folder")
 	}
 	tool := a.str("tool")
 	switch tool {
-	case "":
-		tool = "claude"
-	case "claude", "codex", "shell":
+	case "", "claude", "codex", "shell":
 	default:
 		return "", errors.New("tool must be claude, codex or shell")
 	}
 	prompt, _ := a["prompt"].(string)
+	var err error
 	if strings.TrimSpace(prompt) != "" {
 		if prompt, err = CleanPrompt(prompt); err != nil {
 			return "", err
@@ -745,7 +746,21 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	} else {
 		prompt = ""
 	}
-	id, err := st.Create(CreateOpts{Dir: folder, Title: a.str("title"), Tool: tool, Account: a.str("account")})
+	var id string
+	if project != "" {
+		var book ProjectBook
+		if book, err = s.projectBook(); err != nil {
+			return "", err
+		}
+		var started ProjectStartedAgent
+		started, err = book.StartInProject(project, ProjectStartOpts{Folder: folder, Tool: tool, Account: a.str("account"), Title: a.str("title")})
+		id, tool = started.ID, started.Tool
+	} else {
+		if tool == "" {
+			tool = "claude"
+		}
+		id, err = st.Create(CreateOpts{Dir: folder, Title: a.str("title"), Tool: tool, Account: a.str("account")})
+	}
 	code := http.StatusOK
 	if err != nil {
 		code = http.StatusBadRequest

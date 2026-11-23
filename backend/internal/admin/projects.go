@@ -367,7 +367,7 @@ func (a *Admin) projectsAdd(w http.ResponseWriter, r *http.Request) {
 
 // projectAction is POST /admin/v1/projects/{name}/{action}: update (the
 // whole project, its name too), remove, or start {"prompt", "tool",
-// "account", "folder"}. {name} is the project's name or its id.
+// "account", "folder", "title"}. {name} is the project's name or its id.
 func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	switch r.PathValue("action") {
@@ -419,6 +419,7 @@ type ProjectStart struct {
 	Tool    string `json:"tool"`    // instead of the project's
 	Account string `json:"account"` // instead of the project's
 	Folder  string `json:"folder"`  // one of its folders (default: the first)
+	Title   string `json:"title"`   // its name on the deck (default: the project's)
 }
 
 // ProjectStarted is an agent StartInProject started. Prompt is the first
@@ -480,7 +481,11 @@ func (a *Admin) StartInProject(name string, o ProjectStart) (ProjectStarted, err
 			return ProjectStarted{}, projectErr(http.StatusBadRequest, o.Folder+" isn't one of "+p.Name+"'s folders")
 		}
 	}
-	id, err := a.Starter.Create(server.CreateOpts{Dir: dir, Title: p.Name, Tool: tool, Account: account})
+	title := strings.TrimSpace(o.Title)
+	if title == "" {
+		title = p.Name
+	}
+	id, err := a.Starter.Create(server.CreateOpts{Dir: dir, Title: title, Tool: tool, Account: account})
 	if err != nil {
 		return ProjectStarted{}, projectErr(http.StatusBadRequest, err.Error())
 	}

@@ -68,7 +68,7 @@ interrupt to stop it first".
 | `cancel_queued` | act | `agent_id`, `queue_id` | takes a queued prompt back before it is typed in |
 | `answer` | act | `agent_id`, `prompt_id`, `key` | picks an option of the question the agent waits on |
 | `interrupt` | act | `agent_id` | presses Esc: stops the current turn |
-| `start_agent` | admin | `folder`, `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent in the folder, on the deck; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
+| `start_agent` | admin | `project` (name or id) or `folder`, or both; `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent on the deck: in a project, in its first folder (or `folder`, one of its folders) with its tool and account unless you pick others; or in any folder; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
 | `list_sessions` | admin | `project` (a project's name, any case, or its id: only sessions working in its folders) | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
 | `add_session` | admin | `session_id` | puts one of them on the deck, watched (read-only) |
 | `list_projects` | view | – | the projects: `id`, `name`, `folders` (full paths), `tool` and `account` their agents start with, and `agents` (how many on the deck work in them now) |

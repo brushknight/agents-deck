@@ -17,6 +17,20 @@ type ProjectBook interface {
 	CreateProject(p ProjectInfo) (ProjectInfo, error)
 	ChangeProject(project string, c ProjectChange) (ProjectInfo, error)
 	RemoveProject(project string) error
+	// StartInProject starts an agent in one of the project's folders, with
+	// its tool and account unless o picks others.
+	StartInProject(project string, o ProjectStartOpts) (ProjectStartedAgent, error)
+}
+
+// ProjectStartOpts picks what start_agent starts in a project; each is
+// optional.
+type ProjectStartOpts struct {
+	Folder, Tool, Account, Title string
+}
+
+// ProjectStartedAgent is the agent StartInProject started.
+type ProjectStartedAgent struct {
+	ID, Project, Folder, Tool string
 }
 
 // ProjectInfo is a project as MCP shows it: its folders in full.
