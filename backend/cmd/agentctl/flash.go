@@ -63,6 +63,11 @@ func flashCmd(args []string) error {
 	if info.Likely != "" {
 		fmt.Printf("%s: %s (%s:%s)\n", port, serial.LikelyName(info.Likely), info.VID, info.PID)
 	}
+	// The service lets go of the port while this runs (it no longer watches
+	// its ports for other programs every few seconds).
+	if adminCall("POST", "/admin/v1/ports/"+portRef(port)+"/borrow", map[string]int{"seconds": 1800}, nil) == nil {
+		defer func() { _ = adminCall("POST", "/admin/v1/ports/"+portRef(port)+"/return", nil, nil) }()
+	}
 	p, err := serial.Open(port, 115200)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", port, err)
@@ -117,8 +122,8 @@ func flashCmd(args []string) error {
 	return nil
 }
 
-// waitPortFree gives the deck a moment to let go of the port: it steps aside
-// when another program opens one of its ports.
+// waitPortFree gives another program a moment to let go of the port (the
+// deck already did: flash borrowed the port from it).
 func waitPortFree(port string) {
 	lsof, err := exec.LookPath("lsof")
 	if err != nil {

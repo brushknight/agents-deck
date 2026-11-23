@@ -226,7 +226,9 @@ agentctl devices uplink <name> ble       # Bluetooth only; Wi-Fi stays off
 See [protocol.md](protocol.md#devices-and-security) for the security rule and its known limits.
 
 With auto-approval off, a new board waits for approval and starts with view-only access. The daemon lets go of a port while
-another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
+another program has it open: at once for `agentctl flash` and the deck's own installs, which borrow
+it; for other programs (a flasher, a serial monitor) when the board goes quiet, and at least every ten
+minutes. `agentctl link sim` is a board without
 hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
 device, see [link/new-device.md](link/new-device.md).
 

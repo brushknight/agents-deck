@@ -841,3 +841,50 @@ func TestTrayAutostartFollowsStartAtLogin(t *testing.T) {
 		t.Error("no tray app installed: no trayAtLogin")
 	}
 }
+
+// agentctl flash borrows a registered port: the Deck Link manager closes it
+// until it is returned (or the time runs out), with no polling for it.
+func TestPortBorrow(t *testing.T) {
+	r := newRig(t)
+	r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/register", "")
+	open := func() bool {
+		for _, st := range r.a.PortStatus() {
+			if st.Path == newPort {
+				return true
+			}
+		}
+		return false
+	}
+	if !open() {
+		t.Fatal("the registered port isn't open")
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/borrow", `{"seconds": 60}`); code != 204 {
+		t.Fatalf("borrow: %d", code)
+	}
+	if open() {
+		t.Fatal("still open after borrow")
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/borrow", ""); code != 409 {
+		t.Errorf("borrowed twice: %d", code)
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/return", ""); code != 204 || !open() {
+		t.Fatalf("return: %d, open %v", code, open())
+	}
+	// A borrow runs out by itself.
+	if err := r.a.lend(context.Background(), newPort, 50*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); !open(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a borrow that ran out wasn't handed back")
+		}
+	}
+	// Return never ends a hold the service took for its own install.
+	if err := r.a.release(context.Background(), newPort); err != nil {
+		t.Fatal(err)
+	}
+	r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/return", "")
+	if open() {
+		t.Error("return handed back the service's own hold")
+	}
+}
