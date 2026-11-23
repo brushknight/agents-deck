@@ -140,6 +140,29 @@ cmux and Orca; sessions started by hand in another terminal stay read-only. Ever
 against the token's scope and audited under its name. [mcp.md](mcp.md) has the tools and the
 security model.
 
+## When the Mac is busy
+
+The deck watches how busy the whole computer is (100% means every core busy). When the CPU stays
+over your limit (80% by default) for a while (2 minutes by default), the deck calls the Mac busy. It
+is calm again once the CPU has been under the limit minus 10 (70%) for a minute; the gap stops it
+going back and forth.
+
+While the Mac is busy:
+
+- **It warns you.** The log says so, with who uses the CPU, when it gets busy and when it calms
+  down. The bar at the top of the app starts with "92% CPU · Mac busy", and Home shows how busy it
+  is, for how long, what is held, and the biggest users: agents, other programs and the deck itself.
+- **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
+  agent's queue says Held. Prompts from an MCP client wait in the queue too, even for an idle
+  agent, and its `start_agent` is refused with "The Mac is busy (92% CPU
+  for 4 minutes); try again in a few minutes". What you type or press on the deck, a board or in the
+  browser still goes in at once. **Send them now** on Home lets the queued prompts go for this busy
+  spell; the next one holds them again.
+
+Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
+long (1, 2 or 5 minutes) and whether to hold. It is stored in `config.json` as `"cpuGuard"`. On Linux
+and Windows it works the same way; where the deck can't read the CPU, it says so and holds nothing.
+
 ## Agent terminals
 
 - **Focus.** iTerm's local API selects the agent's tab and pane, then iTerm's `StealFocus` escape brings the window forward, including a hidden hotkey window. `agentctl set term tmux` switches your last-used tab to the agent instead; `window` only raises its window.
@@ -261,7 +284,7 @@ to icons (the browser remembers which). Everything on it is also a command.
 | page | what you can do | in a terminal |
 |---|---|---|
 | Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
-| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token` |
+| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token` |
 | Boards | tabs: **Your boards** (what waits for your approval, then each board with its screen and how it is connected), **Add a board** (over USB, or Look for Bluetooth boards nearby and add one with the code on its screen), **Magic trick**, **USB ports** (forget a port, or say a port is a board). A board's own page: rename, how it is connected and its uplink, its Wi-Fi, Bluetooth, what it may do, its part in the magic trick, update its firmware or install a firmware file of your own, cut off, remove. A new ESP32 on USB appears under Waiting for you; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone or desk panel and the ones paired | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |

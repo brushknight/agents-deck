@@ -313,7 +313,7 @@ function toggle(label, on, onChange, opts = {}) {
 
 // seg: a group of choices, one picked (a radio group: arrow keys move).
 function seg(label, options, current, onChange, opts = {}) {
-  const group = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label });
+  const group = h('div', { class: `seg ${opts.cls || ''}`.trim(), role: 'radiogroup', 'aria-label': label });
   options.forEach((o) => {
     const on = o.value === current;
     group.append(h('button', {
@@ -464,7 +464,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
+    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs', cpu: '/admin/v1/cpu',
   };
   try {
     const r = await api('GET', paths[what]);
@@ -491,7 +491,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state'] }[page] || [];
+  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
 }
 
 function firstError(page) {
@@ -537,7 +537,9 @@ function drawTop() {
   const sys = S.system || {};
   const need = agentsList().filter(needsYou).length;
   const cell = (n, words, href, hot) => h('a', { class: hot ? 'hotc' : '', href }, h('b', {}, String(n)), h('span', {}, words));
+  const c = cpuOf();
   bar.replaceChildren(
+    c ? cell(pct(c.percent), c.busy ? `CPU · ${machine()} busy` : 'CPU', c.busy ? '#home' : '#agents/cpu', c.busy) : null,
     cell(need, 'need you', '#home', need > 0),
     cell(updatesReady(sys), updatesReady(sys) === 1 ? 'update' : 'updates', '#updates'),
     cell(boardsWaiting(sys), 'boards waiting', '#boards'),
@@ -545,6 +547,73 @@ function drawTop() {
       h('span', {}, h('span', { class: 'p' }, '$'), ' agentctl status'),
       connOK ? h('span', { class: 'okc' }, 'running') : h('span', { class: 'badc' }, 'not answering'),
       h('span', {}, sys.version || '')));
+}
+
+// ---- the CPU guard: when the computer is busy ------------------------------------------------
+// S.system.cpu (absent while the guard is off): how busy the whole computer
+// is, and whether queued prompts are held.
+
+const machine = () => ((S.system?.platform || '').startsWith('darwin') ? 'Mac' : 'computer');
+const cpuOf = () => (S.system?.cpu?.available ? S.system.cpu : null);
+const pct = (n) => `${Math.round(n)}%`;
+const minutesSince = (iso) => plural(Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60000)), 'minute');
+const CPU_KINDS = { agent: 'agent', deck: 'agents deck', program: 'program' };
+
+// cpuBlock: on Home while the computer is busy: how busy, for how long,
+// what waits, Send them now, and who uses the CPU.
+function cpuBlock() {
+  const c = cpuOf();
+  if (!c || !c.busy) { S.cpuTop = null; return null; }
+  if (!S.cpuTopAt || Date.now() - S.cpuTopAt > 30000) { // who uses it: one ps every 30 s while busy
+    S.cpuTopAt = Date.now();
+    api('GET', '/admin/v1/cpu?top=5').then((r) => { S.cpuTop = r?.top; if (S.page === 'home' && !S.panel) updateDeck(); }).catch(() => {});
+  }
+  const under = `under ${c.limit - 10}% for a minute`;
+  let what = `Nothing is held: Hold queued prompts is off in Settings, Agents.`;
+  if (c.released) what = `Queued prompts go in anyway until it is ${under}.`;
+  else if (c.hold && c.held) what = `${plural(c.held, 'queued prompt')} wait${c.held === 1 ? 's' : ''} until it is ${under}.`;
+  else if (c.hold) what = `Queued prompts wait until it is ${under}.`;
+  const users = (S.cpuTop?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
+  return h('div', { class: 'blk cpubar', role: 'status' },
+    h('div', { class: 'row thin' },
+      h('span', { class: 'txt grow' }, h('b', {}, `${machine()} busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%. ${what}`),
+      c.hold && c.held ? btn('Send them now', (e) => busy(e.currentTarget, async () => {
+        S.system.cpu = await api('POST', '/admin/v1/cpu/release');
+        showSystem(S.system);
+        updateDeck();
+      }, 'Sending the queued prompts'), 'p fix', { 'data-k': 'cpu-release' }) : null),
+    users.length ? h('div', { class: 'cputop' }, users.map((u) => h('span', { class: 'cpuu' },
+      h('span', { class: 'nm', title: u.name }, u.kind === 'deck' ? 'agents deck' : u.name),
+      h('b', { class: 'mono' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
+      h('span', { class: 'sub' }, u.kind === 'deck' ? 'this app' : CPU_KINDS[u.kind] || u.kind)))) : null);
+}
+
+// cpuSection: Settings, Agents: what the deck does when the computer is busy.
+function cpuSection() {
+  const g = S.settings?.cpuGuard;
+  if (!g) return null; // an older service
+  const set = (patch, el) => patchSettings({ cpuGuard: patch }, el);
+  const m = machine();
+  const rows = [row('Watch the CPU', `How busy the whole ${m} is, every 5 seconds.`, [toggle('Watch the CPU', g.on, (on, el) => set({ on }, el), { key: 'cpu-on' })])];
+  if (g.on) {
+    rows.push(h('div', { class: 'row top' }, h('div', { class: 'grow' },
+      h('div', { class: 'actions' },
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Limit'), seg('Limit', [60, 65, 70, 75, 80, 85, 90, 95].map((v) => ({ value: v, text: `${v}%` })), g.limit, (v) => set({ limit: v }), { key: 'cpu-limit', cls: 'even' })),
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'For'), seg('For', [{ value: '1m', text: '1 min' }, { value: '2m', text: '2 min' }, { value: '5m', text: '5 min' }], g.for, (v) => set({ for: v }), { key: 'cpu-for', cls: 'even' }))),
+      h('span', { class: 'sub' }, `Over it, then under ${g.limit - 10}% for a minute to clear. 100% is every core.`))));
+    rows.push(row('Show a warning', `In the log, the bar on top and Home, with who uses the CPU.`, [chip('Always')]));
+    rows.push(row('Hold queued prompts', 'And agents started over MCP. What you type or press still goes at once.', [toggle('Hold queued prompts', g.hold, (on, el) => set({ hold: on }, el), { key: 'cpu-hold' })]));
+  }
+  const c = S.system?.cpu;
+  const mc = S.cpu?.machine;
+  const parts = [];
+  if (c && !c.available) parts.push(`The CPU can't be read here (${c.why}), so nothing is held.`);
+  else if (c || mc?.available) parts.push(`Now ${pct(c ? c.percent : (mc.last1 ?? mc.now))}`);
+  if (c?.peak) parts.push(`busiest today ${pct(c.peak.percent)} at ${new Date(c.peak.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  const self = S.cpu?.last1 || S.cpu?.sinceStart;
+  if (self && mc?.cores) parts.push(`agents deck ${(self.percent / mc.cores).toFixed(1)}%`);
+  if (parts.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, parts.join(' · '))));
+  return h('section', { class: 'sec', id: 'cpu', 'data-sec': 'cpu' }, h('div', { class: 'rule' }, h('h2', {}, `When the ${m} is busy`)), blk(...rows));
 }
 
 // The sidebar folds to an icon rail; the choice is remembered here only.
@@ -756,7 +825,9 @@ function summaryStrip() {
   const nUpd = (appUpdate(u) && S.laterUpdate !== u.version ? 1 : 0) + (sys.firmware_updates || 0);
   const nBoards = boardsWaiting(sys);
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
-  return h('nav', { class: 'strip', 'aria-label': 'Summary' },
+  const c = cpuOf();
+  return h('nav', { class: `strip${c ? ' cpu' : ''}`, 'aria-label': 'Summary' },
+    c ? h('a', { href: '#agents/cpu', class: c.busy ? 'hotc' : '' }, h('span', { class: 'n' }, pct(c.percent)), h('span', { class: 'l' }, 'CPU', h('br'), c.busy ? `${machine()} busy` : 'calm')) : null,
     h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
@@ -804,7 +875,7 @@ function fillDeck() {
     h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
     seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
-  put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+  put(deck.strip, summaryStrip(), cpuBlock(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
     btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
@@ -1076,8 +1147,9 @@ function queuedBy(by) {
 // the status changes.
 function queueBlock(a, note) {
   const list = h('div', { class: 'blk qlist2' });
+  const meta = h('span', { class: 'm' });
   const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true },
-    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), h('span', { class: 'm' }, 'each goes in when a turn ends')), list);
+    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), meta), list);
   let sig = null;
   const show = (items) => {
     el.hidden = !items.length;
@@ -1098,6 +1170,10 @@ function queueBlock(a, note) {
       { cls: 'qitem' })));
   };
   const update = async (x) => {
+    // Held while the CPU guard holds the queue (the computer is busy).
+    const held = !!S.system?.cpu?.hold;
+    meta.textContent = held ? `Held: the ${machine()} is busy` : 'each goes in when a turn ends';
+    meta.classList.toggle('acc2', held);
     const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
     if (want === sig) return;
     sig = want;
@@ -1816,6 +1892,7 @@ function drawAgents() {
     h('span', { class: 'mono w' }, h('span', { class: 'p' }, '$'), ' agentctl accounts add')));
   out.push(sec('Accounts', a.accounts.length ? plural(a.accounts.length, 'Claude account') : null, null, blk(...acc)));
   out.push(...mcpSection());
+  out.push(cpuSection());
   return out;
 }
 
@@ -3503,7 +3580,7 @@ async function route(initial) {
   await loadAll(...needs(page), ...extras(page));
   draw();
   syncBar();
-  if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
+  if (page === 'agents' && ['projects', 'cpu'].includes(arg)) document.getElementById(arg)?.scrollIntoView({ block: 'start' });
   if (changed && !initial) {
     const hd = document.querySelector(`.page > section[data-page="${section}"] h1`);
     if (hd) { hd.tabIndex = -1; hd.focus({ preventScroll: true }); }

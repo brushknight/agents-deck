@@ -72,6 +72,19 @@ func systemCmd(args []string) error {
 	if s.FirmwareUpdates > 0 {
 		fmt.Printf("firmware: %d board(s) can be updated: agentctl devices update <name>\n", s.FirmwareUpdates)
 	}
+	if c := s.CPU; c != nil {
+		line := fmt.Sprintf("%.0f%%, calm (limit %d%%)", c.Percent, c.Limit)
+		switch {
+		case !c.Available:
+			line = "not measured: " + c.Why
+		case c.Busy:
+			line = fmt.Sprintf("%.0f%%, busy since %s (limit %d%%)", c.Percent, c.Since.Local().Format("15:04"), c.Limit)
+			if c.Held > 0 {
+				line += fmt.Sprintf(", %d queued prompt(s) held", c.Held)
+			}
+		}
+		fmt.Printf("cpu:      %s\n", line)
+	}
 	return nil
 }
 
@@ -108,6 +121,11 @@ func settingsCmd(args []string) error {
 		fmt.Fprintf(tw, "updates\t%s\n", s.Updates)
 		fmt.Fprintf(tw, "network\t%s\n", net)
 		fmt.Fprintf(tw, "board wi-fi\t%s\t(agentctl link wifi --default)\n", wifi)
+		if g := s.CPUGuard; g.On {
+			fmt.Fprintf(tw, "cpu guard\tover %d%% for %s, hold queued prompts %s\t(Settings, Agents)\n", g.Limit, g.For, onOff(g.Hold))
+		} else {
+			fmt.Fprintf(tw, "cpu guard\toff\t(Settings, Agents)\n")
+		}
 		return tw.Flush()
 	}
 	if len(args) != 2 {

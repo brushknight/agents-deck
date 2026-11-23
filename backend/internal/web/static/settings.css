@@ -466,6 +466,20 @@ select.pick:disabled { opacity: 0.45; }
 .stripwrap .strip { margin: 0; }
 .stripwrap { display: flex; flex-direction: column; gap: 14px; }
 .lostbar { border-color: var(--orange); }
+/* the CPU guard: a CPU cell first in the strip, and a block while the computer is busy */
+.strip.cpu { grid-template-columns: 1fr 1.25fr 1fr 1fr 1.25fr; }
+@media (max-width: 900px) { .strip.cpu { grid-template-columns: repeat(3, minmax(0, 1fr)); } .strip.cpu a:nth-child(4) { border-left: 0; } }
+.cpubar { border-color: var(--orange); }
+.cpubar .txt b { color: var(--orange2); }
+.cpubar > .row { flex-wrap: wrap; }
+.cputop { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); border-top: 1px solid var(--rule); }
+.cpuu { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; padding: 10px 16px; box-shadow: 1px 0 0 var(--rule); }
+.cpuu .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpuu b { grid-row: span 2; align-self: center; font-size: 16px; }
+.rule .m.acc2 { color: var(--orange2); }
+/* one size for every button in a row (the CPU guard's) */
+.btn.fix { width: 172px; }
+.seg.even button { width: 62px; padding: 0; text-align: center; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .grid4.small { gap: 8px; }
 .tile {
