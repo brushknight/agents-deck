@@ -39,6 +39,15 @@ func (a *Admin) diagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.Diagnose())
 }
 
+// cpu: GET /admin/v1/cpu, the service's CPU use and its helpers'.
+func (a *Admin) cpu(w http.ResponseWriter, r *http.Request) {
+	if a.CPU == nil {
+		writeErr(w, http.StatusNotFound, "this service doesn't count its CPU use")
+		return
+	}
+	writeJSON(w, http.StatusOK, a.CPU())
+}
+
 // Diagnose builds the report.
 func (a *Admin) Diagnose() Diagnostics {
 	red := a.redactor()

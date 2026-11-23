@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/admin"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/update"
 )
 
@@ -380,6 +381,44 @@ func diagnosticsCmd(args []string) error {
 		return err
 	}
 	fmt.Print(d.Report)
+	return nil
+}
+
+// cpuCmd: agentctl cpu [--json], how much CPU the service and its helpers
+// use (the budget: under 2% of one core, idle).
+func cpuCmd(args []string) error {
+	fs := flag.NewFlagSet("cpu", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print it as JSON")
+	_ = fs.Parse(args)
+	var r proc.CPUReport
+	if err := adminCall("GET", "/admin/v1/cpu", nil, &r); err != nil {
+		return err
+	}
+	if *asJSON {
+		b, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(b))
+		return nil
+	}
+	fmt.Printf("budget: %.0f%% of one core, idle\n", r.Budget)
+	for _, s := range []struct {
+		name string
+		span *proc.CPUSpan
+	}{{"last minute", r.Last1}, {"last 10 min", r.Last10}, {"last hour", r.Last60}, {"since start", r.Since}} {
+		if s.span == nil {
+			continue
+		}
+		fmt.Printf("%-12s %5.1f%%  (service %.1f%%, helpers %.1f%%)\n", s.name, s.span.Percent, s.span.Service, s.span.Children)
+	}
+	top := r.Last10
+	if top == nil {
+		top = r.Since
+	}
+	if top != nil && len(top.Helpers) > 0 {
+		fmt.Printf("\nhelpers over the %.0f min:\n", top.Minutes)
+		for _, h := range top.Helpers {
+			fmt.Printf("  %-14s %5.1f%%  %d runs\n", h.Program, h.Percent, h.Runs)
+		}
+	}
 	return nil
 }
 

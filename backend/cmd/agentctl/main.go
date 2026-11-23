@@ -124,6 +124,7 @@ const usage = `agentctl: runs and controls agents deck
   agentctl bluetooth [scan | ls | add <name>]
                                  boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
+  agentctl cpu                   how much CPU the service and its helpers use
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
@@ -243,6 +244,8 @@ func main() {
 		err = portsCmd(args)
 	case "diagnostics":
 		err = diagnosticsCmd(args)
+	case "cpu":
+		err = cpuCmd(args)
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -1209,6 +1212,9 @@ func serve(args []string) error {
 	adm := newAdmin(st, srv, self, *logFile)
 	// Each agent's project, by its folder.
 	st.Project = adm.ProjectOf
+	meter := proc.NewCPUMeter()
+	go meter.Run()
+	adm.CPU = meter.Report
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}
