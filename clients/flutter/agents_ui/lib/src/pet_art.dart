@@ -156,17 +156,10 @@ const _colours = <String, Color>{
 const _weakBody = Color(0xFFB0673F);
 
 /// A power-up aura: flame tongues around the body (one layer still, one
-/// glowing in and out), a light edge hugging it, sparks drifting up.
+/// glowing in and out), sparks drifting up.
 class _Aura {
-  const _Aura(
-    this.outer,
-    this.inner,
-    this.spark,
-    this.heights,
-    this.sparks,
-    this.op,
-  );
-  final Color outer, inner, spark;
+  const _Aura(this.outer, this.spark, this.heights, this.sparks, this.op);
+  final Color outer, spark;
   final List<int> heights;
   final int sparks;
   final double op;
@@ -175,7 +168,6 @@ class _Aura {
 const _auras = <String, _Aura>{
   'strong': _Aura(
     Color(0xFFFFE08A),
-    Color(0xFFFFF8E6),
     Color(0xFFFFFFFF),
     [1, 3, 1, 2, 2],
     5,
@@ -183,7 +175,6 @@ const _auras = <String, _Aura>{
   ),
   'mighty': _Aura(
     Color(0xFF3FA9F5),
-    Color(0xFFBDE7FF),
     Color(0xFFFFFFFF),
     [2, 4, 2, 3, 5, 2],
     7,
@@ -191,7 +182,6 @@ const _auras = <String, _Aura>{
   ),
   'legend': _Aura(
     Color(0xFFE8A317),
-    Color(0xFFFFE58A),
     Color(0xFFFFF6C8),
     [3, 5, 2, 6, 3, 4, 5],
     10,
@@ -448,6 +438,8 @@ class _PetScene {
       span[y] = s == null ? (x, x) : (x < s.$1 ? x : s.$1, x > s.$2 ? x : s.$2);
     }
     final mid = (ys.first + ys.last) / 2;
+    // The cells hugging the body stay empty: the flames start a cell out
+    // (no light edge round the body, which read as a grey border).
     final inner = <_Cell>{};
     for (final MapEntry(key: y, value: (l, r)) in span.entries) {
       inner
@@ -484,7 +476,7 @@ class _PetScene {
       flames.addAll(fl);
       frames.add([_Layer(a.outer.withValues(alpha: f == 0 ? a.op : 1), fl)]);
     }
-    behind = [...frames[0], _Layer(a.inner.withValues(alpha: 0.9), inner)];
+    behind = frames[0];
     glow = frames[1];
     final x0 = xs.first, x1 = xs.last, cxm = ((x0 + x1) / 2).floor();
     final sx = [
