@@ -222,7 +222,15 @@ typedef _Cell = (int, int);
 
 /// What to draw for a pet: which art, and its cells (x, y) -> colour key.
 class PetLook {
-  PetLook._(this.art, this.pix, this.weak, this.asleep, this.aura, this.egg);
+  PetLook._(
+    this.art,
+    this.pix,
+    this.weak,
+    this.asleep,
+    this.aura,
+    this.egg,
+    this.hatCells,
+  );
 
   /// [hat]: the hat it wears (its own, else its agent's); its colour also
   /// spots the egg. [idle]: eyes shut.
@@ -255,9 +263,16 @@ class PetLook {
         _shutEyes(pix);
       }
     }
-    if (art != 'baby' && !egg && hat != null) _putHat(pix, art, hat);
+    final hatCells = <_Cell>{};
+    if (art != 'baby' && !egg && hat != null) {
+      final before = Map.of(pix);
+      _putHat(pix, art, hat);
+      for (final e in pix.entries) {
+        if (before[e.key] != e.value) hatCells.add(e.key);
+      }
+    }
     final aura = !weak && !asleep && _auras.containsKey(stage) ? stage : '';
-    return PetLook._(art, pix, weak, asleep, aura, egg);
+    return PetLook._(art, pix, weak, asleep, aura, egg, hatCells);
   }
 
   /// egg, crack, baby, kid, builder or weak.
@@ -268,6 +283,9 @@ class PetLook {
   final Map<(int, int), String> pix;
   final bool weak;
   final bool asleep;
+
+  /// The cells its hat takes.
+  final Set<(int, int)> hatCells;
 
   /// strong, mighty, legend, or "" for none.
   final String aura;
@@ -360,7 +378,15 @@ class _PetScene {
     final (main, shade) = hatColor(
       hatColors.contains(hat?.color) ? hat!.color : 'teal',
     );
-    final col = {..._colours, 's': main, 'h': main, 'H': shade};
+    // A hat of the aura's own colour family is drawn in its shade, so it
+    // stays readable in the glow.
+    final blends = petHatBlendsIn(hat?.color ?? 'teal', look.aura);
+    final col = {
+      ..._colours,
+      's': main,
+      'h': blends ? shade : main,
+      'H': shade,
+    };
     if (look.weak) col['b'] = col['d'] = _weakBody;
     final filled = look.pix.keys.toSet();
     final cells = [
@@ -377,12 +403,15 @@ class _PetScene {
     );
     if (look.asleep) _ice(filled);
     if (_auras[look.aura] case final a?) {
-      _aura(filled, a, look.aura == 'legend');
+      _aura(filled, look.hatCells, a, look.aura == 'legend');
     }
   }
 
   /// The box the body (and its ice) takes, in cells.
   late Rect bounds;
+
+  /// The flame cells, both layers (for tests).
+  Set<_Cell> flames = {};
 
   List<_Layer> behind = const [];
   List<_Layer> glow = const [];
@@ -398,7 +427,17 @@ class _PetScene {
   /// Has parts that move (a ready egg's wobble is up to its pet).
   bool get moves => glow.isNotEmpty || sparks.isNotEmpty || snow.isNotEmpty;
 
-  void _aura(Set<_Cell> filled, _Aura a, bool legend) {
+  void _aura(Set<_Cell> filled, Set<_Cell> hat, _Aura a, bool legend) {
+    // No flame touches the hat: a cell of background all round it.
+    bool nearHat(_Cell c) {
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          if (hat.contains((c.$1 + dx, c.$2 + dy))) return true;
+        }
+      }
+      return false;
+    }
+
     final xs = {for (final (x, _) in filled) x}.toList()..sort();
     final ys = {for (final (_, y) in filled) y}.toList()..sort();
     final topOf = <int, int>{};
@@ -439,7 +478,10 @@ class _PetScene {
           fl.add((x, t - k));
         }
       }
-      fl.removeWhere((c) => filled.contains(c) || inner.contains(c));
+      fl.removeWhere(
+        (c) => filled.contains(c) || inner.contains(c) || nearHat(c),
+      );
+      flames.addAll(fl);
       frames.add([_Layer(a.outer.withValues(alpha: f == 0 ? a.op : 1), fl)]);
     }
     behind = [...frames[0], _Layer(a.inner.withValues(alpha: 0.9), inner)];
@@ -545,6 +587,24 @@ class _PetScene {
     return _cache[key] = _PetScene(PetLook.of(pet, hat: hat, idle: idle), hat);
   }
 }
+
+/// A hat colour reads as the aura's own family (WCAG contrast under 1.6
+/// against its flames, hue within 40 degrees): drawn in its shade instead.
+bool petHatBlendsIn(String hatColorName, String aura) {
+  final a = _auras[aura];
+  if (a == null) return false;
+  final hat = hatColor(hatColorName).$1;
+  final l1 = hat.computeLuminance(), l2 = a.outer.computeLuminance();
+  final contrast = (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
+  final d = (HSVColor.fromColor(hat).hue - HSVColor.fromColor(a.outer).hue)
+      .abs();
+  return contrast < 1.6 && math.min(d, 360 - d) <= 40;
+}
+
+/// The flame cells of [pet]'s aura with [hat] on (empty without an aura).
+@visibleForTesting
+Set<(int, int)> petFlameCells(AgentPet pet, AgentHat? hat) =>
+    _PetScene.of(pet, hat, false).flames;
 
 /// The hat a pet wears: its own, or its agent's (an older service sends
 /// none); [hat] also colours the egg's spots.

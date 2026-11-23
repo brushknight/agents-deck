@@ -162,6 +162,51 @@ void main() {
     });
   });
 
+  group('hats in auras', () {
+    test('a hat of the aura\'s own colour family is drawn in its shade', () {
+      final blends = {
+        for (final a in ['strong', 'mighty', 'legend'])
+          a: [
+            for (final c in hatColors)
+              if (petHatBlendsIn(c, a)) c,
+          ],
+      };
+      expect(blends, {
+        'strong': ['yellow', 'ink'],
+        'mighty': ['teal', 'blue', 'sky'],
+        'legend': ['yellow'],
+      });
+      expect(petHatBlendsIn('yellow', ''), isFalse);
+    });
+
+    test('no flame touches a hat, for every hat in every aura', () {
+      for (final stage in ['strong', 'mighty', 'legend']) {
+        for (final shape in hatShapes) {
+          for (final color in hatColors) {
+            final hat = AgentHat(shape: shape, color: color);
+            final pet = AgentPet(stage: stage);
+            final cells = PetLook.of(pet, hat: hat).hatCells;
+            final flames = petFlameCells(pet, hat);
+            final why = '$stage $shape $color';
+            expect(cells, isNotEmpty, reason: why);
+            expect(flames, isNotEmpty, reason: why);
+            for (final (x, y) in flames) {
+              for (var dx = -1; dx <= 1; dx++) {
+                for (var dy = -1; dy <= 1; dy++) {
+                  expect(
+                    cells.contains((x + dx, y + dy)),
+                    isFalse,
+                    reason: '$why: flame at ($x, $y)',
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+  });
+
   group('pet sprite', () {
     Future<void> pump(
       WidgetTester tester,
