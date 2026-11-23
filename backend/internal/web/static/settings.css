@@ -508,6 +508,17 @@ a.tile:hover { border-color: var(--edge); }
 .pg.arr:hover:not(:disabled), .pg:hover:not([aria-current]):not(:disabled) { border-color: var(--edge); color: var(--ink); background: var(--hover); }
 .pg:disabled { opacity: 0.3; cursor: default; }
 .pager kbd { font: 500 11px/1 var(--f-mono); color: var(--muted); border: 1px solid var(--rule); padding: 3px 5px; }
+/* Home: All or By project, a chip per project, and a section per project */
+.homebar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.homebar[hidden], .pgroups[hidden], .grid4[hidden], .pgf[hidden] { display: none; }
+.homebar .chips { gap: 6px; }
+button.chip.fchip { height: 30px; cursor: pointer; text-transform: none; letter-spacing: 0.02em; font-size: 12px; }
+button.chip.fchip:hover:not(.fill) { border-color: var(--edge); color: var(--ink); }
+.pgroups { display: flex; flex-direction: column; gap: 22px; padding-top: 6px; }
+.pgroup { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pgroup .rule h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgf { margin-top: -4px; }
+.pgf span { cursor: default; }
 @keyframes deckFromR { from { transform: translateX(12%); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes deckFromL { from { transform: translateX(-12%); opacity: 0; } to { transform: none; opacity: 1; } }
 .slide-next { animation: deckFromR 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
