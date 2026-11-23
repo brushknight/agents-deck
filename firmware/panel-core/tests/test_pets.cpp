@@ -1,6 +1,6 @@
 // Agent pets on the panels (sprites.h drawPet, drawCritter, petLine): the
 // adapter keeps the pet, no pet draws exactly the critter, a pet stays in the
-// room a critter's box gives it, gets a dark edge on orange, and every
+// room a critter's box gives it, stands on a dark plate on orange, and every
 // layout draws its screens with pets inside the frame; the square card and
 // the detail screens show the pet's name, stage and level.
 #define PANEL_MAX_AGENTS 64
@@ -101,7 +101,7 @@ static void testNoPet() {
 }
 
 // A pet stays in the room it is given: cells -4..19 x -4..15 at unit (-1, -5),
-// plus its rock and bob; it is drawn in its own colours; on orange it has a dark edge.
+// plus its rock and bob; it is drawn in its own colours; on orange it stands on a dark plate.
 static void testRoom() {
   constexpr int W = 200, H = 200, X = 60, Y = 60;
   constexpr uint16_t kBg = 0x0000, kAccent = rgb565(0xFF, 0x4D, 0x00);
@@ -138,7 +138,7 @@ static void testRoom() {
               a.hat = hat;
               a.status = st;
               const int onGrey = draw(s, kGrey, ms);
-              assert(draw(s, kAccent, ms) > onGrey);   // a dark edge on orange
+              assert(draw(s, kAccent, ms) > onGrey);   // the dark plate on orange
               draw(s, kBg, ms);
             }
   // The pet's own orange, not the critter's colour.

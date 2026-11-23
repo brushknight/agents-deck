@@ -119,7 +119,7 @@ static const uint8_t aura_hat_close[] = {
 };
 
 #define WEAK_BODY 0xB0673F
-#define OUTLINE 0x0A0A0A
+#define PLATE 0x0A0A0A
 #define ICE 0x8FD0F2
 #define ICE_EDGE 0xDFF4FF
 /* Cells round the art in cell[][]: the first and second ring. */
@@ -369,6 +369,29 @@ static void rings(deck_pet_look_t *l, int count)
 	}
 }
 
+/* The plate: a square of dark cells one larger than the art and hat on
+ * every side (round the ice and its frost when asleep), kept in the grid. */
+static void place_plate(deck_pet_look_t *l)
+{
+	int x0 = l->x0 - 1, x1 = l->x1 + 1, y0 = l->y0 - 1, y1 = l->y1 + 1;
+	if (l->ice) { /* the cube is one round the art, the frost a row under it and one wider */
+		x0 = l->x0 - 2, x1 = l->x1 + 2, y1 = l->y1 + 2;
+	}
+	int w = x1 - x0 + 1, h = y1 - y0 + 1;
+	if (w < h) {
+		x0 -= (h - w) / 2;
+		x1 = x0 + h - 1;
+	} else if (h < w) {
+		y0 -= (w - h) / 2;
+		y1 = y0 + w - 1;
+	}
+	if (x0 < DECK_PET_GRID_X0) x0 = DECK_PET_GRID_X0;
+	if (y0 < DECK_PET_GRID_Y0) y0 = DECK_PET_GRID_Y0;
+	if (x1 > DECK_PET_GRID_X0 + DECK_PET_GRID_W - 1) x1 = DECK_PET_GRID_X0 + DECK_PET_GRID_W - 1;
+	if (y1 > DECK_PET_GRID_Y0 + DECK_PET_GRID_H - 1) y1 = DECK_PET_GRID_Y0 + DECK_PET_GRID_H - 1;
+	l->plate_x0 = (int8_t)x0, l->plate_y0 = (int8_t)y0, l->plate_x1 = (int8_t)x1, l->plate_y1 = (int8_t)y1;
+}
+
 void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_opts_t *opts)
 {
 	static const deck_pet_opts_t none = {0, 0, false, false, false};
@@ -389,7 +412,7 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 	look->art = art;
 	look->weak = weak;
 	look->ice = asleep;
-	look->outline = opts->outline;
+	look->plate = opts->plate;
 	look->ready = egg && pet && pet->ready;
 	look->bob = opts->working && !asleep;
 	if (!weak && !asleep && stage >= DECK_PET_STRONG && stage <= DECK_PET_LEGEND)
@@ -428,11 +451,14 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 				if (y < look->y0) look->y0 = (int8_t)y;
 				if (y > look->y1) look->y1 = (int8_t)y;
 			}
+	if (look->plate)
+		place_plate(look);
 	if (look->ice)
 		return;
-	rings(look, (look->outline ? 1 : 0) + (look->aura ? 1 : 0));
+	if (look->aura)
+		rings(look, 1);
 	if (look->aura) { /* a cell of background between the aura and the hat */
-		const char mark = look->outline ? RING2 : RING1;
+		const char mark = RING1;
 		for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
 			for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
 				char *c = cell_ref(look, x, y);
@@ -512,14 +538,8 @@ static bool pick_ring(const deck_pet_look_t *l, char key, uint32_t *rgb, uint8_t
 {
 	if (key != RING1 && key != RING2)
 		return false;
-	/* With a dark edge, it takes the first ring and the aura the second. */
-	if (l->outline && key == RING1) {
-		*rgb = OUTLINE;
-		*alpha = 255;
-	} else {
-		*rgb = auras[l->aura].rgb;
-		*alpha = auras[l->aura].alpha;
-	}
+	*rgb = auras[l->aura].rgb;
+	*alpha = auras[l->aura].alpha;
 	return true;
 }
 
@@ -538,17 +558,12 @@ void deck_pet_draw(const deck_pet_look_t *l, int x, int y, int scale, deck_pet_f
 		return;
 	const pen_t p = {fill, user, x, y, scale};
 	const int x0 = l->x0 - 1, x1 = l->x1 + 1, y0 = l->y0 - 1, y1 = l->y1 + 1; /* the ice cube */
+	if (l->plate) /* the dark plate under it all */
+		fill(user, x + l->plate_x0 * scale, y + l->plate_y0 * scale, (l->plate_x1 - l->plate_x0 + 1) * scale,
+		     (l->plate_y1 - l->plate_y0 + 1) * scale, PLATE, 255);
 	if (l->ice) {
-		if (l->outline) { /* a dark frame round the cube */
-			cells(&p, x0 - 1, y0 - 1, x1 - x0 + 3, OUTLINE, 255);
-			cells(&p, x0 - 1, y1 + 1, x1 - x0 + 3, OUTLINE, 255);
-			for (int cy = y0; cy <= y1; cy++) {
-				cells(&p, x0 - 1, cy, 1, OUTLINE, 255);
-				cells(&p, x1 + 1, cy, 1, OUTLINE, 255);
-			}
-		}
 		cells(&p, x0 - 1, y1 + 1, x1 - x0 + 3, ICE_EDGE, 115); /* the frost under it */
-	} else if (l->outline || l->aura) {
+	} else if (l->aura) {
 		runs(l, &p, pick_ring);
 	}
 	runs(l, &p, pick_art);
@@ -567,12 +582,19 @@ void deck_pet_draw(const deck_pet_look_t *l, int x, int y, int scale, deck_pet_f
 
 void deck_pet_bounds(const deck_pet_look_t *l, int scale, int *bx, int *by, int *bw, int *bh)
 {
-	/* Two cells round the art cover the aura, the dark edge and the ice. */
+	/* Two cells round the art cover the aura and the ice; the plate may reach further. */
 	const int pad = 2;
-	*bx = (l->x0 - pad) * scale;
-	*by = (l->y0 - pad) * scale;
-	*bw = (l->x1 - l->x0 + 1 + 2 * pad) * scale;
-	*bh = (l->y1 - l->y0 + 1 + 2 * pad) * scale;
+	int x0 = l->x0 - pad, y0 = l->y0 - pad, x1 = l->x1 + pad, y1 = l->y1 + pad;
+	if (l->plate) {
+		if (l->plate_x0 < x0) x0 = l->plate_x0;
+		if (l->plate_y0 < y0) y0 = l->plate_y0;
+		if (l->plate_x1 > x1) x1 = l->plate_x1;
+		if (l->plate_y1 > y1) y1 = l->plate_y1;
+	}
+	*bx = x0 * scale;
+	*by = y0 * scale;
+	*bw = (x1 - x0 + 1) * scale;
+	*bh = (y1 - y0 + 1) * scale;
 }
 
 void deck_pet_motion(const deck_pet_look_t *l, uint32_t ms, int scale, int *dx, int *dy)

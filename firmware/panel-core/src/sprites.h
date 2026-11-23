@@ -545,7 +545,7 @@ static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb,
     }
 }
 
-// A background in the pet's own orange (a waiting tile, the accent disc): it gets a dark edge.
+// A background in the pet's own orange (a waiting tile, the accent disc): it stands on a dark plate.
 static inline bool petOnOrange(uint16_t bg) {
   const int r = (bg >> 11) << 3, g = ((bg >> 5) & 63) << 2, b = (bg & 31) << 3;
   return r >= 0xC0 && g < 0xA0 && b < 0x60;
@@ -564,7 +564,7 @@ static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, u
   o.hat_color = a.hatColor;
   o.idle = a.status == Status::Idle || a.status == Status::Exited;
   o.working = a.status == Status::Running;
-  o.outline = petOnOrange(cut);
+  o.plate = petOnOrange(cut);
   deck_pet_look_t look;
   deck_pet_look(&look, &a.pet, &o);
   int dx, dy;
