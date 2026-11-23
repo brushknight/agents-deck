@@ -1238,7 +1238,6 @@ func serve(args []string) error {
 	// The CPU guard: while the computer is busy it warns, and holds queued
 	// prompts and start_agent over MCP.
 	guard := cpuguard.New(machine)
-	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
 	guard.Queued = func() (n int) {
 		for _, c := range srv.Queue.Agents() {
 			n += c
@@ -1247,6 +1246,8 @@ func serve(args []string) error {
 	}
 	guard.Top = func() []proc.CPUUser { return adm.CPUTop(5).Users }
 	guard.Changed, guard.Logf = st.Touch, log.Printf
+	guard.Ended = adm.DropCPUOverride // a limit picked by hand is over: out of config.json
+	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
 	srv.Guard, adm.Guard = guard, guard
 	go guard.Run(machineCtx)
 	// While busy, the heaviest agent runs in background mode (macOS). Undone
