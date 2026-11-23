@@ -142,6 +142,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `Stash {agent_ids, all}` | `POST /v1/stash` | act | `Result` |
 | `MagicView {agent_ids}` | `POST /v1/magic/view` | act | `Result` |
 | `SetHat {agent_id or folder, shape, color, automatic}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
+| `HatchPet {agent_id}` | `POST /v1/agents/{id}/pet/hatch` | act | `Result`: 204 when the agent's egg hatched; 409 if it isn't ready (`Pet.ready`). Frame field 70 |
 | `Dismiss`, `Resume` `{agent_id}` | `POST /v1/agents/{id}/dismiss`, `…/resume` | admin | `Result` |
 | `Handoff {agent_id, account}` | `POST /v1/agents/{id}/handoff` | admin | `Result` (200 when it started) |
 | `Restore {agent_ids}` | `POST /v1/restore` | admin | `RestoreResult`: the listed lost agents, or every lost agent when `agent_ids` is empty |
@@ -303,7 +304,7 @@ It is never the password.
 | `WifiConfig` | deck → board, answered with `Result` | 62 | USB serial, Bluetooth |
 | `NetStatus` | board → deck | 63 | any |
 
-These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49
+These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49 (and 70–89, once those were taken)
 and checks these are documented here.
 
 ## Firmware updates over Wi-Fi

@@ -410,7 +410,8 @@ static uint32_t send_agent_cmd(deck_link_t *ctx, pb_size_t tag, const pb_msgdesc
 
 typedef char focus_layout_check[(sizeof(agentsdeck_link_v1_Focus) == sizeof(agentsdeck_link_v1_Interrupt) &&
 				  sizeof(agentsdeck_link_v1_Focus) == sizeof(agentsdeck_link_v1_Dismiss) &&
-				  sizeof(agentsdeck_link_v1_Focus) == sizeof(agentsdeck_link_v1_Resume))
+				  sizeof(agentsdeck_link_v1_Focus) == sizeof(agentsdeck_link_v1_Resume) &&
+				  sizeof(agentsdeck_link_v1_Focus) == sizeof(agentsdeck_link_v1_HatchPet))
 				 ? 1
 				 : -1];
 
@@ -448,6 +449,11 @@ uint32_t deck_dismiss(deck_link_t *ctx, const char *agent_id)
 uint32_t deck_resume(deck_link_t *ctx, const char *agent_id)
 {
 	return send_agent_cmd(ctx, agentsdeck_link_v1_Frame_resume_tag, agentsdeck_link_v1_Resume_fields, agent_id);
+}
+
+uint32_t deck_hatch_pet(deck_link_t *ctx, const char *agent_id)
+{
+	return send_agent_cmd(ctx, agentsdeck_link_v1_Frame_hatch_pet_tag, agentsdeck_link_v1_HatchPet_fields, agent_id);
 }
 
 uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot)

@@ -1853,13 +1853,13 @@ function drawGeneral() {
   if (s.pets !== undefined) { // an older service has no pets
     const sampleHat = agentsList().find((a) => a.hat)?.hat || { shape: 'top hat', color: 'yellow' };
     const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000 }, { hat: sampleHat, still: true }).node));
-    pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again.',
+    pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again. Pets never use tokens of their own: it is all counted from the agent\'s numbers.',
       [toggle('Agent pets', s.pets, (on, el) => patchSettings({ pets: on }, el))], { name: true, pic }));
   }
   return [
     head('General', 'How the deck', 'starts.'),
     sec('Starting', null, null, blk(...start)),
-    pets.length ? sec('Agent pets', 'off by default', null, blk(...pets)) : null,
+    pets.length ? sec('Agent pets', 'on by default', null, blk(...pets)) : null,
     sec('Notifications', 'a click opens the agent', null, notify),
     sec('For the terminal and the browser', null, null, term),
   ];

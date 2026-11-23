@@ -50,6 +50,7 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/magic/view` | `{"ids": ["k3f9a2", …]}` | `204`: from the magic trick's giver, the agents it shows now, in order (at most 16): what the next take takes. From anyone else it is ignored |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
+| POST | `/v1/agents/{id}/pet/hatch` | – | `204`: hatches the agent's pet egg that is ready (`pet.ready`), once someone has seen it: the web does this when you open the agent or its pet. It gets its name, level and mystery hat, and every screen sees it. `409` when the egg isn't ready, has hatched already, or Agent pets is off; `404` unknown agent |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
 | POST | `/v1/agents/{id}/handoff` | `{"account": "personal"}` | `200` `{"id": "k3f9a2"}` — continues a Claude session in another account, for when one runs out of usage: its transcript is copied into that account's folder and Claude resumes it there. An agent the deck started stops and comes back in the same slot (same `id`); a watched session keeps running in its own terminal and the copy starts as a new agent (its `id`) |
 | GET | `/v1/firmware/{board}/{version}` | – | `200` the app image (`application/octet-stream`, `ETag` and `X-Firmware-SHA256` its SHA-256); `206` for a `Range` request. **Network listener only, Deck Link boards only**: the board's certificate must belong to a board whose type runs that board's firmware (`403` otherwise), `503` while the service has no firmware catalog, `404` for a version it doesn't have. Every request is audited. A board fetches it after the deck's `FirmwareOffer` ([link/protocol.md](link/protocol.md#firmware-updates-over-wi-fi)); it is board management, not a command, so it has no Deck Link command of its own |
@@ -119,14 +120,18 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
                                   // the account (Claude config folder) the session runs in; color is a hat colour
   "queued": 0,                    // prompts waiting to be typed in once its turn ends (POST /v1/agents/{id}/prompt, "mode": "queue")
-  "pet": {                        // omitted while Agent pets is off (Settings > General): the agent's pet
+  "pet": {                        // omitted while Agent pets is off (it is on by default; Settings > General): the agent's pet
     "name": "Nib",                // made up when it hatches; "" while an egg
     "stage": "kid",               // egg | baby | kid | grown | strong | mighty | legend, from the level
     "level": 6,                   // 0 while an egg; never goes down
     "ate": 160000,                // tokens eaten, all time: input + output, not cache reads or writes
-    "nextAt": 190735,             // ate that reaches the next level
+    "levelFrom": 152588,          // ate where the current level started (0 for an egg): with nextAt, a progress bar
+    "nextAt": 190735,             // ate that reaches the next level (for an egg: that makes it ready)
     "hearts": 3,                  // 0..4
     "mood": "fed",                // fed | hungry | weak | asleep (hibernating)
+    "ready": false,               // an egg that has eaten enough: it hatches when someone sees it (POST …/pet/hatch)
+    "hat": { "shape": "devil horns", "color": "teal" }, // its mystery hat, rolled when it hatched: a hat shape
+                                  // or "devil horns" (pets only); omitted until it is a kid (level 5)
     "hatchedAt": "2026-10-07T18:20:00Z" // omitted while an egg
   },
   "subagents": [                  // omitted when none: subagents (and workflow runs, type "workflow") still
@@ -397,7 +402,7 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | method | admin path | body | result |
 |---|---|---|---|
 | GET | `/admin/v1/system` | – | `{"version", "platform", "install", "started", "boards": {"online", "total", "pending"}, "ports": {"new"}, "update": {"state", "version"}, "firmware_updates"}`: the tray app's status line |
-| GET | `/admin/v1/settings` | – | every setting as one document: `startAtLogin` (`null` where there is none), `trayAtLogin` (Linux, when the tray app is installed), `notifications` (`off`, `attention`, `finished`), `sound`, `restore` (`ask`, `auto`), `updates` (`notify`, `auto`, `off`), `network`, `networkRunning`, `wifi.ssid`, `cli` |
+| GET | `/admin/v1/settings` | – | every setting as one document: `startAtLogin` (`null` where there is none), `trayAtLogin` (Linux, when the tray app is installed), `notifications` (`off`, `attention`, `finished`), `sound`, `restore` (`ask`, `auto`), `updates` (`notify`, `auto`, `off`), `pets` (Agent pets, on unless turned off), `petFirstLevel` (tokens for a pet's level 1: 1000 to 100000000, default 50000), `petStep` (each level needs this many times the tokens of the one before: 1.05 to 3, default 1.25; both kept in `config.json` as `"pets": {"on", "firstLevel", "step"}`), `network`, `networkRunning`, `wifi.ssid`, `cli` |
 | PATCH | `/admin/v1/settings` | any of those keys; `"wifi": {"ssid", "password", "send"}` or `{"forget": true}` | `{"settings", "message", "restartNeeded", "sent"}`. The Wi-Fi password goes to the OS secret store and to boards on USB or Bluetooth; it is never returned, logged or audited. Start at login registers or removes the service (and the Linux tray app's autostart entry) after answering, since that restarts or stops the service |
 | POST | `/admin/v1/restart` | – | `202`: restarts the service through what starts it at login |
 | POST | `/admin/v1/cli` | `{"installed": true\|false}` | adds or removes `~/.local/bin/agentctl` (a link to this agentctl; never a file it didn't make) |

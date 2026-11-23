@@ -339,10 +339,29 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if !strings.Contains(string(cfg), `"term": "tmux"`) || strings.Contains(string(cfg), "correct horse") {
 		t.Errorf("config.json lost a key or holds the password:\n%s", cfg)
 	}
-	for _, bad := range []string{`{"notifications":"loud"}`, `{"updates":"weekly"}`, `{"restore":"never"}`, `{"sessions":"all"}`, `{"wifi":{"ssid":"x","password":"short"}}`, `nope`} {
+	for _, bad := range []string{`{"notifications":"loud"}`, `{"updates":"weekly"}`, `{"restore":"never"}`, `{"sessions":"all"}`, `{"wifi":{"ssid":"x","password":"short"}}`, `nope`,
+		`{"petFirstLevel":10}`, `{"petStep":1}`, `{"petStep":4.5}`} {
 		if code, _ := r.do(t, "PATCH", "/admin/v1/settings", bad); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
+	}
+	// Agent pets: on by default, with its levels, kept as one object.
+	if got["petFirstLevel"] != 50000.0 || got["petStep"] != 1.25 {
+		t.Errorf("pet levels: %v %v", got["petFirstLevel"], got["petStep"])
+	}
+	if code, out := r.do(t, "PATCH", "/admin/v1/settings", `{"pets":false,"petFirstLevel":20000,"petStep":1.5}`); code != 200 {
+		t.Fatalf("pet levels: %d %v", code, out)
+	}
+	_, got = r.do(t, "GET", "/admin/v1/settings", "")
+	if got["pets"] != false || got["petFirstLevel"] != 20000.0 || got["petStep"] != 1.5 {
+		t.Errorf("pets after the patch: %v %v %v", got["pets"], got["petFirstLevel"], got["petStep"])
+	}
+	if cfg, _ := os.ReadFile(r.a.Config); !strings.Contains(string(cfg), `"firstLevel": 20000`) {
+		t.Errorf("config.json pets:\n%s", cfg)
+	}
+	os.WriteFile(r.a.Config, []byte(`{"term":"tmux"}`), 0o600)
+	if _, got = r.do(t, "GET", "/admin/v1/settings", ""); got["pets"] != true {
+		t.Error("no pets key: on by default")
 	}
 	// Start at login: registered after the answer went out.
 	if code, _ := r.do(t, "PATCH", "/admin/v1/settings", `{"startAtLogin":true}`); code != 200 {

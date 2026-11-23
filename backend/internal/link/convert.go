@@ -57,7 +57,11 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.Queued = uint32(a.Queued)
 		if a.Pet != nil {
 			p.Pet = &linkpb.Pet{Name: a.Pet.Name, Stage: a.Pet.Stage, Level: uint32(a.Pet.Level), Ate: a.Pet.Ate,
-				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt)}
+				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt),
+				Ready: a.Pet.Ready, LevelFrom: a.Pet.LevelFrom}
+			if a.Pet.Hat != nil {
+				p.Pet.Hat = &linkpb.Hat{Shape: a.Pet.Hat.Shape, Color: a.Pet.Hat.Color}
+			}
 		}
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {

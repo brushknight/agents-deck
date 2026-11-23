@@ -13,6 +13,7 @@ import (
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/link"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/update"
 )
@@ -117,6 +118,11 @@ type Settings struct {
 	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
 	Updates       string `json:"updates"`  // notify | auto | off
 	Pets          bool   `json:"pets"`     // Agent pets: every agent gets a pet that eats its tokens
+	// The pets' levels (config.json "pets": {"firstLevel", "step"}): the
+	// tokens for level 1, and how many times that each level after needs
+	// of the one before.
+	PetFirstLevel int64   `json:"petFirstLevel"`
+	PetStep       float64 `json:"petStep"`
 
 	// Network: paired boards and phones may connect over the network
 	// (config.json deviceAddr). NetworkRunning is what this run of the
@@ -165,7 +171,8 @@ func (a *Admin) SettingsNow() Settings {
 		s.Sessions = SessionsPick
 	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
-	s.Pets = boolean(cfg, "pets", false)
+	pc := pets.ConfigOf(cfg["pets"])
+	s.Pets, s.PetFirstLevel, s.PetStep = pc.On, pc.FirstLevel, pc.Step
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
 	if a.WifiSSID != nil {
@@ -191,6 +198,8 @@ type SettingsPatch struct {
 	Sessions      *string        `json:"sessions"`
 	Updates       *string        `json:"updates"`
 	Pets          *bool          `json:"pets"`
+	PetFirstLevel *int64         `json:"petFirstLevel"`
+	PetStep       *float64       `json:"petStep"`
 	Network       *bool          `json:"network"`
 	Magic         *devices.Magic `json:"magic"` // the whole setting
 	Wifi          *struct {
@@ -235,6 +244,20 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "starting at login is not available on this platform")
 		return
 	}
+	petLevels := p.PetFirstLevel != nil || p.PetStep != nil
+	if petLevels {
+		c := pets.Defaults()
+		if p.PetFirstLevel != nil {
+			c.FirstLevel = *p.PetFirstLevel
+		}
+		if p.PetStep != nil {
+			c.Step = *p.PetStep
+		}
+		if err := c.Check(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if p.Magic != nil {
 		if a.Devices == nil {
 			writeErr(w, http.StatusServiceUnavailable, "no device registry here")
@@ -270,8 +293,19 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
 		}
-		if p.Pets != nil {
-			cfg["pets"] = *p.Pets
+		if p.Pets != nil || petLevels {
+			// Written as {"on", "firstLevel", "step"}; an older "pets": true reads the same.
+			c := pets.ConfigOf(cfg["pets"])
+			if p.Pets != nil {
+				c.On = *p.Pets
+			}
+			if p.PetFirstLevel != nil {
+				c.FirstLevel = *p.PetFirstLevel
+			}
+			if p.PetStep != nil {
+				c.Step = *p.PetStep
+			}
+			cfg["pets"] = c
 		}
 		if p.Network != nil {
 			if *p.Network {
@@ -286,8 +320,8 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if p.Pets != nil && a.Store != nil {
-		a.Store.Touch() // the screens draw the pets, or stop drawing them
+	if (p.Pets != nil || petLevels) && a.Store != nil {
+		a.Store.Touch() // the screens draw the pets, or stop drawing them, or the new levels
 	}
 	res := map[string]any{}
 	if p.Wifi != nil {
