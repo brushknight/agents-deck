@@ -109,6 +109,7 @@ type State struct {
 	Released  bool       `json:"released"`       // Send them now: nothing is held until the CPU is calm
 	Peak      *Peak      `json:"peak,omitempty"` // the busiest minute today
 	Slowed    []string   `json:"slowed"`         // ids of the agents in background mode (Slower)
+	ByYou     []string   `json:"slowedByYou"`    // those of them slowed with Slow it, not by the guard
 }
 
 // Peak is the busiest minute of the day so far.
@@ -130,8 +131,10 @@ type Guard struct {
 	Changed func()
 	// Slowed names the agents in background mode, for State. nil: none.
 	Slowed func() []string
-	Logf   func(format string, args ...any)
-	Now    func() time.Time // the clock; nil: time.Now
+	// SlowedByYou names those slowed with Slow it, for State. nil: none.
+	SlowedByYou func() []string
+	Logf        func(format string, args ...any)
+	Now         func() time.Time // the clock; nil: time.Now
 
 	mu       sync.Mutex
 	set      Setting
@@ -282,9 +285,12 @@ func (g *Guard) State() (State, bool) {
 	if ok && s.Hold && g.Queued != nil {
 		s.Held = g.Queued() // outside the lock: it asks the queue
 	}
-	s.Slowed = []string{}
+	s.Slowed, s.ByYou = []string{}, []string{}
 	if ok && g.Slowed != nil {
 		s.Slowed = g.Slowed()
+	}
+	if ok && g.SlowedByYou != nil {
+		s.ByYou = g.SlowedByYou()
 	}
 	return s, ok
 }

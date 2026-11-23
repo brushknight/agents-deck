@@ -163,8 +163,10 @@ While the Mac is busy:
   moves to the efficiency cores and its disk use is throttled, the way `taskpolicy -b` does it. It
   keeps working, only slower, and so do the processes it starts later (the deck looks again every 30
   seconds). If the Mac stays busy for another window (2 minutes by default), the next heaviest agent
-  is slowed too, 3 at most. On Home, a slowed agent shows **Slowed** and **Full speed**, which puts it
-  back for the rest of this busy spell; any other agent shows **Slow it**, to slow it by hand. It is
+  is slowed too, 3 at most. On Home, an agent the deck slowed shows **Slowed**, and one you slowed
+  shows **Slowed by you**, each with **Full speed**, which puts it back for the rest of this busy
+  spell; any other agent shows **Slow it**, to slow it by hand. Agents you slow don't count toward
+  the 3, and turning Slow down the heaviest agent off puts back only the deck's picks. It is
   all undone when the Mac is calm, when the agent ends and when the deck stops; after a crash, the
   deck undoes it when it starts again (it keeps the slowed processes in `slowed.json`). The deck
   never changes a nice value, never pauses or stops a process, and never touches other programs or

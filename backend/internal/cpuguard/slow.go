@@ -522,29 +522,47 @@ func (s *Slower) save() {
 }
 
 // Slowed are the ids of the agents in background mode now, sorted.
-func (s *Slower) Slowed() []string {
+func (s *Slower) Slowed() []string { return s.ids(false) }
+
+// SlowedByYou are the ids of the agents slowed with Slow it, sorted: a
+// subset of Slowed.
+func (s *Slower) SlowedByYou() []string { return s.ids(true) }
+
+func (s *Slower) ids(byHand bool) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids := []string{}
-	for id := range s.slowed {
-		ids = append(ids, id)
+	for id, sa := range s.slowed {
+		if sa.byHand || !byHand {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	return ids
 }
 
-// Use says which agents are slowed, and each agent's CPU use at the last
-// look (only while the computer is busy), for /v1 Agent.slowed and cpu.
-func (s *Slower) Use() (slowedIDs map[string]bool, cpu map[string]float64) {
+// Who slowed an agent, in Use.
+const (
+	ByGuard = "guard" // the guard's own pick
+	ByYou   = "you"   // Slow it
+)
+
+// Use says which agents are slowed and by whom (ByGuard or ByYou), and
+// each agent's CPU use at the last look (only while the computer is busy),
+// for /v1 Agent.slowed, slowedByYou and cpu.
+func (s *Slower) Use() (slowedBy map[string]string, cpu map[string]float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	slowedIDs = map[string]bool{}
-	for id := range s.slowed {
-		slowedIDs[id] = true
+	slowedBy = map[string]string{}
+	for id, sa := range s.slowed {
+		slowedBy[id] = ByGuard
+		if sa.byHand {
+			slowedBy[id] = ByYou
+		}
 	}
 	cpu = map[string]float64{}
 	for id, c := range s.cpu {
 		cpu[id] = c
 	}
-	return slowedIDs, cpu
+	return slowedBy, cpu
 }

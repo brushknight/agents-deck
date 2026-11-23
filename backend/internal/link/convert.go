@@ -55,7 +55,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
-		p.Slowed = a.Slowed
+		p.Slowed, p.SlowedByYou = a.Slowed, a.SlowedByYou
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
 		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch

@@ -136,9 +136,9 @@ func TestSlowHeaviest(t *testing.T) {
 	r.step(5 * time.Second)
 	r.wantSlowed("a1")
 	r.wantBG(700, 701)
-	slowedIDs, cpu := r.s.Use()
-	if !slowedIDs["a1"] || cpu["a1"] != 8 || cpu["a2"] != 6 || cpu["a3"] != 5.5 {
-		t.Errorf("use: %v %v", slowedIDs, cpu)
+	slowedBy, cpu := r.s.Use()
+	if slowedBy["a1"] != ByGuard || len(slowedBy) != 1 || cpu["a1"] != 8 || cpu["a2"] != 6 || cpu["a3"] != 5.5 {
+		t.Errorf("use: %v %v", slowedBy, cpu)
 	}
 	if f := r.file(); len(f) != 2 || f[0] != (slowedPID{700, "Mon Nov 23 10:00:00 2026", "a1"}) || f[1].PID != 701 {
 		t.Errorf("file %+v", f)
@@ -273,6 +273,13 @@ func TestSlowNow(t *testing.T) {
 	r.spell.set.Slow = true
 	r.step(30 * time.Second)
 	r.wantSlowed("a1", "a3")
+	// a3 by you, a1 by the guard
+	if got := r.s.SlowedByYou(); !reflect.DeepEqual(got, []string{"a3"}) {
+		t.Errorf("slowed by you: %v", got)
+	}
+	if by, _ := r.s.Use(); by["a1"] != ByGuard || by["a3"] != ByYou {
+		t.Errorf("use: %v", by)
+	}
 	r.spell.set.Slow = false
 	r.step(30 * time.Second)
 	r.wantSlowed("a3")

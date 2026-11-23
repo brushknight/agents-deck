@@ -482,6 +482,7 @@ select.pick:disabled { opacity: 0.45; }
 .cputop { grid-auto-flow: dense; }
 .cpuu.ag { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto auto; }
 .cpuu .act { grid-row: span 2; align-self: center; display: flex; align-items: center; gap: 8px; }
+.cpuu .act .chip { width: 120px; justify-content: center; } /* Slowed and Slowed by you: Full speed lines up */
 @media (max-width: 600px) {
   .cpuu.ag { grid-template-columns: minmax(0, 1fr) auto; }
   .cpuu.ag .act { grid-row: 3; grid-column: 1 / -1; margin-top: 8px; }

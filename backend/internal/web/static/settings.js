@@ -584,9 +584,14 @@ function cpuBlock() {
     showSystem(S.system);
     updateDeck();
   }, done), 'fix', { 'data-k': `cpu-${path}:${id}` });
-  // An agent: Slowed and Full speed, or Slow it (macOS only).
+  // An agent: Slowed (by the guard) or Slowed by you, and Full speed; or
+  // Slow it (macOS only).
+  const byYou = (id) => (c.slowedByYou ? c.slowedByYou.includes(id) : !!agentsList().find((x) => x.id === id)?.slowedByYou);
+  const slowChip = (id) => (byYou(id)
+    ? chip('Slowed by you', 'acc', null, { title: `You slowed this agent. It goes back to full speed when the ${machine()} is calm, or with Full speed` })
+    : chip('Slowed', 'acc', null, { title: 'Slowed by the CPU guard: it was using the most CPU' }));
   const agentAct = (u) => h('span', { class: 'act' }, ...(slowed.includes(u.agent)
-    ? [chip('Slowed', 'acc'), act('full-speed', u.agent, 'Full speed', 'Back to full speed')]
+    ? [slowChip(u.agent), act('full-speed', u.agent, 'Full speed', 'Back to full speed')]
     : machine() === 'Mac' ? [act('slow', u.agent, 'Slow it', 'Running it in the background until the Mac is calm')] : []));
   return h('div', { class: 'blk cpubar', role: 'status' },
     h('div', { class: 'row thin' },

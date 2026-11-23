@@ -79,6 +79,7 @@ type Agent struct {
 	Subagents     []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
 	Queued        int        `json:"queued"`              // prompts waiting to be typed in once its turn ends ("mode": "queue")
 	Slowed        bool       `json:"slowed"`              // in background mode while the computer is busy (the CPU guard; macOS)
+	SlowedByYou   bool       `json:"slowedByYou"`         // slowed with Slow it, not by the guard's own pick
 	CPU           float64    `json:"cpu,omitempty"`       // percent of the whole computer, only while it is busy
 	Hat           *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
 	Account       *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)

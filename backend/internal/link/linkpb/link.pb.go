@@ -146,7 +146,7 @@ type FieldGroup int32
 
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
-	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed
+	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you
 	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
 	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns, cpu
@@ -2243,6 +2243,7 @@ type Agent struct {
 	Queued        uint32                 `protobuf:"varint,37,opt,name=queued,proto3" json:"queued,omitempty"`                                    // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
 	Slowed        bool                   `protobuf:"varint,38,opt,name=slowed,proto3" json:"slowed,omitempty"`                                    // in background mode while the computer is busy (the CPU guard; macOS)
 	Cpu           float32                `protobuf:"fixed32,39,opt,name=cpu,proto3" json:"cpu,omitempty"`                                         // percent of the whole computer, only while it is busy; 0 otherwise
+	SlowedByYou   bool                   `protobuf:"varint,40,opt,name=slowed_by_you,json=slowedByYou,proto3" json:"slowed_by_you,omitempty"`     // slowed with Slow it, not by the guard's own pick
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2548,6 +2549,13 @@ func (x *Agent) GetCpu() float32 {
 		return x.Cpu
 	}
 	return 0
+}
+
+func (x *Agent) GetSlowedByYou() bool {
+	if x != nil {
+		return x.SlowedByYou
+	}
+	return false
 }
 
 type Activity struct {
@@ -5374,7 +5382,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x84\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa8\n" +
 	"\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -5418,7 +5426,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x0eattention_slot\x18$ \x01(\rR\rattentionSlot\x12\x16\n" +
 	"\x06queued\x18% \x01(\rR\x06queued\x12\x16\n" +
 	"\x06slowed\x18& \x01(\bR\x06slowed\x12\x10\n" +
-	"\x03cpu\x18' \x01(\x02R\x03cpu\"6\n" +
+	"\x03cpu\x18' \x01(\x02R\x03cpu\x12\"\n" +
+	"\rslowed_by_you\x18( \x01(\bR\vslowedByYou\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +

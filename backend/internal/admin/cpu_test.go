@@ -86,7 +86,7 @@ func TestCPUSlow(t *testing.T) {
 		List: func() ([]proc.PS, error) {
 			return []proc.PS{{PID: 700, TTY: "ttys003", CPU: 80, Comm: "claude"}, {PID: 500, TTY: "??", CPU: 90, Comm: "browser"}}, nil
 		}}
-	g.Slowed = s.Slowed
+	g.Slowed, g.SlowedByYou = s.Slowed, s.SlowedByYou
 	r.a.Guard, r.a.Slower = g, s
 	if code, out := r.do(t, "POST", "/admin/v1/cpu/slow/a1", ""); code != 409 {
 		t.Errorf("calm: %d %v", code, out)
@@ -102,12 +102,15 @@ func TestCPUSlow(t *testing.T) {
 	if l, _ := out["slowed"].([]any); code != 200 || len(l) != 1 || l[0] != "a1" || !prio[700] || prio[500] {
 		t.Fatalf("slow it: %d %v %v", code, out, prio)
 	}
+	if l, _ := out["slowedByYou"].([]any); len(l) != 1 || l[0] != "a1" {
+		t.Errorf("slowed by you: %v", out["slowedByYou"])
+	}
 	_, out = r.do(t, "GET", "/admin/v1/system", "")
 	if l, _ := out["cpu"].(map[string]any)["slowed"].([]any); len(l) != 1 {
 		t.Errorf("system: %v", out["cpu"])
 	}
 	code, out = r.do(t, "POST", "/admin/v1/cpu/full-speed/a1", "")
-	if l, _ := out["slowed"].([]any); code != 200 || l == nil || len(l) != 0 || prio[700] {
+	if l, _ := out["slowed"].([]any); code != 200 || l == nil || len(l) != 0 || prio[700] || out["slowedByYou"] == nil {
 		t.Errorf("full speed: %d %v %v", code, out, prio)
 	}
 }

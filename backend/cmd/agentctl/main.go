@@ -1267,7 +1267,7 @@ func serve(args []string) error {
 		slower.Recover()
 		defer slower.Stop()
 		go slower.Run(machineCtx)
-		guard.Slowed, st.Slow, adm.Slower = slower.Slowed, slower.Use, slower
+		guard.Slowed, guard.SlowedByYou, st.Slow, adm.Slower = slower.Slowed, slower.SlowedByYou, slower.Use, slower
 	}
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
