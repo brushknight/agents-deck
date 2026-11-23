@@ -472,6 +472,8 @@ select.pick:disabled { opacity: 0.45; }
 .cpubar { border-color: var(--orange); }
 .cpubar .txt b { color: var(--orange2); }
 .cpubar > .row { flex-wrap: wrap; }
+/* narrow: the text takes the whole row and the button goes under it */
+@media (max-width: 600px) { .cpubar > .row > .txt { flex-basis: 100%; } }
 .cputop { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); border-top: 1px solid var(--rule); }
 .cpuu { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; padding: 10px 16px; box-shadow: 1px 0 0 var(--rule); }
 .cpuu .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
