@@ -214,6 +214,18 @@ func PaneTTYs() map[string]bool {
 	return ttys
 }
 
+// SessionTTYs maps each session on our server to its pane's terminal.
+func SessionTTYs() map[string]string {
+	out, _ := run("list-panes", "-a", "-F", "#{session_name} #{pane_tty}")
+	ttys := map[string]string{}
+	for _, l := range strings.Split(out, "\n") {
+		if name, tty, ok := strings.Cut(l, " "); ok && tty != "" {
+			ttys[name] = tty
+		}
+	}
+	return ttys
+}
+
 // ServerRunning reports whether our tmux server is up. (It exits by itself
 // once its last session ends.)
 func ServerRunning() bool {

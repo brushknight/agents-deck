@@ -124,7 +124,8 @@ const usage = `agentctl: runs and controls agents deck
   agentctl bluetooth [scan | ls | add <name>]
                                  boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
-  agentctl cpu                   how much CPU the service and its helpers use
+  agentctl cpu [--top]           how much CPU the service and its helpers use, and the whole
+                                 machine; --top: who uses it (each agent, the deck, other programs)
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
@@ -1212,7 +1213,26 @@ func serve(args []string) error {
 	adm := newAdmin(st, srv, self, *logFile)
 	meter := proc.NewCPUMeter()
 	go meter.Run()
-	adm.CPU = meter.Report
+	// The whole machine's CPU: one reader for the service's life, stopped
+	// (its iostat killed) before serve returns.
+	machine := proc.NewMachineMeter()
+	machineCtx, stopMachine := context.WithCancel(context.Background())
+	machineDone := make(chan struct{})
+	go func() { machine.Run(machineCtx); close(machineDone) }()
+	defer func() { stopMachine(); <-machineDone }()
+	adm.CPU = func() proc.CPUReport {
+		r := meter.Report()
+		m := machine.Report()
+		r.Machine = &m
+		return r
+	}
+	adm.CPUTop = func(n int) proc.CPUTop {
+		var panes map[string]string
+		if fleet == nil { // a demo's agents have no terminals
+			panes = tmux.SessionTTYs()
+		}
+		return proc.TopUsers(daemon.AgentTerminals(st.Entries(), panes), n)
+	}
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}

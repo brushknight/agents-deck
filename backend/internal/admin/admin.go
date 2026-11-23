@@ -119,6 +119,9 @@ type Admin struct {
 	// CPU: how much CPU the service and its helpers use (proc.CPUMeter).
 	// nil: 404.
 	CPU func() proc.CPUReport
+	// CPUTop: the n biggest users of the machine's CPU (proc.TopUsers), for
+	// ?top=n. nil: the report says it isn't available.
+	CPUTop func(n int) proc.CPUTop
 
 	// Tokens are the MCP access tokens (mcp.go); MCPURL is where MCP clients
 	// connect over HTTP (http://127.0.0.1:<port>/mcp). nil: no MCP section.
