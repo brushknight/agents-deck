@@ -211,6 +211,7 @@ void main() {
       matching: find.byType(PetSprite),
     );
     expect(tester.widget<PetSprite>(cardPet()).plate, isTrue);
+    expect(tester.widget<PetHearts>(find.byType(PetHearts)).onOrange, isTrue);
     expect(tester.takeException(), isNull);
   });
 
