@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,6 +50,10 @@ type liveWatch struct {
 	added      map[string]bool // session id -> on the deck (persisted)
 	offDeck    map[string]bool // session id -> you took it off the deck (persisted): `sessions auto` leaves it off
 	loaded     bool
+
+	// meta: each found session's transcript metadata, kept while the
+	// transcript's size and time stay the same (sessionMeta).
+	meta map[string]liveMeta
 
 	claudeBin  string        // resolved once from the login shell
 	reported   []claude.Live // last `claude agents --json`
@@ -103,6 +108,33 @@ func writeIDs(path string, set map[string]bool) {
 	}
 }
 
+type liveMeta struct {
+	size int64
+	mod  time.Time
+	info claude.SessionInfo
+}
+
+// sessionMeta is l's transcript metadata (title, folder). Reading it parses
+// up to half a megabyte of JSON, and syncLive asks for every session every
+// 3 seconds: it is read again only when the transcript changed. Call with
+// d.live.mu held.
+func (d *Daemon) sessionMeta(l claude.Live) claude.SessionInfo {
+	st, err := os.Stat(l.Transcript)
+	if err != nil {
+		info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+		return info
+	}
+	if m, ok := d.live.meta[l.SessionID]; ok && m.size == st.Size() && m.mod.Equal(st.ModTime()) {
+		return m.info
+	}
+	info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+	if d.live.meta == nil {
+		d.live.meta = map[string]liveMeta{}
+	}
+	d.live.meta[l.SessionID] = liveMeta{size: st.Size(), mod: st.ModTime(), info: info}
+	return info
+}
+
 // WatchLive finds hand-started Claude sessions every few seconds and keeps the
 // ones you added on the board (watch-only: status from their transcripts).
 func (d *Daemon) WatchLive() {
@@ -140,7 +172,7 @@ func (d *Daemon) syncLive() {
 			joined = true
 			log.Printf("session %s joined the deck by itself (sessions auto)", l.SessionID)
 		}
-		info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+		info := d.sessionMeta(l)
 		title := info.Title()
 		if l.Name != "" && (info.AITitle == "" && info.Custom == "") {
 			title = l.Name
@@ -152,6 +184,11 @@ func (d *Daemon) syncLive() {
 		}
 	}
 	d.live.candidates = cands
+	for id := range d.live.meta { // sessions that ended
+		if !slices.ContainsFunc(found, func(l claude.Live) bool { return l.SessionID == id }) {
+			delete(d.live.meta, id)
+		}
+	}
 	if joined {
 		d.saveAdded()
 	}
