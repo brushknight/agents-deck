@@ -83,6 +83,25 @@ export const STAGES = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legen
 export const STAGE_NAMES = { egg: 'Egg', baby: 'Baby', kid: 'Kid', grown: 'Grown-up', strong: 'Strong', mighty: 'Mighty', legend: 'Legend' };
 export const STAGE_LEVEL = { egg: 0, baby: 1, kid: 5, grown: 10, strong: 20, mighty: 30, legend: 40 };
 const CRACK_AT = 30000;
+export const MAX_HEARTS = 4;
+export const MOOD_NAMES = { fed: 'fed', hungry: 'hungry', weak: 'weak', asleep: 'hibernating' };
+
+// The food that reaches level n, as the service counts it (internal/pets).
+export const levelAt = (n) => (n < 1 ? 0 : Math.round(50000 * 1.25 ** (n - 1)));
+// What it is: "Egg", "Kid", "Builder", "Strong Builder". Builder is the only
+// grown-up shape so far.
+export function petKind(pet) {
+  const s = pet?.stage || 'egg';
+  if (s === 'egg' || s === 'baby' || s === 'kid') return STAGE_NAMES[s];
+  return s === 'grown' ? 'Builder' : `${STAGE_NAMES[s]} Builder`;
+}
+
+// A pixel heart, full or empty.
+export function heartSVG(full) {
+  const d = ['.rr.rr.', 'rrrrrrr', 'rrrrrrr', '.rrrrr.', '..rrr..', '...r...']
+    .flatMap((row, y) => [...row].map((c, x) => (c === 'r' ? `M${x} ${y}h1v1h-1z` : ''))).join('');
+  return `<svg viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="${d}" fill="${full ? '#E8452B' : '#3B3A36'}"/></svg>`;
+}
 
 const key = (x, y) => `${x},${y}`;
 const at = (k) => k.split(',').map(Number);
