@@ -133,7 +133,8 @@ func (m *Manager) Run(ctx context.Context) {
 //     deck's ping every 5 s. While it stays quiet, the looks back off from
 //     quietFirst to quietMax;
 //   - every lookEvery while the board talks, for a program that only
-//     listens.
+//     listens (rarely: each look costs about 0.15% of a core averaged over
+//     ten minutes, against a budget of 2% for the whole service).
 //
 // The service's own flashing doesn't need any of this: it borrows the port
 // (Admin.release), and the deck lets go at once.
@@ -141,7 +142,7 @@ var (
 	quietAfter = 8 * time.Second
 	quietFirst = 4 * time.Second
 	quietMax   = time.Minute
-	lookEvery  = 2 * time.Minute
+	lookEvery  = 10 * time.Minute
 	busyEvery  = 10 * time.Second
 )
 
