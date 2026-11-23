@@ -23,7 +23,6 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/term"
-	"github.com/brushknight/agents-deck/backend/internal/tmux"
 )
 
 // errLive answers actions a watched session can't take from the deck.
@@ -146,7 +145,7 @@ func (d *Daemon) WatchLive() {
 
 func (d *Daemon) syncLive() {
 	// Our own agents run in tmux panes: never list those.
-	skip := tmux.PaneTTYs()
+	skip := d.paneTTYs()
 	ours := map[string]bool{}
 	for _, e := range d.Store.Entries() {
 		if (!e.External || inApp(e)) && e.SessionID != "" {
