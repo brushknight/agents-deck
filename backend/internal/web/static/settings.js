@@ -576,7 +576,7 @@ function cpuBlock() {
   const users = (S.cpuTop?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
   return h('div', { class: 'blk cpubar', role: 'status' },
     h('div', { class: 'row thin' },
-      h('span', { class: 'txt grow' }, h('b', {}, `${machine()} busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%. ${what}`),
+      h('span', { class: 'txt grow' }, h('b', {}, `${machine() === 'Mac' ? 'The Mac' : 'This computer'} is busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%. ${what}`),
       c.hold && c.held ? btn('Send them now', (e) => busy(e.currentTarget, async () => {
         S.system.cpu = await api('POST', '/admin/v1/cpu/release');
         showSystem(S.system);
@@ -827,7 +827,7 @@ function summaryStrip() {
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   const c = cpuOf();
   return h('nav', { class: `strip${c ? ' cpu' : ''}`, 'aria-label': 'Summary' },
-    c ? h('a', { href: '#agents/cpu', class: c.busy ? 'hotc' : '' }, h('span', { class: 'n' }, pct(c.percent)), h('span', { class: 'l' }, 'CPU', h('br'), c.busy ? `${machine()} busy` : 'calm')) : null,
+    c ? h('a', { href: '#agents/cpu', class: c.busy ? 'hotc' : '' }, h('span', { class: 'n' }, pct(c.percent)), h('span', { class: 'l' }, 'CPU', h('br'), c.busy ? (machine() === 'Mac' ? 'Mac busy' : 'busy') : 'calm')) : null,
     h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
