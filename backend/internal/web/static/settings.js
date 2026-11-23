@@ -2047,8 +2047,8 @@ function projectDay(p) {
         h('div', { class: 'pda' }, f.agents.length ? f.agents.map((a) => {
           const [word, cls] = DAY_ST[a.status] || [a.status, 'off'];
           return h('a', { class: 'pdag', href: `#agent/${encodeURIComponent(a.id)}` },
-            h('span', { class: 'nm', title: a.name }, a.name),
-            a.worktree ? h('span', { class: 'sub', title: a.worktree }, `worktree ${a.worktree.split('/').pop()}`) : null,
+            h('span', { class: 'pdn' }, h('span', { class: 'nm', title: a.name }, a.name),
+              a.worktree ? h('span', { class: 'sub', title: a.worktree }, `worktree ${a.worktree.split('/').pop()}`) : null),
             chip(word, cls, 'dot'));
         }) : h('span', { class: 'sub' }, f.activeMin ? 'no agents now' : 'no agents today')),
         h('div', { class: 'pdt' }, bar, h('span', { class: 'sub' }, mins(f.activeMin))));
@@ -2075,7 +2075,7 @@ function projectsSection(accs) {
         { 'aria-expanded': open ? 'true' : 'false', 'aria-label': `${p.name} today`, 'data-k': `pj-today-${p.id}` }),
       link('Start agent', `#start//${encodeURIComponent(p.name)}`, 'pjb', { 'aria-label': `Start an agent in ${p.name}` }),
       btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, 'pjb', { 'aria-label': `Edit ${p.name}` }),
-    ], { name: true, pic: projectFace(p), extra: open ? projectDay(p) : null });
+    ], { name: true, cls: 'proj', pic: projectFace(p), extra: open ? projectDay(p) : null });
   });
   // Folders agents work in that aren't projects yet.
   const seen = [...new Set(agents.filter((a) => !list.some((p) => inProject(a, p))).map((a) => a.cwd).filter(Boolean))]
@@ -2102,7 +2102,7 @@ function projectsSection(accs) {
         try { localStorage.setItem('settings.notProjects', JSON.stringify(notProjects)); } catch (e) { /* private window */ }
         draw(true);
       }),
-    ], { name: true, off: true, cls: 'tint', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
+    ], { name: true, off: true, cls: 'tint proj', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
   }
   if (rows.length) content.push(blk(...rows));
   const s = sec('Projects', list.length ? plural(list.length, 'project') : null, null, ...content);
