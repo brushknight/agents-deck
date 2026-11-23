@@ -151,8 +151,11 @@ While the Mac is busy:
 
 - **It warns you.** The log says so, with who uses the CPU, when it gets busy and when it calms
   down. The bar at the top of the app starts with "92% CPU" in orange. Home shows a warning with how
-  busy it is, for how long and what is held, and under it Using the most: the biggest users, agents,
-  other programs and the deck itself, each with a bar.
+  busy it is, for how long, your limit and where it comes from ("Your limit is 60% until 18:00, from
+  the schedule."), what is held, and a Who uses it link to Using the most, in Settings, Agents, When
+  the Mac is busy: the biggest users, agents, other programs and the deck itself, each with a bar.
+  While a schedule is on, the CPU cell on Home says the limit ("limit 60%", or "70% till 18:00" for
+  a limit you picked) instead of "calm".
 - **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
   agent's queue marks each one Held. Prompts from an MCP client wait in the queue too, even for an
   idle agent, and its `start_agent` is refused with "The Mac is busy (92% CPU for 4 minutes); try
@@ -164,7 +167,7 @@ While the Mac is busy:
   moves to the efficiency cores and its disk use is throttled, the way `taskpolicy -b` does it. It
   keeps working, only slower, and so do the processes it starts later (the deck looks again every 30
   seconds). If the Mac stays busy for another window (2 minutes by default), the next heaviest agent
-  is slowed too, 3 at most. In Home's Using the most, an agent the deck slowed shows **Slowed**, and
+  is slowed too, 3 at most. In Using the most, an agent the deck slowed shows **Slowed**, and
   one you slowed shows **Slowed by you**, each with **Full speed**, which puts it back for the rest
   of this busy spell; any other agent shows **Slow it**, to slow it by hand. Agents you slow don't
   count toward the 3, and turning Slow down the heaviest agent off puts back only the deck's picks.
