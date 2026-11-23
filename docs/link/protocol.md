@@ -20,7 +20,8 @@ ignore the rate.
 
 Opening a serial port can reset an ESP32 dev board (DTR/RTS). The board then simply starts over with
 `Hello`. The deck only opens ports you registered with `agentctl link add`, and lets go of a port
-while another program (a flasher, a serial monitor) has it open.
+while another program (a flasher, a serial monitor) has it open: it notices when the board goes quiet
+(the other program reset it or reads its bytes), and at least every two minutes.
 
 ## Framing
 

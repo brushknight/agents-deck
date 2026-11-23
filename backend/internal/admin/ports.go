@@ -61,6 +61,7 @@ func portID(path string) string {
 type portHolds struct {
 	mu   sync.Mutex
 	held map[string]bool
+	lent map[string]*time.Timer // ports lent to another program (borrow): handed back when it ends
 }
 
 // LinkPorts is what the Deck Link manager opens: the registered ports minus
@@ -128,7 +129,29 @@ func (a *Admin) release(ctx context.Context, path string) error {
 func (a *Admin) handBack(path string) {
 	a.ports.mu.Lock()
 	delete(a.ports.held, path)
+	if t := a.ports.lent[path]; t != nil {
+		t.Stop()
+		delete(a.ports.lent, path)
+	}
 	a.ports.mu.Unlock()
+}
+
+// maxBorrow: how long a port can be lent (borrow) before the deck takes it back.
+const maxBorrow = 30 * time.Minute
+
+// lend takes path from the Deck Link manager for another program on this
+// computer (`agentctl flash`), for d at most.
+func (a *Admin) lend(ctx context.Context, path string, d time.Duration) error {
+	if err := a.release(ctx, path); err != nil {
+		return err
+	}
+	a.ports.mu.Lock()
+	if a.ports.lent == nil {
+		a.ports.lent = map[string]*time.Timer{}
+	}
+	a.ports.lent[path] = time.AfterFunc(d, func() { a.handBack(path) })
+	a.ports.mu.Unlock()
+	return nil
 }
 
 func (a *Admin) ignored() map[string]bool {
@@ -380,8 +403,32 @@ func (a *Admin) portAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusAccepted, job)
+	case "borrow":
+		// Another program on this computer (agentctl flash) opens the port
+		// itself: the deck lets go until "return", or until "seconds" pass.
+		var b struct {
+			Seconds int `json:"seconds"`
+		}
+		_ = readBody(r, 1024, &b)
+		d := time.Duration(b.Seconds) * time.Second
+		if d <= 0 || d > maxBorrow {
+			d = maxBorrow
+		}
+		if err := a.lend(r.Context(), p.Path, d); err != nil {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case "return":
+		a.ports.mu.Lock()
+		lent := a.ports.lent[p.Path] != nil
+		a.ports.mu.Unlock()
+		if lent {
+			a.handBack(p.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	default:
-		writeErr(w, http.StatusNotFound, "unknown action: register, identify, flash, forget, firmware-file or install-file")
+		writeErr(w, http.StatusNotFound, "unknown action: register, identify, flash, forget, borrow, return, firmware-file or install-file")
 	}
 }
 
