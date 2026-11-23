@@ -519,3 +519,74 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
   drawHat(p, bot, hat, hatColor, pose == Pose::Exit, working, ms);
   if (showLegs) legs(p, bot, legSet, legDy);
 }
+
+// ---------------------------------------------------------------- agent pets
+// While Agent pets is on, each agent's pet (Agent::pet, the kit's deck_pet.h)
+// stands where its critter would, at the same scale: one pet cell is one
+// sprite unit. Cell (0, 0) sits at unit (-1, -5), so the pet's middle is the
+// body's and a grown-up's feet land on the critter's; its hat rises to unit
+// -7, the egg reaches unit 9, an aura or the ice two units round that.
+
+namespace sprite_detail {
+
+// The kit's colours (0xRRGGBB and an alpha) into the RGB565 canvas, clipped.
+static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha) {
+  Canvas& c = *(Canvas*)user;
+  const uint16_t col = rgb565((uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb);
+  const uint8_t a = (uint8_t)((alpha * 15 + 127) / 255);
+  if (a >= 15) { c.rect(x, y, w, h, col); return; }
+  if (a == 0) return;
+  const int x0 = x < 0 ? 0 : x, x1 = x + w > c.w ? c.w : x + w;
+  const int y0 = y < c.top ? c.top : y, y1 = y + h > c.h ? c.h : y + h;
+  for (int yy = y0; yy < y1; yy++)
+    for (int xx = x0; xx < x1; xx++) {
+      uint16_t& d = c.px[(size_t)yy * c.w + xx];
+      d = c.enc(blend565(c.dec(d), col, a));
+    }
+}
+
+// A background in the pet's own orange (a waiting tile, the accent disc): it gets a dark edge.
+static inline bool petOnOrange(uint16_t bg) {
+  const int r = (bg >> 11) << 3, g = ((bg >> 5) & 63) << 2, b = (bg & 31) << 3;
+  return r >= 0xC0 && g < 0xA0 && b < 0x60;
+}
+
+}  // namespace sprite_detail
+
+// Draws the agent's pet with the sprite box's top-left at (x, y), as
+// drawSprite would its critter. `cut` is the colour behind it. A working
+// agent's pet bobs and an egg waiting to be seen rocks, on `ms`.
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, uint16_t cut, uint32_t ms) {
+  using namespace sprite_detail;
+  if (y + 16 * scale <= c.top || y - 6 * scale >= c.h) return;   // nothing of it in these rows (a strip)
+  deck_pet_opts_t o{};
+  o.hat = a.hat;
+  o.hat_color = a.hatColor;
+  o.idle = a.status == Status::Idle || a.status == Status::Exited;
+  o.working = a.status == Status::Running;
+  o.outline = petOnOrange(cut);
+  deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, &o);
+  int dx, dy;
+  deck_pet_motion(&look, ms, scale, &dx, &dy);
+  deck_pet_draw(&look, x - scale + dx, y - scale + dy, scale, petFill, &c);
+}
+
+// The agent as the deck shows it: its pet while it has one, else its critter
+// in `pose` (drawSprite, with its hat).
+static inline void drawCritter(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint16_t body, uint16_t cut,
+                               uint32_t ms, bool bubble) {
+  if (a.pet.has) drawPet(c, x, y, scale, a, cut, ms);
+  else drawSprite(c, x, y, scale, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
+}
+
+// "Pip · Kid · level 7", or "Egg": the pet's name, stage and level, for a
+// screen that shows one agent in detail. Empty without a pet.
+static inline void petLine(const Agent& a, char* out, size_t cap) {
+  if (!cap) return;
+  out[0] = '\0';
+  if (!a.pet.has) return;
+  const char* stage = deck_pet_stage_name(a.pet.stage);
+  if (a.pet.stage == DECK_PET_EGG || !a.pet.name[0]) snprintf(out, cap, "%s", stage);
+  else snprintf(out, cap, "%s" DECK_DOT "%s" DECK_DOT "level %u", a.pet.name, stage, (unsigned)a.pet.level);
+}

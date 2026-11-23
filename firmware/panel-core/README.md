@@ -25,7 +25,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/attention.h` | the "Needs you" screen: the deck's spots in this screen's cells (host-tested, no display code) |
 | `src/canvas.h`, `src/font_data.h` | an RGB565 framebuffer; Roboto Mono in five sizes (`tools/make_font.py`) |
 | `src/font_square.h` | the square boards' 16, 22, 24 and 28 px sizes (`tools/make_font_square.py`) |
-| `src/sprites.h` | the critters (block and onigiri), 16 poses, 13 hats, at any whole-number scale |
+| `src/sprites.h` | the critters (block and onigiri), 16 poses, 13 hats, at any whole-number scale; an agent's pet in their place (`drawCritter`) |
 | `src/deck_ui.h` | the deck's palette, how a status paints a tile, the tile's status line, text helpers |
 | `src/deck_cmd.h` | the board's scope and the commands it sends (Answer, Focus, Interrupt, Dismiss), shared by square and round |
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
@@ -92,6 +92,32 @@ an agent beyond those isn't shown or counted there.
 
 A tile there does what it does on any page. The round boards (spring carousel, Orbit, Dial) don't
 have it: their home is a ring with no first page to sit left of.
+
+## Agent pets
+
+While Agent pets is on (the deck's Settings, General), every agent comes with its pet
+(`Agent::pet`, the kit's [`deck_pet.h`](../deck-link/README.md#agent-pets)), and every board draws the
+pet where the critter would be: `drawCritter()` in `sprites.h` draws the pet when there is one and
+the critter otherwise, so with pets off every screen is as before. One pet cell is one sprite unit
+at the critter's scale; the pet's middle is the body's, and a grown-up's feet are where the critter's
+are. Its hat rises a unit higher than a critter's (the 1.47" hero stands it a unit lower), and an
+aura or the ice reach two units round it: the spring carousel's critter box grows to match
+(`critterBox()`), so the partial redraw and the strips still cover it. On an orange background (a
+waiting tile, the accent disc) the pet gets a dark edge. A working agent's pet bobs and an egg
+waiting to be seen rocks, on the animation clock the critters already use.
+
+The screens that show one agent in detail show the pet's name, stage and level (`petLine()`: "Pip
+· Kid · level 7", or "Egg"):
+
+| layout | where |
+|---|---|
+| `layout_147.h` | the hero's bottom line, in place of turns and cost |
+| `layout_square.h` (card) | under the name and the pill |
+| `layout_big.h` (card) | beside the critter, after the subagents |
+| `round_ui.h` (detail) | the third line, in place of model, effort and context (the ring still shows context) |
+
+`tests/test_pets.cpp` checks it; `sim/render.cpp` draws every screen with pets when its last
+argument is `pets`.
 
 ## Wi-Fi
 
