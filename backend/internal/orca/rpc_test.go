@@ -109,6 +109,15 @@ func TestRPCErrors(t *testing.T) {
 	if err == nil || errors.Is(err, errTransport) || err.Error() != "orca worktree.ps: workspace gone" {
 		t.Errorf("an answered error: %v", err)
 	}
+	// What Orca 1.4 answers for a method it doesn't have and for a wrong token.
+	for _, code := range []string{"method_not_found", "unauthorized"} {
+		fakeOrca(t, func(map[string]any) map[string]any {
+			return map[string]any{"ok": false, "error": map[string]any{"code": code, "message": code}}
+		})
+		if err := (Client{}).rpc(nil, "worktree.ps", nil); !errors.Is(err, errTransport) {
+			t.Errorf("%s: %v", code, err)
+		}
+	}
 	t.Setenv("ORCA_USER_DATA_PATH", t.TempDir()) // no runtime file
 	if err := (Client{}).rpc(nil, "worktree.ps", nil); !errors.Is(err, errTransport) {
 		t.Errorf("no runtime: %v", err)

@@ -99,6 +99,11 @@ func (c Client) rpc(out any, method string, params map[string]any) error {
 			return fmt.Errorf("%w: answer to another request", errTransport)
 		}
 		if !a.OK {
+			if a.Error != nil && (a.Error.Code == "method_not_found" || a.Error.Code == "unauthorized") {
+				// An Orca whose methods changed, or a runtime file out of
+				// step with the app: its own CLI still knows the way.
+				return fmt.Errorf("%w: %s", errTransport, a.Error.Message)
+			}
 			if a.Error != nil {
 				return fmt.Errorf("orca %s: %s", method, a.Error.Message)
 			}
