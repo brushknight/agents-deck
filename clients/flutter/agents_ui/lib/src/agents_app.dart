@@ -606,6 +606,9 @@ class _AgentTileState extends State<AgentTile> {
                                 pet: pet,
                                 hat: a.hat,
                                 idle: petAgentIdle(a),
+                                // Needs you: a dark plate under it, or its
+                                // orange would vanish into the tile's.
+                                plate: fill == DeckHud.accent,
                                 width: 92,
                               )
                             else

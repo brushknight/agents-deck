@@ -91,9 +91,15 @@ void main() {
                               width: 92,
                             ),
                           ),
-                        // On a tile that needs you: its own colours still.
+                        // On a tile that needs you: its own colours, on a
+                        // dark plate.
                         cell(
-                          PetSprite(pet: pet, hat: _hat, width: 92),
+                          PetSprite(
+                            pet: pet,
+                            hat: _hat,
+                            plate: true,
+                            width: 92,
+                          ),
                           fill: DeckHud.accent,
                         ),
                         cell(

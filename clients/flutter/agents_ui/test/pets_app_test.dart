@@ -149,6 +149,15 @@ void main() {
         ),
       ),
     );
+    // Only the orange tile (infra-network needs you) gets the dark plate.
+    expect(tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).plate, isTrue);
+    for (final id in _pets.keys.where((id) => id != 'h0m3l4')) {
+      expect(
+        tester.widget<PetSprite>(inTile(id, PetSprite)).plate,
+        isFalse,
+        reason: id,
+      );
+    }
     // No level or hearts on tiles.
     expect(find.byType(PetHearts), findsNothing);
     expect(tester.takeException(), isNull);
@@ -178,9 +187,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a card asking you something shows the pet too', (
-    tester,
-  ) async {
+  testWidgets('a card asking you something shows the pet too', (tester) async {
     await pumpBoard(tester, _withPets());
     await open(tester, 'infra-network');
     expect(find.byKey(const Key('agent-pet')), findsOneWidget);

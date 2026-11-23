@@ -368,11 +368,21 @@ class _PetScene {
         (e.key.$1, e.key.$2, col[e.value] ?? col['b']!),
     ];
     body = _layers(cells);
+    final xs = filled.map((c) => c.$1), ys = filled.map((c) => c.$2);
+    bounds = Rect.fromLTRB(
+      xs.reduce(math.min).toDouble(),
+      ys.reduce(math.min).toDouble(),
+      xs.reduce(math.max) + 1.0,
+      ys.reduce(math.max) + 1.0,
+    );
     if (look.asleep) _ice(filled);
     if (_auras[look.aura] case final a?) {
       _aura(filled, a, look.aura == 'legend');
     }
   }
+
+  /// The box the body (and its ice) takes, in cells.
+  late Rect bounds;
 
   List<_Layer> behind = const [];
   List<_Layer> glow = const [];
@@ -458,7 +468,8 @@ class _PetScene {
           (17, ys.first),
           (-3, 7),
           (18, 8),
-          (8, ys.first - 7),
+          // Nudged down from the web's 7 rows, so it stays on the tile.
+          (8, ys.first - 4),
         ])
           _Layer(const Color(0xFFFFF6C8), [
             for (final (dx, dy) in const [
@@ -489,6 +500,8 @@ class _PetScene {
           if (x == x0 || x == x1 || y == y0 || y == y1) (x, y),
     ];
     final g = (y1 - y0 - 1) < (x1 - x0 - 4) ? y1 - y0 - 1 : x1 - x0 - 4;
+    // The cube and the frost under it.
+    bounds = Rect.fromLTRB(x0 - 1.0, y0.toDouble(), x1 + 2.0, y1 + 2.0);
     under = [
       _Layer(edgeC.withValues(alpha: 0.45), [
         for (var x = x0 - 1; x <= x1 + 1; x++) (x, y1 + 1),
@@ -553,6 +566,7 @@ class PetSprite extends StatefulWidget {
     required this.width,
     this.hat,
     this.idle = false,
+    this.plate = false,
   });
 
   final AgentPet pet;
@@ -563,6 +577,10 @@ class PetSprite extends StatefulWidget {
 
   /// Its agent is idle: eyes shut.
   final bool idle;
+
+  /// On a dark square plate, a cell wider than its body all round: for the
+  /// solid orange tiles, where its own orange would vanish.
+  final bool plate;
 
   @override
   State<PetSprite> createState() => _PetSpriteState();
@@ -609,6 +627,7 @@ class _PetSpriteState extends State<PetSprite> {
           scene: scene,
           still: _still,
           rocks: wobbles,
+          plate: widget.plate,
           step: _still || !(scene.moves || wobbles) ? null : _step,
         ),
       ),
@@ -621,6 +640,7 @@ class _PetPainter extends CustomPainter {
   _PetPainter({
     required _PetScene scene,
     required this.still,
+    this.plate = false,
     required this.rocks,
     this.step,
   }) : _scene = scene,
@@ -630,6 +650,7 @@ class _PetPainter extends CustomPainter {
 
   /// Reduce motion: no glow, sparks, snow or glint; stars stay lit.
   final bool still;
+  final bool plate;
 
   /// A ready egg wobbles.
   final bool rocks;
@@ -676,6 +697,10 @@ class _PetPainter extends CustomPainter {
       }
     }
 
+    if (plate) {
+      _paint.color = const Color(0xFF0A0A0A);
+      canvas.drawRect(s.bounds.inflate(1), _paint);
+    }
     draw(s.behind);
     if (!still) {
       // The glow layer fades in and out over 1.8 s (12 steps).
@@ -731,5 +756,6 @@ class _PetPainter extends CustomPainter {
       old._scene != _scene ||
       old.still != still ||
       old.rocks != rocks ||
+      old.plate != plate ||
       old.step != step;
 }
