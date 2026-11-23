@@ -66,6 +66,9 @@ PB_BIND(agentsdeck_link_v1_Hat, agentsdeck_link_v1_Hat, AUTO)
 PB_BIND(agentsdeck_link_v1_Account, agentsdeck_link_v1_Account, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Pet, agentsdeck_link_v1_Pet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Subagent, agentsdeck_link_v1_Subagent, AUTO)
 
 

@@ -39,6 +39,9 @@ agentsdeck.link.v1.Hat.shape             max_size:16
 agentsdeck.link.v1.Hat.color             max_size:12
 agentsdeck.link.v1.Account.name          max_size:16
 agentsdeck.link.v1.Account.color         max_size:12
+agentsdeck.link.v1.Pet.name             max_size:16
+agentsdeck.link.v1.Pet.stage            max_size:8
+agentsdeck.link.v1.Pet.mood             max_size:8
 agentsdeck.link.v1.Subagent.id           max_size:12
 agentsdeck.link.v1.Subagent.title        max_size:64
 agentsdeck.link.v1.Subagent.type         max_size:24

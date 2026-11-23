@@ -119,6 +119,16 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
                                   // the account (Claude config folder) the session runs in; color is a hat colour
   "queued": 0,                    // prompts waiting to be typed in once its turn ends (POST /v1/agents/{id}/prompt, "mode": "queue")
+  "pet": {                        // omitted while Agent pets is off (Settings > General): the agent's pet
+    "name": "Nib",                // made up when it hatches; "" while an egg
+    "stage": "kid",               // egg | baby | kid | grown | strong | mighty | legend, from the level
+    "level": 6,                   // 0 while an egg; never goes down
+    "ate": 160000,                // tokens eaten, all time: input + output, not cache reads or writes
+    "nextAt": 190735,             // ate that reaches the next level
+    "hearts": 3,                  // 0..4
+    "mood": "fed",                // fed | hungry | weak | asleep (hibernating)
+    "hatchedAt": "2026-10-07T18:20:00Z" // omitted while an egg
+  },
   "subagents": [                  // omitted when none: subagents (and workflow runs, type "workflow") still
                                   // working, oldest first. While only they work (Claude's turn is over) the
                                   // agent is "running" with activity {"tool": "Task", "detail": "2 subagents working"}

@@ -34,6 +34,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
@@ -1189,6 +1190,20 @@ func serve(args []string) error {
 		st.Hat = demoHats(fleet, book)
 	}
 	st.Account = accounts.Of
+	// Agent pets (off by default): they eat the agents' tokens.
+	petsPath := paths.Pets()
+	if *demoMode {
+		petsPath = ""
+	}
+	petBook := pets.Open(petsPath, pets.Switch(paths.Config()))
+	st.Pet = petBook.View
+	go petBook.Follow(st.Subscribe, func() []pets.Sight {
+		var out []pets.Sight
+		for _, e := range st.Entries() {
+			out = append(out, pets.Sight{ID: e.A.ID, Session: e.SessionID, Tokens: e.A.Tokens, Status: e.A.Status})
+		}
+		return out
+	}, st.Touch, nil)
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()},
@@ -1281,13 +1296,16 @@ func serve(args []string) error {
 	select {
 	case err := <-errc:
 		st.Flush()
+		_ = petBook.Save()
 		return err
 	case s := <-sig:
 		st.Flush()
+		_ = petBook.Save()
 		log.Printf("stopping (%s)", sigName(s))
 		return nil
 	case <-serveStop:
 		st.Flush()
+		_ = petBook.Save()
 		log.Printf("stopping (asked from Settings)")
 		return nil
 	}

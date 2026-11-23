@@ -27,6 +27,7 @@ var limits = map[string]limit{
 	"Option.key": {size: 8}, "Option.label": {size: 96},
 	"Hat.shape": {size: 16}, "Hat.color": {size: 12},
 	"Account.name": {size: 16}, "Account.color": {size: 12},
+	"Pet.name":    {size: 16}, "Pet.stage": {size: 8}, "Pet.mood": {size: 8},
 	"Subagent.id": {size: 12}, "Subagent.title": {size: 64}, "Subagent.type": {size: 24}, "Subagent.tool": {size: 24},
 	"Answer.agent_id": {size: 12}, "Answer.prompt_id": {size: 16}, "Answer.key": {size: 8},
 	"Focus.agent_id": {size: 12}, "Interrupt.agent_id": {size: 12}, "SendPrompt.agent_id": {size: 12}, "SendPrompt.text": {size: 384}, "Queue.agent_id": {size: 12}, "Queue.cancel_id": {size: 8}, "Dismiss.agent_id": {size: 12}, "Resume.agent_id": {size: 12},

@@ -181,6 +181,8 @@ type Store struct {
 	Account func(name, transcript string) *model.Account
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
+	// Pet gives each agent its pet (nil, or a nil answer: pets are off).
+	Pet func(a model.Agent) *model.Pet
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -464,7 +466,7 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued := s.Hat, s.Account, s.Queued
+	hat, account, queued, pet := s.Hat, s.Account, s.Queued, s.Pet
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
@@ -477,6 +479,9 @@ func (s *Store) Snapshot() model.State {
 		}
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
+		}
+		if pet != nil {
+			agents[i].Pet = pet(agents[i])
 		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })

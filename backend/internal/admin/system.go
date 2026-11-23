@@ -116,6 +116,7 @@ type Settings struct {
 	Restore       string `json:"restore"`  // ask | auto
 	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
 	Updates       string `json:"updates"`  // notify | auto | off
+	Pets          bool   `json:"pets"`     // Agent pets: every agent gets a pet that eats its tokens
 
 	// Network: paired boards and phones may connect over the network
 	// (config.json deviceAddr). NetworkRunning is what this run of the
@@ -164,6 +165,7 @@ func (a *Admin) SettingsNow() Settings {
 		s.Sessions = SessionsPick
 	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
+	s.Pets = boolean(cfg, "pets", false)
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
 	if a.WifiSSID != nil {
@@ -188,6 +190,7 @@ type SettingsPatch struct {
 	Restore       *string        `json:"restore"`
 	Sessions      *string        `json:"sessions"`
 	Updates       *string        `json:"updates"`
+	Pets          *bool          `json:"pets"`
 	Network       *bool          `json:"network"`
 	Magic         *devices.Magic `json:"magic"` // the whole setting
 	Wifi          *struct {
@@ -267,6 +270,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
 		}
+		if p.Pets != nil {
+			cfg["pets"] = *p.Pets
+		}
 		if p.Network != nil {
 			if *p.Network {
 				cfg["deviceAddr"] = ":7341"
@@ -279,6 +285,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if p.Pets != nil && a.Store != nil {
+		a.Store.Touch() // the screens draw the pets, or stop drawing them
 	}
 	res := map[string]any{}
 	if p.Wifi != nil {

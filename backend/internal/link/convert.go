@@ -55,6 +55,10 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
+		if a.Pet != nil {
+			p.Pet = &linkpb.Pet{Name: a.Pet.Name, Stage: a.Pet.Stage, Level: uint32(a.Pet.Level), Ate: a.Pet.Ate,
+				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt)}
+		}
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
 		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch

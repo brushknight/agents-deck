@@ -232,6 +232,7 @@ message Agent {
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
   uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+  Pet pet = 43;                // its pet; unset while Agent pets is off
 }
 
 message Activity {
@@ -284,6 +285,18 @@ message Hat {
 message Account {
   string name = 1;
   string color = 2;
+}
+
+// An agent's pet: it eats the agent's input and output tokens and grows.
+message Pet {
+  string name = 1;          // "" until it hatches
+  string stage = 2;         // egg, baby, kid, grown, strong, mighty, legend
+  uint32 level = 3;         // 0 while an egg; never goes down
+  int64 ate = 4;            // tokens eaten, all time
+  int64 next_at = 5;        // ate that reaches the next level
+  uint32 hearts = 6;        // 0..4
+  string mood = 7;          // fed, hungry, weak, asleep (hibernating)
+  int64 hatched_at_ms = 8;  // 0 while an egg
 }
 
 message Subagent {
