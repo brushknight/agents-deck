@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -80,6 +81,9 @@ type Device struct {
 	// Bluetooth, set when you add it there; and which uplink it prefers.
 	BLE    string `json:"ble,omitempty"`
 	Uplink string `json:"uplink,omitempty"` // auto ("") | wifi | ble
+	// Motion: the board has a motion sensor (Hello input INPUT_MOTION), so
+	// it can be the magic trick's receiver.
+	Motion bool `json:"motion,omitempty"`
 }
 
 // Active: may connect right now.
@@ -113,6 +117,41 @@ type Registry struct {
 // next to devices.json, in devices-settings.json.
 type Settings struct {
 	AutoApprove AutoApprove `json:"autoApprove"`
+	Magic       Magic       `json:"magic"`
+}
+
+// Magic is the magic trick: a knock on the receiver (a board with a motion
+// sensor) takes the agents the giver (any screen) shows, the next knock gives
+// them back. Off by default. The corners say where tiles fly: on the giver
+// out to GiverLeave and back in from GiverArrive, on the receiver in from
+// ReceiverArrive and out to ReceiverLeave.
+type Magic struct {
+	On             bool   `json:"on"`
+	Giver          string `json:"giver"`
+	Receiver       string `json:"receiver"`
+	GiverLeave     string `json:"giverLeave"`
+	GiverArrive    string `json:"giverArrive"`
+	ReceiverArrive string `json:"receiverArrive"`
+	ReceiverLeave  string `json:"receiverLeave"`
+}
+
+// Corners a tile can fly to or from.
+var Corners = []string{"top-left", "top-right", "bottom-left", "bottom-right"}
+
+// WithDefaults fills the corners left empty: the giver's tiles leave to
+// the bottom-left and come back from the top-left; the receiver's arrive
+// from the top-right and leave to the bottom-right.
+func (m Magic) WithDefaults() Magic {
+	def := func(v *string, d string) {
+		if *v == "" {
+			*v = d
+		}
+	}
+	def(&m.GiverLeave, "bottom-left")
+	def(&m.GiverArrive, "top-left")
+	def(&m.ReceiverArrive, "top-right")
+	def(&m.ReceiverLeave, "bottom-right")
+	return m
 }
 
 // AutoApprove: a new board saying Hello on a registered USB port (`agentctl
@@ -180,6 +219,52 @@ func (r *Registry) SetAutoApprove(on bool, scope Scope) error {
 	r.load()
 	next := r.set
 	next.AutoApprove = AutoApprove{USB: on, Scope: scope}
+	return r.saveSettings(next)
+}
+
+// SetMagic stores the magic trick's settings. When it is on, the giver and
+// the receiver must be two different devices you have, and the receiver one
+// with a motion sensor.
+func (r *Registry) SetMagic(m Magic) error {
+	m = m.WithDefaults()
+	for _, c := range []string{m.GiverLeave, m.GiverArrive, m.ReceiverArrive, m.ReceiverLeave} {
+		if !slices.Contains(Corners, c) {
+			return fmt.Errorf("corner %q: use top-left, top-right, bottom-left or bottom-right", c)
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	if m.On {
+		g, r2 := r.devices[m.Giver], r.devices[m.Receiver]
+		switch {
+		case g == nil || g.Revoked:
+			return fmt.Errorf("giver %q: not a device here (agentctl devices)", m.Giver)
+		case r2 == nil || r2.Revoked:
+			return fmt.Errorf("receiver %q: not a device here (agentctl devices)", m.Receiver)
+		case m.Giver == m.Receiver:
+			return errors.New("the giver and the receiver must be two different devices")
+		case !r2.Motion:
+			return fmt.Errorf("%s has no motion sensor: the receiver is taken by a knock, so it needs one", m.Receiver)
+		}
+	}
+	next := r.set
+	next.Magic = m
+	return r.saveSettings(next)
+}
+
+// SetMotion notes whether a board has a motion sensor (from its Hello).
+func (r *Registry) SetMotion(name string, on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	if d := r.devices[name]; d != nil && d.Motion != on {
+		d.Motion = on
+		_ = r.save()
+	}
+}
+
+func (r *Registry) saveSettings(next Settings) error {
 	b, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return err

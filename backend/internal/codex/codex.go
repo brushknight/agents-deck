@@ -76,8 +76,8 @@ func RecentThreads(window time.Duration) ([]Thread, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "-readonly", "-json", db, q)
-	proc.NoWindow(cmd)
-	out, err := cmd.Output()
+	proc.Tidy(cmd)
+	out, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func apply(e *store.Entry, kind string, p payload, replay bool) bool {
 			for i := len(p.Content) - 1; i >= 0; i-- {
 				t := strings.TrimSpace(p.Content[i].Text)
 				if t != "" && !strings.HasPrefix(t, "<") {
-					e.A.LastPrompt = clip(strings.Join(strings.Fields(t), " "), 280)
+					e.A.LastPrompt = clip(strings.Join(strings.Fields(t), " "), model.LastPromptMax)
 					e.A.Turns++
 					return true
 				}

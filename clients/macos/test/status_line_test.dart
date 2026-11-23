@@ -194,6 +194,56 @@ void main() {
       expect(opened, ['boards', 'boards']);
     });
 
+    testWidgets('no Pin button where the shell can\'t pin', (tester) async {
+      await pump(tester, const ServiceStatus(ServiceState.running));
+      expect(find.byKey(const Key('status-pin')), findsNothing);
+      expect(find.byKey(const Key('status-drag')), findsNothing);
+    });
+
+    testWidgets('Pin keeps the deck on top; pinned, the line moves it', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(880, 880 + 2 * statusLineHeight);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final pinned = ValueNotifier(false);
+      final asked = <bool>[];
+      var drags = 0;
+      await tester.pumpWidget(
+        MenuBarDeck(
+          source: FakeAgentsSource.demo(),
+          visible: ValueNotifier(true),
+          service: FakeDeckService(
+            const ServiceStatus(ServiceState.running, system: _system),
+          ),
+          pinned: pinned,
+          onPin: (on) {
+            asked.add(on);
+            pinned.value = on;
+          },
+          onDrag: () => drags++,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Pin'), findsOneWidget);
+      expect(find.byKey(const Key('status-drag')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('status-pin')));
+      await tester.pump();
+      expect(asked, [true]);
+      expect(find.text('Pinned'), findsOneWidget);
+      expect(find.byKey(const Key('status-gear')), findsOneWidget);
+
+      await tester.drag(find.text('running'), const Offset(-60, 20));
+      expect(drags, 1);
+
+      await tester.tap(find.byKey(const Key('status-pin')));
+      await tester.pump();
+      expect(asked, [true, false]);
+      expect(find.text('Pin'), findsOneWidget);
+      expect(find.byKey(const Key('status-drag')), findsNothing);
+    });
+
     testWidgets('what does not fit becomes +N', (tester) async {
       await pump(
         tester,

@@ -245,7 +245,14 @@ static inline DeckCommand touch(PanelUi& ui, const SquareSpec& S, const Fleet& f
   if (ui.caught) {                                 // it only stopped the row: rest on a tile
     settleFrom(ui, f, 0, ms);
   } else if (adx <= kSlop && ady <= kSlop) {
-    if (pressed.kind != Hit::None || (uint32_t)(ms - ui.downMs) <= kTapMaxMs)
+    if (pressed.kind == Hit::Interrupt && pressed.agent >= 0 && pressed.agent < f.count) {
+      // The strip has no confirm sheet (squareTap would wait on one it never shows): interrupt at once.
+      if (f.agents[pressed.agent].status != Status::Running) uiToast(ui, "not running any more", ms, 1500);
+      else {
+        out = commandFor(DeckCmd::Interrupt, f.agents[pressed.agent]);
+        uiToast(ui, "interrupted", ms, 1200);
+      }
+    } else if (pressed.kind != Hit::None || (uint32_t)(ms - ui.downMs) <= kTapMaxMs)
       out = squareTap(ui, S, f, pressed.kind != Hit::None ? pressed : hit(ui, f, ui.x0, ui.y0, scope), scope, ms);
   } else if (!home && dx >= kSwipeMin && adx >= ady) {
     squareHome(ui);                                // swipe right: back

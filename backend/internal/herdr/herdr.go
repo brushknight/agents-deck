@@ -11,12 +11,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // Dir is herdr's config folder, which holds the sockets.
@@ -60,7 +61,7 @@ func SessionName(socket string) string {
 // ClientTTYs are the terminals attached to a herdr session (`herdr`,
 // `herdr --session <name>`, `herdr session attach <name>`), newest first.
 func ClientTTYs(session string) []string {
-	out, err := exec.Command("/bin/ps", "-axww", "-o", "pid=,tty=,args=").Output()
+	out, err := proc.Output(5*time.Second, "/bin/ps", "-axww", "-o", "pid=,tty=,args=")
 	if err != nil {
 		return nil
 	}

@@ -17,6 +17,20 @@ const (
 type State struct {
 	Server Server  `json:"server"`
 	Agents []Agent `json:"agents"`
+	// Magic is this screen's part in the magic trick (absent: none, or the
+	// trick is off). Only the giver and the receiver get it.
+	Magic *Magic `json:"magic,omitempty"`
+}
+
+// Magic: the giver (its agents are taken) or the receiver (it takes them
+// with a knock), whether they are taken now, and where this screen's tiles
+// fly: in from Arrive, out to Leave (corners: top-left, top-right,
+// bottom-left, bottom-right).
+type Magic struct {
+	Role   string `json:"role"` // giver | receiver
+	Taken  bool   `json:"taken"`
+	Arrive string `json:"arrive"`
+	Leave  string `json:"leave"`
 }
 
 type Server struct {
@@ -24,6 +38,11 @@ type Server struct {
 	Version string    `json:"version"`
 	Time    time.Time `json:"time"`
 }
+
+// LastPromptMax is how much of an agent's last prompt the deck keeps: enough
+// for the sidebar on Home to show it all, mostly. Boards get the first 160
+// characters (link.options).
+const LastPromptMax = 1000
 
 type Agent struct {
 	ID   string `json:"id"`
@@ -43,7 +62,7 @@ type Agent struct {
 	ModelLabel    string     `json:"modelLabel"`
 	Effort        string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
 	Activity      *Activity  `json:"activity"`
-	LastPrompt    string     `json:"lastPrompt"`
+	LastPrompt    string     `json:"lastPrompt"` // up to LastPromptMax characters; boards get the first 160
 	Waiting       *Prompt    `json:"waiting"`
 	Error         *ErrInfo   `json:"error"`
 	Tokens        Tokens     `json:"tokens"`
@@ -58,6 +77,7 @@ type Agent struct {
 	External      bool       `json:"external"`            // owned by another app (Codex): view and focus only
 	App           string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
 	Subagents     []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
+	Queued        int        `json:"queued"`              // prompts waiting to be typed in once its turn ends ("mode": "queue")
 	Hat           *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
 	Account       *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
 	StartedAt     time.Time  `json:"startedAt"`

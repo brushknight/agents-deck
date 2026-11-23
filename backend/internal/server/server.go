@@ -24,6 +24,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
+	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -34,6 +35,21 @@ type Controller interface {
 	Interrupt(id string) error
 	Dismiss(id string) error
 	Resume(id string) error
+}
+
+// Prompter types a task into an agent's session and presses Enter (POST
+// /v1/agents/{id}/prompt); with interrupt, it stops the current turn first.
+// Queued prompts (queue.go) go in through it too.
+type Prompter interface {
+	Prompt(id, text string, interrupt bool) error
+}
+
+// Typer types a prompt into a session even while the agent works ("mode":
+// "type"): the tool's own queue takes it, as when you type ahead in its
+// chat (Claude Code reads it at its next step). Refused while the agent
+// asks a question, so a typed prompt never answers one.
+type Typer interface {
+	Type(id, text string) error
 }
 
 // Restorer brings back agents lost with the tmux server (POST /v1/restore):
@@ -79,6 +95,14 @@ var (
 	ErrNotFound    = errors.New("no such agent")
 	ErrStalePrompt = errors.New("prompt changed")
 	ErrBadKey      = errors.New("not an option of the current prompt")
+	// Sending a prompt (POST /v1/agents/{id}/prompt).
+	ErrBusy     = errors.New("the agent is working on a turn: wait until it is idle, or send with interrupt to stop it first")
+	ErrAsking   = errors.New("the agent is waiting on a question: answer it instead (or send with interrupt to dismiss the question first)")
+	ErrStarting = errors.New("the agent is still starting: try again in a few seconds")
+	ErrExited   = errors.New("the agent has exited: resume it first")
+	// ErrReadOnly: the session can't be typed into from the deck (it runs
+	// in another terminal or app). Errors that wrap it answer 422.
+	ErrReadOnly = errors.New("the deck can't type into this session")
 )
 
 type Server struct {
@@ -94,6 +118,12 @@ type Server struct {
 	Devices *devices.Registry
 	CA      *pki.CA
 	Audit   *devices.Audit
+	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
+	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
+	Tokens *devices.Tokens
+	// Queue holds prompts sent with "mode": "queue" until their agent is
+	// idle (queue.go; RunQueue types them in). nil: queueing is off.
+	Queue *queue.Queue
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -133,6 +163,8 @@ type Server struct {
 	Admin   http.Handler
 	logins  loginCodes
 	apiOnce sync.Once
+	held    stash    // the magic trick: what the receiver holds (stash.go)
+	queue   delivery // typing queued prompts in (queue.go)
 	apiMux  *http.ServeMux
 }
 
@@ -149,9 +181,11 @@ const sessionCookie = "agentsterm_session"
 func (s *Server) api() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, s.Store.Snapshot())
+		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("POST /v1/stash", s.postStash)
+	mux.HandleFunc("POST /v1/magic/view", s.postMagicView)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			PromptID string `json:"promptId"`
@@ -163,6 +197,65 @@ func (s *Server) api() *http.ServeMux {
 		}
 		s.act(w, s.Ctl.Answer(r.PathValue("id"), body.PromptID, body.Key))
 	})
+	mux.HandleFunc("POST /v1/agents/{id}/prompt", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Text      string `json:"text"`
+			Interrupt bool   `json:"interrupt"`
+			Mode      string `json:"mode"`     // now | interrupt | queue | type ("": now, or interrupt with "interrupt": true)
+			Position  string `json:"position"` // queue only: back (default) | front
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 3*MaxPromptBytes)).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "mode": "now"|"interrupt"|"queue"|"type"}`)
+			return
+		}
+		mode := body.Mode
+		switch {
+		case mode == "" && body.Interrupt:
+			mode = "interrupt"
+		case mode == "":
+			mode = "now"
+		case mode != "now" && mode != "interrupt" && mode != "queue" && mode != "type":
+			writeErr(w, http.StatusBadRequest, `"mode" is now, interrupt, queue or type`)
+			return
+		case body.Interrupt && mode != "interrupt":
+			writeErr(w, http.StatusBadRequest, `"interrupt": true goes with "mode": "interrupt" only`)
+			return
+		}
+		if body.Position != "" && body.Position != "back" && body.Position != "front" {
+			writeErr(w, http.StatusBadRequest, `"position" is back or front`)
+			return
+		}
+		text, err := CleanPrompt(body.Text)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		p, ok := s.Ctl.(Prompter)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "sending prompts is not available here")
+			return
+		}
+		if mode == "queue" {
+			s.enqueue(w, r, p, r.PathValue("id"), text, body.Position == "front")
+			return
+		}
+		if mode == "type" {
+			t, ok := s.Ctl.(Typer)
+			if !ok {
+				writeErr(w, http.StatusNotImplemented, "typing ahead is not available here")
+				return
+			}
+			id := r.PathValue("id")
+			unlock := s.queue.lock(id)
+			err := t.Type(id, text)
+			unlock()
+			s.act(w, err)
+			return
+		}
+		s.act(w, s.prompt(p, r.PathValue("id"), text, mode == "interrupt"))
+	})
+	mux.HandleFunc("GET /v1/agents/{id}/queue", s.getQueue)
+	mux.HandleFunc("POST /v1/agents/{id}/queue/{qid}/cancel", s.cancelQueued)
 	mux.HandleFunc("POST /v1/agents/{id}/focus", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Focus(r.PathValue("id")))
 	})
@@ -373,6 +466,10 @@ func (s *Server) act(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrBadKey):
 		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrBusy), errors.Is(err, ErrAsking), errors.Is(err, ErrStarting), errors.Is(err, ErrExited):
+		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrReadOnly):
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}
@@ -393,7 +490,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	rc := http.NewResponseController(w)
 	send := func() bool {
-		b, _ := json.Marshal(s.Store.Snapshot())
+		b, _ := json.Marshal(s.View(s.Store.Snapshot(), callerOf(r)))
 		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b); err != nil {
 			return false
@@ -456,6 +553,16 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			writeErr(w, http.StatusMisdirectedRequest, "bad host")
 			return
 		}
+		if r.URL.Path == "/mcp" {
+			// MCP clients send a token, not the session cookie. A browser page
+			// on another site can't use it: its Origin is refused.
+			if o := r.Header.Get("Origin"); o != "" && o != "http://"+r.Host {
+				writeErr(w, http.StatusForbidden, "bad origin")
+				return
+			}
+			s.serveMCP(w, r)
+			return
+		}
 		if pre != nil && pre(w, r) {
 			return
 		}
@@ -474,7 +581,7 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			case "/fixture.json":
 				http.NotFound(w, r) // dev-only file never served by the daemon
 				return
-			case "/settings", "/settings/":
+			case "/", "/settings", "/settings/": // one app: the deck (Home) and its settings
 				http.ServeFileFS(w, r, s.Static, "settings.html")
 				return
 			}
@@ -548,6 +655,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
+	mux.HandleFunc("/local/mcp", s.serveMCP) // agentctl mcp (stdio): still needs a token
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
 	mux.HandleFunc("/local/link/firmware", s.linkFirmware)

@@ -60,6 +60,13 @@ constexpr uint8_t CH32_TP_RST = 1 << 1, CH32_LCD_RST = 1 << 3, CH32_SYS_EN = 1 <
 static_assert(LCD4_BOUNCE_PX % 480 == 0 && (LCD4_BOUNCE_PX == 0 || (480 * 480) % LCD4_BOUNCE_PX == 0),
               "LCD4_BOUNCE_PX: whole lines that divide the frame");
 #define LCD4_RGB_EXTRA , 0 /* pclk on the rising edge */, GFX_NOT_DEFINED, false, 0, 0, LCD4_BOUNCE_PX
+// With a bounce buffer the firmware fills it itself (LCD4_SCAN, below): the
+// panel scans the frames the layout draws, with no frame buffer of its own.
+#if LCD4_BOUNCE_PX > 0
+#define LCD4_SCAN 1
+#include <esp_lcd_panel_ops.h>
+#include <esp_lcd_panel_rgb.h>
+#endif
 #else
 #undef LCD4_BOUNCE_PX
 #define LCD4_BOUNCE_PX 0
@@ -80,6 +87,217 @@ static Arduino_RGB_Display* lcd = new Arduino_RGB_Display(
 static uint16_t* panelFb = nullptr;
 static bool haveCh32 = false, haveTca = false;
 static uint8_t gt911 = 0;
+
+#ifdef LCD4_SCAN
+#ifdef LCD4_DIAG
+bool diagOnVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*);   // (diagnostics, below)
+#endif
+// The frames, three of them in PSRAM, and the panel scans one while the next
+// is drawn into another: nothing is copied into a frame buffer, so a frame
+// costs its drawing only. The RGB peripheral reads two bounce buffers of ten
+// lines in internal RAM; the LCD interrupt refills each from the frame on
+// screen (fill(), below), turned 180 degrees on the way (the panel is mounted
+// upside down). A new frame goes on screen at the start of a panel frame, so
+// a picture is never shown half drawn.
+//
+// The frame on screen is a table of row pointers: the rows of one of the three
+// frames, or rows that a layout keeps (pushRows: the board's panel sliding
+// over the screen, cut from two pictures with nothing drawn or copied).
+//
+// Frames are drawn in strips of internal RAM (grid_app.h) and copied in by
+// rows: a row whose pixels are the same as that frame's last time (a hash of
+// each row, per frame) is not copied, so a frame where only a few critters
+// moved writes only their rows to PSRAM.
+namespace scan {
+constexpr int kSlots = 3;
+static uint16_t* frames[kSlots];                       // PSRAM
+static const uint16_t* rows[kSlots][kH];               // what each slot shows, row by row (internal RAM)
+static uint32_t hashes[kSlots][kH];                    // each frame's rows as last copied in
+static bool hashed[kSlots];                            // false: the frame was drawn whole, its hashes are stale
+static FrameSplit splits[kSlots];                      // a slot showing two pictures side by side (home's pages sliding)
+static bool isSplit[kSlots];
+static volatile int onScreen = -1, next = -1;          // the slots the interrupt shows and shows next
+static int drawing = -1;                               // the slot being drawn into
+static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
+static esp_lcd_panel_handle_t panel = nullptr;
+
+// A slot neither on screen nor waiting to be (there always is one of three).
+static int freeSlot() {
+  portENTER_CRITICAL(&lock);
+  const int a = next, b = onScreen;
+  portEXIT_CRITICAL(&lock);
+  for (int k = 0; k < kSlots; k++)
+    if (k != a && k != b) return k;
+  return 0;
+}
+
+static void show(int k) {
+  portENTER_CRITICAL(&lock);
+  next = k;
+  portEXIT_CRITICAL(&lock);
+  drawing = -1;
+}
+
+static void slotRows(int k) {
+  isSplit[k] = false;
+  for (int y = 0; y < kH; y++) rows[k][y] = frames[k] + (size_t)y * kW;
+}
+
+// The interrupt: `len` bytes of the panel from pixel `pos` (whole lines), from
+// the frame on screen, the last row first and each row backwards.
+static IRAM_ATTR bool fill(esp_lcd_panel_handle_t, void* buf, int pos, int len, void*) {
+  if (pos == 0) {                                      // a new panel frame: the next picture, if there is one
+    portENTER_CRITICAL_ISR(&lock);
+    if (next >= 0) {
+      onScreen = next;
+      next = -1;
+    }
+    portEXIT_CRITICAL_ISR(&lock);
+  }
+  uint32_t* out = (uint32_t*)buf;
+  const int k = onScreen, y0 = pos / kW, n = len / 2 / kW;
+  if (k < 0) {
+    for (int i = 0; i < len / 4; i++) out[i] = 0;
+    return false;
+  }
+  if (isSplit[k]) {                                    // two pictures: source pixel x < W - s from a at x + s, else b
+    const FrameSplit& sp = splits[k];
+    uint16_t* o = (uint16_t*)buf;
+    const int na = kW - sp.shift;
+    for (int y = y0; y < y0 + n; y++) {
+      const size_t row = (size_t)(kH - 1 - y) * kW;
+      if (sp.b) for (const uint16_t* p = sp.b + row + sp.shift - 1; p >= sp.b + row; p--) *o++ = *p;
+      else for (int i = 0; i < sp.shift; i++) *o++ = sp.fill;
+      if (sp.a) for (const uint16_t* p = sp.a + row + kW - 1; p >= sp.a + row + sp.shift; p--) *o++ = *p;
+      else for (int i = 0; i < na; i++) *o++ = sp.fill;
+    }
+    return false;
+  }
+  for (int y = y0; y < y0 + n; y++) {
+    const uint32_t* in = (const uint32_t*)rows[k][kH - 1 - y] + kW / 2;
+    for (int i = 0; i < kW / 2; i += 4, out += 4) {
+      const uint32_t a = in[-1], b = in[-2], c = in[-3], d = in[-4];
+      in -= 4;
+      out[0] = a >> 16 | a << 16;
+      out[1] = b >> 16 | b << 16;
+      out[2] = c >> 16 | c << 16;
+      out[3] = d >> 16 | d << 16;
+    }
+  }
+  return false;
+}
+
+static uint32_t rowHash(const uint16_t* px) {
+  const uint32_t* w = (const uint32_t*)px;
+  uint32_t h = 2166136261u;
+  for (int i = 0; i < kW / 2; i++) h = (h ^ w[i]) * 16777619u;
+  return h;
+}
+
+// grid_app.h: a strip of the next frame, from internal RAM.
+static void pushStrip(const uint16_t* px, int y0, int n, bool last) {
+  if (y0 == 0 || drawing < 0) {
+    drawing = freeSlot();
+    slotRows(drawing);                                 // (a slide may have pointed its rows elsewhere)
+    if (!hashed[drawing]) {
+      for (int y = 0; y < kH; y++) hashes[drawing][y] = 0;
+      hashed[drawing] = true;
+    }
+  }
+  const int k = drawing;
+  for (int y = y0; y < y0 + n; y++, px += kW) {
+    const uint32_t h = rowHash(px) | 1;                // never 0: 0 is "not copied yet"
+    if (hashes[k][y] == h) continue;
+    hashes[k][y] = h;
+    memcpy(frames[k] + (size_t)y * kW, px, kW * 2);
+  }
+  if (last) show(k);
+}
+
+// A whole frame: drawn into a free slot, which then needs every row next time it is drawn in strips.
+static uint16_t* frameBegin() {
+  if (!panel) return nullptr;
+  drawing = freeSlot();
+  slotRows(drawing);
+  hashed[drawing] = false;
+  return frames[drawing];
+}
+
+static void push(const uint16_t* frame) {
+  if (drawing >= 0 && frame == frames[drawing]) show(drawing);
+}
+
+// Rows a layout keeps (the board's panel sliding): shown as they are.
+static void pushRows(const uint16_t* const* r) {
+  const int k = drawing >= 0 ? drawing : freeSlot();
+  for (int y = 0; y < kH; y++) rows[k][y] = r[y];
+  isSplit[k] = false;
+  hashed[k] = false;
+  show(k);
+}
+
+// Two pictures side by side (home's pages sliding): composed as the interrupt refills.
+static void pushSplit(const FrameSplit& sp) {
+  const int k = drawing >= 0 ? drawing : freeSlot();
+  splits[k] = sp;
+  isSplit[k] = true;
+  hashed[k] = false;
+  show(k);
+}
+
+// The panel: Arduino_GFX's settings for this board (Arduino_ESP32RGBPanel at
+// 12 MHz, timings and pins above), with no frame buffer and fill() as the
+// bounce buffers' source.
+static bool begin() {
+  for (int k = 0; k < kSlots; k++) {
+    frames[k] = (uint16_t*)heap_caps_calloc((size_t)kW * kH, 2, MALLOC_CAP_SPIRAM);
+    if (!frames[k]) return false;
+    slotRows(k);
+  }
+  esp_lcd_rgb_panel_config_t cfg = {};
+  cfg.clk_src = LCD_CLK_SRC_DEFAULT;
+  cfg.timings.pclk_hz = 12000000;
+  cfg.timings.h_res = kW;
+  cfg.timings.v_res = kH;
+  cfg.timings.hsync_front_porch = 10;
+  cfg.timings.hsync_pulse_width = 8;
+  cfg.timings.hsync_back_porch = 50;
+  cfg.timings.vsync_front_porch = 10;
+  cfg.timings.vsync_pulse_width = 8;
+  cfg.timings.vsync_back_porch = 20;
+  cfg.timings.flags.hsync_idle_low = 0;              // polarity 1
+  cfg.timings.flags.vsync_idle_low = 0;
+  cfg.timings.flags.de_idle_high = 0;
+  cfg.timings.flags.pclk_active_neg = 0;             // pclk on the rising edge
+  cfg.timings.flags.pclk_idle_high = 0;
+  cfg.data_width = 16;
+  cfg.bits_per_pixel = 16;
+  cfg.num_fbs = 0;
+  cfg.bounce_buffer_size_px = LCD4_BOUNCE_PX;
+  cfg.dma_burst_size = 64;
+  cfg.hsync_gpio_num = 38;
+  cfg.vsync_gpio_num = 39;
+  cfg.de_gpio_num = 40;
+  cfg.pclk_gpio_num = 41;
+  cfg.disp_gpio_num = -1;
+  const int data[16] = {5, 45, 48, 47, 21,             // B0..B4
+                        14, 13, 12, 11, 10, 9,         // G0..G5
+                        46, 3, 8, 18, 17};             // R0..R4
+  for (int i = 0; i < 16; i++) cfg.data_gpio_nums[i] = data[i];
+  cfg.flags.disp_active_low = 1;
+  cfg.flags.no_fb = 1;
+  if (esp_lcd_new_rgb_panel(&cfg, &panel) != ESP_OK) return false;
+  esp_lcd_rgb_panel_event_callbacks_t cbs = {};
+  cbs.on_bounce_empty = fill;
+#ifdef LCD4_DIAG
+  cbs.on_vsync = diagOnVsync;
+#endif
+  if (esp_lcd_rgb_panel_register_event_callbacks(panel, &cbs, nullptr) != ESP_OK) return false;
+  if (esp_lcd_panel_reset(panel) != ESP_OK || esp_lcd_panel_init(panel) != ESP_OK) return false;
+  return true;
+}
+}  // namespace scan
+#endif
 
 // ---------------------------------------------------------------- I2C
 static bool i2cWrite(uint8_t addr, const uint8_t* data, size_t n) {
@@ -199,7 +417,7 @@ RTC_NOINIT_ATTR static uint32_t diagMagic;
 RTC_NOINIT_ATTR static uint32_t diagBoots;
 RTC_NOINIT_ATTR static uint8_t diagWhy[8];
 static volatile uint32_t diagVsyncs = 0;
-static IRAM_ATTR bool diagOnVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*) {
+IRAM_ATTR bool diagOnVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t*, void*) {
   diagVsyncs = diagVsyncs + 1;
   return false;
 }
@@ -212,11 +430,13 @@ static void diagBegin() {
   if (diagBoots >= 8) memmove(diagWhy, diagWhy + 1, 7);
   diagWhy[diagBoots < 8 ? diagBoots : 7] = (uint8_t)esp_reset_reason();
   diagBoots++;
+#ifndef LCD4_SCAN                                    // (scan::begin registers it with its own callback)
   if (rgbPanel->_panel_handle) {
     esp_lcd_rgb_panel_event_callbacks_t cbs = {};
     cbs.on_vsync = diagOnVsync;
     esp_lcd_rgb_panel_register_event_callbacks(rgbPanel->_panel_handle, &cbs, nullptr);
   }
+#endif
 }
 static void diagLoop() {
   static uint32_t last = 0;
@@ -233,8 +453,18 @@ static void diagLoop() {
 // ---------------------------------------------------------------- the board
 static bool boardBegin() {
   expanderInit();
+#ifdef LCD4_SCAN
+  // The ST7701's own setup over 3-wire SPI, as Arduino_RGB_Display::begin does it; then the panel.
+  if (!spiBus->begin()) return false;
+  spiBus->sendCommand(0x01);                         // software reset
+  delay(120);
+  spiBus->batchOperation(st7701_type1_init_operations, sizeof(st7701_type1_init_operations));
+  if (!scan::begin()) return false;
+  panelFb = scan::frames[0];
+#else
   if (!lcd->begin()) return false;
   panelFb = lcd->getFramebuffer();
+#endif
   gt911 = i2cPresent(ADDR_GT911) ? ADDR_GT911 : i2cPresent(ADDR_GT911_ALT) ? ADDR_GT911_ALT : 0;
   PANEL_LOG("lcd4: expander %s, gt911 0x%02X, framebuffer %p", haveCh32 ? "ch32v003" : haveTca ? "tca9554" : "NONE",
             gt911, panelFb);
@@ -252,7 +482,7 @@ static bool boardBegin() {
 // the CPU's cache; with one, the LCD interrupt copies the framebuffer through
 // that same cache, so there is nothing to write back, and a write-back of the
 // whole frame would only hold those copies up (as on the round boards).
-static void push(const uint16_t* src) {
+[[maybe_unused]] static void push(const uint16_t* src) {
   if (!panelFb) return;
   const uint32_t* in = (const uint32_t*)src;
   uint32_t* out = (uint32_t*)panelFb + kW * kH / 2 - 1;
@@ -278,7 +508,16 @@ void setup() {
   static const BigPanel layout(specBig480());   // the desk panel's UI at 2/3
   b.layout = &layout;
   b.begin = boardBegin;
+#ifdef LCD4_SCAN
+  b.push = scan::push;
+  b.pushRows = scan::pushRows;
+  b.frameBegin = scan::frameBegin;
+  b.stripRows = 24;                                   // 23 KB of internal RAM
+  b.pushStrip = scan::pushStrip;
+  b.pushSplit = scan::pushSplit;
+#else
   b.push = push;
+#endif
   b.touch = touch;
   b.brightness = brightness;
   b.bootPin = PIN_BOOT;

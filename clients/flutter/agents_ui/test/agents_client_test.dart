@@ -290,6 +290,16 @@ void main() {
       },
     );
 
+    test('queued: prompts waiting for the turn to end, 0 when missing', () {
+      final s = AgentsState.fromJson({
+        'agents': [
+          {'id': 'a1', 'slot': 0, 'status': 'running', 'queued': 2},
+          {'id': 'a2', 'slot': 1, 'status': 'idle'},
+        ],
+      });
+      expect(s.agents.map((a) => a.queued).toList(), [2, 0]);
+    });
+
     test('account: parsed when set, null while only one is set up', () {
       final s = AgentsState.fromJson({
         'agents': [

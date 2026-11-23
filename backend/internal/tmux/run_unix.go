@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // Bin is the tmux binary; launchd's PATH is minimal, so look in the usual places.
@@ -23,6 +25,8 @@ var Bin = func() string {
 func run(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, Bin, append([]string{"-L", Socket}, args...)...).Output()
+	cmd := exec.CommandContext(ctx, Bin, append([]string{"-L", Socket}, args...)...)
+	proc.Tidy(cmd)
+	out, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	return strings.TrimRight(string(out), "\n"), err
 }

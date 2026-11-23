@@ -21,6 +21,16 @@ import (
 // running agentctl against it, with the built binary first on PATH.
 func demoDeck(t *testing.T) []string {
 	t.Helper()
+	// --still: the order by last activity is what the fixture says, however
+	// long the test takes (a moving fleet marks every running agent active
+	// every few seconds).
+	return demoDeckWith(t, "r3l34s", "--still")
+}
+
+// demoDeckWith is demoDeck with more flags for `agentctl serve --demo`; it
+// waits until `agentctl ls` shows the agent upID.
+func demoDeckWith(t *testing.T, upID string, flags ...string) []string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("unix sockets and zsh")
 	}
@@ -70,10 +80,7 @@ func demoDeck(t *testing.T) []string {
 		}
 		env = append(env, kv)
 	}
-	// --still: the order by last activity is what the fixture says, however
-	// long the test takes (a moving fleet marks every running agent active
-	// every few seconds).
-	srv := exec.Command(filepath.Join(bin, "agentctl"), "serve", "--demo", "--still", "--log", filepath.Join(data, "agentd.log"))
+	srv := exec.Command(filepath.Join(bin, "agentctl"), append([]string{"serve", "--demo", "--log", filepath.Join(data, "agentd.log")}, flags...)...)
 	srv.Env = env
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
@@ -82,7 +89,7 @@ func demoDeck(t *testing.T) []string {
 	for i := 0; ; i++ {
 		ls := exec.Command(filepath.Join(bin, "agentctl"), "ls")
 		ls.Env = env
-		if out, err := ls.CombinedOutput(); err == nil && strings.Contains(string(out), "r3l34s") {
+		if out, err := ls.CombinedOutput(); err == nil && strings.Contains(string(out), upID) {
 			break
 		} else if i == 100 {
 			log, _ := os.ReadFile(filepath.Join(data, "agentd.log"))

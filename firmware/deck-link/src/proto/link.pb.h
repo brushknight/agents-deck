@@ -15,7 +15,8 @@ typedef enum _agentsdeck_link_v1_Input {
     agentsdeck_link_v1_Input_INPUT_BUTTON = 1,
     agentsdeck_link_v1_Input_INPUT_ENCODER = 2,
     agentsdeck_link_v1_Input_INPUT_TOUCH = 3,
-    agentsdeck_link_v1_Input_INPUT_KNOB = 4 /* a motorized/haptic knob */
+    agentsdeck_link_v1_Input_INPUT_KNOB = 4, /* a motorized/haptic knob */
+    agentsdeck_link_v1_Input_INPUT_MOTION = 5 /* a motion sensor: knocks and shakes (it can receive the magic trick) */
 } agentsdeck_link_v1_Input;
 
 typedef enum _agentsdeck_link_v1_Scope {
@@ -28,7 +29,7 @@ typedef enum _agentsdeck_link_v1_Scope {
 /* Bits of Subscribe.fields. id and slot are always sent. */
 typedef enum _agentsdeck_link_v1_FieldGroup {
     agentsdeck_link_v1_FieldGroup_FIELDS_NONE = 0,
-    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot */
+    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued */
     agentsdeck_link_v1_FieldGroup_FIELDS_CARD = 2, /* ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active */
     agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT = 4, /* waiting */
     agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS = 8 /* tokens, cost_usd, turns */
@@ -60,6 +61,26 @@ typedef enum _agentsdeck_link_v1_PromptKind {
     agentsdeck_link_v1_PromptKind_PROMPT_QUESTION = 2,
     agentsdeck_link_v1_PromptKind_PROMPT_INPUT = 3
 } agentsdeck_link_v1_PromptKind;
+
+typedef enum _agentsdeck_link_v1_SendMode {
+    agentsdeck_link_v1_SendMode_SEND_NOW = 0, /* only when the agent is idle (409 otherwise), unless interrupt is set */
+    agentsdeck_link_v1_SendMode_SEND_INTERRUPT = 1, /* stop its turn (Esc), then type */
+    agentsdeck_link_v1_SendMode_SEND_QUEUE = 2, /* when its turn ends */
+    agentsdeck_link_v1_SendMode_SEND_TYPE = 3 /* typed in now, also while it works: the tool's own queue takes it (refused while it asks a question) */
+} agentsdeck_link_v1_SendMode;
+
+typedef enum _agentsdeck_link_v1_MagicRole {
+    agentsdeck_link_v1_MagicRole_MAGIC_NONE = 0, /* not in the trick, or the trick is off */
+    agentsdeck_link_v1_MagicRole_MAGIC_GIVER = 1, /* its agents are taken */
+    agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER = 2 /* it takes them, with a knock */
+} agentsdeck_link_v1_MagicRole;
+
+typedef enum _agentsdeck_link_v1_Corner {
+    agentsdeck_link_v1_Corner_CORNER_TOP_LEFT = 0,
+    agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT = 1,
+    agentsdeck_link_v1_Corner_CORNER_BOTTOM_LEFT = 2,
+    agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT = 3
+} agentsdeck_link_v1_Corner;
 
 typedef enum _agentsdeck_link_v1_Transport {
     agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED = 0,
@@ -271,6 +292,7 @@ typedef struct _agentsdeck_link_v1_Agent {
     agentsdeck_link_v1_Account account; /* the Claude account it runs in; unset while only one is set up */
     int64_t last_active_ms; /* its latest message sent or received; 0 = not known yet */
     uint32_t attention_slot; /* its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there */
+    uint32_t queued; /* prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE) */
 } agentsdeck_link_v1_Agent;
 
 typedef struct _agentsdeck_link_v1_AgentChanged {
@@ -292,6 +314,29 @@ typedef struct _agentsdeck_link_v1_Interrupt {
     char agent_id[12];
 } agentsdeck_link_v1_Interrupt;
 
+/* SendPrompt types a task into the agent's session and presses Enter. text
+ is at most 383 bytes (link.options), so the whole frame fits a board's
+ smallest frame (512 bytes); the web API takes up to 4000.
+
+ mode SEND_QUEUE keeps the prompt while the agent works or waits on a
+ question and types it in when its turn ends (one queued prompt per turn);
+ the Result is 200 when it went in at once, 202 when it was queued. */
+typedef struct _agentsdeck_link_v1_SendPrompt {
+    char agent_id[12];
+    char text[384];
+    bool interrupt; /* the agent is working: press Esc first, then type (same as SEND_INTERRUPT) */
+    agentsdeck_link_v1_SendMode mode;
+    bool front; /* SEND_QUEUE: go before the prompts queued earlier */
+} agentsdeck_link_v1_SendPrompt;
+
+/* Queue lists the prompts queued for an agent (the deck answers QueueList),
+ or, with cancel_id, takes one back (the deck answers a Result: 204, or 404
+ when it was sent or cancelled already). */
+typedef struct _agentsdeck_link_v1_Queue {
+    char agent_id[12];
+    char cancel_id[8]; /* QueuedPrompt.id */
+} agentsdeck_link_v1_Queue;
+
 typedef struct _agentsdeck_link_v1_Dismiss {
     char agent_id[12];
 } agentsdeck_link_v1_Dismiss;
@@ -309,6 +354,31 @@ typedef struct _agentsdeck_link_v1_Order {
     pb_size_t agent_ids_count;
     char agent_ids[32][12];
 } agentsdeck_link_v1_Order;
+
+/* The magic trick (docs/features.md): with it switched on in the deck's
+ settings, a knock on the receiver (a board with a motion sensor) takes the
+ agents the giver (any screen) shows, and the next knock gives them back.
+
+ Stash, from the receiver: take, or give back. */
+typedef struct _agentsdeck_link_v1_Stash {
+    pb_size_t agent_ids_count;
+    char agent_ids[16][12]; /* at most 16 */
+    bool all; /* the agents the giver shows, whatever agent_ids says */
+} agentsdeck_link_v1_Stash;
+
+/* MagicView, from the giver: the agents it shows now (what a take takes). */
+typedef struct _agentsdeck_link_v1_MagicView {
+    pb_size_t agent_ids_count;
+    char agent_ids[16][12]; /* at most 16, in the order they are shown */
+} agentsdeck_link_v1_MagicView;
+
+/* Magic, deck to board: its part in the trick and where its tiles fly. */
+typedef struct _agentsdeck_link_v1_Magic {
+    agentsdeck_link_v1_MagicRole role;
+    bool taken; /* the receiver holds the agents now */
+    agentsdeck_link_v1_Corner arrive; /* tiles fly in from this corner (the receiver on a take, the giver on a give-back) */
+    agentsdeck_link_v1_Corner leave; /* and out to this one (the giver on a take, the receiver on a give-back) */
+} agentsdeck_link_v1_Magic;
 
 /* MoveAttention moves an agent on the "Needs you" grid, like Move on the deck. */
 typedef struct _agentsdeck_link_v1_MoveAttention {
@@ -408,6 +478,21 @@ typedef struct _agentsdeck_link_v1_AccountList {
     pb_size_t accounts_count;
     agentsdeck_link_v1_AccountInfo accounts[4];
 } agentsdeck_link_v1_AccountList;
+
+typedef struct _agentsdeck_link_v1_QueuedPrompt {
+    char id[8]; /* send it back in Queue.cancel_id */
+    char text[64]; /* clipped */
+    char by[24]; /* who queued it: "mcp:<token>", a device's name, "web" or "local" */
+    int64_t queued_at_ms;
+} agentsdeck_link_v1_QueuedPrompt;
+
+/* The prompts queued for an agent, next first: the first few (total says how
+ many there are). */
+typedef struct _agentsdeck_link_v1_QueueList {
+    pb_size_t prompts_count;
+    agentsdeck_link_v1_QueuedPrompt prompts[4];
+    uint32_t total;
+} agentsdeck_link_v1_QueueList;
 
 typedef struct _agentsdeck_link_v1_Restored {
     char id[12];
@@ -514,6 +599,7 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_AgentChanged agent_changed; /* …and later, one per agent that changed */
         agentsdeck_link_v1_AgentRemoved agent_removed;
         agentsdeck_link_v1_SnapshotEnd snapshot_end;
+        agentsdeck_link_v1_Magic magic; /* its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow) */
         /* Commands, board → deck: one per web API endpoint (docs/protocol.md). */
         agentsdeck_link_v1_Answer answer; /* POST /v1/agents/{id}/answer */
         agentsdeck_link_v1_Focus focus; /* POST /v1/agents/{id}/focus */
@@ -531,12 +617,17 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_Handoff handoff; /* POST /v1/agents/{id}/handoff */
         agentsdeck_link_v1_ListAccounts list_accounts; /* GET /v1/accounts */
         agentsdeck_link_v1_MoveAttention move_attention; /* POST /v1/agents/{id}/attention */
+        agentsdeck_link_v1_Stash stash; /* POST /v1/stash */
+        agentsdeck_link_v1_MagicView magic_view; /* POST /v1/magic/view */
+        agentsdeck_link_v1_SendPrompt send_prompt; /* POST /v1/agents/{id}/prompt */
+        agentsdeck_link_v1_Queue queue; /* GET /v1/agents/{id}/queue, POST /v1/agents/{id}/queue/{qid}/cancel */
         /* Replies, deck → board, with the request's seq. */
         agentsdeck_link_v1_Result result; /* every command without a typed reply */
         agentsdeck_link_v1_HatList hat_list; /* reply to ListHats */
         agentsdeck_link_v1_LiveSessions live_sessions; /* reply to ListLive */
         agentsdeck_link_v1_RestoreResult restore_result; /* reply to Restore */
         agentsdeck_link_v1_AccountList account_list; /* reply to ListAccounts */
+        agentsdeck_link_v1_QueueList queue_list; /* reply to Queue (listing) */
         /* Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
      web API commands: they set up the board itself. */
         agentsdeck_link_v1_CertRequest cert_request; /* board → deck, over USB serial only: a certificate for my own key */
@@ -561,8 +652,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _agentsdeck_link_v1_Input_MIN agentsdeck_link_v1_Input_INPUT_UNSPECIFIED
-#define _agentsdeck_link_v1_Input_MAX agentsdeck_link_v1_Input_INPUT_KNOB
-#define _agentsdeck_link_v1_Input_ARRAYSIZE ((agentsdeck_link_v1_Input)(agentsdeck_link_v1_Input_INPUT_KNOB+1))
+#define _agentsdeck_link_v1_Input_MAX agentsdeck_link_v1_Input_INPUT_MOTION
+#define _agentsdeck_link_v1_Input_ARRAYSIZE ((agentsdeck_link_v1_Input)(agentsdeck_link_v1_Input_INPUT_MOTION+1))
 
 #define _agentsdeck_link_v1_Scope_MIN agentsdeck_link_v1_Scope_SCOPE_UNSPECIFIED
 #define _agentsdeck_link_v1_Scope_MAX agentsdeck_link_v1_Scope_SCOPE_ADMIN
@@ -583,6 +674,18 @@ extern "C" {
 #define _agentsdeck_link_v1_PromptKind_MIN agentsdeck_link_v1_PromptKind_PROMPT_UNSPECIFIED
 #define _agentsdeck_link_v1_PromptKind_MAX agentsdeck_link_v1_PromptKind_PROMPT_INPUT
 #define _agentsdeck_link_v1_PromptKind_ARRAYSIZE ((agentsdeck_link_v1_PromptKind)(agentsdeck_link_v1_PromptKind_PROMPT_INPUT+1))
+
+#define _agentsdeck_link_v1_SendMode_MIN agentsdeck_link_v1_SendMode_SEND_NOW
+#define _agentsdeck_link_v1_SendMode_MAX agentsdeck_link_v1_SendMode_SEND_TYPE
+#define _agentsdeck_link_v1_SendMode_ARRAYSIZE ((agentsdeck_link_v1_SendMode)(agentsdeck_link_v1_SendMode_SEND_TYPE+1))
+
+#define _agentsdeck_link_v1_MagicRole_MIN agentsdeck_link_v1_MagicRole_MAGIC_NONE
+#define _agentsdeck_link_v1_MagicRole_MAX agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER
+#define _agentsdeck_link_v1_MagicRole_ARRAYSIZE ((agentsdeck_link_v1_MagicRole)(agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER+1))
+
+#define _agentsdeck_link_v1_Corner_MIN agentsdeck_link_v1_Corner_CORNER_TOP_LEFT
+#define _agentsdeck_link_v1_Corner_MAX agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT
+#define _agentsdeck_link_v1_Corner_ARRAYSIZE ((agentsdeck_link_v1_Corner)(agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT+1))
 
 #define _agentsdeck_link_v1_Transport_MIN agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED
 #define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_BLE
@@ -633,7 +736,18 @@ extern "C" {
 
 
 
+#define agentsdeck_link_v1_SendPrompt_mode_ENUMTYPE agentsdeck_link_v1_SendMode
 
+
+
+
+
+
+
+
+#define agentsdeck_link_v1_Magic_role_ENUMTYPE agentsdeck_link_v1_MagicRole
+#define agentsdeck_link_v1_Magic_arrive_ENUMTYPE agentsdeck_link_v1_Corner
+#define agentsdeck_link_v1_Magic_leave_ENUMTYPE agentsdeck_link_v1_Corner
 
 
 
@@ -682,7 +796,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_default   {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
-#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0}
+#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0}
 #define agentsdeck_link_v1_Activity_init_default {"", ""}
 #define agentsdeck_link_v1_Prompt_init_default   {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default}}
 #define agentsdeck_link_v1_Option_init_default   {"", "", 0, 0}
@@ -694,10 +808,15 @@ extern "C" {
 #define agentsdeck_link_v1_Answer_init_default   {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_default    {""}
 #define agentsdeck_link_v1_Interrupt_init_default {""}
+#define agentsdeck_link_v1_SendPrompt_init_default {"", "", 0, _agentsdeck_link_v1_SendMode_MIN, 0}
+#define agentsdeck_link_v1_Queue_init_default    {"", ""}
 #define agentsdeck_link_v1_Dismiss_init_default  {""}
 #define agentsdeck_link_v1_Resume_init_default   {""}
 #define agentsdeck_link_v1_Move_init_default     {"", 0}
 #define agentsdeck_link_v1_Order_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
+#define agentsdeck_link_v1_MagicView_init_default {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Magic_init_default    {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
 #define agentsdeck_link_v1_MoveAttention_init_default {"", 0}
 #define agentsdeck_link_v1_Restore_init_default  {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_default   {"", "", "", "", 0}
@@ -714,6 +833,8 @@ extern "C" {
 #define agentsdeck_link_v1_LiveSession_init_default {"", "", "", "", 0, 0, 0}
 #define agentsdeck_link_v1_AccountList_init_default {0, {agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default}}
 #define agentsdeck_link_v1_AccountInfo_init_default {"", "", 0}
+#define agentsdeck_link_v1_QueueList_init_default {0, {agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default}, 0}
+#define agentsdeck_link_v1_QueuedPrompt_init_default {"", "", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_default {0, {agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default}}
 #define agentsdeck_link_v1_Restored_init_default {"", "", "", ""}
 #define agentsdeck_link_v1_CertRequest_init_default {{0, {0}}}
@@ -735,7 +856,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
-#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0}
+#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0}
 #define agentsdeck_link_v1_Activity_init_zero    {"", ""}
 #define agentsdeck_link_v1_Prompt_init_zero      {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero}}
 #define agentsdeck_link_v1_Option_init_zero      {"", "", 0, 0}
@@ -747,10 +868,15 @@ extern "C" {
 #define agentsdeck_link_v1_Answer_init_zero      {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_zero       {""}
 #define agentsdeck_link_v1_Interrupt_init_zero   {""}
+#define agentsdeck_link_v1_SendPrompt_init_zero  {"", "", 0, _agentsdeck_link_v1_SendMode_MIN, 0}
+#define agentsdeck_link_v1_Queue_init_zero       {"", ""}
 #define agentsdeck_link_v1_Dismiss_init_zero     {""}
 #define agentsdeck_link_v1_Resume_init_zero      {""}
 #define agentsdeck_link_v1_Move_init_zero        {"", 0}
 #define agentsdeck_link_v1_Order_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
+#define agentsdeck_link_v1_MagicView_init_zero   {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
+#define agentsdeck_link_v1_Magic_init_zero       {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
 #define agentsdeck_link_v1_MoveAttention_init_zero {"", 0}
 #define agentsdeck_link_v1_Restore_init_zero     {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_zero      {"", "", "", "", 0}
@@ -767,6 +893,8 @@ extern "C" {
 #define agentsdeck_link_v1_LiveSession_init_zero {"", "", "", "", 0, 0, 0}
 #define agentsdeck_link_v1_AccountList_init_zero {0, {agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero}}
 #define agentsdeck_link_v1_AccountInfo_init_zero {"", "", 0}
+#define agentsdeck_link_v1_QueueList_init_zero   {0, {agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero}, 0}
+#define agentsdeck_link_v1_QueuedPrompt_init_zero {"", "", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_zero {0, {agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero}}
 #define agentsdeck_link_v1_Restored_init_zero    {"", "", "", ""}
 #define agentsdeck_link_v1_CertRequest_init_zero {{0, {0}}}
@@ -869,17 +997,32 @@ extern "C" {
 #define agentsdeck_link_v1_Agent_account_tag     34
 #define agentsdeck_link_v1_Agent_last_active_ms_tag 35
 #define agentsdeck_link_v1_Agent_attention_slot_tag 36
+#define agentsdeck_link_v1_Agent_queued_tag      37
 #define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Answer_agent_id_tag   1
 #define agentsdeck_link_v1_Answer_prompt_id_tag  2
 #define agentsdeck_link_v1_Answer_key_tag        3
 #define agentsdeck_link_v1_Focus_agent_id_tag    1
 #define agentsdeck_link_v1_Interrupt_agent_id_tag 1
+#define agentsdeck_link_v1_SendPrompt_agent_id_tag 1
+#define agentsdeck_link_v1_SendPrompt_text_tag   2
+#define agentsdeck_link_v1_SendPrompt_interrupt_tag 3
+#define agentsdeck_link_v1_SendPrompt_mode_tag   4
+#define agentsdeck_link_v1_SendPrompt_front_tag  5
+#define agentsdeck_link_v1_Queue_agent_id_tag    1
+#define agentsdeck_link_v1_Queue_cancel_id_tag   2
 #define agentsdeck_link_v1_Dismiss_agent_id_tag  1
 #define agentsdeck_link_v1_Resume_agent_id_tag   1
 #define agentsdeck_link_v1_Move_agent_id_tag     1
 #define agentsdeck_link_v1_Move_slot_tag         2
 #define agentsdeck_link_v1_Order_agent_ids_tag   1
+#define agentsdeck_link_v1_Stash_agent_ids_tag   1
+#define agentsdeck_link_v1_Stash_all_tag         2
+#define agentsdeck_link_v1_MagicView_agent_ids_tag 1
+#define agentsdeck_link_v1_Magic_role_tag        1
+#define agentsdeck_link_v1_Magic_taken_tag       2
+#define agentsdeck_link_v1_Magic_arrive_tag      3
+#define agentsdeck_link_v1_Magic_leave_tag       4
 #define agentsdeck_link_v1_MoveAttention_agent_id_tag 1
 #define agentsdeck_link_v1_MoveAttention_slot_tag 2
 #define agentsdeck_link_v1_Restore_agent_ids_tag 1
@@ -912,6 +1055,12 @@ extern "C" {
 #define agentsdeck_link_v1_AccountInfo_color_tag 2
 #define agentsdeck_link_v1_AccountInfo_is_default_tag 3
 #define agentsdeck_link_v1_AccountList_accounts_tag 1
+#define agentsdeck_link_v1_QueuedPrompt_id_tag   1
+#define agentsdeck_link_v1_QueuedPrompt_text_tag 2
+#define agentsdeck_link_v1_QueuedPrompt_by_tag   3
+#define agentsdeck_link_v1_QueuedPrompt_queued_at_ms_tag 4
+#define agentsdeck_link_v1_QueueList_prompts_tag 1
+#define agentsdeck_link_v1_QueueList_total_tag   2
 #define agentsdeck_link_v1_Restored_id_tag       1
 #define agentsdeck_link_v1_Restored_title_tag    2
 #define agentsdeck_link_v1_Restored_action_tag   3
@@ -955,6 +1104,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_agent_changed_tag 21
 #define agentsdeck_link_v1_Frame_agent_removed_tag 22
 #define agentsdeck_link_v1_Frame_snapshot_end_tag 23
+#define agentsdeck_link_v1_Frame_magic_tag       24
 #define agentsdeck_link_v1_Frame_answer_tag      30
 #define agentsdeck_link_v1_Frame_focus_tag       31
 #define agentsdeck_link_v1_Frame_interrupt_tag   32
@@ -971,11 +1121,16 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_handoff_tag     43
 #define agentsdeck_link_v1_Frame_list_accounts_tag 44
 #define agentsdeck_link_v1_Frame_move_attention_tag 45
+#define agentsdeck_link_v1_Frame_stash_tag       46
+#define agentsdeck_link_v1_Frame_magic_view_tag  47
+#define agentsdeck_link_v1_Frame_send_prompt_tag 48
+#define agentsdeck_link_v1_Frame_queue_tag       49
 #define agentsdeck_link_v1_Frame_result_tag      50
 #define agentsdeck_link_v1_Frame_hat_list_tag    51
 #define agentsdeck_link_v1_Frame_live_sessions_tag 52
 #define agentsdeck_link_v1_Frame_restore_result_tag 53
 #define agentsdeck_link_v1_Frame_account_list_tag 54
+#define agentsdeck_link_v1_Frame_queue_list_tag  55
 #define agentsdeck_link_v1_Frame_cert_request_tag 60
 #define agentsdeck_link_v1_Frame_cert_issued_tag 61
 #define agentsdeck_link_v1_Frame_wifi_config_tag 62
@@ -996,6 +1151,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,snapshot_begin,body.snapshot_begin),  2
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_changed,body.agent_changed),  21) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_removed,body.agent_removed),  22) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,snapshot_end,body.snapshot_end),  23) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic,body.magic),  24) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,answer,body.answer),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,focus,body.focus),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,interrupt,body.interrupt),  32) \
@@ -1012,11 +1168,16 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,get_state,body.get_state),  42) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,handoff,body.handoff),  43) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,list_accounts,body.list_accounts),  44) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,move_attention,body.move_attention),  45) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,stash,body.stash),  46) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic_view,body.magic_view),  47) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,send_prompt,body.send_prompt),  48) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,queue,body.queue),  49) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,result,body.result),  50) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,hat_list,body.hat_list),  51) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,live_sessions,body.live_sessions),  52) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,restore_result,body.restore_result),  53) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,account_list,body.account_list),  54) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,queue_list,body.queue_list),  55) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_request,body.cert_request),  60) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,cert_issued,body.cert_issued),  61) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,wifi_config,body.wifi_config),  62) \
@@ -1035,6 +1196,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_agent_changed_MSGTYPE agentsdeck_link_v1_AgentChanged
 #define agentsdeck_link_v1_Frame_body_agent_removed_MSGTYPE agentsdeck_link_v1_AgentRemoved
 #define agentsdeck_link_v1_Frame_body_snapshot_end_MSGTYPE agentsdeck_link_v1_SnapshotEnd
+#define agentsdeck_link_v1_Frame_body_magic_MSGTYPE agentsdeck_link_v1_Magic
 #define agentsdeck_link_v1_Frame_body_answer_MSGTYPE agentsdeck_link_v1_Answer
 #define agentsdeck_link_v1_Frame_body_focus_MSGTYPE agentsdeck_link_v1_Focus
 #define agentsdeck_link_v1_Frame_body_interrupt_MSGTYPE agentsdeck_link_v1_Interrupt
@@ -1051,11 +1213,16 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_handoff_MSGTYPE agentsdeck_link_v1_Handoff
 #define agentsdeck_link_v1_Frame_body_list_accounts_MSGTYPE agentsdeck_link_v1_ListAccounts
 #define agentsdeck_link_v1_Frame_body_move_attention_MSGTYPE agentsdeck_link_v1_MoveAttention
+#define agentsdeck_link_v1_Frame_body_stash_MSGTYPE agentsdeck_link_v1_Stash
+#define agentsdeck_link_v1_Frame_body_magic_view_MSGTYPE agentsdeck_link_v1_MagicView
+#define agentsdeck_link_v1_Frame_body_send_prompt_MSGTYPE agentsdeck_link_v1_SendPrompt
+#define agentsdeck_link_v1_Frame_body_queue_MSGTYPE agentsdeck_link_v1_Queue
 #define agentsdeck_link_v1_Frame_body_result_MSGTYPE agentsdeck_link_v1_Result
 #define agentsdeck_link_v1_Frame_body_hat_list_MSGTYPE agentsdeck_link_v1_HatList
 #define agentsdeck_link_v1_Frame_body_live_sessions_MSGTYPE agentsdeck_link_v1_LiveSessions
 #define agentsdeck_link_v1_Frame_body_restore_result_MSGTYPE agentsdeck_link_v1_RestoreResult
 #define agentsdeck_link_v1_Frame_body_account_list_MSGTYPE agentsdeck_link_v1_AccountList
+#define agentsdeck_link_v1_Frame_body_queue_list_MSGTYPE agentsdeck_link_v1_QueueList
 #define agentsdeck_link_v1_Frame_body_cert_request_MSGTYPE agentsdeck_link_v1_CertRequest
 #define agentsdeck_link_v1_Frame_body_cert_issued_MSGTYPE agentsdeck_link_v1_CertIssued
 #define agentsdeck_link_v1_Frame_body_wifi_config_MSGTYPE agentsdeck_link_v1_WifiConfig
@@ -1177,7 +1344,8 @@ X(a, STATIC,   SINGULAR, INT64,    updated_at_ms,    32) \
 X(a, STATIC,   SINGULAR, STRING,   app,              33) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  account,          34) \
 X(a, STATIC,   SINGULAR, INT64,    last_active_ms,   35) \
-X(a, STATIC,   SINGULAR, UINT32,   attention_slot,   36)
+X(a, STATIC,   SINGULAR, UINT32,   attention_slot,   36) \
+X(a, STATIC,   SINGULAR, UINT32,   queued,           37)
 #define agentsdeck_link_v1_Agent_CALLBACK NULL
 #define agentsdeck_link_v1_Agent_DEFAULT NULL
 #define agentsdeck_link_v1_Agent_activity_MSGTYPE agentsdeck_link_v1_Activity
@@ -1265,6 +1433,21 @@ X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 #define agentsdeck_link_v1_Interrupt_CALLBACK NULL
 #define agentsdeck_link_v1_Interrupt_DEFAULT NULL
 
+#define agentsdeck_link_v1_SendPrompt_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
+X(a, STATIC,   SINGULAR, STRING,   text,              2) \
+X(a, STATIC,   SINGULAR, BOOL,     interrupt,         3) \
+X(a, STATIC,   SINGULAR, UENUM,    mode,              4) \
+X(a, STATIC,   SINGULAR, BOOL,     front,             5)
+#define agentsdeck_link_v1_SendPrompt_CALLBACK NULL
+#define agentsdeck_link_v1_SendPrompt_DEFAULT NULL
+
+#define agentsdeck_link_v1_Queue_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
+X(a, STATIC,   SINGULAR, STRING,   cancel_id,         2)
+#define agentsdeck_link_v1_Queue_CALLBACK NULL
+#define agentsdeck_link_v1_Queue_DEFAULT NULL
+
 #define agentsdeck_link_v1_Dismiss_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 #define agentsdeck_link_v1_Dismiss_CALLBACK NULL
@@ -1285,6 +1468,25 @@ X(a, STATIC,   SINGULAR, UINT32,   slot,              2)
 X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
 #define agentsdeck_link_v1_Order_CALLBACK NULL
 #define agentsdeck_link_v1_Order_DEFAULT NULL
+
+#define agentsdeck_link_v1_Stash_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, STRING,   agent_ids,         1) \
+X(a, STATIC,   SINGULAR, BOOL,     all,               2)
+#define agentsdeck_link_v1_Stash_CALLBACK NULL
+#define agentsdeck_link_v1_Stash_DEFAULT NULL
+
+#define agentsdeck_link_v1_MagicView_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, STRING,   agent_ids,         1)
+#define agentsdeck_link_v1_MagicView_CALLBACK NULL
+#define agentsdeck_link_v1_MagicView_DEFAULT NULL
+
+#define agentsdeck_link_v1_Magic_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    role,              1) \
+X(a, STATIC,   SINGULAR, BOOL,     taken,             2) \
+X(a, STATIC,   SINGULAR, UENUM,    arrive,            3) \
+X(a, STATIC,   SINGULAR, UENUM,    leave,             4)
+#define agentsdeck_link_v1_Magic_CALLBACK NULL
+#define agentsdeck_link_v1_Magic_DEFAULT NULL
 
 #define agentsdeck_link_v1_MoveAttention_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
@@ -1389,6 +1591,21 @@ X(a, STATIC,   SINGULAR, BOOL,     is_default,        3)
 #define agentsdeck_link_v1_AccountInfo_CALLBACK NULL
 #define agentsdeck_link_v1_AccountInfo_DEFAULT NULL
 
+#define agentsdeck_link_v1_QueueList_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  prompts,           1) \
+X(a, STATIC,   SINGULAR, UINT32,   total,             2)
+#define agentsdeck_link_v1_QueueList_CALLBACK NULL
+#define agentsdeck_link_v1_QueueList_DEFAULT NULL
+#define agentsdeck_link_v1_QueueList_prompts_MSGTYPE agentsdeck_link_v1_QueuedPrompt
+
+#define agentsdeck_link_v1_QueuedPrompt_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   id,                1) \
+X(a, STATIC,   SINGULAR, STRING,   text,              2) \
+X(a, STATIC,   SINGULAR, STRING,   by,                3) \
+X(a, STATIC,   SINGULAR, INT64,    queued_at_ms,      4)
+#define agentsdeck_link_v1_QueuedPrompt_CALLBACK NULL
+#define agentsdeck_link_v1_QueuedPrompt_DEFAULT NULL
+
 #define agentsdeck_link_v1_RestoreResult_FIELDLIST(X, a) \
 X(a, STATIC,   REPEATED, MESSAGE,  results,           1)
 #define agentsdeck_link_v1_RestoreResult_CALLBACK NULL
@@ -1483,10 +1700,15 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Subagent_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Answer_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Focus_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Interrupt_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_SendPrompt_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Queue_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Dismiss_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Resume_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Move_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Order_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Stash_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_MagicView_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Magic_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_MoveAttention_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restore_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_SetHat_msg;
@@ -1503,6 +1725,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_LiveSessions_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_LiveSession_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_AccountList_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_AccountInfo_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_QueueList_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_QueuedPrompt_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_RestoreResult_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restored_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_CertRequest_msg;
@@ -1538,10 +1762,15 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Answer_fields &agentsdeck_link_v1_Answer_msg
 #define agentsdeck_link_v1_Focus_fields &agentsdeck_link_v1_Focus_msg
 #define agentsdeck_link_v1_Interrupt_fields &agentsdeck_link_v1_Interrupt_msg
+#define agentsdeck_link_v1_SendPrompt_fields &agentsdeck_link_v1_SendPrompt_msg
+#define agentsdeck_link_v1_Queue_fields &agentsdeck_link_v1_Queue_msg
 #define agentsdeck_link_v1_Dismiss_fields &agentsdeck_link_v1_Dismiss_msg
 #define agentsdeck_link_v1_Resume_fields &agentsdeck_link_v1_Resume_msg
 #define agentsdeck_link_v1_Move_fields &agentsdeck_link_v1_Move_msg
 #define agentsdeck_link_v1_Order_fields &agentsdeck_link_v1_Order_msg
+#define agentsdeck_link_v1_Stash_fields &agentsdeck_link_v1_Stash_msg
+#define agentsdeck_link_v1_MagicView_fields &agentsdeck_link_v1_MagicView_msg
+#define agentsdeck_link_v1_Magic_fields &agentsdeck_link_v1_Magic_msg
 #define agentsdeck_link_v1_MoveAttention_fields &agentsdeck_link_v1_MoveAttention_msg
 #define agentsdeck_link_v1_Restore_fields &agentsdeck_link_v1_Restore_msg
 #define agentsdeck_link_v1_SetHat_fields &agentsdeck_link_v1_SetHat_msg
@@ -1558,6 +1787,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_LiveSession_fields &agentsdeck_link_v1_LiveSession_msg
 #define agentsdeck_link_v1_AccountList_fields &agentsdeck_link_v1_AccountList_msg
 #define agentsdeck_link_v1_AccountInfo_fields &agentsdeck_link_v1_AccountInfo_msg
+#define agentsdeck_link_v1_QueueList_fields &agentsdeck_link_v1_QueueList_msg
+#define agentsdeck_link_v1_QueuedPrompt_fields &agentsdeck_link_v1_QueuedPrompt_msg
 #define agentsdeck_link_v1_RestoreResult_fields &agentsdeck_link_v1_RestoreResult_msg
 #define agentsdeck_link_v1_Restored_fields &agentsdeck_link_v1_Restored_msg
 #define agentsdeck_link_v1_CertRequest_fields &agentsdeck_link_v1_CertRequest_msg
@@ -1575,9 +1806,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3391
+#define agentsdeck_link_v1_AgentChanged_size     3398
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3388
+#define agentsdeck_link_v1_Agent_size            3395
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_CertIssued_size       1788
 #define agentsdeck_link_v1_CertRequest_size      603
@@ -1587,7 +1818,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_FirmwareOffer_size    200
 #define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3401
+#define agentsdeck_link_v1_Frame_size            3408
 #define agentsdeck_link_v1_GetState_size         0
 #define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732
@@ -1601,6 +1832,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_ListLive_size         0
 #define agentsdeck_link_v1_LiveSession_size      300
 #define agentsdeck_link_v1_LiveSessions_size     2424
+#define agentsdeck_link_v1_MagicView_size        208
+#define agentsdeck_link_v1_Magic_size            8
 #define agentsdeck_link_v1_MoveAttention_size    19
 #define agentsdeck_link_v1_Move_size             19
 #define agentsdeck_link_v1_NetStatus_size        96
@@ -1609,15 +1842,20 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Ping_size             11
 #define agentsdeck_link_v1_Pong_size             11
 #define agentsdeck_link_v1_Prompt_size           1399
+#define agentsdeck_link_v1_QueueList_size        454
+#define agentsdeck_link_v1_Queue_size            22
+#define agentsdeck_link_v1_QueuedPrompt_size     110
 #define agentsdeck_link_v1_RestoreResult_size    3056
 #define agentsdeck_link_v1_Restore_size          208
 #define agentsdeck_link_v1_Restored_size         188
 #define agentsdeck_link_v1_Result_size           103
 #define agentsdeck_link_v1_Resume_size           13
+#define agentsdeck_link_v1_SendPrompt_size       405
 #define agentsdeck_link_v1_Server_size           85
 #define agentsdeck_link_v1_SetHat_size           175
 #define agentsdeck_link_v1_SnapshotBegin_size    93
 #define agentsdeck_link_v1_SnapshotEnd_size      0
+#define agentsdeck_link_v1_Stash_size            210
 #define agentsdeck_link_v1_Subagent_size         128
 #define agentsdeck_link_v1_Subscribe_size        18
 #define agentsdeck_link_v1_Tokens_size           44

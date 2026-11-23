@@ -58,6 +58,7 @@ typedef struct {
 	bool unseen;
 	bool focused;
 	bool lost;
+	uint8_t queued; /* prompts waiting for its turn to end (Agent.queued, at most 255) */
 	/* The prompt (needs FIELDS_PROMPT in the subscription). */
 	bool has_prompt;
 	char prompt_id[16];

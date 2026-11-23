@@ -2,6 +2,8 @@
 #include <string.h>
 #include <vector>
 #include "canvas.h"
+#include "font_data.h"
+#include "round_geom.h"
 
 static const uint16_t BG = rgb565(10, 10, 10), FG = rgb565(232, 228, 220), GUARD = 0xDEAD;
 static const int W = 64, H = 24, PAD = 512;
@@ -118,6 +120,21 @@ int main() {
     for (uint32_t cp : {0x0410u, 0x044Fu, 0x0401u, 0x0451u, 0x00B7u, 0x2026u})
       assert(Canvas::glyphIndex(*f, cp) >= 0);
     for (int i = 1; i < f->count; i++) assert(f->codes[i - 1] < f->codes[i]);
+  }
+  // A canvas that keeps its pixels byte-swapped draws the same picture, every
+  // pixel swapped (solid fills, blended text, anti-aliased discs).
+  {
+    static uint16_t a[200 * 120], b[200 * 120];
+    Canvas ca{a, 200, 120}, cb{b, 200, 120};
+    cb.be = true;
+    Canvas* both[2] = {&ca, &cb};
+    for (Canvas* c : both) {
+      c->fill(rgb565(0x0A, 0x0A, 0x0A));
+      c->rect(10, 10, 80, 40, rgb565(0xFF, 0x4D, 0x00));
+      c->text(FONT_L, 12, 60, "agents deck", rgb565(0xE8, 0xE4, 0xDC));
+      fillDisc(*c, 150, 60, 30, rgb565(0x6F, 0x8F, 0xD8));
+    }
+    for (int i = 0; i < 200 * 120; i++) assert(b[i] == (uint16_t)(a[i] << 8 | a[i] >> 8));
   }
   return 0;
 }

@@ -29,6 +29,7 @@ static Fleet fleetOf(std::initializer_list<Agent> as) {
 
 static DeckCommand tap(const BigSpec& S, PanelUi& ui, const Fleet& f, const Rect& r, DeckScope sc, uint32_t ms) {
   const int x = r.x + r.w / 2, y = r.y + r.h / 2;
+  bigTick(ui, f, ms);                                // pages that slid before have settled
   bigTouch(ui, S, f, true, x, y, sc, ms);
   bigTouch(ui, S, f, true, x, y, sc, ms + 40);
   return bigTouch(ui, S, f, false, 0, 0, sc, ms + 60);
@@ -234,6 +235,113 @@ int main() {
         }
       }
   }
+  // ---- drawn in strips (grid_app.h, a board with stripRows): the same picture
+  // as drawn whole, and nothing written outside the strip
+  {
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    const BigPanel P(S);
+    std::vector<uint16_t> whole(S.w * S.h);
+    for (int n : {24, 7}) {                          // strips that divide the frame, and some that don't
+      const int PAD = 2 * S.w;
+      const uint16_t GUARD = 0xBEEF;
+      std::vector<uint16_t> mem(S.w * n + 2 * PAD);
+      std::vector<uint16_t> joined(S.w * S.h);
+      auto check = [&](const PanelInput& in) {
+        Canvas cw{whole.data(), S.w, S.h};
+        P.draw(cw, in);
+        for (int y0 = 0; y0 < S.h; y0 += n) {
+          const int y1 = y0 + n < S.h ? y0 + n : S.h;
+          std::fill(mem.begin(), mem.end(), GUARD);
+          uint16_t* strip = mem.data() + PAD;
+          Canvas sc{strip - (ptrdiff_t)y0 * S.w, S.w, y1};
+          sc.top = y0;
+          P.draw(sc, in);
+          for (int i = 0; i < PAD; i++) assert(mem[i] == GUARD && mem[PAD + S.w * n + i] == GUARD);
+          memcpy(joined.data() + (size_t)y0 * S.w, strip, (size_t)(y1 - y0) * S.w * 2);
+        }
+        assert(memcmp(whole.data(), joined.data(), whole.size() * 2) == 0);
+      };
+      PanelUi ui;
+      PanelInput in{&d.fleet, LinkState::Live, "x", DeckScope::Admin, 450, d.fleet.serverTime + 60, &ui, 0};
+      check(in);                                     // home, hungry stripes and all
+      in.link = LinkState::Lost;
+      check(in);
+      in.link = LinkState::Live;
+      for (int i = 0; i < d.fleet.count; i++) {
+        bigOpen(ui, d.fleet, i);
+        for (Screen s : {Screen::Card, Screen::Prompt}) {
+          ui.screen = s;
+          check(in);
+        }
+      }
+      ui = PanelUi();
+      in.link = LinkState::Connecting;
+      check(in);
+    }
+  }
+  // ---- the stripes come out as the per-pixel rule says (pixel xx, yy is lit
+  // where (xx + h - yy - shift) mod period < period / 2), clipped to the canvas
+  {
+    const Theme T = deckTheme(false);
+    for (uint32_t ms : {0u, 100u, 350u})
+      for (int period : {16, 17}) {
+        std::vector<uint16_t> a(S.w * S.h, 0), b(S.w * S.h, 0);
+        Canvas ca{a.data(), S.w, S.h};
+        const Rect r{-5, S.h - 70, 113, 110};          // past the left and bottom edges
+        big_detail::stripes(ca, r, T.panel, T.accent, ms, period);
+        const uint16_t s = blend565(T.panel, T.accent, 2);
+        const int shift = (int)((ms / 100) % 6) * period / 6;
+        for (int yy = 0; yy < r.h; yy++)
+          for (int xx = 0; xx < r.w; xx++) {
+            const int u = ((xx + (r.h - yy) - shift) % period + period) % period;
+            const int px = r.x + xx, py = r.y + yy;
+            if (u < period / 2 && px >= 0 && px < S.w && py >= 0 && py < S.h) b[py * S.w + px] = s;
+          }
+        assert(a == b);
+      }
+  }
+  // ---- rounded boxes: each corner as fillArc draws its quarter, pixel for pixel
+  {
+    const Theme T = deckTheme(false);
+    std::vector<uint16_t> a(S.w * S.h), b(S.w * S.h);
+    for (int rad : {0, 1, 3, 4, 9, 14, 30})
+      for (int t : {1, 2, 5})
+        for (const Rect& r : {Rect{10, 10, 100, 60}, Rect{-7, 400, 61, 120}, Rect{300, -3, 33, 21}}) {
+          std::fill(a.begin(), a.end(), T.bg);
+          std::fill(b.begin(), b.end(), T.bg);
+          Canvas ca{a.data(), S.w, S.h}, cb{b.data(), S.w, S.h};
+          big_detail::rrect(ca, r, rad, T.accent);
+          big_detail::rframe(ca, Rect{r.x + 120, r.y, r.w, r.h}, rad, t, T.ink);
+          // The old way: fillArc over each corner's 90 degrees.
+          auto oldRrect = [&](const Rect& q, int rd, uint16_t col) {
+            if (rd * 2 > q.h) rd = q.h / 2;
+            if (rd * 2 > q.w) rd = q.w / 2;
+            if (rd <= 0) { cb.rect(q.x, q.y, q.w, q.h, col); return; }
+            cb.rect(q.x + rd, q.y, q.w - 2 * rd, q.h, col);
+            cb.rect(q.x, q.y + rd, rd, q.h - 2 * rd, col);
+            cb.rect(q.x + q.w - rd, q.y + rd, rd, q.h - 2 * rd, col);
+            fillArc(cb, q.x + rd, q.y + rd, 0, rd, 270, 90, col);
+            fillArc(cb, q.x + q.w - rd, q.y + rd, 0, rd, 0, 90, col);
+            fillArc(cb, q.x + q.w - rd, q.y + q.h - rd, 0, rd, 90, 90, col);
+            fillArc(cb, q.x + rd, q.y + q.h - rd, 0, rd, 180, 90, col);
+          };
+          auto oldRframe = [&](const Rect& q, int rd, int tt, uint16_t col) {
+            if (rd * 2 > q.h) rd = q.h / 2;
+            cb.rect(q.x + rd, q.y, q.w - 2 * rd, tt, col);
+            cb.rect(q.x + rd, q.y + q.h - tt, q.w - 2 * rd, tt, col);
+            cb.rect(q.x, q.y + rd, tt, q.h - 2 * rd, col);
+            cb.rect(q.x + q.w - tt, q.y + rd, tt, q.h - 2 * rd, col);
+            fillArc(cb, q.x + rd, q.y + rd, rd - tt, rd, 270, 90, col);
+            fillArc(cb, q.x + q.w - rd, q.y + rd, rd - tt, rd, 0, 90, col);
+            fillArc(cb, q.x + q.w - rd, q.y + q.h - rd, rd - tt, rd, 90, 90, col);
+            fillArc(cb, q.x + rd, q.y + q.h - rd, rd - tt, rd, 180, 90, col);
+          };
+          oldRrect(r, rad, T.accent);
+          oldRframe(Rect{r.x + 120, r.y, r.w, r.h}, rad, t, T.ink);
+          assert(a == b);
+        }
+  }
   // ---- the 4"'s card is the big panel's (the desk panel's detail, its "focus terminal" button), not
   // the small boards' card that a 480 x 480 SquareSpec would draw
   {
@@ -317,11 +425,21 @@ int main() {
     assert(bigHit(S, ui, f, bigCell(g, 1).x + 5, bigCell(g, 1).y + 5, DeckScope::Act).agent == 2);   // r
     assert(bigHit(S, ui, f, bigCell(g, 2).x + 5, bigCell(g, 2).y + 5, DeckScope::Act).agent == 3);   // z (page 2)
     assert(bigHit(S, ui, f, bigCell(g, 3).x + 5, bigCell(g, 3).y + 5, DeckScope::Act).kind == Hit::None);
-    // Further right: nothing; swipe up or down count as previous / next too.
+    // Further right: nothing.
     bigStep(ui, f, false);
     assert(ui.needsYou);
+    // Up, or a diagonal that goes mostly up: not a page change (only |dx| > 1.3 |dy| is).
+    bigTick(ui, f, 500);                                          // (the slide there has settled)
+    bigTouch(ui, S, f, true, 200, 400, DeckScope::Act, 570);
+    bigTouch(ui, S, f, true, 260, 300, DeckScope::Act, 580);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 590);
+    assert(ui.needsYou && !ui.slideAnim);
+    bigTouch(ui, S, f, true, 300, 400, DeckScope::Act, 591);
+    bigTouch(ui, S, f, true, 220, 330, DeckScope::Act, 595);
+    bigTouch(ui, S, f, false, 0, 0, DeckScope::Act, 599);
+    assert(ui.needsYou && !ui.slideAnim);
     // A tile there opens its prompt, and back is the screen again.
-    tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 200);
+    tap(S, ui, f, bigCell(g, 0), DeckScope::Act, 600);
     assert(ui.screen == Screen::Prompt && !strcmp(ui.openId, "w"));
     bigButton(ui, f);
     assert(ui.screen == Screen::Home && ui.needsYou);
@@ -363,6 +481,7 @@ int main() {
     Canvas c{buf.data(), S.w, S.h};
     const Theme T = deckTheme(false);
     PanelInput in{&f, LinkState::Live, "x", DeckScope::Act, 8000, 0, &ui, 0};
+    bigTick(ui, f, 8000);                                         // at rest
     ui.needsYou = true;
     BigPanel(S).draw(c, in);
     b = bigBars(S, g, ui, 2);

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -94,9 +95,11 @@ type Session struct {
 	welcomed bool // a Welcome reflecting dev has been sent
 	sentAs   devices.Device
 
-	sub  *linkpb.Subscribe
-	sent map[string][]byte // agent id -> the AgentChanged it last got
-	ping uint32
+	sub       *linkpb.Subscribe
+	sent      map[string][]byte // agent id -> the AgentChanged it last got
+	sentMagic []byte            // the Magic it last got…
+	magicSent bool              // …if any since its last snapshot
+	ping      uint32
 
 	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
 	helloSeen atomic.Pointer[linkpb.Hello] // its Hello, for Hub (any goroutine)
@@ -344,7 +347,7 @@ func (s *Session) recheck() error {
 }
 
 func (s *Session) welcome() error {
-	st := s.Deck.Snapshot()
+	st := s.snapshot()
 	s.sentAs = s.dev
 	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Welcome{Welcome: &linkpb.Welcome{
 		Protocol: 1, ServerName: st.Server.Name, ServerVersion: st.Server.Version,
@@ -426,8 +429,11 @@ func (s *Session) onHello(seq uint32, h *linkpb.Hello, mode Mode) error {
 		}
 		log.Printf("link %s: %s (%s %s) over %s, %s", s.Name, d.Name, h.Type, h.Firmware, s.Transport, state)
 	}
-	s.hello, s.mode, s.sub, s.sent = h, mode, nil, nil
+	s.hello, s.mode, s.sub, s.sent, s.magicSent = h, mode, nil, nil, false
 	s.setDevice(d)
+	if m, ok := s.Deck.(interface{ Motion(name string, on bool) }); ok {
+		m.Motion(d.Name, slices.Contains(h.Inputs, linkpb.Input_INPUT_MOTION)) // it can receive the magic trick
+	}
 	s.helloSeen.Store(h)
 	if s.Hub != nil {
 		s.Hub.firmwareHello(d.Name, h.Firmware)
@@ -556,10 +562,22 @@ func (s *Session) wifiGone() {
 	s.Wifi.gone(s.dev.Name, s)
 }
 
+// snapshot is the state as this board sees it: without the agents another
+// screen took (the deck's View, when it has one).
+func (s *Session) snapshot() model.State {
+	st := s.Deck.Snapshot()
+	if v, ok := s.Deck.(interface {
+		View(model.State, string) model.State
+	}); ok {
+		st = v.View(st, s.dev.Name)
+	}
+	return st
+}
+
 // push sends the subscribed agents: everything (a snapshot) or only what
 // changed since the last push.
 func (s *Session) push(full bool) error {
-	st := s.Deck.Snapshot()
+	st := s.snapshot()
 	sub := s.sub
 	var agents []model.Agent
 	for _, a := range st.Agents {
@@ -574,6 +592,11 @@ func (s *Session) push(full bool) error {
 			Server:     &linkpb.Server{Name: st.Server.Name, Version: st.Server.Version, TimeMs: st.Server.Time.UnixMilli()},
 			AgentCount: uint32(len(st.Agents)),
 		}}}); err != nil {
+			return err
+		}
+	}
+	if !full { // its part in the trick first: a giver flies the tiles out before they go
+		if err := s.pushMagic(st); err != nil {
 			return err
 		}
 	}
@@ -598,9 +621,51 @@ func (s *Session) push(full bool) error {
 	}
 	s.sent = next
 	if full {
-		return s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}})
+		if err := s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}}); err != nil {
+			return err
+		}
+		s.magicSent = false
+		return s.pushMagic(st)
 	}
 	return nil
+}
+
+// pushMagic sends the board its part in the magic trick when that changed,
+// and after a snapshot when it has one: giver, receiver or none, whether the
+// agents are taken, and its corners.
+func (s *Session) pushMagic(st model.State) error {
+	m := &linkpb.Magic{}
+	if st.Magic != nil {
+		m.Taken, m.Arrive, m.Leave = st.Magic.Taken, cornerPB(st.Magic.Arrive), cornerPB(st.Magic.Leave)
+		switch st.Magic.Role {
+		case "giver":
+			m.Role = linkpb.MagicRole_MAGIC_GIVER
+		case "receiver":
+			m.Role = linkpb.MagicRole_MAGIC_RECEIVER
+		}
+	}
+	key, _ := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if s.magicSent && bytes.Equal(s.sentMagic, key) {
+		return nil
+	}
+	if !s.magicSent && m.Role == linkpb.MagicRole_MAGIC_NONE { // no part: a board starts out with none, nothing to say
+		s.sentMagic, s.magicSent = key, true
+		return nil
+	}
+	s.sentMagic, s.magicSent = key, true
+	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Magic{Magic: m}})
+}
+
+func cornerPB(c string) linkpb.Corner {
+	switch c {
+	case "top-right":
+		return linkpb.Corner_CORNER_TOP_RIGHT
+	case "bottom-left":
+		return linkpb.Corner_CORNER_BOTTOM_LEFT
+	case "bottom-right":
+		return linkpb.Corner_CORNER_BOTTOM_RIGHT
+	}
+	return linkpb.Corner_CORNER_TOP_LEFT
 }
 
 // sendAgent sends one agent, trimming its biggest parts when the board's
@@ -666,10 +731,14 @@ var Routes = map[string]string{
 	"answer":         "POST /v1/agents/{id}/answer",
 	"focus":          "POST /v1/agents/{id}/focus",
 	"interrupt":      "POST /v1/agents/{id}/interrupt",
+	"send_prompt":    "POST /v1/agents/{id}/prompt",
+	"queue":          "GET /v1/agents/{id}/queue | POST /v1/agents/{id}/queue/{qid}/cancel",
 	"dismiss":        "POST /v1/agents/{id}/dismiss",
 	"resume":         "POST /v1/agents/{id}/resume",
 	"move":           "POST /v1/agents/{id}/move",
 	"move_attention": "POST /v1/agents/{id}/attention",
+	"stash":          "POST /v1/stash",
+	"magic_view":     "POST /v1/magic/view",
 	"order":          "POST /v1/order",
 	"restore":        "POST /v1/restore",
 	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
@@ -765,6 +834,40 @@ func (s *Session) command(f *linkpb.Frame) error {
 		return s.sendReply(f.Seq, &linkpb.Frame{Body: &linkpb.Frame_RestoreResult{RestoreResult: rr}})
 	case *linkpb.Frame_Answer:
 		method, path, body = http.MethodPost, agentPath(b.Answer.AgentId, "answer"), map[string]string{"promptId": b.Answer.PromptId, "key": b.Answer.Key}
+	case *linkpb.Frame_SendPrompt:
+		sp := b.SendPrompt
+		pb := map[string]any{"text": sp.Text, "interrupt": sp.Interrupt}
+		switch sp.Mode {
+		case linkpb.SendMode_SEND_INTERRUPT:
+			pb["interrupt"] = true
+		case linkpb.SendMode_SEND_QUEUE:
+			pb["mode"] = "queue"
+			if sp.Front {
+				pb["position"] = "front"
+			}
+		case linkpb.SendMode_SEND_TYPE:
+			pb["mode"] = "type"
+		}
+		method, path, body = http.MethodPost, agentPath(sp.AgentId, "prompt"), pb
+	case *linkpb.Frame_Queue:
+		if b.Queue.CancelId != "" {
+			method, path = http.MethodPost, agentPath(b.Queue.AgentId, "queue/"+url.PathEscape(b.Queue.CancelId)+"/cancel")
+			break
+		}
+		return s.typed(f.Seq, agentPath(b.Queue.AgentId, "queue"), func(raw []byte) *linkpb.Frame {
+			var r struct {
+				Queue []struct {
+					ID, Text, By string
+					QueuedAt     time.Time
+				}
+			}
+			_ = json.Unmarshal(raw, &r)
+			l := &linkpb.QueueList{Total: uint32(len(r.Queue))}
+			for _, x := range r.Queue {
+				l.Prompts = append(l.Prompts, &linkpb.QueuedPrompt{Id: x.ID, Text: x.Text, By: x.By, QueuedAtMs: ms(x.QueuedAt)})
+			}
+			return &linkpb.Frame{Body: &linkpb.Frame_QueueList{QueueList: l}}
+		})
 	case *linkpb.Frame_Focus:
 		method, path = http.MethodPost, agentPath(b.Focus.AgentId, "focus")
 	case *linkpb.Frame_Interrupt:
@@ -781,6 +884,18 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, agentPath(b.MoveAttention.AgentId, "attention"), map[string]int{"slot": int(b.MoveAttention.Slot)}
 	case *linkpb.Frame_Order:
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
+	case *linkpb.Frame_MagicView:
+		ids := b.MagicView.AgentIds
+		if ids == nil {
+			ids = []string{}
+		}
+		method, path, body = http.MethodPost, "/v1/magic/view", map[string][]string{"ids": ids}
+	case *linkpb.Frame_Stash:
+		ids := b.Stash.AgentIds
+		if ids == nil {
+			ids = []string{} // none: give them back
+		}
+		method, path, body = http.MethodPost, "/v1/stash", map[string]any{"ids": ids, "all": b.Stash.All}
 	case *linkpb.Frame_SetHat:
 		h := b.SetHat
 		hb := map[string]any{"shape": h.Shape, "color": h.Color, "auto": h.Automatic}

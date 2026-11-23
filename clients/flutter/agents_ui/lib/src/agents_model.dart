@@ -301,6 +301,7 @@ class Agent {
     this.external = false,
     this.app = '',
     this.subagents = const [],
+    this.queued = 0,
     this.hat,
     this.account,
     this.startedAt,
@@ -363,6 +364,10 @@ class Agent {
 
   /// Subagents still working, oldest first.
   final List<AgentSubagent> subagents;
+
+  /// Prompts waiting to be typed in once its turn ends (sent with
+  /// `"mode": "queue"`).
+  final int queued;
 
   /// The pixel hat for its working folder; null = none.
   final AgentHat? hat;
@@ -446,6 +451,7 @@ class Agent {
           for (final x in l)
             if (x is Map<String, dynamic>) AgentSubagent.fromJson(x),
       ],
+      queued: _int(j['queued']),
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
       lastActive: _time(j['lastActive']),
@@ -472,10 +478,30 @@ class AgentsServer {
 
 /// One full `state` event. The daemon sends the whole fleet every time
 /// (no deltas), so this is also the unit of UI updates.
+/// This screen's part in the magic trick (docs/features.md): the giver (its
+/// agents are taken) or the receiver, whether they are taken now, and the
+/// corners its tiles fly in from ([arrive]) and out to ([leave]): top-left,
+/// top-right, bottom-left or bottom-right.
+class AgentsMagic {
+  const AgentsMagic({
+    required this.role,
+    required this.taken,
+    required this.arrive,
+    required this.leave,
+  });
+
+  final String role; // giver | receiver
+  final bool taken;
+  final String arrive, leave;
+
+  bool get giver => role == 'giver';
+}
+
 class AgentsState {
   AgentsState({
     required this.server,
     required List<Agent> agents,
+    this.magic,
     DateTime? receivedAt,
   }) : agents = List.unmodifiable(
          [...agents]..sort((a, b) => a.slot.compareTo(b.slot)),
@@ -483,6 +509,9 @@ class AgentsState {
        receivedAt = receivedAt ?? DateTime.now();
 
   final AgentsServer server;
+
+  /// This screen's part in the magic trick; null: none, or it is off.
+  final AgentsMagic? magic;
 
   /// Ordered by slot.
   final List<Agent> agents;
@@ -498,7 +527,16 @@ class AgentsState {
       throw const FormatException('not an agents state');
     }
     final s = _map(j['server']) ?? const {};
+    final m = _map(j['magic']);
     return AgentsState(
+      magic: m == null
+          ? null
+          : AgentsMagic(
+              role: _str(m['role']),
+              taken: m['taken'] == true,
+              arrive: _str(m['arrive']),
+              leave: _str(m['leave']),
+            ),
       server: AgentsServer(
         name: _str(s['name']),
         version: _str(s['version']),

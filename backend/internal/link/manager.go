@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/serial"
 )
 
@@ -52,6 +53,7 @@ type portRun struct {
 	file    io.Closer
 	session *Session
 	done    chan struct{}
+	checked time.Time // last looked for another program holding the port
 }
 
 // Run checks the registered ports every 2 seconds until ctx ends.
@@ -99,6 +101,10 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
+// otherUsersEvery: how often an open port is checked for another program
+// (a flasher, a serial monitor) to step aside for.
+var otherUsersEvery = 4 * time.Second
+
 func (r *portRun) stop() {
 	r.cancel()
 	_ = r.file.Close()
@@ -135,14 +141,18 @@ func (m *Manager) check(ctx context.Context, p PortConfig, retry map[string]time
 			return
 		default:
 		}
-		if other := otherUsers(p.Path); other != "" {
-			log.Printf("link %s: released for %s", p.Path, other)
-			r.stop()
-			m.mu.Lock()
-			delete(m.running, p.Path)
-			m.mu.Unlock()
-			m.set(p, "in use by "+other, "")
-			return
+		// lsof reads every process on the computer: not on every tick.
+		if time.Since(r.checked) >= otherUsersEvery {
+			r.checked = time.Now()
+			if other := otherUsers(p.Path); other != "" {
+				log.Printf("link %s: released for %s", p.Path, other)
+				r.stop()
+				m.mu.Lock()
+				delete(m.running, p.Path)
+				m.mu.Unlock()
+				m.set(p, "in use by "+other, "")
+				return
+			}
 		}
 		state := "waiting for the board"
 		if r.session.Board() != "" {
@@ -218,7 +228,7 @@ func otherUsers(path string) string {
 	if lsof == "" {
 		return ""
 	}
-	out, err := exec.Command(lsof, "-F", "pcR", path).Output()
+	out, err := proc.Output(5*time.Second, lsof, "-F", "pcR", path)
 	if err != nil && len(out) == 0 {
 		return ""
 	}

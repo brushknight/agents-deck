@@ -273,6 +273,25 @@ func SendKeys(name string, literal string, keys ...string) error {
 	return nil
 }
 
+// Paste types text into the session as one paste: bracketed when the
+// program in it asked for that (Claude Code, Codex and zsh do), so the
+// newlines in it are part of the text and don't submit it early. Newlines go
+// as LF, not as Enter.
+func Paste(name, text string) error {
+	if name == "" {
+		return errors.New("no session to paste into") // tmux would pick its current one
+	}
+	buf := "agentsdeck-" + name
+	if _, err := run("set-buffer", "-b", buf, "--", text); err != nil {
+		return describe(err)
+	}
+	if _, err := run("paste-buffer", "-p", "-r", "-d", "-b", buf, "-t", name); err != nil {
+		_, _ = run("delete-buffer", "-b", buf)
+		return describe(err)
+	}
+	return nil
+}
+
 // Capture returns the visible pane text plus `back` lines of history.
 func Capture(name string, back int) string {
 	out, _ := run("capture-pane", "-p", "-J", "-t", name, "-S", "-"+itoa(back))

@@ -11,12 +11,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 )
 
@@ -47,7 +51,28 @@ func install() error {
 	if err != nil {
 		return err
 	}
+	noteInServiceLog("agentctl install: (re)starting the service")
 	return m.Install(os.Stdout)
+}
+
+// noteInServiceLog adds a line to the service's log saying what this
+// command is about to do to the service and which program ran it, so a
+// restart nobody remembers can be traced.
+func noteInServiceLog(what string) {
+	f, err := os.OpenFile(paths.Log(), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	by := fmt.Sprintf("pid %d", os.Getppid())
+	if runtime.GOOS != "windows" {
+		if out, err := proc.Output(2*time.Second, "/bin/ps", "-o", "comm=", "-p", strconv.Itoa(os.Getppid())); err == nil {
+			if name := strings.TrimSpace(string(out)); name != "" {
+				by = filepath.Base(name) + ", " + by
+			}
+		}
+	}
+	fmt.Fprintf(f, "%s %s (run by %s)\n", time.Now().Format("2006/01/02 15:04:05"), what, by)
 }
 
 // uninstall stops the service and removes it from login. The data folder
@@ -57,6 +82,7 @@ func uninstall() error {
 	if err != nil {
 		return err
 	}
+	noteInServiceLog("agentctl uninstall: stopping the service")
 	if err := m.Uninstall(os.Stdout); err != nil {
 		return err
 	}

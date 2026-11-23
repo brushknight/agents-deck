@@ -3,12 +3,13 @@
 package claude
 
 import (
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // processTTYs asks ps for the terminals of the given processes.
@@ -18,7 +19,7 @@ func processTTYs(pids []int) map[int]string {
 		list[i] = strconv.Itoa(p)
 	}
 	ttys := map[int]string{}
-	out, _ := exec.Command("/bin/ps", "-o", "pid=,tty=", "-p", strings.Join(list, ",")).Output()
+	out, _ := proc.Output(5*time.Second, "/bin/ps", "-o", "pid=,tty=", "-p", strings.Join(list, ","))
 	for _, l := range strings.Split(string(out), "\n") {
 		f := strings.Fields(l)
 		if len(f) == 2 && f[1] != "??" {
@@ -34,7 +35,7 @@ func processTTYs(pids []int) map[int]string {
 // aren't on one of skipTTYs (agentctl's own tmux panes), each matched to its
 // session transcript. Processes whose transcript can't be found are left out.
 func LiveSessions(skipTTYs map[string]bool) []Live {
-	out, err := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=").Output()
+	out, err := proc.Output(5*time.Second, "/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=")
 	if err != nil {
 		return nil
 	}
@@ -105,7 +106,7 @@ func processCwds(procs []Live) map[int]string {
 	for i, p := range procs {
 		pids[i] = strconv.Itoa(p.PID)
 	}
-	out, _ := exec.Command("/usr/sbin/lsof", "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
+	out, _ := proc.Output(10*time.Second, "/usr/sbin/lsof", "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn")
 	cwds := map[int]string{}
 	pid := 0
 	for _, l := range strings.Split(string(out), "\n") {

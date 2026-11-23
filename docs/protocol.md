@@ -7,6 +7,7 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 | desk panel (Flutter, 720×720), later a phone app | HTTPS on the network, `:7341`, **TLS 1.3 only** | a **client certificate per device**, signed by the deck's CA; scope view, act or admin |
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
 | menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600); on Windows `%LOCALAPPDATA%\agents-deck\agentd.sock` (Windows 10 1803 and later have unix sockets) | filesystem permissions: your user (on Windows, the folder under your profile is private to you) |
+| MCP clients (an orchestrating agent such as Claude Code), [mcp.md](mcp.md) | `POST /mcp` on `127.0.0.1:7340` (Streamable HTTP), or `agentctl mcp` (stdio) through the unix socket (`POST /local/mcp`) | an **MCP token** (`Authorization: Bearer adk_…`) on both: made in Settings, MCP, kept only as a SHA-256 hash; scope view, act or admin |
 | ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board (at once when plugged into a registered USB port, unless turned off); scope view, act or admin |
 | ESP32 boards over Bluetooth | Bluetooth LE: the same Deck Link frames as a byte stream through the Deck Link GATT service, run by a small helper next to `agentctl` (`deck-ble` on macOS, [clients/ble](../clients/ble/README.md)) | added by you (`agentctl bluetooth add`), paired with the 6-digit passkey shown on the board's own screen and bonded; then the same device, scope and audit log as on USB |
 | ESP32 boards on Wi-Fi | `GET /v1/link` with `Upgrade: deck-link` on the network listener (`:7341`, TLS 1.3): the connection becomes a Deck Link stream ([pairing and Wi-Fi](link/protocol.md#pairing-and-wi-fi)) | the board's client certificate, issued over USB to an approved board; the same device, scope and audit log as on USB |
@@ -16,6 +17,9 @@ scope, audit and revocation model: a board on it is a device you approved, never
 sight ([Boards over Bluetooth](#devices-and-security)).
 
 Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
+The MCP endpoint is served only on the loopback dashboard (`POST /mcp`) and the unix socket (`POST
+/local/mcp`), never on the network, and needs an MCP token on both: each tool call runs the `/v1` API
+through the same scope check and audit log as a paired device, as `mcp:<token name>` ([mcp.md](mcp.md)).
 The management API (`/admin/v1`, [below](#management-api-adminv1)) is served only on the unix socket and the
 loopback dashboard, never on the network.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
@@ -28,6 +32,9 @@ mutating request whose `Origin` is not that host.
 | GET | `/v1/state` | – | `State` |
 | GET | `/v1/events` | – | Server-Sent Events, see below |
 | POST | `/v1/agents/{id}/answer` | `{"promptId": "...", "key": "1"}` | `204`; `409` if `promptId` is no longer the agent's current prompt; `400` if `key` is not one of its options |
+| POST | `/v1/agents/{id}/prompt` | `{"text": "fix the failing test", "mode": "now"}`; `mode` `now` (default), `interrupt`, `queue` or `type`; with `queue`, `"position": "back"` (default) or `"front"` | `204`: types the text into the agent's session and presses Enter, as if you typed it there. Text: 1 to 4000 bytes of UTF-8, newlines and tabs but no other control characters; it goes in as one paste (bracketed, when the program asks for that), so its newlines don't submit it early. Works for agents the deck started (tmux) and agents in herdr, cmux or Orca. `now`: `409` while the agent works on a turn, waits on a question (answer it instead), is still starting or has exited. `interrupt` (or the older `"interrupt": true`): a working or asking agent gets Esc first. `queue`: `200` `{"status": "sent"}` when the agent is idle and nothing is queued for it (typed in at once), else `202` `{"status": "queued", "id": "q3k9x2a", "position": 2}`: kept, and typed in once the agent's turn ends (status `idle`), one queued prompt per turn, next first; `front` puts it before the prompts queued earlier. An agent waiting on a question or permission holds its queue: nothing is answered for you, and the queue goes on after the turn your answer finishes. At most 20 queued per agent (`409` beyond); kept across restarts (`prompt-queue.json`); `409` for an agent that has exited. `type`: `204`, typed in now even while the agent works, so the tool's own queue holds it, as when you type ahead in its chat (Claude Code reads it at its next step, during the current turn); the deck's queue doesn't list it. `409` while the agent waits on a question (the text would answer it), is starting or has exited. Agents the deck can't see the status of (Codex, Gemini or a shell started here) take it at any time, in every mode. `422` for a session started by hand in another terminal or in the Codex app: nothing can type into another app's terminal. `404` unknown agent |
+| GET | `/v1/agents/{id}/queue` | – | `200` `{"queue": [{"id", "text", "by", "queuedAt"}]}`: the prompts queued for the agent, next first; `by` is who queued it (`mcp:<token>`, a device's name, `web` or `local`). `404` unknown agent |
+| POST | `/v1/agents/{id}/queue/{qid}/cancel` | – | `204`: takes a queued prompt back before it is typed in. `404` when it was sent or cancelled already |
 | POST | `/v1/agents/{id}/focus` | – | `204` — brings the agent's terminal to the front on the Mac (iTerm tab / overlay) |
 | POST | `/v1/agents/{id}/interrupt` | – | `204` — sends Esc to the agent (stops the current turn) |
 | POST | `/v1/agents/{id}/dismiss` | – | `204` — stops the agent if still running and removes it from the fleet |
@@ -39,6 +46,8 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/hats` | `{"folder": "/Users/sam/dev/app", "shape", "color"}` or `{"folder", "auto": true}` | `204` — the same, by folder |
 | POST | `/v1/live/{session}/add` | `{"slot": 9}` (optional) | `204` — puts that session on the deck, watched (`external: true`, `tool: "claude"`): status, context, cost and subagents from its transcript; answer, interrupt and resume return an error; dismiss takes it off the deck. It stays added: it comes back whenever it runs |
 | POST | `/v1/restore` | `{"ids": ["k3f9a2"]}` (optional) | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}`: brings back the listed agents with `lost: true`, or every one when `ids` is missing or empty: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot. A listed id that isn't lost comes back `failed` with the reason |
+| POST | `/v1/stash` | `{"all": true}`, `{"ids": ["k3f9a2", …]}` or `{"ids": []}` | `204`: the magic trick ([features](features.md#magic-trick)), from its receiver: take the agents the giver shows (`all`, at most 16) or these, or give them back (`[]`; this computer may give them back too). While taken, the giver leaves them out of its state; every other screen is unchanged. Given back by itself 30 s after the receiver goes quiet (it repeats itself every 5 s). `409` when the trick is off, `403` from a device that isn't its receiver |
+| POST | `/v1/magic/view` | `{"ids": ["k3f9a2", …]}` | `204`: from the magic trick's giver, the agents it shows now, in order (at most 16): what the next take takes. From anyone else it is ignored |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
@@ -87,7 +96,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "modelLabel": "opus 5.5",       // short display form
   "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running. Besides
                                   // Claude's tools: "Compact" while compacting, "Task" for subagents at work
-  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 280 chars
+  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160)
   "waiting": null,                // Prompt, only when status == "waiting"
   "error": null,                  // { "message": "api 529 overloaded" } only when status == "error"
   "tokens": { "input": 1200, "output": 84000, "cacheRead": 3100000, "cacheWrite": 210000 },
@@ -109,6 +118,7 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // colour = (h >> 8) mod 8), false when chosen by hand
   "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
                                   // the account (Claude config folder) the session runs in; color is a hat colour
+  "queued": 0,                    // prompts waiting to be typed in once its turn ends (POST /v1/agents/{id}/prompt, "mode": "queue")
   "subagents": [                  // omitted when none: subagents (and workflow runs, type "workflow") still
                                   // working, oldest first. While only they work (Claude's turn is over) the
                                   // agent is "running" with activity {"tool": "Task", "detail": "2 subagents working"}
@@ -155,8 +165,9 @@ than one answer) comes one step at a time, each with a new `id`:
 - the review: `title: "submit these answers?"`, the answers in `detail` (one per line), options
   `1` submit answers and `2` cancel.
 
-Free text ("type something") stays at the terminal. An answer typed at the terminal moves the deck's
-prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
+Free text ("type something") has no option key. The web page sends it with
+`POST /v1/agents/{id}/prompt` and `"interrupt": true`: Esc closes the question, then the text goes in
+as the next prompt. An answer typed at the terminal moves the deck's prompt along with it (an older step's answer gets `409`), and the prompt clears once Claude has the
 answers or the form is cancelled.
 
 Status meanings (what the tiles show):
@@ -208,8 +219,8 @@ belong to an active device in `devices.json`; a revoked device fails the handsha
 
 | scope | may |
 |---|---|
-| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts` |
-| `act` | also answer, focus, interrupt, move, order, hats |
+| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts`, `/v1/agents/{id}/queue` |
+| `act` | also answer, send and queue prompts (and cancel queued ones), focus, interrupt, move, order, hats |
 | `admin` | also dismiss, resume, hand over to another account, restore, `GET /v1/live`, add a live session |
 
 A request beyond the device's scope gets `403` with the command that would raise it.
@@ -355,7 +366,8 @@ each board is connected right now (USB, Wi-Fi or Bluetooth);
 **Audit.** Every request that changes something is appended to `audit.log` as one JSON line:
 `{"time", "device", "action": "POST /v1/agents/k3f9a2/answer", "status": 204}`; firmware downloads
 (`GET /v1/firmware/…`) are recorded too, with the byte range in `detail`; the web dashboard is
-`web`, the unix socket `local`.
+`web`, the unix socket `local`, an MCP token `mcp:<name>` (and `"action": "start agent"` for MCP's
+`start_agent`).
 
 ## Management API (`/admin/v1`)
 
@@ -382,6 +394,10 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | POST | `/admin/v1/open-data-folder` | – | `204`: shows the data folder in the file manager on this computer |
 | GET | `/admin/v1/agents` | – | `{"tools": [{"id", "name", "found", "on", "agents", "state", "detail", "note"}], "accounts": [{"name", "color", "default", "agents", "costUsd"}], "colors"}` |
 | POST | `/admin/v1/accounts/{name}/color` | `{"color"}` | `204` |
+| POST | `/admin/v1/accounts/{name}/default` | – | `204`: new agents start in this account, as `agentctl accounts default <name>` does; `404` for an account that isn't set up |
+| GET | `/admin/v1/projects` | – | `{"projects": [{"id", "name", "folders", "folder", "paths", "path", "tool", "account", "hat": {"shape", "color"}}], "tools", "canStart"}`: what you start agents in (`projects.json` in the data folder), each one or more folders (at most 20). `id` stays the same through renames. `folders` are as written (`~/` allowed), `paths` the same in full; `folder` and `path` are the first, where agents start by default. `tool` is `claude`, `codex` or `shell` (empty: claude), `account` a Claude account (empty: the default), `hat` empty for the folder's own; `canStart` is false where this service can't start agents (demo mode) |
+| POST | `/admin/v1/projects` | `{"name", "folders", "tool", "account", "hat"}` (`"folder"` alone: one folder) | the project as kept. Repeated folders are dropped. `400` for an empty or long name (40 characters), no folder or more than 20, a folder that isn't a full path to a folder on this computer (`~/` is allowed), an unknown tool, account or hat; `409` for a name that is taken (names compare without case) |
+| POST | `/admin/v1/projects/{name}/{action}` | `{name}` is the project's name or id. `update` the whole project (it may change its name, not its id); `remove`; `start` `{"prompt", "tool", "account", "folder"}` | `update`: the project; `remove`: `204`; `start`: `202` `{"id", "project", "folder", "tool", "prompted"}`: starts an agent in the project's first folder (`folder` picks another of its folders; `400` for one that isn't) with the project's tool and account (`tool` and `account` pick others for this agent), titled with the project's name, and sends `prompt` once it is ready. `503` where agents can't be started |
 | GET | `/admin/v1/devices` | – | `{"devices": [{"id", "name", "kind", "scope", "state", "online", "connection", "port", "type", "board", "model", "firmware", "wifi", "update": {"version", "how", "ready", "note", "source"}, "job", "uplinkPref", "uplinks": [{"via", "state", "detail"}], "bluetooth", "hasBluetooth", "bleState", "boardUplink", "uplinkNote", "chip", "status": {"state", "text", "latest", "how", "ready", "note", "source"}, "fileVia", "fileNote"}], "latest", "releaseKey", "ota", "catalogError"}`. `status` is a board's one line about updates: `state` `update` (a newer release this build can install; `how` `usb`, `wifi`, `bluetooth` or `unplugged`, `ready` when it can be installed now, else `note` says why), `local` (a build made on this computer, in `firmware-builds`, newer than what the board runs and than a release this build can install, with or without a release key; `how`, `ready` and `note` as for `update`: `usb` writes its full image, `wifi` sends its app image, so a build without one is not `ready` on Wi-Fi), `current`, `newer` (it runs something newer than the latest release, such as a development build), `own` (a version that isn't a release's), `nokey` (a newer release, but this build has no release key), `error` (the release list couldn't be read; `text` says why), `unlisted`, `unknown` or `checking`; versions compare by semver precedence (`0.2.0-dev.4` < `0.2.0-dev.10` < `0.2.0`); `source` says where `latest` comes from, `release` or `local`. `fileVia` lists how a firmware file picked on this computer would reach the board now (`usb`, `wifi`), `fileNote` why it can't. `connection` is the uplink in use (`usb`, `wifi`, `bluetooth`, `network`); `uplinks` lists every way a board reaches the computer now (`via` `usb`, `wifi`, `bluetooth`; `state` `in use`, `standing by` (another uplink is in use), `connecting` (waiting for it to come in range; `detail` says why the last try failed), `not used` (its preference), `not connected` (Wi-Fi, for a board paired for it), `off`); `bluetooth` is true for a board added over Bluetooth here; `hasBluetooth` for a board whose firmware has it. `bleState` (`not supported`, `in setup`, `paired`, `connected`) and `boardUplink` (`auto`, `wifi`, `ble`) are what the board says in `NetStatus`; `uplinkNote` says what went wrong sending it its preference |
 | POST | `/admin/v1/devices/{id}/{action}` | `approve`, `revoke`, `remove`; `scope` `{"scope"}`; `rename` `{"name"}`; `wifi` `{"ssid", "password"}`, `{"forget": true}` or `{"useDefault": true}`; `update` `{"version", "source"}`; `uplink` `{"uplink": "auto"\|"wifi"\|"ble"}` | `204`, or for `wifi` `{"sent", "message"}`, for `update` `202` and a job. `rename` changes the name Settings and `agentctl` show; the id stays. `update` flashes a board on USB through its registered port and offers a board on Wi-Fi the update over the air; a board only on Bluetooth gets `409`. `source` `local` installs a build made on this computer (`version` empty: the newest for the board), checked again first (`409` when its files no longer match its manifest, or on Wi-Fi without an app image); `release` a release's; empty, whichever the board's `status` offers. `uplink` `ble` needs the board added over Bluetooth first |
 | POST | `/admin/v1/devices/{id}/firmware-file` | the file itself (`application/octet-stream`, at most 32 MB); `X-File-Name` names it | a firmware file picked on this computer, read before anything goes to the board: `{"file", "name", "size", "sha256", "kind", "chip", "version", "project", "via", "board", "chipChecked", "device"}`. `kind` `app` (an app image, sent over Wi-Fi) or `full` (bootloader, partition table and app, written at `0x0` over USB); `via` is how it would be installed; `version` is the app's own when it reads as one. `400` for a file that isn't an ESP32 image, is for another chip than the board's, is the wrong kind for how the board is connected, or an app image bigger than an app slot; `413` over 32 MB; `409` when the board isn't on USB or Wi-Fi. Kept an hour for the install |
@@ -406,6 +422,9 @@ admin package checks this table against its own routes (`TestDocsListEveryCall`)
 | GET | `/admin/v1/update` | – | the updater's state (`state`, `current`, `version`, `notes`, `message`, `install`) plus `mode`, `checked`, `releaseKey`, `job` |
 | POST | `/admin/v1/update/check` | – | reads the latest release now, then downloads it in the background so it is ready |
 | POST | `/admin/v1/update/apply` | – | `202` and a job: download if needed, then install; the service and the app restart |
+| GET | `/admin/v1/mcp` | – | `{"tokens": [{"name", "scope", "created", "lastUsed", "revoked"}], "url", "agentctl"}`: the MCP tokens (never their secrets or hashes), the HTTP endpoint (`http://127.0.0.1:7340/mcp`) and the agentctl the stdio transport runs |
+| POST | `/admin/v1/mcp/tokens` | `{"name", "scope"}` (`scope` `act` when left out) | `{"token", "name", "scope", "url", "commands": {"http", "stdio"}}`: a new token, `adk_` and 64 hex digits, returned this once (only its SHA-256 is kept), with the `claude mcp add` commands for both transports. `400` for a bad name or scope, or an active token of the same name |
+| POST | `/admin/v1/mcp/tokens/{name}/{action}` | `revoke` or `remove` | `204`: `revoke` stops the token at once (it stays listed, revoked; its hash is dropped); `remove` forgets it. `404` for no such token |
 | GET | `/admin/v1/diagnostics` | – | `{"report", "log", "uptime", "agents", "boardsOnline", "boards", "dataDir", "logFile"}`: the report holds versions, the platform, counts and board models; the log's last lines have home paths, folders, quoted text, agent, device, account, user, host and network names and addresses left out. `dataDir` and `logFile` are for this computer's page, not the report |
 
 **Jobs and events.** Jobs come on `/admin/v1/events`, not on `/v1/events`: that stream also goes

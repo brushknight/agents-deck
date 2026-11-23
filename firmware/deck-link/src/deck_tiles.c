@@ -67,6 +67,7 @@ static void fill(deck_tile_t *d, const agentsdeck_link_v1_Agent *a)
 	d->unseen = a->unseen;
 	d->focused = a->focused;
 	d->lost = a->lost;
+	d->queued = a->queued > 255 ? 255 : (uint8_t)a->queued;
 	if (a->has_waiting) {
 		const agentsdeck_link_v1_Prompt *p = &a->waiting;
 		d->has_prompt = true;

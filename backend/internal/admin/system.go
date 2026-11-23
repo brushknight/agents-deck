@@ -95,6 +95,9 @@ const (
 
 	RestoreAsk  = "ask"
 	RestoreAuto = "auto"
+
+	SessionsPick = "pick" // Claude sessions started elsewhere join when you add them
+	SessionsAuto = "auto" // each one joins the deck by itself
 )
 
 // Settings is GET /admin/v1/settings: every setting as one document.
@@ -110,14 +113,19 @@ type Settings struct {
 
 	Notifications string `json:"notifications"` // off | attention | finished
 	Sound         bool   `json:"sound"`
-	Restore       string `json:"restore"` // ask | auto
-	Updates       string `json:"updates"` // notify | auto | off
+	Restore       string `json:"restore"`  // ask | auto
+	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
+	Updates       string `json:"updates"`  // notify | auto | off
 
 	// Network: paired boards and phones may connect over the network
 	// (config.json deviceAddr). NetworkRunning is what this run of the
 	// service does: a change applies when it restarts.
 	Network        bool `json:"network"`
 	NetworkRunning bool `json:"networkRunning"`
+
+	// Magic: the magic trick (off by default). The giver and the receiver
+	// are device names (/admin/v1/devices; the receiver needs "motion").
+	Magic devices.Magic `json:"magic"`
 
 	// Wifi is the network boards get on USB. Its password is never sent back.
 	Wifi struct {
@@ -152,6 +160,9 @@ func (a *Admin) SettingsNow() Settings {
 	if s.Restore != RestoreAuto {
 		s.Restore = RestoreAsk
 	}
+	if s.Sessions = str(cfg, "sessions", SessionsPick); s.Sessions != SessionsAuto {
+		s.Sessions = SessionsPick
+	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
@@ -159,6 +170,9 @@ func (a *Admin) SettingsNow() Settings {
 		s.Wifi.SSID = a.WifiSSID()
 	}
 	s.CLI = a.cliState()
+	if a.Devices != nil {
+		s.Magic = a.Devices.Settings().Magic.WithDefaults()
+	}
 	return s
 }
 
@@ -168,12 +182,14 @@ func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 
 // SettingsPatch is PATCH /admin/v1/settings: only the keys given change.
 type SettingsPatch struct {
-	StartAtLogin  *bool   `json:"startAtLogin"`
-	Notifications *string `json:"notifications"`
-	Sound         *bool   `json:"sound"`
-	Restore       *string `json:"restore"`
-	Updates       *string `json:"updates"`
-	Network       *bool   `json:"network"`
+	StartAtLogin  *bool          `json:"startAtLogin"`
+	Notifications *string        `json:"notifications"`
+	Sound         *bool          `json:"sound"`
+	Restore       *string        `json:"restore"`
+	Sessions      *string        `json:"sessions"`
+	Updates       *string        `json:"updates"`
+	Network       *bool          `json:"network"`
+	Magic         *devices.Magic `json:"magic"` // the whole setting
 	Wifi          *struct {
 		SSID     string `json:"ssid"`
 		Password string `json:"password"`
@@ -206,12 +222,28 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	case p.Restore != nil && !oneOf(*p.Restore, RestoreAsk, RestoreAuto):
 		writeErr(w, http.StatusBadRequest, `restore must be "ask" or "auto"`)
 		return
+	case p.Sessions != nil && !oneOf(*p.Sessions, SessionsPick, SessionsAuto):
+		writeErr(w, http.StatusBadRequest, `sessions must be "pick" or "auto"`)
+		return
 	case p.Updates != nil && !oneOf(*p.Updates, UpdatesNotify, UpdatesAuto, UpdatesOff):
 		writeErr(w, http.StatusBadRequest, `updates must be "notify", "auto" or "off"`)
 		return
 	case p.StartAtLogin != nil && a.Login == nil:
 		writeErr(w, http.StatusNotImplemented, "starting at login is not available on this platform")
 		return
+	}
+	if p.Magic != nil {
+		if a.Devices == nil {
+			writeErr(w, http.StatusServiceUnavailable, "no device registry here")
+			return
+		}
+		if err := a.Devices.SetMagic(*p.Magic); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if a.MagicChanged != nil {
+			a.MagicChanged() // the screens learn their new part (or that it is off)
+		}
 	}
 	if p.Wifi != nil && !p.Wifi.Forget {
 		if err := server.CheckWifi(p.Wifi.SSID, p.Wifi.Password); err != nil {
@@ -228,6 +260,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Restore != nil {
 			cfg["restore"] = *p.Restore
+		}
+		if p.Sessions != nil {
+			cfg["sessions"] = *p.Sessions
 		}
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
@@ -334,6 +369,7 @@ func (a *Admin) restart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "the service isn't set to start at login, so it can't restart itself: turn on Start when I log in, or stop agentctl serve and start it again")
 		return
 	}
+	log.Printf("restart asked from Settings")
 	a.later(func() error { return a.Login.Install(io.Discard) })
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "The service restarts now. Agents keep running; boards reconnect in a few seconds."})
 }

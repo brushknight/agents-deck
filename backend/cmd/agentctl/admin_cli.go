@@ -77,7 +77,7 @@ func systemCmd(args []string) error {
 // settingsCmd shows every setting, or changes one.
 func settingsCmd(args []string) error {
 	const usage = "usage: agentctl settings [start-at-login on|off | notifications off|attention|finished | sound on|off |\n" +
-		"                         restore ask|auto | updates notify|auto|off | network on|off]"
+		"                         restore ask|auto | sessions pick|auto | updates notify|auto|off | network on|off]"
 	if len(args) == 0 {
 		var s admin.Settings
 		if err := adminCall("GET", "/admin/v1/settings", nil, &s); err != nil {
@@ -103,6 +103,7 @@ func settingsCmd(args []string) error {
 		fmt.Fprintf(tw, "notifications\t%s\n", s.Notifications)
 		fmt.Fprintf(tw, "sound\t%s\n", onOff(s.Sound))
 		fmt.Fprintf(tw, "restore\t%s\n", s.Restore)
+		fmt.Fprintf(tw, "sessions\t%s\n", s.Sessions)
 		fmt.Fprintf(tw, "updates\t%s\n", s.Updates)
 		fmt.Fprintf(tw, "network\t%s\n", net)
 		fmt.Fprintf(tw, "board wi-fi\t%s\t(agentctl link wifi --default)\n", wifi)
@@ -120,7 +121,7 @@ func settingsCmd(args []string) error {
 			return errors.New(usage)
 		}
 		body[map[string]string{"start-at-login": "startAtLogin", "network": "network", "sound": "sound"}[args[0]]] = v
-	case "notifications", "restore", "updates":
+	case "notifications", "restore", "sessions", "updates":
 		body[args[0]] = args[1]
 	default:
 		return errors.New(usage)

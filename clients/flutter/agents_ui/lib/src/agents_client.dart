@@ -129,6 +129,10 @@ abstract class AgentsSource {
   /// One-off `GET /v1/state` (after a 409, so the new prompt shows at once).
   Future<void> refresh();
 
+  /// `POST /v1/magic/view {"ids"}`: as the magic trick's giver, the agents
+  /// this screen shows now, in order (what the next take takes).
+  Future<AgentsResult> magicView(List<String> ids);
+
   void dispose();
 }
 
@@ -562,6 +566,10 @@ class HttpAgentsClient implements AgentsSource {
   @override
   Future<AgentsResult> move(String agentId, int slot) =>
       _postPath(['v1', 'agents', agentId, 'move'], {'slot': slot});
+
+  @override
+  Future<AgentsResult> magicView(List<String> ids) =>
+      _postPath(['v1', 'magic', 'view'], {'ids': ids});
 
   /// `GET` [path] and the list under [field] of its JSON object; empty on
   /// any failure.
