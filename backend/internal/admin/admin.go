@@ -22,6 +22,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/firmware"
 	"github.com/brushknight/agents-deck/backend/internal/flash"
 	"github.com/brushknight/agents-deck/backend/internal/link"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/serial"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -115,6 +116,9 @@ type Admin struct {
 	// Bluetooth: boards over Bluetooth (ble.go; *ble.Uplinks, or the demo's).
 	// nil: this computer has none.
 	Bluetooth Bluetooth
+	// CPU: how much CPU the service and its helpers use (proc.CPUMeter).
+	// nil: 404.
+	CPU func() proc.CPUReport
 
 	// Tokens are the MCP access tokens (mcp.go); MCPURL is where MCP clients
 	// connect over HTTP (http://127.0.0.1:<port>/mcp). nil: no MCP section.
@@ -207,6 +211,7 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/v1/mcp/tokens/{name}/{action}", a.mcpAction)
 
 	mux.HandleFunc("GET /admin/v1/diagnostics", a.diagnostics)
+	mux.HandleFunc("GET /admin/v1/cpu", a.cpu)
 	mux.HandleFunc("/admin/v1/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no such call: see docs/protocol.md, Management API")
 	})
