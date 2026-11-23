@@ -150,13 +150,14 @@ going back and forth.
 While the Mac is busy:
 
 - **It warns you.** The log says so, with who uses the CPU, when it gets busy and when it calms
-  down. The bar at the top of the app starts with "92% CPU · Mac busy", and Home shows how busy it
-  is, for how long, what is held, and the biggest users: agents, other programs and the deck itself.
+  down. The bar at the top of the app starts with "92% CPU" in orange. Home shows a warning with how
+  busy it is, for how long and what is held, and under it Using the most: the biggest users, agents,
+  other programs and the deck itself, each with a bar.
 - **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
-  agent's queue says Held. Prompts from an MCP client wait in the queue too, even for an idle
+  agent's queue marks each one Held, with **Send now**. Prompts from an MCP client wait in the queue too, even for an idle
   agent, and its `start_agent` is refused with "The Mac is busy (92% CPU
   for 4 minutes); try again in a few minutes". What you type or press on the deck, a board or in the
-  browser still goes in at once. **Send them now** on Home lets the queued prompts go for this busy
+  browser still goes in at once. **Send them now** on Home (or Send now on an agent's queue) lets the queued prompts go for this busy
   spell; the next one holds them again.
 
 Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how

@@ -251,6 +251,7 @@ const ICONS = {
   reply: [['path', { d: 'M10 7L4.5 12l5.5 5M5 12h9a5.5 5.5 0 0 1 5.5 5.5V19' }]],
   auto: [['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17.5 3v3.6h-3.6M6.5 21v-3.6h3.6' }]],
   power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
+  gauge: [['path', { d: 'M5.6 18.4a9 9 0 1 1 12.8 0' }], ['path', { d: 'M12 14l4.5-5' }], ['circle', { cx: 12, cy: 14, r: 1.6 }]],
 };
 function icon(name, size = 14, width = 2) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -536,10 +537,12 @@ function drawTop() {
   if (!show) return;
   const sys = S.system || {};
   const need = agentsList().filter(needsYou).length;
-  const cell = (n, words, href, hot) => h('a', { class: hot ? 'hotc' : '', href }, h('b', {}, String(n)), h('span', {}, words));
+  const cell = (n, words, href, hot, title) => h('a', { class: hot ? 'hotc' : '', href, title }, h('b', {}, String(n)), h('span', {}, words));
   const c = cpuOf();
-  bar.replaceChildren(
-    c ? cell(pct(c.percent), c.busy ? `CPU · ${machine()} busy` : 'CPU', c.busy ? '#home' : '#agents/cpu', c.busy) : null,
+  // The CPU cell stays short ("92% CPU"), so the status fits at 1024 px;
+  // orange says busy.
+  put(bar,
+    c ? cell(pct(c.percent), 'CPU', c.busy ? '#home' : '#agents/cpu', c.busy, c.busy ? `The ${machine()} is busy` : null) : null,
     cell(need, 'need you', '#home', need > 0),
     cell(updatesReady(sys), updatesReady(sys) === 1 ? 'update' : 'updates', '#updates'),
     cell(boardsWaiting(sys), 'boards waiting', '#boards'),
@@ -557,10 +560,51 @@ const machine = () => ((S.system?.platform || '').startsWith('darwin') ? 'Mac' :
 const cpuOf = () => (S.system?.cpu?.available ? S.system.cpu : null);
 const pct = (n) => `${Math.round(n)}%`;
 const minutesSince = (iso) => plural(Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60000)), 'minute');
-const CPU_KINDS = { agent: 'agent', deck: 'agents deck', program: 'program' };
+// The guard's window in words: "2m" is "2 minutes", "1m" is "minute".
+const forWords = (f) => { const m = /^(\d+)m$/.exec(f || ''); return !m ? f : m[1] === '1' ? 'minute' : `${m[1]} minutes`; };
 
-// cpuBlock: on Home while the computer is busy: how busy, for how long,
-// what waits, Send them now, and who uses the CPU.
+// cpuRelease is Send them now: queued prompts go in although the computer
+// is busy, until it is calm again.
+const cpuRelease = (el) => busy(el, async () => {
+  S.system.cpu = await api('POST', '/admin/v1/cpu/release');
+  showSystem(S.system);
+  updateDeck();
+}, 'Sending the queued prompts');
+
+// cpuFace: who uses the CPU, in a 40 px box: an agent's critter with its
+// hat (as its tile draws it), the deck's own critter, or a program's first
+// letter.
+function cpuFace(u, a) {
+  if (u.kind === 'deck') return h('span', { class: 'face' }, critter({ hat: { shape: 'propeller', color: 'blue' }, cut: '#141412', centre: true }));
+  if (u.kind !== 'agent') return h('span', { class: 'face lt', 'aria-hidden': 'true' }, [...(u.name || '?').trim()][0]?.toUpperCase() || '?');
+  const face = h('span', { class: 'face dk' });
+  face.style.setProperty('--body', '#FF4D00');
+  face.style.setProperty('--cut', '#141412');
+  const spr = h('span', { class: 'spr c' });
+  setSprite(spr, a ? poseOf(a) : 'idle', a?.tool || 'claude', a?.hat || null, { bubble: false });
+  face.append(spr);
+  return face;
+}
+
+// cpuUserRow: one user of the CPU, a whole line: face, name, a bar and its
+// share of every core. more: what goes at the end of the line.
+function cpuUserRow(u, more = []) {
+  const a = u.kind === 'agent' ? agentsList().find((x) => x.id === u.agent) : null;
+  const name = u.kind === 'deck' ? 'agents deck' : u.name;
+  const kind = u.kind === 'deck' ? 'agentctl and its helpers'
+    : u.kind === 'agent' ? (a && TOOL_NAMES[a.tool]) || 'agent'
+      : 'not an agent · the deck only shows it';
+  const fill = h('div');
+  fill.style.width = `${Math.max(0, Math.min(100, u.percent))}%`;
+  return h('div', { class: 'cpuu' }, cpuFace(u, a),
+    h('span', { class: 'grow' }, h('span', { class: 'nm', title: name }, name), h('span', { class: 'sub' }, kind)),
+    h('span', { class: 'bar', 'aria-hidden': 'true' }, fill),
+    h('b', { class: 'mono pc' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
+    ...more);
+}
+
+// cpuBlock: on Home while the computer is busy: a warning (how busy, for
+// how long, what waits, Send them now) and who uses the CPU the most.
 function cpuBlock() {
   const c = cpuOf();
   if (!c || !c.busy) { S.cpuTop = null; return null; }
@@ -574,18 +618,16 @@ function cpuBlock() {
   else if (c.hold && c.held) what = `${plural(c.held, 'queued prompt')} wait${c.held === 1 ? 's' : ''} until it is ${under}.`;
   else if (c.hold) what = `Queued prompts wait until it is ${under}.`;
   const users = (S.cpuTop?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
-  return h('div', { class: 'blk cpubar', role: 'status' },
-    h('div', { class: 'row thin' },
-      h('span', { class: 'txt grow' }, h('b', {}, `${machine() === 'Mac' ? 'The Mac' : 'This computer'} is busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%. ${what}`),
-      c.hold && c.held ? btn('Send them now', (e) => busy(e.currentTarget, async () => {
-        S.system.cpu = await api('POST', '/admin/v1/cpu/release');
-        showSystem(S.system);
-        updateDeck();
-      }, 'Sending the queued prompts'), 'p fix', { 'data-k': 'cpu-release' }) : null),
-    users.length ? h('div', { class: 'cputop' }, users.map((u) => h('span', { class: 'cpuu' },
-      h('span', { class: 'nm', title: u.name }, u.kind === 'deck' ? 'agents deck' : u.name),
-      h('b', { class: 'mono' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
-      h('span', { class: 'sub' }, u.kind === 'deck' ? 'this app' : CPU_KINDS[u.kind] || u.kind)))) : null);
+  const warn = h('div', { class: 'ask cpuask', role: 'status' },
+    h('span', { class: 'af', 'aria-hidden': 'true' }, icon('gauge', 30, 2.2)),
+    h('span', { class: 'grow' },
+      h('b', {}, h('span', { class: 'sr' }, `${machine() === 'Mac' ? 'The Mac' : 'This computer'} is busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%.`),
+      h('span', {}, what)),
+    c.hold && c.held ? btn('Send them now', (e) => cpuRelease(e.currentTarget), 'dark fix', { 'data-k': 'cpu-release' }) : null);
+  const top = users.length ? h('section', { class: 'sec', 'data-sec': 'cpu-top' },
+    h('div', { class: 'rule' }, h('h2', {}, 'Using the most'), h('span', { class: 'm' }, `last ${forWords(c.for)} · 100% = every core`)),
+    h('div', { class: 'blk cputop' }, users.map((u) => cpuUserRow(u)))) : null;
+  return [warn, top];
 }
 
 // cpuSection: Settings, Agents: what the deck does when the computer is busy.
@@ -1144,16 +1186,22 @@ function queuedBy(by) {
 
 // queueBlock: the prompts queued for an agent, each with Cancel. They go in
 // one at a time, as each turn ends; it reads them again when the count or
-// the status changes.
+// the status changes. While the CPU guard holds the queue, they say Held, and
+// Send now sends them anyway.
 function queueBlock(a, note) {
   const list = h('div', { class: 'blk qlist2' });
-  const meta = h('span', { class: 'm' });
-  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true },
-    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), meta), list);
+  const rule = h('div', { class: 'rule' });
+  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true }, rule, list);
   let sig = null;
   const show = (items) => {
     el.hidden = !items.length;
-    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`,
+    const held = !!S.system?.cpu?.hold && items.length > 0;
+    put(rule, h('h2', {}, 'Queued'), held
+      ? [h('span', { class: 'm acc2' }, `Held: the ${machine()} is busy`),
+        h('button', { type: 'button', class: 'go', 'data-k': 'cpu-release-queue', onclick: (e) => cpuRelease(e.currentTarget) }, 'Send now →')]
+      : h('span', { class: 'm' }, 'each goes in when a turn ends'));
+    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`, [
+      held ? chip('Held', 'acc held', null, { title: `Held until the ${machine()} is calm` }) : null,
       btn('Cancel', (e) => busy(e.currentTarget, async () => {
         let gone = false;
         try {
@@ -1166,15 +1214,12 @@ function queueBlock(a, note) {
         await load('state');
         updateDeck();
         return gone;
-      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` }),
+      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` })],
       { cls: 'qitem' })));
   };
   const update = async (x) => {
-    // Held while the CPU guard holds the queue (the computer is busy).
-    const held = !!S.system?.cpu?.hold;
-    meta.textContent = held ? `Held: the ${machine()} is busy` : 'each goes in when a turn ends';
-    meta.classList.toggle('acc2', held);
-    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    // Read again when the CPU guard starts or stops holding, too.
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}|${S.system?.cpu?.hold ? 'held' : ''}`;
     if (want === sig) return;
     sig = want;
     if (!x.queued) { show([]); return; }
