@@ -1,5 +1,5 @@
 // Package orca reads the Orca agent orchestrator (github.com/stablyai/orca)
-// through its CLI: the agents running in Orca's terminals, with the status
+// through its CLI (polled over the app's socket the CLI uses, rpc.go): the agents running in Orca's terminals, with the status
 // Orca gets from their own hooks, and the terminal actions the deck needs
 // (switch, send). Only the documented `orca … --json` commands are used.
 package orca
@@ -163,18 +163,19 @@ func (c Client) call(out any, args ...string) error {
 	return json.Unmarshal(env.Result, out)
 }
 
-// Read polls the workspaces (with their agents) and the terminals.
+// Read polls the workspaces (with their agents) and the terminals, over
+// the app's socket when it can (rpc.go).
 func (c Client) Read() (Snapshot, error) {
 	var ps struct {
 		Worktrees []Worktree `json:"worktrees"`
 	}
-	if err := c.call(&ps, "worktree", "ps"); err != nil {
+	if err := c.poll(&ps, "worktree.ps", nil, "worktree", "ps"); err != nil {
 		return Snapshot{}, err
 	}
 	var tl struct {
 		Terminals []Terminal `json:"terminals"`
 	}
-	if err := c.call(&tl, "terminal", "list"); err != nil {
+	if err := c.poll(&tl, "terminal.list", map[string]any{"includeVisualLayouts": false}, "terminal", "list"); err != nil {
 		return Snapshot{}, err
 	}
 	return Snapshot{Worktrees: ps.Worktrees, Terminals: tl.Terminals}, nil
