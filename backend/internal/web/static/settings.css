@@ -476,6 +476,14 @@ select.pick:disabled { opacity: 0.45; }
 .cpuu { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; padding: 10px 16px; box-shadow: 1px 0 0 var(--rule); }
 .cpuu .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cpuu b { grid-row: span 2; align-self: center; font-size: 16px; }
+/* an agent takes a whole line: Slowed and Full speed, or Slow it */
+.cputop { grid-auto-flow: dense; }
+.cpuu.ag { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto auto; }
+.cpuu .act { grid-row: span 2; align-self: center; display: flex; align-items: center; gap: 8px; }
+@media (max-width: 600px) {
+  .cpuu.ag { grid-template-columns: minmax(0, 1fr) auto; }
+  .cpuu.ag .act { grid-row: 3; grid-column: 1 / -1; margin-top: 8px; }
+}
 .rule .m.acc2 { color: var(--orange2); }
 /* one size for every button in a row (the CPU guard's) */
 .btn.fix { width: 172px; }

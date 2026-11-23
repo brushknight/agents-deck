@@ -158,10 +158,26 @@ While the Mac is busy:
   for 4 minutes); try again in a few minutes". What you type or press on the deck, a board or in the
   browser still goes in at once. **Send them now** on Home lets the queued prompts go for this busy
   spell; the next one holds them again.
+- **It slows down the heaviest agent** (Slow down the heaviest agent, on by default, macOS only).
+  The agent using the most CPU (at least 5%) runs in the background: every process on its terminal
+  moves to the efficiency cores and its disk use is throttled, the way `taskpolicy -b` does it. It
+  keeps working, only slower, and so do the processes it starts later (the deck looks again every 30
+  seconds). If the Mac stays busy for another window (2 minutes by default), the next heaviest agent
+  is slowed too, 3 at most. On Home, a slowed agent shows **Slowed** and **Full speed**, which puts it
+  back for the rest of this busy spell; any other agent shows **Slow it**, to slow it by hand. It is
+  all undone when the Mac is calm, when the agent ends and when the deck stops; after a crash, the
+  deck undoes it when it starts again (it keeps the slowed processes in `slowed.json`). The deck
+  never changes a nice value, never pauses or stops a process, and never touches other programs or
+  its own processes.
+
+  Only agents whose terminal the deck knows can be slowed: the ones it started, and Claude sessions
+  started by hand in a terminal. Agents in the Codex app, Orca, herdr and cmux, and background Claude
+  sessions, are not slowed for now.
 
 Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
-long (1, 2 or 5 minutes) and whether to hold. It is stored in `config.json` as `"cpuGuard"`. On Linux
-and Windows it works the same way; where the deck can't read the CPU, it says so and holds nothing.
+long (1, 2 or 5 minutes), whether to hold and whether to slow. It is stored in `config.json` as
+`"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
+can't read the CPU, it says so and holds nothing.
 
 ## Agent terminals
 

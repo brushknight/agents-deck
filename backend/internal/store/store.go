@@ -181,6 +181,9 @@ type Store struct {
 	Account func(name, transcript string) *model.Account
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
+	// Slow says which agents are in background mode, and each agent's CPU
+	// use while the computer is busy (cpuguard.Slower.Use). nil: neither.
+	Slow func() (slowed map[string]bool, cpu map[string]float64)
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -464,14 +467,20 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued := s.Hat, s.Account, s.Queued
+	hat, account, queued, slow := s.Hat, s.Account, s.Queued, s.Slow
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
 		counts = queued()
 	}
+	var slowed map[string]bool
+	var cpu map[string]float64
+	if slow != nil {
+		slowed, cpu = slow()
+	}
 	for i := range agents {
 		agents[i].Queued = counts[agents[i].ID]
+		agents[i].Slowed, agents[i].CPU = slowed[agents[i].ID], cpu[agents[i].ID]
 		if hat != nil {
 			agents[i].Hat = hat(agents[i].Cwd)
 		}

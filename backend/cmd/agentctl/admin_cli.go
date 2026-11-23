@@ -82,6 +82,9 @@ func systemCmd(args []string) error {
 			if c.Held > 0 {
 				line += fmt.Sprintf(", %d queued prompt(s) held", c.Held)
 			}
+			if len(c.Slowed) > 0 {
+				line += fmt.Sprintf(", %d agent(s) slowed", len(c.Slowed))
+			}
 		}
 		fmt.Printf("cpu:      %s\n", line)
 	}
@@ -122,7 +125,7 @@ func settingsCmd(args []string) error {
 		fmt.Fprintf(tw, "network\t%s\n", net)
 		fmt.Fprintf(tw, "board wi-fi\t%s\t(agentctl link wifi --default)\n", wifi)
 		if g := s.CPUGuard; g.On {
-			fmt.Fprintf(tw, "cpu guard\tover %d%% for %s, hold queued prompts %s\t(Settings, Agents)\n", g.Limit, g.For, onOff(g.Hold))
+			fmt.Fprintf(tw, "cpu guard\tover %d%% for %s, hold queued prompts %s, slow the heaviest agent %s\t(Settings, Agents)\n", g.Limit, g.For, onOff(g.Hold), onOff(g.Slow))
 		} else {
 			fmt.Fprintf(tw, "cpu guard\toff\t(Settings, Agents)\n")
 		}

@@ -65,6 +65,53 @@ func TestCPUGuard(t *testing.T) {
 	}
 }
 
+// bgPrio keeps which processes are in background mode.
+type bgPrio map[int]bool
+
+func (p bgPrio) Background(pid int, on bool) error { p[pid] = on; return nil }
+
+// Slow it and Full speed: only while busy, only an agent with a terminal;
+// /admin/v1/system names the slowed agents.
+func TestCPUSlow(t *testing.T) {
+	r := newRig(t)
+	if code, _ := r.do(t, "POST", "/admin/v1/cpu/slow/a1", ""); code != 404 {
+		t.Errorf("no slower: %d", code)
+	}
+	g := cpuguard.New(steadyMeter(92))
+	prio := bgPrio{}
+	s := &cpuguard.Slower{Guard: g, Prio: prio, Self: 600, Cores: 10,
+		Agents: func() []proc.AgentTerminal {
+			return []proc.AgentTerminal{{TTY: "/dev/ttys003", ID: "a1", Title: "fix it"}}
+		},
+		List: func() ([]proc.PS, error) {
+			return []proc.PS{{PID: 700, TTY: "ttys003", CPU: 80, Comm: "claude"}, {PID: 500, TTY: "??", CPU: 90, Comm: "browser"}}, nil
+		}}
+	g.Slowed = s.Slowed
+	r.a.Guard, r.a.Slower = g, s
+	if code, out := r.do(t, "POST", "/admin/v1/cpu/slow/a1", ""); code != 409 {
+		t.Errorf("calm: %d %v", code, out)
+	}
+	g.Step()
+	if code, _ := r.do(t, "POST", "/admin/v1/cpu/full-speed/a1", ""); code != 409 {
+		t.Errorf("full speed, not slowed: %d", code)
+	}
+	if code, _ := r.do(t, "POST", "/admin/v1/cpu/slow/zz", ""); code != 409 {
+		t.Errorf("unknown agent: %d", code)
+	}
+	code, out := r.do(t, "POST", "/admin/v1/cpu/slow/a1", "")
+	if l, _ := out["slowed"].([]any); code != 200 || len(l) != 1 || l[0] != "a1" || !prio[700] || prio[500] {
+		t.Fatalf("slow it: %d %v %v", code, out, prio)
+	}
+	_, out = r.do(t, "GET", "/admin/v1/system", "")
+	if l, _ := out["cpu"].(map[string]any)["slowed"].([]any); len(l) != 1 {
+		t.Errorf("system: %v", out["cpu"])
+	}
+	code, out = r.do(t, "POST", "/admin/v1/cpu/full-speed/a1", "")
+	if l, _ := out["slowed"].([]any); code != 200 || l == nil || len(l) != 0 || prio[700] {
+		t.Errorf("full speed: %d %v %v", code, out, prio)
+	}
+}
+
 // GET /admin/v1/cpu: the machine always, who uses it only with ?top=N (at
 // most 50), a bad N refused.
 func TestCPUTop(t *testing.T) {

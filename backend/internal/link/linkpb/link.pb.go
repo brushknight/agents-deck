@@ -146,10 +146,10 @@ type FieldGroup int32
 
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
-	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued
+	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed
 	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
-	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns
+	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns, cpu
 )
 
 // Enum value maps for FieldGroup.
@@ -2241,6 +2241,8 @@ type Agent struct {
 	LastActiveMs  int64                  `protobuf:"varint,35,opt,name=last_active_ms,json=lastActiveMs,proto3" json:"last_active_ms,omitempty"`  // its latest message sent or received; 0 = not known yet
 	AttentionSlot uint32                 `protobuf:"varint,36,opt,name=attention_slot,json=attentionSlot,proto3" json:"attention_slot,omitempty"` // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
 	Queued        uint32                 `protobuf:"varint,37,opt,name=queued,proto3" json:"queued,omitempty"`                                    // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+	Slowed        bool                   `protobuf:"varint,38,opt,name=slowed,proto3" json:"slowed,omitempty"`                                    // in background mode while the computer is busy (the CPU guard; macOS)
+	Cpu           float32                `protobuf:"fixed32,39,opt,name=cpu,proto3" json:"cpu,omitempty"`                                         // percent of the whole computer, only while it is busy; 0 otherwise
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2530,6 +2532,20 @@ func (x *Agent) GetAttentionSlot() uint32 {
 func (x *Agent) GetQueued() uint32 {
 	if x != nil {
 		return x.Queued
+	}
+	return 0
+}
+
+func (x *Agent) GetSlowed() bool {
+	if x != nil {
+		return x.Slowed
+	}
+	return false
+}
+
+func (x *Agent) GetCpu() float32 {
+	if x != nil {
+		return x.Cpu
 	}
 	return 0
 }
@@ -5358,7 +5374,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xda\t\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x84\n" +
+	"\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -5399,7 +5416,9 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\aaccount\x18\" \x01(\v2\x1b.agentsdeck.link.v1.AccountR\aaccount\x12$\n" +
 	"\x0elast_active_ms\x18# \x01(\x03R\flastActiveMs\x12%\n" +
 	"\x0eattention_slot\x18$ \x01(\rR\rattentionSlot\x12\x16\n" +
-	"\x06queued\x18% \x01(\rR\x06queued\"6\n" +
+	"\x06queued\x18% \x01(\rR\x06queued\x12\x16\n" +
+	"\x06slowed\x18& \x01(\bR\x06slowed\x12\x10\n" +
+	"\x03cpu\x18' \x01(\x02R\x03cpu\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +

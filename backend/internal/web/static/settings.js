@@ -574,6 +574,20 @@ function cpuBlock() {
   else if (c.hold && c.held) what = `${plural(c.held, 'queued prompt')} wait${c.held === 1 ? 's' : ''} until it is ${under}.`;
   else if (c.hold) what = `Queued prompts wait until it is ${under}.`;
   const users = (S.cpuTop?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
+  const slowed = c.slowed || [];
+  for (const id of slowed) { // a slowed agent stays listed, so Full speed is at hand
+    const a = agentsList().find((x) => x.id === id);
+    if (a && !users.some((u) => u.agent === id)) users.push({ kind: 'agent', agent: id, name: a.title || a.aiTitle || id, percent: a.cpu || 0 });
+  }
+  const act = (path, id, text, done) => btn(text, (e) => busy(e.currentTarget, async () => {
+    S.system.cpu = await api('POST', `/admin/v1/cpu/${path}/${encodeURIComponent(id)}`);
+    showSystem(S.system);
+    updateDeck();
+  }, done), 'fix', { 'data-k': `cpu-${path}:${id}` });
+  // An agent: Slowed and Full speed, or Slow it (macOS only).
+  const agentAct = (u) => h('span', { class: 'act' }, ...(slowed.includes(u.agent)
+    ? [chip('Slowed', 'acc'), act('full-speed', u.agent, 'Full speed', 'Back to full speed')]
+    : machine() === 'Mac' ? [act('slow', u.agent, 'Slow it', 'Running it in the background until the Mac is calm')] : []));
   return h('div', { class: 'blk cpubar', role: 'status' },
     h('div', { class: 'row thin' },
       h('span', { class: 'txt grow' }, h('b', {}, `${machine()} busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. Your limit is ${c.limit}%. ${what}`),
@@ -582,8 +596,9 @@ function cpuBlock() {
         showSystem(S.system);
         updateDeck();
       }, 'Sending the queued prompts'), 'p fix', { 'data-k': 'cpu-release' }) : null),
-    users.length ? h('div', { class: 'cputop' }, users.map((u) => h('span', { class: 'cpuu' },
+    users.length ? h('div', { class: 'cputop' }, users.map((u) => h('span', { class: `cpuu${u.kind === 'agent' ? ' ag' : ''}` },
       h('span', { class: 'nm', title: u.name }, u.kind === 'deck' ? 'agents deck' : u.name),
+      u.kind === 'agent' ? agentAct(u) : null,
       h('b', { class: 'mono' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
       h('span', { class: 'sub' }, u.kind === 'deck' ? 'this app' : CPU_KINDS[u.kind] || u.kind)))) : null);
 }
@@ -603,6 +618,9 @@ function cpuSection() {
       h('span', { class: 'sub' }, `Over it, then under ${g.limit - 10}% for a minute to clear. 100% is every core.`))));
     rows.push(row('Show a warning', `In the log, the bar on top and Home, with who uses the CPU.`, [chip('Always')]));
     rows.push(row('Hold queued prompts', 'And agents started over MCP. What you type or press still goes at once.', [toggle('Hold queued prompts', g.hold, (on, el) => set({ hold: on }, el), { key: 'cpu-hold' })]));
+    const mac = m === 'Mac';
+    rows.push(row('Slow down the heaviest agent', mac ? 'Runs it in the background (efficiency cores, slower disk) until the Mac is calm. macOS only.' : 'macOS only.',
+      [toggle('Slow down the heaviest agent', mac && g.slow, (on, el) => set({ slow: on }, el), { key: 'cpu-slow', disabled: !mac })]));
   }
   const c = S.system?.cpu;
   const mc = S.cpu?.machine;

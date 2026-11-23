@@ -155,7 +155,7 @@ func TestAgentParity(t *testing.T) {
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, CPU: 12.5, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
@@ -175,8 +175,12 @@ func TestAgentParity(t *testing.T) {
 	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
-	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
+	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 ||
+		!tile.Slowed || tile.Cpu != 0 {
 		t.Errorf("tile fields: %+v", tile)
+	}
+	if n := toPB(full, uint32(linkpb.FieldGroup_FIELDS_NUMBERS)); n.Cpu != 12.5 || n.Slowed {
+		t.Errorf("numbers: cpu %v, slowed %v", n.Cpu, n.Slowed)
 	}
 }
 

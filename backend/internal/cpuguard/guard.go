@@ -34,7 +34,7 @@ type Setting struct {
 	Limit int    `json:"limit"` // percent of the whole computer (100: every core), 60 to 95
 	For   string `json:"for"`   // how long over the limit: "1m", "2m" or "5m"
 	Hold  bool   `json:"hold"`  // while busy, hold queued prompts and start_agent over MCP
-	Slow  bool   `json:"slow"`  // while busy, run the heaviest agent in the background (not yet)
+	Slow  bool   `json:"slow"`  // while busy, run the heaviest agent in background mode (macOS; Slower)
 }
 
 // Default is the setting when config.json has none.
@@ -108,6 +108,7 @@ type State struct {
 	Held      int        `json:"held"`           // queued prompts waiting because of the guard
 	Released  bool       `json:"released"`       // Send them now: nothing is held until the CPU is calm
 	Peak      *Peak      `json:"peak,omitempty"` // the busiest minute today
+	Slowed    []string   `json:"slowed"`         // ids of the agents in background mode (Slower)
 }
 
 // Peak is the busiest minute of the day so far.
@@ -127,8 +128,10 @@ type Guard struct {
 	// Changed is called when busy, or what is held, changes: the queue
 	// looks again. nil: nothing is told.
 	Changed func()
-	Logf    func(format string, args ...any)
-	Now     func() time.Time // the clock; nil: time.Now
+	// Slowed names the agents in background mode, for State. nil: none.
+	Slowed func() []string
+	Logf   func(format string, args ...any)
+	Now    func() time.Time // the clock; nil: time.Now
 
 	mu       sync.Mutex
 	set      Setting
@@ -279,7 +282,19 @@ func (g *Guard) State() (State, bool) {
 	if ok && s.Hold && g.Queued != nil {
 		s.Held = g.Queued() // outside the lock: it asks the queue
 	}
+	s.Slowed = []string{}
+	if ok && g.Slowed != nil {
+		s.Slowed = g.Slowed()
+	}
 	return s, ok
+}
+
+// Busy says whether the computer is busy now (the guard on, over the
+// limit for the window and not calm since).
+func (g *Guard) Busy() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.busy && g.set.On
 }
 
 func (g *Guard) state() (State, bool) {

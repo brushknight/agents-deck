@@ -1249,6 +1249,26 @@ func serve(args []string) error {
 	guard.Changed, guard.Logf = st.Touch, log.Printf
 	srv.Guard, adm.Guard = guard, guard
 	go guard.Run(machineCtx)
+	// While busy, the heaviest agent runs in background mode (macOS). Undone
+	// when calm and on a clean stop; after a crash, here on the next start.
+	// A demo's agents have no processes: nothing to slow.
+	if !*demoMode {
+		slower := &cpuguard.Slower{Guard: guard, List: proc.Processes, File: paths.Slowed(), Self: os.Getpid(),
+			Logf: log.Printf, Changed: st.Touch}
+		slower.Agents = func() []proc.AgentTerminal {
+			var live []store.Entry
+			for _, e := range st.Entries() {
+				if e.A.Status != model.Exited {
+					live = append(live, e)
+				}
+			}
+			return daemon.AgentTerminals(live, tmux.SessionTTYs())
+		}
+		slower.Recover()
+		defer slower.Stop()
+		go slower.Run(machineCtx)
+		guard.Slowed, st.Slow, adm.Slower = slower.Slowed, slower.Use, slower
+	}
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}

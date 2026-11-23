@@ -80,3 +80,22 @@ func TestGroupCPU(t *testing.T) {
 		t.Fatalf("no rows: %+v", got)
 	}
 }
+
+// ps with lstart: five words of start time before the program, which may
+// hold spaces.
+func TestParseProcesses(t *testing.T) {
+	got := parseProcesses(`  700   690 ttys003   30.0 Mon Nov 23 10:04:05 2026     claude
+  501   500 ??        20.0 Sun Nov 22 09:00:00 2026     /Applications/Example App.app/Contents/MacOS/Example App
+  bad line
+`)
+	want := []PS{
+		{PID: 700, PPID: 690, TTY: "ttys003", CPU: 30, Start: "Mon Nov 23 10:04:05 2026", Comm: "claude"},
+		{PID: 501, PPID: 500, TTY: "??", CPU: 20, Start: "Sun Nov 22 09:00:00 2026", Comm: "/Applications/Example App.app/Contents/MacOS/Example App"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v", got)
+	}
+	if !IsDeck(5, 1, "/usr/local/bin/agentctl", 9) || !IsDeck(9, 1, "x", 9) || !IsDeck(5, 9, "iostat", 9) || IsDeck(5, 1, "claude", 9) {
+		t.Error("IsDeck")
+	}
+}

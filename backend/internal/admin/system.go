@@ -95,6 +95,37 @@ func (a *Admin) cpuRelease(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g)
 }
 
+// cpuSlow: POST /admin/v1/cpu/slow/{id} is Slow it (background mode for
+// the agent while the computer is busy), .../full-speed/{id} is Full speed
+// (out of it until the next busy spell). Both answer the guard, as release.
+func (a *Admin) cpuSlow(slow bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.Slower == nil || a.Guard == nil {
+			writeErr(w, http.StatusNotFound, "this service doesn't slow agents")
+			return
+		}
+		do := a.Slower.FullSpeed
+		if slow {
+			do = a.Slower.SlowNow
+		}
+		writeSlow(w, a.Guard, do(r.PathValue("id")))
+	}
+}
+
+func writeSlow(w http.ResponseWriter, guard *cpuguard.Guard, err error) {
+	switch {
+	case errors.Is(err, cpuguard.ErrCantSlow):
+		writeErr(w, http.StatusNotImplemented, err.Error())
+	case errors.Is(err, cpuguard.ErrNotBusy), errors.Is(err, cpuguard.ErrNoTerminal), errors.Is(err, cpuguard.ErrNotSlowed):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		g, _ := guard.State()
+		writeJSON(w, http.StatusOK, g)
+	}
+}
+
 func (a *Admin) updaterState() update.State {
 	if a.Updater == nil {
 		return update.State{State: update.StateDisabled, Current: a.Version, Install: a.Install,
