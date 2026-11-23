@@ -2014,6 +2014,47 @@ function projectForm(accs) {
       }, `Removed ${editing}`), 'd') : null));
 }
 
+// ---- a project's day: its folders, the agents in each now, and the time they worked today --------
+
+async function loadToday() {
+  const id = S.today?.id;
+  if (!id) return;
+  try {
+    const day = await api('GET', `/admin/v1/projects/${encodeURIComponent(id)}/today`);
+    if (S.today?.id === id) S.today = { id, day };
+  } catch (e) {
+    if (S.today?.id === id) S.today = { id, day: S.today.day, err: e.message };
+  }
+}
+
+// mins: "45 min", "2 h 5 min".
+const mins = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+const DAY_ST = { running: ['working', 'acc'], waiting: ['needs you', 'fill'], error: ['error', 'bad'], idle: ['idle', 'off'], starting: ['starting', 'off'], exited: ['ended', 'off'] };
+
+function projectDay(p) {
+  const t = S.today;
+  if (!t.day) return t.err ? h('p', { class: 'pday sub err', role: 'alert' }, t.err) : h('p', { class: 'pday sub' }, 'Loading today…');
+  const fs = t.day.folders || [];
+  const top = Math.max(...fs.map((f) => f.activeMin), 1);
+  const total = fs.reduce((n, f) => n + f.activeMin, 0);
+  return h('div', { class: 'pday', role: 'region', 'aria-label': `${p.name} today` },
+    h('p', { class: 'sub' }, `Today since midnight: ${mins(total)} at work. Time counts while an agent is working; waiting for you and idle don't.`),
+    ...fs.map((f) => {
+      const bar = h('div', { class: 'bar', role: 'img', 'aria-label': `${mins(f.activeMin)} today` }, h('div', {}));
+      bar.firstChild.style.width = `${Math.round((f.activeMin / top) * 100)}%`;
+      return h('div', { class: 'pdrow' },
+        h('span', { class: 'pdf', title: f.path }, lastPart(f.folder)),
+        h('div', { class: 'pda' }, f.agents.length ? f.agents.map((a) => {
+          const [word, cls] = DAY_ST[a.status] || [a.status, 'off'];
+          return h('a', { class: 'pdag', href: `#agent/${encodeURIComponent(a.id)}` },
+            h('span', { class: 'nm', title: a.name }, a.name),
+            a.worktree ? h('span', { class: 'sub', title: a.worktree }, `worktree ${a.worktree.split('/').pop()}`) : null,
+            chip(word, cls, 'dot'));
+        }) : h('span', { class: 'sub' }, f.activeMin ? 'no agents now' : 'no agents today')),
+        h('div', { class: 'pdt' }, bar, h('span', { class: 'sub' }, mins(f.activeMin))));
+    }));
+}
+
 function projectsSection(accs) {
   if (S.errors.projects || !S.projects) return null; // an older service has no projects
   const list = S.projects.projects || [];
@@ -2027,11 +2068,14 @@ function projectsSection(accs) {
     const acc = accs.find((x) => x.name === p.account);
     const accChip = p.account ? h('span', { class: 'chip st' }, h('i', { 'aria-hidden': 'true' }), p.account) : h('span', { class: 'chip st off' }, 'Default account');
     if (acc) accChip.firstChild.style.background = (HAT_COLORS[acc.color] || HAT_COLORS.ink)[0];
+    const open = S.today?.id === p.id;
     return row(p.name, `${fs.length > 1 ? fs.map(lastPart).join(', ') : p.folder} · ${n ? plural(n, 'agent') : 'no agents'}`, [
       chip(TOOL_NAMES[p.tool || 'claude'], 'st'), !p.tool || p.tool === 'claude' ? accChip : null,
-      link('Start agent', `#start//${encodeURIComponent(p.name)}`, '', { 'aria-label': `Start an agent in ${p.name}` }),
-      btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, '', { 'aria-label': `Edit ${p.name}` }),
-    ], { name: true, pic: projectFace(p) });
+      btn('Today', async () => { S.today = open ? null : { id: p.id }; draw(true); if (!open) { await loadToday(); draw(true); } }, `pjb${open ? ' on' : ''}`,
+        { 'aria-expanded': open ? 'true' : 'false', 'aria-label': `${p.name} today`, 'data-k': `pj-today-${p.id}` }),
+      link('Start agent', `#start//${encodeURIComponent(p.name)}`, 'pjb', { 'aria-label': `Start an agent in ${p.name}` }),
+      btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, 'pjb', { 'aria-label': `Edit ${p.name}` }),
+    ], { name: true, pic: projectFace(p), extra: open ? projectDay(p) : null });
   });
   // Folders agents work in that aren't projects yet.
   const seen = [...new Set(agents.filter((a) => !list.some((p) => inProject(a, p))).map((a) => a.cwd).filter(Boolean))]
@@ -3599,7 +3643,7 @@ async function route(initial) {
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
-  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; }
+  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; }
   if (page !== 'start') S.startForm = null;
   if (page !== 'home') S.panel = false; // Panel view is a way to see Home
   const section = SECTION[page] || page;
@@ -3619,6 +3663,7 @@ async function route(initial) {
     try { S.jobs[arg] = await api('GET', `/admin/v1/jobs/${encodeURIComponent(arg)}`); } catch (e) { S.errors.job = e; }
   }
   await loadAll(...needs(page), ...extras(page));
+  if (page === 'agents') await loadToday();
   draw();
   syncBar();
   if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
@@ -3644,6 +3689,7 @@ async function refresh(force) {
   const busyUI = S.open.wifi || S.open.rename || S.open.project || S.pairing || S.confirmLoginOff || (S.mcpNew && !S.mcpNew.token);
   if (!force && (busyUI || ['general', 'about'].includes(page))) return;
   await loadAll(...needs(page), ...extras(page));
+  if (page === 'agents') await loadToday();
   if (page !== S.page) return;
   if ((page === 'home' && deck?.grid.isConnected) || (page === 'agent' && agentView)) updateDeck();
   else draw(false);

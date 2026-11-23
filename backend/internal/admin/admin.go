@@ -177,6 +177,7 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/projects", a.projectsList)
 	mux.HandleFunc("POST /admin/v1/projects", a.projectsAdd)
 	mux.HandleFunc("POST /admin/v1/projects/{name}/{action}", a.projectAction)
+	mux.HandleFunc("GET /admin/v1/projects/{name}/today", a.projectToday)
 
 	mux.HandleFunc("GET /admin/v1/devices", a.listDevices)
 	mux.HandleFunc("POST /admin/v1/devices/{id}/{action}", a.deviceAction)

@@ -355,7 +355,8 @@ var mcpTools = []mcpTool{
 	{Name: "list_sessions", Title: "List other sessions",
 		Description: "Claude sessions running on this computer that the deck didn't start (in other terminals, or in the background), " +
 			"and whether each is on the deck. They can be watched (add_session) but not given prompts. Needs scope admin.",
-		InputSchema: schema(nil, map[string]any{}), Annotations: map[string]any{"readOnlyHint": true}},
+		InputSchema: schema(nil, map[string]any{"project": prop("string", "Only sessions working in this project's folders: its name (any case) or its id.")}),
+		Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "add_session", Title: "Watch a session",
 		Description: "Puts a session from list_sessions on the deck, watched: you see its status, but it stays read-only (it runs in its own terminal). Needs scope admin.",
 		InputSchema: schema([]string{"session_id"}, map[string]any{"session_id": prop("string", "sessionId from list_sessions.")})},
@@ -771,14 +772,38 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	return asJSON(map[string]any{"agent_id": id, "started": true, "prompted": true}), nil
 }
 
-func toolListSessions(s *Server, who devices.Device, _ mcpArgs) (string, error) {
+func toolListSessions(s *Server, who devices.Device, args mcpArgs) (string, error) {
 	out, err := s.call(who, http.MethodGet, "/v1/live", nil)
 	if err != nil {
 		return "", err
 	}
-	var v any
+	project := args.str("project")
+	if project == "" {
+		var v any
+		_ = json.Unmarshal(out, &v)
+		return asJSON(v), nil
+	}
+	var v struct {
+		Sessions []map[string]any `json:"sessions"`
+	}
 	_ = json.Unmarshal(out, &v)
-	return asJSON(v), nil
+	rows := make([]map[string]any, 0, len(v.Sessions))
+	for _, row := range v.Sessions {
+		cwd, _ := row["cwd"].(string)
+		if p := s.projectOf(cwd); p != nil && (p.ID == project || strings.EqualFold(p.Name, project)) {
+			rows = append(rows, row)
+		}
+	}
+	return asJSON(map[string]any{"sessions": rows}), nil
+}
+
+// projectOf is the project a working folder is in (nil: none, or no projects).
+func (s *Server) projectOf(cwd string) *model.Project {
+	if s.Store == nil || s.Store.Project == nil || cwd == "" {
+		return nil
+	}
+	p, _ := s.Store.Project(cwd)
+	return p
 }
 
 func toolAddSession(s *Server, who devices.Device, a mcpArgs) (string, error) {

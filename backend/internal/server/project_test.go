@@ -91,3 +91,52 @@ func TestMCPListByProject(t *testing.T) {
 		t.Errorf("an empty project filter: %d agents", len(got))
 	}
 }
+
+// liveCtl adds sessions started elsewhere (GET /v1/live) to the MCP test's
+// controller.
+type liveCtl struct {
+	*mcpCtl
+	rows []map[string]any
+}
+
+func (l liveCtl) LiveJSON() any             { return l.rows }
+func (l liveCtl) AddLive(string, int) error { return nil }
+
+// list_sessions takes a project too: only the sessions working in its
+// folders.
+func TestMCPSessionsByProject(t *testing.T) {
+	s, ctl, tok := newMCPServer(t)
+	withProjects(s)
+	s.Ctl = liveCtl{mcpCtl: ctl, rows: []map[string]any{
+		{"sessionId": "s1", "cwd": "/home/dev/harbor/site"},
+		{"sessionId": "s2", "cwd": "/home/dev/northwind"},
+		{"sessionId": "s3", "cwd": "/home/dev/kestrel"},
+		{"sessionId": "s4"},
+	}}
+	h := s.LocalHandler()
+	list := func(args map[string]any) []string {
+		t.Helper()
+		_, out := rpc(h, "/mcp", tok["chief"], call("list_sessions", args))
+		text, isErr := toolText(t, out)
+		var l struct{ Sessions []struct{ SessionID string } }
+		if err := json.Unmarshal([]byte(text), &l); err != nil || isErr {
+			t.Fatalf("list_sessions %v: %v %s", args, err, text)
+		}
+		var ids []string
+		for _, x := range l.Sessions {
+			ids = append(ids, x.SessionID)
+		}
+		return ids
+	}
+	if got := list(nil); len(got) != 4 {
+		t.Errorf("every session: %v", got)
+	}
+	for _, by := range []string{"harbor", "p00000001"} {
+		if got := list(map[string]any{"project": by}); len(got) != 1 || got[0] != "s1" {
+			t.Errorf("project %q: %v", by, got)
+		}
+	}
+	if got := list(map[string]any{"project": "atlas"}); len(got) != 0 {
+		t.Errorf("an unknown project: %v", got)
+	}
+}

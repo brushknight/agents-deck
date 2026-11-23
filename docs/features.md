@@ -282,12 +282,20 @@ pick the project, the tool and account (the project's by default) and a first pr
 
 Every agent knows its project: an agent working in a project folder, or in a folder inside one such as
 a worktree, is that project's, wherever you see it (the browser, the API, boards over Deck Link and
-`list_agents` over MCP, which can also list one project's agents). When folders of two projects hold
+`list_agents` over MCP, which can also list one project's agents, as `list_sessions` can for sessions
+started elsewhere). When folders of two projects hold
 an agent's folder, the deeper one wins, so a project for `~/dev/app/ios` gets the agents there and a
 project for `~/dev/app` the rest. A folder belongs to one project: saving a project with a folder
 another one has already is refused, and says which. If an older `projects.json` lists a folder in
 two projects, both are kept, the first in the list gets its agents, and saving either asks you to
 take the folder out of one.
+
+**Today** on a project (Agents, Projects) shows its day so far, since midnight: a line per folder with
+the agents working in it now (a worktree inside the folder is named), their status, and how long the
+folder's agents worked today, with a bar to compare the folders. Worked means running: on a turn, or
+with subagents at work; waiting for you and idle don't count. The time comes from the status changes
+the deck sees, so it starts when the deck does (an update or restart keeps it), and agents removed
+today still count until the service stops. A folder nobody worked in today says so.
 
 **New boards.** A port is listed from its USB id alone and never opened until you say it's yours.
 Then the service asks the board: a board running agents deck says what it is; anything else is asked
