@@ -175,6 +175,18 @@ void main() {
     expect(find.text('50% to level 42'), findsOneWidget);
     expect(find.byType(PetHearts), findsOneWidget);
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 4);
+    // A dark card: no plate.
+    expect(
+      tester
+          .widget<PetSprite>(
+            find.descendant(
+              of: find.byKey(const Key('agent-pet')),
+              matching: find.byType(PetSprite),
+            ),
+          )
+          .plate,
+      isFalse,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -193,6 +205,12 @@ void main() {
     expect(find.byKey(const Key('agent-pet')), findsOneWidget);
     expect(find.text('Kid · level 6'), findsOneWidget);
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 2);
+    // Its permission card is solid orange: the pet sits on a dark plate.
+    Finder cardPet() => find.descendant(
+      of: find.byKey(const Key('agent-pet')),
+      matching: find.byType(PetSprite),
+    );
+    expect(tester.widget<PetSprite>(cardPet()).plate, isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -212,6 +230,17 @@ void main() {
     await expectLater(
       find.byType(AgentsApp),
       matchesGoldenFile('goldens/agents-pets-detail.png'),
+    );
+  });
+
+  testWidgets('pets permission golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    await pumpBoard(tester, _withPets());
+    await open(tester, 'infra-network');
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-pets-permission.png'),
     );
   });
 }

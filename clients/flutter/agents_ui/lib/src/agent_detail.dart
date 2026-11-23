@@ -579,6 +579,8 @@ class _AgentDetailState extends State<AgentDetail> {
                         hat: a.hat,
                         idle: petAgentIdle(a),
                         ink: ink,
+                        // On an orange card: a dark plate under the pet.
+                        plate: cut == DeckHud.accent,
                       ),
                     ),
                   ],

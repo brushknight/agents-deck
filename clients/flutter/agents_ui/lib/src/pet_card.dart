@@ -23,6 +23,7 @@ class PetSummary extends StatelessWidget {
     this.hat,
     this.idle = false,
     this.ink = DeckHud.ink,
+    this.plate = false,
   });
 
   final AgentPet pet;
@@ -36,6 +37,9 @@ class PetSummary extends StatelessWidget {
   /// Text and bar colour (the card's ink).
   final Color ink;
 
+  /// The pet on a dark plate (on a solid orange card).
+  final bool plate;
+
   @override
   Widget build(BuildContext context) {
     final dim = ink == DeckHud.ink ? DeckHud.dim : ink.withValues(alpha: 0.7);
@@ -45,7 +49,7 @@ class PetSummary extends StatelessWidget {
       key: const Key('agent-pet'),
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        PetSprite(pet: pet, hat: hat, idle: idle, width: 54),
+        PetSprite(pet: pet, hat: hat, idle: idle, plate: plate, width: 54),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
