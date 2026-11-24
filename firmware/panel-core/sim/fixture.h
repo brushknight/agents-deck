@@ -228,6 +228,17 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
     FIXTURE_COPY(a.hat.color, j["hat"]["color"].str());
     a.hat.automatic = j["hat"]["auto"].truthy();
   }
+  if (!j["pet"].isNull()) {   // Agent pets on (convert.go)
+    const Json& p = j["pet"];
+    a.has_pet = true;
+    FIXTURE_COPY(a.pet.name, p["name"].str());
+    FIXTURE_COPY(a.pet.stage, p["stage"].str());
+    FIXTURE_COPY(a.pet.mood, p["mood"].str());
+    a.pet.level = (uint32_t)p["level"].num();
+    a.pet.ate = (int64_t)p["ate"].num();
+    a.pet.next_at = (int64_t)p["next_at"].num();
+    a.pet.hearts = (uint32_t)p["hearts"].num();
+  }
 }
 
 // The frames of one snapshot, as the deck sends them after Subscribe.
