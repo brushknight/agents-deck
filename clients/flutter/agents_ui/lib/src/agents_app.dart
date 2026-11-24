@@ -628,8 +628,8 @@ class _AgentTileState extends State<AgentTile> {
                         child: Column(
                           children: [
                             // With Agent pets on, its pet takes the
-                            // critter's place: on a ground line, at the
-                            // critter's scale, smaller when its glow, hat
+                            // critter's place: on its baseline (no line
+                            // drawn), at the critter's scale, smaller when its glow, hat
                             // or bubble would leave the tile (nothing
                             // does). It does its agent's pose, in its own
                             // colours with its black stroke (on orange
@@ -640,9 +640,6 @@ class _AgentTileState extends State<AgentTile> {
                                 fit: true,
                                 cell: 92 / 18,
                                 height: 96,
-                                ground: fill == DeckHud.accent
-                                    ? const Color(0x730A0A0A)
-                                    : const Color(0xFF3B3A36),
                                 pet: pet,
                                 hat: a.hat,
                                 pose: critterPoseOf(

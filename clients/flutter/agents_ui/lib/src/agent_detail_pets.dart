@@ -9,7 +9,6 @@ part of 'agent_detail.dart';
 // page. Only the card is rounded; buttons, chips and boxes are square.
 
 const _pRule = Color(0xFF3B3A36);
-const _pLine = Color(0xFF262622);
 const _pText = Color(0xFFC9C5BC);
 const _pMuted = Color(0xFF9A968C);
 const _pOrange2 = Color(0xFFFF6A2E);
@@ -490,17 +489,6 @@ extension _PetsPage on _AgentDetailState {
                     afterCelebrate: after,
                   ),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 6,
-                  top: 122,
-                  height: 2,
-                  child: ColoredBox(
-                    color: orange
-                        ? _pInkOnOrange.withValues(alpha: 0.45)
-                        : _pRule,
-                  ),
-                ),
               ],
             ),
           ),
@@ -539,12 +527,20 @@ extension _PetsPage on _AgentDetailState {
         children: [
           _petHead(state, a),
           const SizedBox(height: 22),
-          if (running)
-            ..._petNow(a, subs, account)
-          else
-            _petStatus(state, a, account),
+          if (running) ..._petNow(a, subs) else _petStatus(state, a, account),
           const SizedBox(height: 22),
-          _pLabel('last prompt', _pMuted, tail: ago),
+          // A working agent's account sits at the end of this row, so the
+          // "doing now" block keeps its shape.
+          if (running && account != null)
+            Row(
+              children: [
+                Expanded(child: _pLabel('last prompt', _pMuted, tail: ago)),
+                const SizedBox(width: 16),
+                _petAccountName(a, 16),
+              ],
+            )
+          else
+            _pLabel('last prompt', _pMuted, tail: ago),
           const SizedBox(height: 8),
           // Up to five lines of it, as many as fit.
           Expanded(
@@ -698,7 +694,7 @@ extension _PetsPage on _AgentDetailState {
 
   /// "Doing now · bash", a dark command box with "$ the command", and one
   /// "↳" line per subagent.
-  List<Widget> _petNow(Agent a, List<AgentSubagent> subs, Widget? account) {
+  List<Widget> _petNow(Agent a, List<AgentSubagent> subs) {
     var act = a.activity;
     // Only its subagents work (the service says so in the activity): no
     // command to show, just them.
@@ -710,7 +706,6 @@ extension _PetsPage on _AgentDetailState {
     final shown = subs.take(2).toList();
     return [
       Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: _pLabel(
@@ -730,7 +725,6 @@ extension _PetsPage on _AgentDetailState {
               _pMuted,
               key: const Key('agent-subagent-count'),
             ),
-          if (account != null) ...[const SizedBox(width: 28), account],
         ],
       ),
       const SizedBox(height: 10),
@@ -860,33 +854,39 @@ extension _PetsPage on _AgentDetailState {
   /// Which Claude account it runs in, when there is more than one: a label
   /// and the name after a square in the account's colour.
   Widget? _petAccount(Agent a) {
-    final acc = a.account;
-    if (acc == null || (_accounts?.length ?? 0) < 2) return null;
+    if (a.account == null || (_accounts?.length ?? 0) < 2) return null;
     return Column(
       key: const Key('agent-account'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         _pLabel('account', _pMuted),
         const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(width: 10, height: 10, color: hatColor(acc.color).$1),
-            const SizedBox(width: 10),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 200),
-              child: Text(
-                acc.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: DeckHud.rm(
-                  22,
-                  DeckHud.ink,
-                  weight: 500,
-                ).copyWith(height: 30 / 22),
-              ),
-            ),
-          ],
+        _petAccountName(a, 22),
+      ],
+    );
+  }
+
+  /// "■ personal": a square in the account's colour, then its name.
+  Widget _petAccountName(Agent a, double size) {
+    final acc = a.account!;
+    return Row(
+      key: const Key('agent-account-name'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, color: hatColor(acc.color).$1),
+        const SizedBox(width: 10),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 200),
+          child: Text(
+            acc.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.rm(
+              size,
+              DeckHud.ink,
+              weight: 500,
+            ).copyWith(height: size >= 22 ? 30 / 22 : 1.25),
+          ),
         ),
       ],
     );
@@ -1292,13 +1292,6 @@ extension _PetsPage on _AgentDetailState {
                             ),
                           ),
                         ),
-                        const Positioned(
-                          left: 10,
-                          right: 10,
-                          top: 262,
-                          height: 2,
-                          child: ColoredBox(color: _pRule),
-                        ),
                       ],
                     ),
                   ),
@@ -1632,13 +1625,6 @@ extension _PetsPage on _AgentDetailState {
                   width: 88,
                   height: 62,
                 ),
-              ),
-              const Positioned(
-                left: 8,
-                right: 8,
-                bottom: 8,
-                height: 2,
-                child: ColoredBox(color: _pLine),
               ),
             ],
           ),
