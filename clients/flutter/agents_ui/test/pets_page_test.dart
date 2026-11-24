@@ -295,13 +295,23 @@ void main() {
     expect(find.text('BUILDER · LEVEL 14'), findsOneWidget);
     expect(find.text('LEVEL 14'), findsOneWidget);
     expect(find.text('its pet'), findsOneWidget);
-    // The whole growth path, each stage in its real look.
+    // The whole growth path: reached stages in their real look, the ones
+    // ahead as dark shapes.
+    final path = tester
+        .widgetList<PetSprite>(
+          find.descendant(
+            of: find.byKey(const Key('pet-path')),
+            matching: find.byType(PetSprite),
+          ),
+        )
+        .toList();
+    expect(path, hasLength(petStages.length));
+    // Juno is a grown-up (index 3): egg to grown-up real, strong on dark.
     expect(
-      find.descendant(
-        of: find.byKey(const Key('pet-path')),
-        matching: find.byType(PetSprite),
-      ),
-      findsNWidgets(petStages.length),
+      [for (final p in path) p.sil != null],
+      [
+        false, false, false, false, true, true, true, //
+      ],
     );
     expect(find.text('as a baby'), findsOneWidget);
     expect(find.byType(HudClock), findsNothing);
