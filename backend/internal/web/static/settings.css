@@ -963,6 +963,11 @@ svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
 .pvhead .pvface .spr, .pvhead .pvface svg { width: 22px; }
 .pvhead .acc { color: var(--orange2); font-weight: 700; }
 .pgrid { flex: 1; min-height: 0; gap: 6px; }
+/* fitPanel (settings.js) sets whole-pixel tile sizes: --pc wide, --pr tall */
+.pgrid { flex: none; grid-template-columns: repeat(4, var(--pc, minmax(0, 1fr))); grid-template-rows: repeat(4, var(--pr, minmax(0, 1fr))); }
+.pgrid > .tile { aspect-ratio: auto; min-height: 0; }
+.pgrid { container-type: inline-size; }
+@container (max-width: 480px) { .tile .spr.pet { width: 40px; } }
 .pgrid .tile.free { background: #0E0E0D; border: 1px solid #1F1F1D; }
 .pgrid .tile.free .fs { display: none; }
 
@@ -994,7 +999,7 @@ svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
 @container (max-width: 520px) { .tile .spr.pet { width: 40px; } }
 .barred .panelview { right: var(--bar); }
 .panelview { transition: right 240ms var(--bar-ease); }
-.pvscreen { transition: width 240ms var(--bar-ease); }
+.pvscreen { transition: none; } /* fitPanel snaps it to whole pixels */
 .barred .pvside { display: none; }
 .barred .pvscreen { width: min(636px, calc(100vh - 150px), calc(100vw - var(--bar) - 60px)); }
 @media (prefers-reduced-motion: reduce) { .agentbar, .deckmain, .deckside, .panelview, .pvscreen { transition: none; } }

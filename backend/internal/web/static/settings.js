@@ -973,6 +973,42 @@ function updatePanel() {
   slideIn(g);
   $('.pvhead')?.replaceWith(panelHead());
   $('.pvpager')?.replaceChildren(...panelPager());
+  fitPanel();
+}
+
+// fitPanel sizes Panel view's screen in whole pixels: 4 x 4 tiles of a
+// whole, even width (so a pet centres on whole pixels), rows a little
+// shorter than wide so the head line fits the square (as the wall panel
+// does), even 6 px gaps; the screen lands on whole pixels, and so does
+// every pet. Tiles never overlap or touch.
+const PANEL = { max: 636, pad: 14, gap: 6, head: 26 };
+function fitPanel() {
+  const scr = $('.pvscreen'), g = $('.pgrid');
+  if (!scr || !g) return;
+  const barred = document.documentElement.classList.contains('barred');
+  const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480;
+  const side = window.innerWidth <= 900 ? 28 : barred ? bar + 60 : 380;
+  const avail = Math.floor(Math.min(PANEL.max, window.innerHeight - 150, window.innerWidth - side));
+  const inner = avail - 2 * PANEL.pad - 3 * PANEL.gap;
+  const cell = Math.max(48, Math.floor(inner / 4) & ~1);
+  const row = Math.max(48, Math.floor((inner - PANEL.head) / 4));
+  scr.style.setProperty('--pc', `${cell}px`);
+  scr.style.setProperty('--pr', `${row}px`);
+  scr.style.width = `${4 * cell + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  scr.style.height = `${PANEL.head + 4 * row + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  // centred in its column: move it back onto whole pixels
+  scr.style.transform = '';
+  const r = scr.getBoundingClientRect();
+  const dx = Math.round(r.left) - r.left, dy = Math.round(r.top) - r.top;
+  if (dx || dy) scr.style.transform = `translate(${dx}px, ${dy}px)`;
+  for (const el of g.querySelectorAll('.spr.pet')) {
+    el.style.transform = '';
+    // against its tile: the page may be sliding in (a transform on the grid)
+    const p = el.getBoundingClientRect(), t = el.closest('.tile')?.getBoundingClientRect() || { left: 0, top: 0 };
+    const ox = p.left - t.left, oy = p.top - t.top;
+    const px = Math.round(ox) - ox, py = Math.round(oy) - oy;
+    if (px || py) el.style.transform = `translate(${px}px, ${py}px)`;
+  }
 }
 
 // Nothing on the deck yet: start one in a project, or add a session.
@@ -998,6 +1034,7 @@ function drawEmptyDeck() {
 function drawPanel() {
   deck = null;
   const grid = h('div', { class: 'grid4 pgrid' }, panelCells(S.deckPage || 0));
+  requestAnimationFrame(fitPanel);
   const leave = () => { S.panel = false; S.deckPage = Math.max(0, S.deckPage || 0); history.replaceState(null, '', location.pathname + location.hash); draw(true); };
   const legend = (cls, text) => h('div', { class: 'lg' }, h('span', { class: `sw4 ${cls}`, 'aria-hidden': 'true' }), h('span', { class: 'kl' }, text));
   return h('div', { class: 'panelview', role: 'dialog', 'aria-label': 'Panel view' },
@@ -1541,6 +1578,7 @@ function syncBar() {
   b.body.hidden = pet;
   b.pane.hidden = !pet;
   if (pet) fillPet(b.pane, a);
+  fitPanel();
   fitDeck(open); // again, now that it is the chat or the pet: back to the chat scales the deck back at once
 }
 
@@ -1562,7 +1600,7 @@ function fitDeck(open) {
   }
   m.style.maxWidth = max;
 }
-window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
+window.addEventListener('resize', () => { fitDeck(document.documentElement.classList.contains('barred')); fitPanel(); });
 
 // buildBar fills the sidebar as the design draws it: the critter, tool and
 // ×; the name in serif with its state; then the question and its answers, or

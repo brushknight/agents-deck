@@ -329,3 +329,22 @@ func TestDeckNotScaled(t *testing.T) {
 		t.Error("the deck is scaled while the sidebar is open")
 	}
 }
+
+// Panel view's grid: tiles in whole-pixel tracks set by fitPanel, rows a
+// little shorter than wide, so square tiles can't spill into the next row
+// and overlap its border (as they did with aspect-ratio tiles in 1fr rows).
+// Checked by hand in a headless browser at 1024x768, 1280x800, 1440x900,
+// 1728x1117 and 1920x1080, on a page and on Needs you: no tile rects
+// intersect, 6 px gaps, every tile and pet at whole pixels.
+func TestPanelGridWholePixels(t *testing.T) {
+	css, _ := fs.ReadFile(web.Static(), "settings.css")
+	js, _ := fs.ReadFile(web.Static(), "settings.js")
+	for _, want := range []string{"grid-template-rows: repeat(4, var(--pr", ".pgrid > .tile { aspect-ratio: auto;"} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("settings.css lost %q", want)
+		}
+	}
+	if !strings.Contains(string(js), "function fitPanel()") || !strings.Contains(string(js), "& ~1") {
+		t.Error("fitPanel no longer snaps the panel's tiles to whole, even pixels")
+	}
+}
