@@ -196,6 +196,7 @@ class MenuBarDeck extends StatelessWidget {
                       source: source,
                       visible: visible,
                       backButton: true, // no edge swipe here
+                      menuBar: true,
                       pairingCard: (problem) => NotRunningCard(
                         status: service?.status.value,
                         onStart: service?.start,

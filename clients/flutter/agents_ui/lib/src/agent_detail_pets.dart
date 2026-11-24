@@ -55,6 +55,7 @@ Widget _pChip(
   required Color fill,
   required Color ink,
   Color? outline,
+  double size = 15,
 }) => Container(
   key: const Key('agent-pill'),
   height: 30,
@@ -68,7 +69,7 @@ Widget _pChip(
     child: Text(
       text.toUpperCase(),
       maxLines: 1,
-      style: DeckHud.rm(15, ink, weight: 700, spacing: 15 * 0.12),
+      style: DeckHud.rm(size, ink, weight: 700, spacing: size * 0.12),
     ),
   ),
 );
@@ -139,6 +140,9 @@ class _ContextSegments extends StatelessWidget {
 }
 
 extension _PetsPage on _AgentDetailState {
+  /// In the menu bar (the card at 0.61) no text is under 16 design pixels.
+  double _fs(double size) => _menuBar && size < 16 ? 16 : size;
+
   /// The colours of a card: orange for a permission, dark otherwise.
   Widget _petCard({
     required Color fill,
@@ -185,44 +189,52 @@ extension _PetsPage on _AgentDetailState {
         'working · $t',
         fill: DeckHud.ink,
         ink: DeckHud.bg,
+        size: _fs(15),
       ),
       AgentStatus.waiting when orange => _pChip(
         'needs you · $t',
         fill: _pInkOnOrange,
         ink: DeckHud.accent,
+        size: _fs(15),
       ),
       AgentStatus.waiting => _pChip(
         'needs you · $t',
         fill: DeckHud.accent,
         ink: _pInkOnOrange,
+        size: _fs(15),
       ),
       AgentStatus.error => _pChip(
         'error',
         fill: DeckHud.accent,
         ink: _pInkOnOrange,
+        size: _fs(15),
       ),
       AgentStatus.idle when a.hungry => _pChip(
         'hungry · $t',
         fill: DeckHud.accent,
         ink: _pInkOnOrange,
+        size: _fs(15),
       ),
       AgentStatus.exited => _pChip(
         a.lost ? 'lost · $t' : 'exited · $t',
         fill: const Color(0x00000000),
         ink: _pMuted,
         outline: _pRule,
+        size: _fs(15),
       ),
       AgentStatus.starting => _pChip(
         'starting · $t',
         fill: const Color(0x00000000),
         ink: _pMuted,
         outline: _pRule,
+        size: _fs(15),
       ),
       _ => _pChip(
         'idle · $t',
         fill: const Color(0x00000000),
         ink: _pMuted,
         outline: _pRule,
+        size: _fs(15),
       ),
     };
     final session = a.aiTitle.isNotEmpty ? a.aiTitle : a.folder;
@@ -288,7 +300,12 @@ extension _PetsPage on _AgentDetailState {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             if (pet.ready)
-              _pChip('ready to hatch', fill: _pLevel, ink: _pInkOnOrange)
+              _pChip(
+                'ready to hatch',
+                fill: _pLevel,
+                ink: _pInkOnOrange,
+                size: _fs(15),
+              )
             else ...[
               Text(
                 'EGG · ${(pct * 100).floor()}%',
@@ -1361,7 +1378,7 @@ extension _PetsPage on _AgentDetailState {
           if (!egg) ...[
             const SizedBox(height: 10),
             DefaultTextStyle.merge(
-              style: DeckHud.rm(15, _pMuted),
+              style: DeckHud.rm(_fs(15), _pMuted),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1370,7 +1387,7 @@ extension _PetsPage on _AgentDetailState {
                       children: [
                         TextSpan(
                           text: _pNum(pet.ate),
-                          style: DeckHud.rm(15, DeckHud.ink, weight: 700),
+                          style: DeckHud.rm(_fs(15), DeckHud.ink, weight: 700),
                         ),
                         const TextSpan(text: ' now'),
                       ],
@@ -1381,7 +1398,7 @@ extension _PetsPage on _AgentDetailState {
                       children: [
                         TextSpan(
                           text: _pNum(to),
-                          style: DeckHud.rm(15, DeckHud.ink, weight: 700),
+                          style: DeckHud.rm(_fs(15), DeckHud.ink, weight: 700),
                         ),
                         TextSpan(text: ' for ${pet.level + 1}'),
                       ],
@@ -1453,7 +1470,7 @@ extension _PetsPage on _AgentDetailState {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _pLabel(label, color, size: 14),
+            _pLabel(label, color, size: _fs(14)),
             const SizedBox(height: 6),
             Text(
               value,
@@ -1471,7 +1488,7 @@ extension _PetsPage on _AgentDetailState {
               sub,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: DeckHud.rm(14, _pMuted).copyWith(height: 17 / 14),
+              style: DeckHud.rm(_fs(14), _pMuted).copyWith(height: 1.2),
             ),
           ],
         ),
@@ -1612,7 +1629,7 @@ extension _PetsPage on _AgentDetailState {
                 'at ${_pNum(at)} tokens eaten, ${pet.ready || left <= 0 ? 'ready now' : '${_pNum(left)} to go'}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: DeckHud.rm(15, _pMuted).copyWith(height: 1.2),
+                style: DeckHud.rm(_fs(15), _pMuted).copyWith(height: 1.2),
               ),
             ],
           ),

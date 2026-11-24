@@ -39,6 +39,7 @@ class AgentsApp extends StatefulWidget {
     this.pairingCard,
     this.visible,
     this.backButton = false,
+    this.menuBar = false,
   }) : assert(
          (openCard == null) == (cardHost == null),
          'openCard and cardHost come together',
@@ -54,6 +55,10 @@ class AgentsApp extends StatefulWidget {
 
   /// A back button on agent cards, for hosts without an edge swipe.
   final bool backButton;
+
+  /// In the menu bar app: an agent's page has no clock and no text under
+  /// 16 design pixels (the deck is shown at 0.61 there).
+  final bool menuBar;
 
   /// Whether anyone can see the board (a menu bar window that hides): the
   /// critters stop animating while false. Null = always visible.
@@ -200,6 +205,7 @@ class _AgentsAppState extends State<AgentsApp> {
           onClose: close,
           onVisible: _cardVisible,
           showBack: widget.backButton,
+          menuBar: widget.menuBar,
         ),
       ),
     );
