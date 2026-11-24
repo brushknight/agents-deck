@@ -44,6 +44,14 @@ List<StatusPart> statusParts(ServiceStatus s) {
     page: 'boards',
     attention: false,
   ));
+  if (sys.cpuBusy) {
+    final machine = sys.platform.startsWith('darwin') ? 'Mac' : 'computer';
+    parts.add((
+      text: '$machine busy (${sys.cpuPercent}% CPU)',
+      page: 'agents',
+      attention: true,
+    ));
+  }
   // The version is on the Updates page; the line stays short.
   if (sys.updateState == 'ready') {
     parts.add((text: 'update ready', page: 'updates', attention: true));

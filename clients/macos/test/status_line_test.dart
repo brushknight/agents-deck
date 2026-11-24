@@ -119,6 +119,39 @@ void main() {
       );
     });
 
+    test('a busy Mac, from the CPU guard', () {
+      final s = DeckSystem.fromJson(
+        jsonDecode(
+              '{"platform":"darwin/arm64","boards":{"online":1,"total":1},'
+              '"cpu":{"available":true,"percent":91.6,"busy":true,"limit":80}}',
+            )
+            as Map<String, dynamic>,
+      );
+      expect((s.cpuBusy, s.cpuPercent), (true, 92));
+      final parts = statusParts(ServiceStatus(ServiceState.running, system: s));
+      expect(
+        [for (final p in parts) (p.text, p.page, p.attention)],
+        [
+          ('running', 'troubleshoot', false),
+          ('1 board', 'boards', false),
+          ('Mac busy (92% CPU)', 'agents', true),
+        ],
+      );
+      expect(
+        texts(
+          const ServiceStatus(
+            ServiceState.running,
+            system: DeckSystem(
+              platform: 'linux/amd64',
+              cpuBusy: true,
+              cpuPercent: 85,
+            ),
+          ),
+        ),
+        ['running', 'no boards', 'computer busy (85% CPU)'],
+      );
+    });
+
     test('the system schema', () {
       final s = DeckSystem.fromJson(
         jsonDecode(

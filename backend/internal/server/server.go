@@ -124,6 +124,9 @@ type Server struct {
 	// Queue holds prompts sent with "mode": "queue" until their agent is
 	// idle (queue.go; RunQueue types them in). nil: queueing is off.
 	Queue *queue.Queue
+	// Guard holds what can wait while the computer is busy (cpuguard):
+	// queued prompts and start_agent over MCP. nil: nothing is held.
+	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.

@@ -48,6 +48,7 @@ func Devices() string     { return filepath.Join(Data(), "devices.json") }      
 func MCPTokens() string   { return filepath.Join(Data(), "mcp-tokens.json") }   // MCP tokens (hashes only)
 func Audit() string       { return filepath.Join(Data(), "audit.log") }         // one line per action, by device
 func PromptQueue() string { return filepath.Join(Data(), "prompt-queue.json") } // prompts waiting for a busy agent
+func Slowed() string      { return filepath.Join(Data(), "slowed.json") }       // processes the CPU guard put in background mode
 func HooksFile() string   { return filepath.Join(Data(), "claude-hooks.json") }
 func Log() string         { return filepath.Join(Data(), "agentd.log") }
 func PID() string         { return filepath.Join(Data(), "agentd.pid") } // the running service's process id

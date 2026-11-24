@@ -9,10 +9,12 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // Diagnostics is GET /admin/v1/diagnostics: the report behind Copy a report,
@@ -39,13 +41,30 @@ func (a *Admin) diagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.Diagnose())
 }
 
-// cpu: GET /admin/v1/cpu, the service's CPU use and its helpers'.
+// cpu: GET /admin/v1/cpu[?top=N], the service's CPU use and its helpers',
+// the whole machine's, and with top its N biggest users.
 func (a *Admin) cpu(w http.ResponseWriter, r *http.Request) {
 	if a.CPU == nil {
 		writeErr(w, http.StatusNotFound, "this service doesn't count its CPU use")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.CPU())
+	var n int
+	if q := r.URL.Query().Get("top"); q != "" {
+		var err error
+		if n, err = strconv.Atoi(q); err != nil || n < 1 {
+			writeErr(w, http.StatusBadRequest, "top: how many users to list, 1 or more")
+			return
+		}
+	}
+	rep := a.CPU()
+	if n > 0 {
+		top := proc.CPUTop{Why: "this service doesn't list who uses the CPU", Users: []proc.CPUUser{}}
+		if a.CPUTop != nil {
+			top = a.CPUTop(min(n, 50))
+		}
+		rep.Top = &top
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
 
 // Diagnose builds the report.
