@@ -21,7 +21,7 @@ class PetRig {
     this.feet,
     required this.bubble,
     required this.tow,
-    this.bottom = 2,
+    this.squeeze = 2,
   });
 
   /// [x, y, w, h], left eye then right.
@@ -40,8 +40,9 @@ class PetRig {
   /// The top-left of the 5 x 3 mini pet in tow.
   final PetCell tow;
 
-  /// The rows an egg keeps when it is squeezed.
-  final int bottom;
+  /// How far it drops while compacting: 2 rows, unless its face sits too
+  /// low to drop 2 without covering its eyes (the kid's: 1).
+  final int squeeze;
 }
 
 const petRig = <String, PetRig>{
@@ -62,6 +63,7 @@ const petRig = <String, PetRig>{
     feet: ([11, 12], [4, 6, 9, 11], [3, 5, 10, 12]),
     bubble: (14, 0),
     tow: (14, 10),
+    squeeze: 1,
   ),
   'builder': PetRig(
     eyes: [(4, 5, 1, 2), (10, 5, 1, 2)],
@@ -295,6 +297,9 @@ class PosedPet {
   bool hollow = false;
   bool shade = false;
   PetCell? flagAt;
+
+  /// How far it drops while compacting (see [PetRig.squeeze]).
+  int squeeze = 2;
 }
 
 /// The pet doing [pose] (docs/pet-poses.md); [bubble] false leaves its
@@ -467,12 +472,14 @@ PosedPet posePet(
     } else {
       out.grp = spec.grp;
     }
-    // Squeezed: all but its bottom two rows (above the feet) drop.
+    // Squeezed: all but the rows it drops over (above the feet) drop, and
+    // are drawn over them, face and all.
     if (spec.squash) {
       final feetTop =
           rig.feet?.$1.first ??
           pix.keys.map((c) => c.$2).reduce((a, b) => a > b ? a : b) + 1;
-      final split = feetTop - rig.bottom;
+      out.squeeze = rig.squeeze;
+      final split = feetTop - rig.squeeze;
       out.top = {
         for (final c in pix.keys)
           if (c.$2 < split) c,
@@ -592,6 +599,9 @@ PosedPet posePet(
         } else {
           a *= 0.9;
         }
+      case 'psq1':
+        // The kid's squeeze: one row, from a third of the way.
+        if (f(1200) >= 0.33) dy += 1;
       case 'psq':
         final t = f(1200);
         dy += t < 0.33
