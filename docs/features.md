@@ -8,7 +8,7 @@ One tile per agent, on a 4×4 deck: the same board in the menu bar, on the desk 
 
 - **The critter** is Claude's pixel mascot (Codex threads get an onigiri) and shows what the agent is doing: thinking, reading, editing, running a command, searching the web, planning, delegating to subagents. A finished turn waves a checkered flag; an error throws both arms up; while Claude compacts the conversation it gets squeezed flat and springs back.
 - **Hats.** Every agent wears a pixel hat picked by its working folder, so agents of one project look alike at a glance: 13 shapes (hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones, propeller, top hat, cowboy, bandana) in 8 colours, chosen by a stable hash of the folder. Tap the critter on an agent's card (or click it on the agent's page in the browser) to pick another shape or colour for that folder, or go back to automatic. While an agent works its hat animates too, a pixel at a time (the propeller spins, the bandana's tails flutter on the left, the wizard's tip sways…); otherwise it stays still. From the terminal: `agentctl hats`, `agentctl set hat <agent|folder> <shape> [colour]`, `agentctl set hat <agent|folder> auto`. The hats were inspired by the hatted pixel Claudes in [“9 NEW Claude Mods that can truly change how you work”](https://www.youtube.com/watch?v=lDrAZ1wAyVs) by Jay E (RoboNuggets).
-- **Agent pets** (off by default; Settings, General, **Agent pets**). Every agent gets a pet that hatches from an egg and eats the agent's tokens: input and output, not cache reads. It hatches at 50k tokens (level 1), gets a name, and each level after needs 1.25 times the tokens of the one before: a baby up to level 4, a kid from level 5, grown up from 10, then strong (20), mighty (30) and legend (40). Levels never go down. It has 4 hearts: one drops every 12 hours while its agent sits idle with nothing asked (the clock stops while the agent works or waits on you, and while the service is stopped), and every 20k tokens bring one back. With 2 hearts or fewer it is hungry, with none for 3 days it is weak, and after a week without food it hibernates. Any new food wakes it with 2 hearts. Nothing ever dies. The pets live in `pets.json` in the data folder; the API has each one as the agent's `pet`.
+- **Agent pets** (always on for now: Settings has no switch, and an `"on": false` in `config.json` is kept but not used). Every agent gets a pet that hatches from an egg and eats the agent's tokens: input and output, not cache reads. Pets never spend tokens themselves: everything about them is counted from the agent's token numbers and the clock, without asking a model. At 50k tokens the egg is ready to hatch, but it waits for you: it wobbles and glows a little on its tile, the tile reads "ready to hatch" and **Ready for you** says an egg is ready. It hatches, with a little burst, when you open that agent (its sidebar or its pet's view), or when a board or another screen confirms it. Food keeps counting while it waits. Then it is level 1 and gets a name (kept for later: for now screens show its agent's name instead), and each level after needs 1.25 times the tokens of the one before: a baby up to level 4, a kid from level 5, grown up from 10, then strong (20), mighty (30) and legend (40). Levels never go down. Both numbers can be changed in `config.json`: `"pets": {"firstLevel": 50000, "step": 1.25}` (1,000 to 100,000,000 tokens, and 1.05 to 3). Every pet hatches with a mystery hat, picked by chance from the deck's hat shapes plus devil horns (a hat only pets wear); it stays hidden until the pet becomes a kid (level 5). It has 4 hearts: one drops every 12 hours while its agent sits idle with nothing asked (the clock stops while the agent works or waits on you, and while the service is stopped), and every 20k tokens bring one back. With 2 hearts or fewer it is hungry, with none for 3 days it is weak, and after a week without food it hibernates. Any new food wakes it with 2 hearts. Nothing ever dies. In the browser the pet takes the critter's place on the agent's tile, in its own colours, drawn in whole pixels with a black outline that keeps it readable on orange and inside its aura, and does everything the critter did: it thinks with a hand on its chin, reads with a magnifier, types ">_" on quick feet, waves a checkered flag when a turn ends, eyes a cookie until you look at the result, asks "?", throws its arms up at an error and sleeps with "z z" (an egg rocks while its agent works and shows the same bubbles; [docs/pet-poses.md](pet-poses.md) has the details). On an agent's own page the pet stands in the critter's place too, and its hat can't be changed there while pets are on (the pet wears its own). Its mouth stays open when hungry, it is pale and slumped when weak, in a block of ice when it hibernates (the ice cracks off when it eats again). From strong on it glows: a pale yellow aura, then blue for mighty, then gold with stars for legend. In an agent's sidebar the pet sits in the top-left corner, with two lines beside it (the tool and branch; its stage and level) and a slim bar to its next level ("12.7k to Lv 4", or for an egg "38k tokens to hatch"). Click the pet for its view: the sidebar widens over the deck and shows the pet big and moving on a square stage, its agent's name and what it is ("Strong Builder"), a level bar with the numbers (tokens now, tokens for the next level, how many to go), its hearts, how much it ate, its hat (a "?" until level 5) and when it hatched, the stages it grows through, each as this pet looks there (its hat from a kid on, the glow from strong on; the ones still ahead as dark shapes) and what comes next. **Back to the chat** or Esc goes back. The pets live in `pets.json` in the data folder; the API has each one as the agent's `pet`.
   On the desk panel and in the menu bar the pet takes the critter's place on its agent's tile, at the critter's size and in its own colours: eyes shut while the agent is idle, mouth open when hungry, pale and slumped when weak, in a block of ice when it hibernates, and an egg that is about to hatch wobbles. From strong on it glows (pale yellow, then blue for mighty, then gold with stars for legend); the glow moves gently and holds still when the system's reduce motion setting is on. The agent's card shows the pet next to the critter: its name, what it is and its level, a bar to the next level, and its hearts.
 - **Claude accounts.** If you use more than one Claude account (say personal and work, each its own Claude config folder), name them once: `agentctl account add personal ~/.claude sky`, `agentctl account add work ~/.claude-work yellow`. Each agent then shows a small square in its account's colour: on its tile, next to its name on the card, and in its terminal's header. Sessions you started by hand are found in every account. `agentctl new -a work` starts an agent in a given account (`agentctl account default work` changes the default). When one account runs out of usage, **continue on…** on the agent's card (or `agentctl handoff <agent> <account>`) copies the conversation into the other account and resumes it there: an agent the deck started comes back in the same tile, and a session you started by hand keeps its own terminal while the copy starts as a new agent. The original conversation stays in the first account.
 - **Colour.** Orange means working; a solid orange tile means the agent needs you (a permission prompt or a question).
@@ -42,7 +42,7 @@ Tap a tile for its card (in the browser, the agent's own page, with a box to sen
 |---|---|
 | **Menu bar** | A critter icon that turns orange when an agent needs you; the deck drops down in the top-right corner. Esc, the ‹ button or a click elsewhere hides it; right-click opens the web dashboard. **Pin** under the deck keeps it open above other windows, where you drag it. |
 | **System tray (Linux)** | The same app and critter icon in the system tray. A click opens the deck next to the icon; Esc or a click elsewhere hides it; the icon's menu has the deck, the web dashboard and Quit. Details in [clients/macos/README.md](../clients/macos/README.md#linux). |
-| **Browser** | `agentctl web` opens the app with a one-time login link. Home is the deck: the agents as tiles in pages of 16, what needs you and what is ready for you, and **Panel view**, the page as the 720×720 desk panel draws it. The rest of the sidebar is its settings ([The app in the browser](#the-app-in-the-browser)). |
+| **Browser** | `agentctl web` opens the app with a one-time login link. Home is the deck: the agents as tiles in pages of 16, what needs you and what is ready for you, and **Panel view**, the page as the 720×720 desk panel draws it, with the Needs you screen left of the first page (the mark at the left of the page buttons, or ←), as on the panel and in the menu bar app; an agent's pet view there takes the whole width. The rest of the sidebar is its settings ([The app in the browser](#the-app-in-the-browser)). |
 | **Wall panel** | A 4″ 720×720 touch panel ([Wall Panel](https://github.com/dotstartech/wall-panel): Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi: TLS 1.3 with its own client certificate (`agentctl pair desk-panel --bundle -`). Cards close with an edge swipe. |
 | **Serial boards** | ESP32 boards on USB with Deck Link: see below. |
 | **Terminal** | `agentctl ls`, `sessions`, `resume`… Agent terminals are tmux sessions you attach to with `agentctl attach`, or jump to with **focus terminal**. |
@@ -124,7 +124,7 @@ daemon uses the socket methods `surface.read_text`, `surface.send_text`, `surfac
 
 Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (in the browser, a free spot's **Or add a Claude session**, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell.
 
-The list comes from Claude Code itself (`claude agents --json`), so it covers every active session on the Mac: ones in your terminals and **background** sessions (`claude --bg`, and the ones the Claude desktop app runs). Older Claude Code versions fall back to scanning for `claude` processes in terminals.
+The list comes from Claude Code itself (`claude agents --json`), so it covers every active session on the Mac: ones in your terminals and **background** sessions (`claude --bg`, and the ones the Claude desktop app runs). Older Claude Code versions fall back to scanning for `claude` processes in terminals. The deck asks again only when Claude Code's own session files change (a session starts, ends, is renamed, starts or ends a turn, or a background session needs you), at most every 10 seconds per account, and every 5 minutes while nothing changes, so it costs next to no CPU while your sessions sit idle. A new or changed session still shows within about 10 seconds.
 
 Added sessions are **watched**: status (working, idle, hungry when a turn finishes while watched), activity, context, cost and subagents come from the session's transcript, and **focus** jumps to its terminal tab. Claude Code reports when one is blocked on you, so the tile turns "needs you"; answer it in that session (the deck can't type into it). Focus on a background session opens it in a new iTerm tab with `claude attach`. **remove from deck** takes the session off the deck; the session itself keeps running. Added sessions come back whenever they run again.
 
@@ -141,6 +141,70 @@ Agents, MCP (or `agentctl mcp token create <name>`), then add it over HTTP (`POS
 cmux and Orca; sessions started by hand in another terminal stay read-only. Every call is checked
 against the token's scope and audited under its name. [mcp.md](mcp.md) has the tools and the
 security model.
+
+## When the Mac is busy
+
+The deck watches how busy the whole computer is (100% means every core busy). When the CPU stays
+over your limit (80% by default) for a while (2 minutes by default), the deck calls the Mac busy. It
+is calm again once the CPU has been under the limit minus 10 (70%) for a minute; the gap stops it
+going back and forth.
+
+While the Mac is busy:
+
+- **It warns you.** The log says so, with who uses the CPU, when it gets busy and when it calms
+  down. The bar at the top of the app starts with "92% CPU" in orange. Home shows a warning with how
+  busy it is, for how long, your limit and where it comes from ("Your limit is 60% until 18:00, from
+  the schedule."), what is held, and a Who uses it link to Using the most, in Settings, Agents, When
+  the Mac is busy: the biggest users, agents, other programs and the deck itself, each with a bar.
+  While a schedule is on, the CPU cell on Home says the limit ("limit 60%", or "70% till 18:00" for
+  a limit you picked) instead of "calm".
+- **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
+  agent's queue marks each one Held. Prompts from an MCP client wait in the queue too, even for an
+  idle agent, and its `start_agent` is refused with "The Mac is busy (92% CPU for 4 minutes); try
+  again in a few minutes". What you type or press on the deck, a board or in the browser still goes
+  in at once. **Send them now** on Home, or Send now over an agent's queue, lets the queued prompts
+  go for this busy spell; the next one holds them again.
+- **It slows down the heaviest agent** (Slow down the heaviest agent, on by default, macOS only).
+  The agent using the most CPU (at least 5%) runs in the background: every process on its terminal
+  moves to the efficiency cores and its disk use is throttled, the way `taskpolicy -b` does it. It
+  keeps working, only slower, and so do the processes it starts later (the deck looks again every 30
+  seconds). If the Mac stays busy for another window (2 minutes by default), the next heaviest agent
+  is slowed too, 3 at most. In Using the most, an agent the deck slowed shows **Slowed**, and
+  one you slowed shows **Slowed by you**, each with **Full speed**, which puts it back for the rest
+  of this busy spell; any other agent shows **Slow it**, to slow it by hand. Agents you slow don't
+  count toward the 3, and turning Slow down the heaviest agent off puts back only the deck's picks.
+  It is all undone when the Mac is calm, when the agent ends and when the deck stops; after a
+  crash, the deck undoes it when it starts again (it keeps the slowed processes in `slowed.json`).
+  The deck never changes a nice value, never pauses or stops a process, and never touches other
+  programs or its own processes.
+
+  Only agents whose terminal the deck knows can be slowed: the ones it started, and Claude sessions
+  started by hand in a terminal. Agents in the Codex app, Orca, herdr and cmux, and background Claude
+  sessions, are not slowed for now.
+
+Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
+long (1, 2 or 5 minutes), whether to hold and whether to slow. It is stored in `config.json` as
+`"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
+can't read the CPU, it says so and holds nothing.
+
+**What an agent runs.** The load usually comes from what an agent starts (a build, the tests, a
+simulator), not from the agent itself, so each agent in Using the most lists its biggest programs,
+such as `xcodebuild 30%, swift-frontend 12%`. They are the programs on the agent's terminal; an app
+the build opens on its own (the iOS Simulator) shows as a program of its own. The log line on
+getting busy names them too.
+
+**A schedule for the limit.** Turn on Follow a schedule to give parts of the week their own limit:
+say 60% on weekdays from 09:00 to 18:00, when you work next to the agents, and the plain limit (80%)
+the rest of the week. Blocks go in half hours, on the Mac's own clock, and a block that ends before
+it starts runs past midnight; two blocks can't cover the same time. The deck looks every minute and
+logs each change ("limit 60% from the schedule (Mon 09:00-18:00)"). A limit you pick by hand while
+the schedule is on lasts until the schedule's next change, then the schedule takes over again;
+Back to schedule ends it sooner.
+
+From a terminal: `agentctl cpu` prints the limit and where it comes from, `agentctl cpu schedule`
+the week, `agentctl cpu limit 70` picks a limit until the schedule's next change (`--for 3h` for a
+set time; with no schedule, without `--for`, it is the plain limit), and `agentctl cpu limit
+schedule` goes back to the schedule.
 
 ## Agent terminals
 
@@ -264,8 +328,8 @@ to icons (the browser remembers which). Everything on it is also a command.
 
 | page | what you can do | in a terminal |
 |---|---|---|
-| Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
-| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token` |
+| Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); once you have projects, **All** or **By project** over the tiles: By project puts them under a header per project (its name, how many agents, and which of its folders they work in, with a count each), then **No project**, and a chip per project shows only its agents. There a tile moves only by dragging it onto another tile of the same project. This browser remembers the choice; All is the default; **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
+| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token`, `agentctl cpu limit` |
 | Boards | tabs: **Your boards** (what waits for your approval, then each board with its screen and how it is connected), **Add a board** (over USB, or Look for Bluetooth boards nearby and add one with the code on its screen), **Magic trick**, **USB ports** (forget a port, or say a port is a board). A board's own page: rename, how it is connected and its uplink, its Wi-Fi, Bluetooth, what it may do, its part in the magic trick, update its firmware or install a firmware file of your own, cut off, remove. A new ESP32 on USB appears under Waiting for you; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone or desk panel and the ones paired | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |
@@ -274,14 +338,30 @@ to icons (the browser remembers which). Everything on it is also a command.
 | About | version, how it was installed, links | `agentctl version` |
 
 **Projects** are what you start agents in: a name and one or more folders (an app, its website and its
-server can be one project; new agents start in the first folder, or pick another when you start one;
-an agent working in a project folder, or a folder inside one such as a worktree, counts as the
-project's), each with, if you like, the tool it runs
+server can be one project; new agents start in the first folder, or pick another when you start one),
+each with, if you like, the tool it runs
 (Claude Code, Codex or a shell), the Claude account and a hat. Add, change and remove them in Agents,
 Projects; folders your agents already work in are offered there too (**Keep it** as a project of their own, or **Add to…** an existing one). Agents in a project
 wear its hat, since a hat belongs to the folder. Home starts an agent in a project from a free spot:
 pick the project, the tool and account (the project's by default) and a first prompt. They are kept in
 `projects.json` in the data folder.
+
+Every agent knows its project: an agent working in a project folder, or in a folder inside one such as
+a worktree, is that project's, wherever you see it (the browser, the API, boards over Deck Link and
+`list_agents` over MCP, which can also list one project's agents, as `list_sessions` can for sessions
+started elsewhere). When folders of two projects hold
+an agent's folder, the deeper one wins, so a project for `~/dev/app/ios` gets the agents there and a
+project for `~/dev/app` the rest. A folder belongs to one project: saving a project with a folder
+another one has already is refused, and says which. If an older `projects.json` lists a folder in
+two projects, both are kept, the first in the list gets its agents, and saving either asks you to
+take the folder out of one.
+
+**Today** on a project (Agents, Projects) shows its day so far, since midnight: a line per folder with
+the agents working in it now (a worktree inside the folder is named), their status, and how long the
+folder's agents worked today, with a bar to compare the folders. Worked means running: on a turn, or
+with subagents at work; waiting for you and idle don't count. The time comes from the status changes
+the deck sees, so it starts when the deck does (an update or restart keeps it), and agents removed
+today still count until the service stops. A folder nobody worked in today says so.
 
 **New boards.** A port is listed from its USB id alone and never opened until you say it's yours.
 Then the service asks the board: a board running agents deck says what it is; anything else is asked

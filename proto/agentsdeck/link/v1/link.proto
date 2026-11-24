@@ -76,6 +76,10 @@ message Frame {
     // Which way the board should reach the deck (docs/link/protocol.md,
     // "Bluetooth"). Board management, not a web API command.
     LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
+
+    // More commands, board → deck, once fields 30..49 were taken: one per
+    // web API endpoint, like those.
+    HatchPet hatch_pet = 70;      // POST /v1/agents/{id}/pet/hatch
   }
 }
 
@@ -143,10 +147,10 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project, pet
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
   FIELDS_PROMPT = 4;     // waiting
-  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
+  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns, cpu
 }
 
 // ---- state ---------------------------------------------------------------
@@ -232,6 +236,11 @@ message Agent {
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
   uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+  bool slowed = 38;            // in background mode while the computer is busy (the CPU guard; macOS)
+  float cpu = 39;              // percent of the whole computer, only while it is busy; 0 otherwise
+  bool slowed_by_you = 40;     // slowed with Slow it, not by the guard's own pick
+  Project project = 41;        // the project its working folder is in; unset for none
+  string project_folder = 42;  // the project folder it matched, in full; "" for none
   Pet pet = 43;                // its pet; unset while Agent pets is off
 }
 
@@ -297,6 +306,9 @@ message Pet {
   uint32 hearts = 6;        // 0..4
   string mood = 7;          // fed, hungry, weak, asleep (hibernating)
   int64 hatched_at_ms = 8;  // 0 while an egg
+  bool ready = 9;           // an egg that has eaten enough and waits to be seen hatching (HatchPet)
+  int64 level_from = 10;    // ate where the current level started (0 for an egg), for progress bars
+  Hat hat = 11;             // its mystery hat (shape and color only); unset until it is a kid (level 5)
 }
 
 message Subagent {
@@ -348,6 +360,7 @@ message Queue {
 }
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
+message HatchPet { string agent_id = 1; }  // hatch its pet's egg once it is ready (Pet.ready); Result 409 if it isn't
 
 message Move {
   string agent_id = 1;
@@ -626,4 +639,11 @@ message FirmwareStatus {
   FirmwareState state = 1;
   uint32 percent = 2;  // 0..100
   string error = 3;    // for FAILED and REFUSED
+}
+
+// An agent's project (Agent.project): the one whose folder holds its working
+// folder, the deepest such folder winning.
+message Project {
+  string id = 1;
+  string name = 2;
 }

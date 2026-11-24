@@ -26,9 +26,9 @@ icon, the deck's window and the Settings window. The shells speak the same metho
 
 One row under the deck (`lib/status_line.dart`), 32 points high, so the deck's window is 440 × 472.
 It says, in this order: whether the service is running, how many boards are online, and what wants
-attention (an update ready or available, a new board on USB, boards waiting for approval, firmware
-updates). Each part opens Settings on its page (Troubleshoot, Boards, Updates), the gear opens
-General. What doesn't fit becomes `+N`.
+attention (a busy Mac, an update ready or available, a new board on USB, boards waiting for
+approval, firmware updates). Each part opens Settings on its page (Troubleshoot, Boards, Agents,
+Updates), the gear opens General. What doesn't fit becomes `+N`.
 
 It comes from `GET /admin/v1/system` on the daemon's socket (`lib/service.dart`), every 10 s while
 the deck is open, every minute while it isn't, at once when the deck opens or the event stream comes

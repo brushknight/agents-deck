@@ -23,6 +23,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -50,6 +51,12 @@ type Prompter interface {
 // asks a question, so a typed prompt never answers one.
 type Typer interface {
 	Type(id, text string) error
+}
+
+// Hatcher hatches an agent's pet egg that is ready (POST
+// /v1/agents/{id}/pet/hatch); it returns an error when the egg isn't ready.
+type Hatcher interface {
+	Hatch(id string) error
 }
 
 // Restorer brings back agents lost with the tmux server (POST /v1/restore):
@@ -113,6 +120,9 @@ type Server struct {
 	LocalAddr  string // e.g. 127.0.0.1:7340
 	// Hats holds the per-folder hat overrides (nil: hats can't be changed).
 	Hats *hats.Book
+	// Pets hatches the agents' eggs that are ready (nil: Agent pets isn't
+	// available, as in tests).
+	Pets Hatcher
 	// Devices and CA: paired devices and the authority that signs their
 	// certificates (nil: no network listener). Audit records their actions.
 	Devices *devices.Registry
@@ -124,6 +134,13 @@ type Server struct {
 	// Queue holds prompts sent with "mode": "queue" until their agent is
 	// idle (queue.go; RunQueue types them in). nil: queueing is off.
 	Queue *queue.Queue
+	// Projects is the project list MCP's project tools change (the admin
+	// service; nil: no project tools).
+	Projects ProjectBook
+
+	// Guard holds what can wait while the computer is busy (cpuguard):
+	// queued prompts and start_agent over MCP. nil: nothing is held.
+	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -381,6 +398,26 @@ func (s *Server) api() *http.ServeMux {
 	})
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/pet/hatch", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if _, ok := s.Store.Get(id); !ok {
+			writeErr(w, http.StatusNotFound, ErrNotFound.Error())
+			return
+		}
+		if s.Pets == nil {
+			writeErr(w, http.StatusConflict, "Agent pets is off")
+			return
+		}
+		if err := s.Pets.Hatch(id); errors.Is(err, pets.ErrNotReady) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		} else if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.Store.Touch() // every screen sees it hatch
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/accounts", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"accounts": accountList()})
