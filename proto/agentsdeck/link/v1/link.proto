@@ -144,7 +144,7 @@ message Subscribe {
 enum FieldGroup {
   FIELDS_NONE = 0;
   FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, last_answer, last_answer_at, error, resumable, attached, subagents, started_at, updated_at, last_active
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
 }
@@ -232,6 +232,9 @@ message Agent {
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
   uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+  // 38-44 are taken by changes still in review.
+  string last_answer = 45;       // its reply that ended its latest finished turn, as plain text
+  int64 last_answer_at_ms = 46;  // when it gave that reply; 0 = no answer yet
 }
 
 message Activity {

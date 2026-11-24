@@ -674,7 +674,7 @@ func (s *Session) sendAgent(p *linkpb.Agent) error {
 	f := &linkpb.Frame{Body: &linkpb.Frame_AgentChanged{AgentChanged: &linkpb.AgentChanged{Agent: p}}}
 	shrink := []func(){
 		func() { p.Subagents = nil },
-		func() { p.LastPrompt, p.AiTitle, p.Cwd = "", "", "" },
+		func() { p.LastPrompt, p.LastAnswer, p.AiTitle, p.Cwd = "", "", "", "" },
 		func() {
 			if p.Waiting != nil {
 				p.Waiting.Detail = clipString(p.Waiting.Detail, 128)

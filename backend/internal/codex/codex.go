@@ -141,7 +141,9 @@ type payload struct {
 	Role   string `json:"role"`
 	Model  string `json:"model"`
 	Window int64  `json:"model_context_window"`
-	Info   *struct {
+	// LastMessage is the model's final message of the turn, on task_complete.
+	LastMessage string `json:"last_agent_message"`
+	Info        *struct {
 		Total struct {
 			Input  int64 `json:"input_tokens"`
 			Cached int64 `json:"cached_input_tokens"`
@@ -219,12 +221,13 @@ func Tail(e *store.Entry) bool {
 		if t, ok := activeAt(l, p); ok && e.MarkActive(t) {
 			changed = true
 		}
-		changed = apply(e, l.Type, p, first) || changed
+		at, _ := time.Parse(time.RFC3339Nano, l.Timestamp)
+		changed = apply(e, l.Type, p, at, first) || changed
 	}
 	return changed
 }
 
-func apply(e *store.Entry, kind string, p payload, replay bool) bool {
+func apply(e *store.Entry, kind string, p payload, at time.Time, replay bool) bool {
 	switch kind {
 	case "turn_context":
 		if p.Model != "" {
@@ -244,9 +247,11 @@ func apply(e *store.Entry, kind string, p payload, replay bool) bool {
 			e.SetStatus(model.Idle)
 			// A turn that finished before we started watching isn't news.
 			e.A.Unseen = !replay
+			finishAnswer(e, p.LastMessage, at)
 			return true
 		case "turn_aborted":
 			e.SetStatus(model.Idle)
+			e.Answer = "" // an interrupted turn leaves no answer: the one before stays
 			return true
 		case "token_count":
 			if p.Info == nil {
@@ -264,9 +269,16 @@ func apply(e *store.Entry, kind string, p payload, replay bool) bool {
 	case "response_item":
 		switch p.Type {
 		case "message":
+			if p.Role == "assistant" { // the turn's reply so far: its latest message
+				if t := replyText(p); t != "" {
+					e.Answer, e.AnswerAt = t, at
+				}
+				return false
+			}
 			if p.Role != "user" {
 				return false
 			}
+			e.Answer = "" // a new turn
 			for i := len(p.Content) - 1; i >= 0; i-- {
 				t := strings.TrimSpace(p.Content[i].Text)
 				if t != "" && !strings.HasPrefix(t, "<") {
@@ -290,6 +302,35 @@ func apply(e *store.Entry, kind string, p payload, replay bool) bool {
 		}
 	}
 	return false
+}
+
+// finishAnswer makes the reply of the turn that just ended the agent's
+// LastAnswer: the final message task_complete carries, or else the latest
+// message the model wrote in the turn. A turn with no text keeps the answer
+// before it.
+func finishAnswer(e *store.Entry, last string, at time.Time) {
+	text := e.Answer
+	if strings.TrimSpace(last) != "" {
+		text = last
+	}
+	if at.IsZero() {
+		at = e.AnswerAt
+	}
+	e.Answer = ""
+	if t := model.AnswerText(text); t != "" {
+		e.A.LastAnswer, e.A.LastAnswerAt = t, at
+	}
+}
+
+// replyText is the text of a model message (output_text parts).
+func replyText(p payload) string {
+	var parts []string
+	for _, c := range p.Content {
+		if t := strings.TrimSpace(c.Text); t != "" && c.Type != "input_text" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // toolCall maps Codex tools onto the board's activity vocabulary.
