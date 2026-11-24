@@ -384,14 +384,20 @@ func diagnosticsCmd(args []string) error {
 	return nil
 }
 
-// cpuCmd: agentctl cpu [--json], how much CPU the service and its helpers
-// use (the budget: under 2% of one core, idle).
+// cpuCmd: agentctl cpu [--top] [--json], how much CPU the service and its
+// helpers use (the budget: under 2% of one core, idle), how busy the whole
+// machine is, and with --top who uses it.
 func cpuCmd(args []string) error {
 	fs := flag.NewFlagSet("cpu", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "print it as JSON")
+	withTop := fs.Bool("top", false, "also list the biggest users of the machine's CPU (runs ps once)")
 	_ = fs.Parse(args)
+	path := "/admin/v1/cpu"
+	if *withTop {
+		path += "?top=15"
+	}
 	var r proc.CPUReport
-	if err := adminCall("GET", "/admin/v1/cpu", nil, &r); err != nil {
+	if err := adminCall("GET", path, nil, &r); err != nil {
 		return err
 	}
 	if *asJSON {
@@ -417,6 +423,34 @@ func cpuCmd(args []string) error {
 		fmt.Printf("\nhelpers over the %.0f min:\n", top.Minutes)
 		for _, h := range top.Helpers {
 			fmt.Printf("  %-14s %5.1f%%  %d runs\n", h.Program, h.Percent, h.Runs)
+		}
+	}
+	if m := r.Machine; m != nil {
+		fmt.Println()
+		if !m.Available {
+			fmt.Printf("machine: not measured (%s)\n", m.Why)
+		} else {
+			line := fmt.Sprintf("machine: %.0f%% busy now (100%% = all %d cores)", m.Now, m.Cores)
+			for _, a := range []struct {
+				name string
+				avg  *float64
+			}{{"1 min", m.Last1}, {"2 min", m.Last2}, {"10 min", m.Last10}} {
+				if a.avg != nil {
+					line += fmt.Sprintf(", %s %.0f%%", a.name, *a.avg)
+				}
+			}
+			fmt.Println(line)
+		}
+	}
+	if t := r.Top; t != nil {
+		fmt.Println()
+		if !t.Available {
+			fmt.Printf("biggest users: not available (%s)\n", t.Why)
+			return nil
+		}
+		fmt.Println("biggest users, in % of the whole machine:")
+		for _, u := range t.Users {
+			fmt.Printf("  %5.1f%%  %-8s %s (%d processes)\n", u.Percent, u.Kind, clip(oneLine(u.Name), 40), u.Processes)
 		}
 	}
 	return nil
