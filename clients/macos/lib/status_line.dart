@@ -103,9 +103,14 @@ class StatusLine extends StatelessWidget {
     this.pinned = false,
     this.onPin,
     this.onDrag,
+    this.usage,
   });
 
   final ServiceStatus status;
+
+  /// The account closest to running out of its week ([usageStatus]): after
+  /// the boards, in the accent from 80%.
+  final ({String text, bool attention})? usage;
 
   /// Opens Settings on a page (see [settingsPages]).
   final void Function(String page) onOpen;
@@ -123,6 +128,9 @@ class StatusLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final running = status.state == ServiceState.running;
     final parts = statusParts(status);
+    if (usage case final u? when running && parts.length >= 2) {
+      parts.insert(2, (text: u.text, page: 'general', attention: u.attention));
+    }
     final onPin = this.onPin;
     final onDrag = this.onDrag;
     final line = Container(

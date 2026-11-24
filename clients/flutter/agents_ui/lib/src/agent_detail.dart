@@ -11,6 +11,7 @@ import 'critter.dart';
 import 'pet_card.dart';
 import 'pet_art.dart';
 import 'pet_hatch.dart';
+import 'usage_limits.dart';
 
 part 'agent_detail_pets.dart';
 
