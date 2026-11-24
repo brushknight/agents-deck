@@ -250,6 +250,29 @@ class FakeAgentsSource implements AgentsSource {
         }
         _setStatus(a, 'idle');
         a['resumable'] = false;
+      case 'hatch':
+        // As the service does: only an egg that is ready hatches, into a
+        // baby with a name (made up here from the agent's id).
+        final pet = a['pet'];
+        if (pet is! Map || pet['stage'] != 'egg' || pet['ready'] != true) {
+          return const AgentsResult(
+            AgentsResultKind.conflict,
+            "this pet isn't an egg ready to hatch",
+          );
+        }
+        const names = ['Nib', 'Pip', 'Bix', 'Tup', 'Mox', 'Zib', 'Fen', 'Kip'];
+        a['pet'] = {
+          ...pet,
+          'name':
+              names[agentId.codeUnits.fold(0, (s, c) => s + c) % names.length],
+          'stage': 'baby',
+          'level': 1,
+          'levelFrom': 50000,
+          'nextAt': 62500,
+          'hearts': petMaxHearts,
+          'ready': false,
+          'hatchedAt': DateTime.now().toUtc().toIso8601String(),
+        };
       case 'handoff':
         final name = body?['account'];
         final to = accountList.where((x) => x.name == name).firstOrNull;
@@ -307,6 +330,9 @@ class FakeAgentsSource implements AgentsSource {
 
   @override
   Future<AgentsResult> resume(String agentId) => _command('resume', agentId);
+
+  @override
+  Future<AgentsResult> hatch(String agentId) => _command('hatch', agentId);
 
   /// Claude accounts for `GET /v1/accounts` (none set up by default, like a
   /// Mac with a single account).

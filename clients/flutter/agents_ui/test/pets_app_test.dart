@@ -188,7 +188,8 @@ void main() {
     await open(tester, 'docs-site');
     expect(find.text('An egg'), findsOneWidget);
     expect(find.text('Egg'), findsOneWidget);
-    expect(find.text('84% to hatching'), findsOneWidget);
+    // It is ready: the bar's words say to tap it.
+    expect(find.text('ready: tap to hatch'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -201,6 +202,38 @@ void main() {
     // Its permission card is solid orange: near-black hearts.
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).onOrange, isTrue);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tap a ready egg: it hatches, through the service', (
+    tester,
+  ) async {
+    final source = _withPets();
+    await pumpBoard(tester, source);
+    await open(tester, 'docs-site');
+    expect(find.text('ready: tap to hatch'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('pet-hatch')));
+    await tester.pump();
+    expect(source.calls.last, ('hatch', 'd0cs1t', null));
+    // It shakes and bursts (1.4 s), then the baby pops in (0.6 s).
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump(const Duration(milliseconds: 700));
+    final pet = source.snapshot.value.state!.byId('d0cs1t')!.pet!;
+    expect((pet.stage, pet.ready), ('baby', false));
+    expect(find.text(pet.name), findsOneWidget);
+    expect(find.text('ready: tap to hatch'), findsNothing);
+    // A pet that has hatched doesn't hatch again.
+    expect((await source.hatch('d0cs1t')).kind, AgentsResultKind.conflict);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('no hat picker while pets are on: the pet wears its own', (
+    tester,
+  ) async {
+    await pumpBoard(tester, _withPets());
+    await open(tester, 'checkout-api');
+    await tester.tap(find.byKey(const Key('agent-hat')));
+    await tester.pump();
+    expect(find.byKey(const Key('hat-picker')), findsNothing);
   });
 
   testWidgets('pets grid golden', skip: !autoUpdateGoldenFiles, (tester) async {

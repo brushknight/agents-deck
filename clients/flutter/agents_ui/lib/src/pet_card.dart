@@ -26,6 +26,7 @@ class PetSummary extends StatelessWidget {
     this.ink = DeckHud.ink,
     this.onOrange = false,
     this.pose,
+    this.onHatch,
   });
 
   final AgentPet pet;
@@ -45,16 +46,31 @@ class PetSummary extends StatelessWidget {
   /// Its agent's pose, which the pet does.
   final CritterPose? pose;
 
+  /// A ready egg: hatches it (tap the egg).
+  final VoidCallback? onHatch;
+
   @override
   Widget build(BuildContext context) {
     final dim = ink == DeckHud.ink ? DeckHud.dim : ink.withValues(alpha: 0.7);
     final pct = (pet.progress * 100).floor();
     final next = pet.isEgg ? 'to hatching' : 'to level ${pet.level + 1}';
+    final progress = onHatch != null ? 'ready: tap to hatch' : '$pct% $next';
     return Row(
       key: const Key('agent-pet'),
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        PetSprite(pet: pet, hat: hat, idle: idle, pose: pose, width: 54),
+        GestureDetector(
+          key: const Key('pet-hatch'),
+          behavior: HitTestBehavior.opaque,
+          onTap: onHatch,
+          child: PetSprite(
+            pet: pet,
+            hat: hat,
+            idle: idle,
+            pose: pose,
+            width: 54,
+          ),
+        ),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -93,7 +109,7 @@ class PetSummary extends StatelessWidget {
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      '$pct% $next',
+                      progress,
                       key: const Key('agent-pet-progress'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

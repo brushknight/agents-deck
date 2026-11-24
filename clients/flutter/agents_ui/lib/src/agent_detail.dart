@@ -9,6 +9,7 @@ import 'agents_model.dart';
 import 'agents_style.dart';
 import 'critter.dart';
 import 'pet_card.dart';
+import 'pet_hatch.dart';
 
 /// The header's left column: the 54 px critter (13/18 as tall as wide) and
 /// the 30 px title; the right column lines up with them.
@@ -325,7 +326,7 @@ class _AgentDetailState extends State<AgentDetail> {
         final state = frozen?.$1 ?? snap.state;
         final a = frozen?.$2 ?? state?.byId(widget.agentId);
         if (state == null || a == null) return _gone();
-        if (_hats) return _hatPicker(a);
+        if (_hats && a.pet == null) return _hatPicker(a);
         final p = frozen != null
             ? frozen.$3
             : (a.status == AgentStatus.waiting ? a.waiting : null);
@@ -544,11 +545,12 @@ class _AgentDetailState extends State<AgentDetail> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Tap the mascot to pick its hat.
+                  // Tap the mascot to pick its hat (not while Agent pets
+                  // is on: the pet wears its own).
                   GestureDetector(
                     key: const Key('agent-hat'),
                     behavior: HitTestBehavior.opaque,
-                    onTap: a.cwd.isEmpty
+                    onTap: a.cwd.isEmpty || a.pet != null
                         ? null
                         : () => setState(() {
                             _hats = true;
@@ -574,12 +576,19 @@ class _AgentDetailState extends State<AgentDetail> {
                   if (a.pet case final pet?) ...[
                     const SizedBox(width: 22),
                     Expanded(
-                      child: PetSummary(
+                      // A ready egg hatches when you tap it.
+                      child: PetHatcher(
                         pet: pet,
-                        hat: a.hat,
-                        idle: petAgentIdle(a),
-                        ink: ink,
-                        onOrange: cut == DeckHud.accent,
+                        onHatch: () => widget.source.hatch(a.id),
+                        onProblem: (m) => setState(() => _note = m),
+                        builder: (context, pet, hatch) => PetSummary(
+                          pet: pet,
+                          hat: a.hat,
+                          idle: petAgentIdle(a),
+                          ink: ink,
+                          onOrange: cut == DeckHud.accent,
+                          onHatch: hatch,
+                        ),
                       ),
                     ),
                   ],
