@@ -59,7 +59,17 @@ class UsageLine extends StatelessWidget {
                 color: limitColor(state, l),
               ),
               SizedBox(width: size * 0.4),
-              Text(l.name, style: DeckHud.rm(size, _muted)),
+              // Long names are cut: every account keeps its place.
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: size * 7.5),
+                child: Text(
+                  l.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: DeckHud.rm(size, _muted),
+                ),
+              ),
               if (week != null) ...[SizedBox(width: size * 0.4), _value(week)],
               for (final m in models) ...[
                 SizedBox(width: size * 0.4),
@@ -150,6 +160,7 @@ class UsageRows extends StatelessWidget {
             ],
           ),
           maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: DeckHud.rm(size, _muted, weight: 700, spacing: size * 0.12),
         ),
         for (final w in limits.shown) ...[
@@ -257,13 +268,15 @@ class _Segments extends StatelessWidget {
   final worst = state?.worstLimit;
   if (worst == null) return null;
   final (l, w) = worst;
+  // The line is short: a long account name is cut.
+  final name = l.name.length > 14 ? '${l.name.substring(0, 13)}…' : l.name;
   if (w.out) {
     return (
       text:
-          '${l.name} out${w.resetsAt == null ? '' : ' · ${resetText(w.resetsAt!)}'}',
+          '$name out${w.resetsAt == null ? '' : ' · ${resetText(w.resetsAt!)}'}',
       attention: true,
     );
   }
-  if (w.reset) return (text: '${l.name} week reset', attention: false);
-  return (text: '${l.name} week ${w.used}%', attention: w.hot);
+  if (w.reset) return (text: '$name week reset', attention: false);
+  return (text: '$name week ${w.used}%', attention: w.hot);
 }
