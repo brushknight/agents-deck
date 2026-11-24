@@ -6,6 +6,7 @@ import {
   setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
+import { petSVG } from './pets.js';
 
 const PAGES = ['home', 'agents', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
 const SCOPES = [
@@ -590,6 +591,30 @@ function setSprite(el, pose, tool, hat, opts = {}) {
   el.replaceChildren(spriteNode(pose, tool, hat, opts));
 }
 
+// Agent pets (pets.js): an agent's pet in place of its critter, while
+// Agent pets is on (the service then sends each agent's "pet").
+const petCache = new Map();
+const PET_IDLE = new Set(['idle', 'exited']);
+function petNode(pet, opts) {
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, opts.hat?.shape, opts.hat?.color, !!opts.idle, !!opts.working, !!opts.outline, !!opts.waking, opts.sil || '', !!opts.still]);
+  let node = petCache.get(k);
+  if (!node) {
+    const doc = new DOMParser().parseFromString(petSVG(pet, opts).replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
+    node = document.importNode(doc.documentElement, true);
+    petCache.set(k, node);
+  }
+  return { k, node: node.cloneNode(true) };
+}
+// setPet fills el with an agent's pet: eyes shut while it is idle, a dark
+// edge on an orange tile, and the ice cracking off when it wakes.
+function setPet(el, a, outline, waking) {
+  const { k, node } = petNode(a.pet, { hat: a.hat, idle: PET_IDLE.has(a.status), working: a.status === 'running', outline, waking });
+  if (el.dataset.pose === `pet${k}`) return;
+  el.dataset.pose = `pet${k}`;
+  el.className = 'spr pet';
+  el.replaceChildren(node);
+}
+
 const bySlot = () => [...agentsList()].sort((x, y) => (x.slot ?? 999) - (y.slot ?? 999));
 const pageCount = () => {
   const list = agentsList();
@@ -667,7 +692,15 @@ function tileFor(a) {
     t.qb.title = queued ? `${plural(queued, 'prompt')} queued: ${queued === 1 ? 'it goes' : 'they go'} in when this turn ends` : '';
     t.el.setAttribute('aria-label', `${agentName(a)}, ${a.status === 'waiting' ? 'needs you' : meta}${queued ? `, ${queued} queued` : ''}`);
   }
-  setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  if (a.pet) {
+    // Woken from hibernation (it ate): the ice cracks off, once.
+    if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
+    t.mood = a.pet.mood;
+    setPet(t.spr, a, cls === 'wait', Date.now() < (t.wakeUntil || 0));
+  } else {
+    t.spr.className = 'spr c dk';
+    setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  }
   return t.el;
 }
 
@@ -1731,9 +1764,17 @@ function drawGeneral() {
     row('The deck in your browser', 'The same app, on this computer only.', [
       APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : h('a', { class: 'btn sm', href: '/', target: '_blank', rel: 'noreferrer' }, 'Open in a new tab'),
     ], { name: true, pic: termChip('127.0.0.1') }));
+  const pets = [];
+  if (s.pets !== undefined) { // an older service has no pets
+    const sampleHat = agentsList().find((a) => a.hat)?.hat || { shape: 'top hat', color: 'yellow' };
+    const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000 }, { hat: sampleHat, still: true }).node));
+    pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again.',
+      [toggle('Agent pets', s.pets, (on, el) => patchSettings({ pets: on }, el))], { name: true, pic }));
+  }
   return [
     head('General', 'How the deck', 'starts.'),
     sec('Starting', null, null, blk(...start)),
+    pets.length ? sec('Agent pets', 'off by default', null, blk(...pets)) : null,
     sec('Notifications', 'a click opens the agent', null, notify),
     sec('For the terminal and the browser', null, null, term),
   ];
