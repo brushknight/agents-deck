@@ -122,16 +122,18 @@ title and options (key, label, primary). Helpers: `deck_tiles_find`, `deck_tiles
 
 While Agent pets is on (the deck's Settings, General), every agent has a pet (`Agent.pet`, in
 `FIELDS_TILE`) that the deck shows in place of its critter. `deck_pet.h` keeps one in 28 bytes and
-draws it as the web deck does (`backend/internal/web/static/pets.js`; `docs/pet-poses.md` is the
-spec): the egg (cracked once it has eaten 30k tokens, or ready to hatch), the baby, the kid and the
-grown-up, which strong, mighty and legend pets stay, with flames round them in pale yellow, blue or
-gold. A hungry pet has its mouth open; its eyes are shut while it is weak or its agent is idle; a weak
-grown-up lies down, brown; a hibernating pet sits in an ice cube. The kid and up wear their own hat
-(`Pet.hat`, devil horns included); the agent's hat colours an egg's spots.
+draws it as the web deck does (`pets.js`, `pet-poses.js`; [docs/pet-poses.md](../../docs/pet-poses.md)
+is the spec): the egg (cracked once it has eaten 30k tokens, or ready to hatch), the baby, the kid and
+the grown-up, which strong, mighty and legend pets stay, with flames round them in pale yellow, blue
+or gold. A hungry pet has its mouth open; a weak grown-up lies down, brown; a hibernating pet sits in
+an ice cube. The kid and up wear their own hat (`Pet.hat`, devil horns included).
 
-Every pet has a black stroke one pet pixel wide, four ways round it, drawn under it. It keeps the hat
-apart from any aura and the pet apart from an orange background, so the pet keeps its own colours
-everywhere.
+The pet does the critter's poses: the eyes, arms and feet move, and the bubble shows what its agent
+does (the thought dots, the magnifier, the prompt, the globe, the list, the "?", the "!", the "z z",
+the cookie), with the finish flag after a turn, the mini pet in tow while it delegates and the squeeze
+while it compacts. An egg rocks while its agent works. Every part has a black stroke one pet pixel
+wide, four ways round it, drawn under the pet; props and bubbles are white. On orange the pet keeps
+its own colours: the stroke keeps it apart.
 
 ```c
 deck_pet_t pet;
@@ -139,19 +141,23 @@ deck_pet_from_proto(&pet, a->has_pet, &a->pet);         /* in on_agent; has_pet 
 
 deck_pet_look_t look;                                   /* 1.4 KB: build it, draw it, drop it */
 deck_pet_opts_t o = {0};
-o.idle = idle;                                          /* eyes shut */
+o.pose = DECK_PET_POSE_BASH;                            /* what its agent does */
+o.ms = millis();                                        /* where the pose's motion is */
+o.bubble = true;
 deck_pet_look(&look, &pet, &o);
 deck_pet_draw(&look, x, y, scale, fill, ctx);           /* fill(ctx, x, y, w, h, 0xRRGGBB, alpha) */
 ```
 
-The art is 16 x 14 cells (cell (0, 0) at the pixel you give). The hat, the flames and the stroke reach
-past it, to the cells `DECK_PET_REACH_*` give (for a fixed box round a pet; `deck_pet_bounds()` gives
-one look's). Colours come as 0xRRGGBB with an alpha: only the ice is see-through, so mix it with
-what's under it, or skip it on a screen that can't. `deck_pet_motion()` gives the rock of an egg
-waiting to be seen. `deck_pet_look()` uses about 2 KB of its own scratch, so draw pets from one task.
+The art is 16 x 14 cells (cell (0, 0) at the pixel you give). Bubbles, the flag and the flames reach
+past it, to cells -5..24 across and -10..15 down (`DECK_PET_REACH_*`, for a fixed box round a pet;
+`deck_pet_bounds()` gives one look's). Colours come as 0xRRGGBB with an alpha: only the ice is
+see-through, so mix it with what's under it, or skip it on a screen that can't. `deck_pet_motion()`
+gives the rock of an egg waiting to be seen. `deck_pet_look()` uses about 2.7 KB of its own scratch,
+so draw pets from one task.
 
-`test/host/pet_golden.h` holds every look's cells as pets.js draws them (`tools/pet_golden.mjs`
-writes it); `test_pet` checks the kit against it, so a change to the art goes in both.
+`test/host/pet_golden.h` holds every pose's cells over time as pets.js and pet-poses.js draw them
+(`tools/pet_golden.mjs` writes it); `test_pet` checks the kit against it, so a change to the art goes
+in both.
 
 ## Pairing and Wi-Fi
 
@@ -235,7 +241,7 @@ Measured on ESP32 (xtensa gcc) with the defaults:
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
 | of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
-| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1372 / 1136 static |
+| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1372 / 2752 static |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
 The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.

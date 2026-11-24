@@ -1,6 +1,6 @@
 // Agent pets on the panels (sprites.h drawPet, drawCritter, petLine): the
 // adapter keeps the pet, no pet draws exactly the critter, a pet stays in the
-// room a critter's box gives it, with no plate on orange, and every
+// room a critter's box gives it and does its pose, with no plate on orange, and every
 // layout draws its screens with pets inside the frame; the square card and
 // the detail screens show the pet's name, stage and level.
 #define PANEL_MAX_AGENTS 64
@@ -101,8 +101,8 @@ static void testNoPet() {
 }
 
 // A pet stays in the room it is given: cells DECK_PET_REACH_* at unit (-1, -5),
-// plus its rock; on orange it keeps its own colours with the black stroke,
-// no plate.
+// plus its rock; it does the pose it is given with its bubble; on orange it
+// keeps its own colours with the black stroke, no plate.
 static void testRoom() {
   constexpr int W = 260, H = 260, X = 90, Y = 110;
   constexpr uint16_t kBg = 0x0000, kAccent = rgb565(0xFF, 0x4D, 0x00), kGrey = rgb565(0x40, 0x40, 0x40);
@@ -129,14 +129,13 @@ static void testRoom() {
     for (int stage = 0; stage < 7; stage++)
       for (int mood = 0; mood < 4; mood++)
         for (uint8_t hat : {0, 2, 11, 14})
-          for (Pose pose : {Pose::Run, Pose::Idle})
+          for (int pose = 0; pose <= (int)Pose::Hungry; pose++)
             for (uint32_t ms : {0u, 300u, 700u}) {
               a.pet = pet(stage, mood);
               a.pet.ready = stage == 0 && mood == 0;
               a.pet.hat = hat;
-              a.status = pose == Pose::Idle ? Status::Idle : Status::Running;
-              draw(s, kGrey, pose, ms);
-              draw(s, kAccent, pose, ms);
+              draw(s, kGrey, (Pose)pose, ms);
+              draw(s, kAccent, (Pose)pose, ms);
             }
   // The pet's own orange with its black stroke, on orange too: no plate, no critter colour.
   a.pet = pet(DECK_PET_GROWN, DECK_PET_FED);
@@ -145,9 +144,18 @@ static void testRoom() {
     drawCritter(c, X, Y, 2, a, Pose::Idle, 0xFFFF, bg, 0, true);
     int body = 0, white = 0, black = 0;
     for (uint16_t p : px) { body += p == kAccent; white += p == 0xFFFF; black += p == 0x0000; }
-    assert(white == 0 && black > 40 && black < 400);   // the stroke round it
+    assert(white > 0 && black > 40 && black < 400);   // the "z z" and the stroke round it all
     if (bg == kBg) assert(body > 100);
   }
+  // A pose moves it: running is not the same picture at two moments, and not idle's.
+  a.pet = pet(DECK_PET_KID, DECK_PET_FED);
+  std::vector<uint16_t> one;
+  draw(2, kBg, Pose::Run, 0);
+  one = px;
+  draw(2, kBg, Pose::Run, 300);
+  assert(px != one);
+  draw(2, kBg, Pose::Idle, 0);
+  assert(px != one);
 }
 
 // The spring's critter box holds a pet (the carousel redraws only that box).
