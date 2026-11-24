@@ -248,6 +248,10 @@ from 95, `out` at 100 or when the tool said it stopped (`hit`). Once `resetsAt` 
 `"reset": true` and `used: 0` until the next report; a hit is dropped. Codex buckets other than its
 plan's own are `<limit_id>:<window>` and labelled with their name.
 
+The service keeps the last report of each account in `limits.json` in its data folder (written at
+most every 15 seconds, when something changed), so the numbers are still there after a restart or an
+update, with their `asOf`.
+
 ### The "Needs you" grid
 
 The service keeps one "Needs you" grid of 16 spots (4×4, numbered 1 to 16 by rows) and puts each

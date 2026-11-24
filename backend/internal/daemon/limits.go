@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"log"
 	"path/filepath"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/codex"
 	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 // Usage limits, from what Claude Code and Codex report themselves (see
@@ -18,6 +20,10 @@ import (
 
 func (d *Daemon) startLimits() {
 	d.limits = &limits.Book{}
+	d.limitsKeep = &limits.Keeper{Book: d.limits, Path: paths.Limits()}
+	if err := d.limitsKeep.Load(); err != nil {
+		log.Printf("limits: %s ignored: %v", paths.Limits(), err)
+	}
 	d.Store.Limits = d.LimitsState
 	claude.LimitHit = d.limitHit
 }
@@ -81,7 +87,7 @@ func (d *Daemon) limitHit(transcript, text string, at time.Time) {
 	}
 }
 
-// WatchLimits reads Codex's newest rollout for its rate limits, and redraws
+// WatchLimits saves the limits to limits.json when they changed, reads Codex's newest rollout for its rate limits, and redraws
 // when a window passes its reset, every 15 seconds.
 func (d *Daemon) WatchLimits() {
 	if d.limits == nil {
@@ -98,6 +104,11 @@ func (d *Daemon) WatchLimits() {
 				for _, r := range codex.RateLimits(f) {
 					d.limits.Codex(home, r.Limits, r.At)
 				}
+			}
+		}
+		if d.limitsKeep != nil {
+			if err := d.limitsKeep.Save(); err != nil {
+				log.Printf("limits: saving: %v", err)
 			}
 		}
 		b, _ := json.Marshal(d.LimitsState())

@@ -66,7 +66,8 @@ type Daemon struct {
 
 	lastAutoRestore time.Time
 	live            liveWatch
-	limits          *limits.Book // usage limits the tools report (limits.go)
+	limits          *limits.Book   // usage limits the tools report (limits.go)
+	limitsKeep      *limits.Keeper // writes them to limits.json
 }
 
 func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
