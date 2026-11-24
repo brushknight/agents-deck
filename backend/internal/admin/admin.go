@@ -101,6 +101,9 @@ type Admin struct {
 	PairInfo func() (url, ca string)
 
 	ListPorts func() ([]serial.Info, error) // serial.List
+	// UsageEverySession puts the deck's status line in every Claude
+	// account's settings.json, or takes it out (nil: not available here).
+	UsageEverySession func(on bool) error
 	// MagicChanged tells the screens the magic trick's settings changed.
 	MagicChanged func()
 	Flasher      Flasher

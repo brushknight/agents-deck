@@ -1154,6 +1154,7 @@ func serve(args []string) error {
 	var ctl server.Controller
 	var lc server.LocalController
 	var fleet *demo.Demo
+	var usageEverySession func(bool) error // nil in a demo
 	if *demoMode {
 		st = store.New("", strings.TrimSuffix(host, ".local")+" (demo)", version)
 		var d *demo.Demo
@@ -1184,6 +1185,15 @@ func serve(args []string) error {
 		go d.Run()
 		go d.WatchCodex()
 		go d.WatchLimits()
+		if d.Cfg.UsageEverySession {
+			// Accounts added since, and an app that moved, get it too.
+			go func() {
+				if err := d.UsageEverySession(true); err != nil {
+					log.Printf("usage from every session: %v", err)
+				}
+			}()
+		}
+		usageEverySession = d.UsageEverySession
 		go d.WatchOrca()
 		go d.WatchHerdr()
 		go d.WatchCmux()
@@ -1236,6 +1246,7 @@ func serve(args []string) error {
 	}
 	wifiDefault := &link.WifiDefault{Store: wifiStore}
 	adm := newAdmin(st, srv, self, *logFile)
+	adm.UsageEverySession = usageEverySession
 	// Each agent's project, by its folder.
 	st.Project = adm.ProjectOf
 	// MCP's project tools change the same list, through the same checks.

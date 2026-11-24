@@ -130,6 +130,8 @@ Added sessions are **watched**: status (working, idle, hungry when a turn finish
 
 To have every one join by itself, set **Put them on the deck** to **automatically** in Settings, Agents (`agentctl set sessions auto`): each Claude session the list shows joins the deck within a few seconds, including the ones the Claude desktop app starts from another session. A session you take off the deck stays off, also after a restart of the service, until you add it again. `pick` (the default) waits for you to add them.
 
+Their **usage** (the weekly limits) reaches the deck only from sessions that run the deck's status line. Agents the deck starts always do. To have every Claude session report it, turn on **Report usage from every Claude session** in Settings, Agents: the deck adds its status line to each Claude account's own `settings.json` (a copy of the file is kept next to it as `settings.json.agents-deck.bak`). Your own status line still shows, run after the deck's. Turning it off puts the status line you had back. A session already running may need to start again to pick it up.
+
 ## MCP: one agent runs the others
 
 The deck is an MCP server, so one agent (Claude Code, for example) can orchestrate the others: list

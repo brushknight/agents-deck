@@ -184,6 +184,19 @@ func (b *Book) State(name func(tool, place string) string) []model.Limits {
 	return out
 }
 
+func sortWindows(ws []model.LimitWindow) {
+	sort.Slice(ws, func(i, j int) bool { return ws[i].ID < ws[j].ID })
+}
+
+func sortSets(ss []keptSet) {
+	sort.Slice(ss, func(i, j int) bool {
+		if ss[i].Tool != ss[j].Tool {
+			return ss[i].Tool < ss[j].Tool
+		}
+		return ss[i].Place < ss[j].Place
+	})
+}
+
 // order: the week first, then per-model weeks, spend, the rest; hidden last.
 func order(w model.LimitWindow) string {
 	p := "3"

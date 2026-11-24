@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"path/filepath"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/codex"
 	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 // Usage limits, from what Claude Code and Codex report themselves (see
@@ -18,6 +21,10 @@ import (
 
 func (d *Daemon) startLimits() {
 	d.limits = &limits.Book{}
+	d.limitsKeep = &limits.Keeper{Book: d.limits, Path: paths.Limits()}
+	if err := d.limitsKeep.Load(); err != nil {
+		log.Printf("limits: %s ignored: %v", paths.Limits(), err)
+	}
 	d.Store.Limits = d.LimitsState
 	claude.LimitHit = d.limitHit
 }
@@ -81,7 +88,7 @@ func (d *Daemon) limitHit(transcript, text string, at time.Time) {
 	}
 }
 
-// WatchLimits reads Codex's newest rollout for its rate limits, and redraws
+// WatchLimits saves the limits to limits.json when they changed, reads Codex's newest rollout for its rate limits, and redraws
 // when a window passes its reset, every 15 seconds.
 func (d *Daemon) WatchLimits() {
 	if d.limits == nil {
@@ -100,6 +107,11 @@ func (d *Daemon) WatchLimits() {
 				}
 			}
 		}
+		if d.limitsKeep != nil {
+			if err := d.limitsKeep.Save(); err != nil {
+				log.Printf("limits: saving: %v", err)
+			}
+		}
 		b, _ := json.Marshal(d.LimitsState())
 		if s := string(b); s != last {
 			last = s
@@ -107,4 +119,30 @@ func (d *Daemon) WatchLimits() {
 		}
 		time.Sleep(15 * time.Second)
 	}
+}
+
+// UsageEverySession is "Report usage from every Claude session": with on,
+// the deck's status line goes into every Claude account's own settings.json
+// (the default ~/.claude too), so sessions started outside the deck report
+// their usage as well; with off, the status lines they had come back.
+func (d *Daemon) UsageEverySession(on bool) error {
+	dirs := []string{accounts.Home()}
+	for _, a := range accounts.List() {
+		if p := a.Path(); p != "" && filepath.Clean(p) != filepath.Clean(accounts.Home()) {
+			dirs = append(dirs, p)
+		}
+	}
+	var errs []error
+	for _, dir := range dirs {
+		var err error
+		if on {
+			err = claude.AddDeckStatusLine(dir, d.Agentctl, paths.StatusLineSaved())
+		} else {
+			err = claude.RemoveDeckStatusLine(dir, paths.StatusLineSaved())
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
