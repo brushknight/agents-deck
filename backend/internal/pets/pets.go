@@ -81,13 +81,28 @@ const (
 	MaxStep       = 3.0
 )
 
+// AlwaysOn: Agent pets can't be turned off for now. The setting is still
+// read and written ("pets": {"on": false} stays in config.json), but the
+// effective value is on; false brings the switch back.
+const AlwaysOn = true
+
 // Defaults is Agent pets on (it is opt-out), with the default levels.
 func Defaults() Config { return Config{On: true, FirstLevel: FirstLevel, Step: Growth} }
 
 // ConfigOf reads config.json's "pets" (true, false, an object or nothing:
 // on unless it says off); a level setting outside the limits falls back to
-// its default.
+// its default. While AlwaysOn, On is always true: Stored reads what the
+// file says.
 func ConfigOf(v any) Config {
+	c := Stored(v)
+	if AlwaysOn {
+		c.On = true
+	}
+	return c
+}
+
+// Stored is ConfigOf as config.json has it, "on" as written.
+func Stored(v any) Config {
 	c := Defaults()
 	switch v := v.(type) {
 	case bool:

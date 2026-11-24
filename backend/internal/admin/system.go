@@ -295,7 +295,7 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Pets != nil || petLevels {
 			// Written as {"on", "firstLevel", "step"}; an older "pets": true reads the same.
-			c := pets.ConfigOf(cfg["pets"])
+			c := pets.Stored(cfg["pets"]) // keeps a stored "off" while pets are always on
 			if p.Pets != nil {
 				c.On = *p.Pets
 			}
