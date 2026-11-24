@@ -109,7 +109,9 @@ void main() {
     await open(tester, 'checkout-api');
     await tester.tap(find.byKey(const Key('agent-pet')));
     await tester.pump();
-    expect(find.text('Juno'), findsOneWidget);
+    // Under its agent's name, with its growth path.
+    expect(find.byKey(const Key('pet-name')), findsOneWidget);
+    expect(find.byKey(const Key('pet-path')), findsOneWidget);
     checkMenuBarRules(tester, 'pet');
     expect(tester.takeException(), isNull);
     if (autoUpdateGoldenFiles) {

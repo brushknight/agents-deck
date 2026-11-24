@@ -1702,7 +1702,7 @@ extension _PetsPage on _AgentDetailState {
                   overflow: TextOverflow.clip,
                   softWrap: false,
                   style: DeckHud.rm(
-                    12,
+                    _fs(12),
                     i == at ? _pOrange2 : _pMuted,
                     weight: 700,
                     spacing: 1.2,
