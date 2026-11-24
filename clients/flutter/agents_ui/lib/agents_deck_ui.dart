@@ -20,4 +20,5 @@ export 'src/pet_card.dart';
 export 'src/pet_hatch.dart';
 export 'src/pet_poses.dart';
 export 'src/theme.dart';
+export 'src/usage_limits.dart';
 export 'src/widgets.dart';
