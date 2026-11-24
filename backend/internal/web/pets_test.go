@@ -172,13 +172,31 @@ if (petSVG({ ...ph, stage: 'kid' }, { hat, pose: 'run' }).includes('hf-')) fail(
 if (petSVG({ stage: 'egg', mood: 'fed', ate: 0 }, { hat, mystery: true, pose: 'wait' }).includes('blink')) fail('egg: the bubble over the mystery hat');
 // Auras keep a pixel clear of every prop and of a moving hat, and props
 // stand out from the flames.
-for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const pose of Object.keys(POSES)) for (const shape of ['propeller', 'top hat', 'cap', 'devil horns']) {
-  const svg = petSVG({ stage, mood: 'fed', ate: 0, hat: { shape, color: 'yellow' } }, { hat, pose });
-  const what = stage + ' ' + pose + ' in a ' + shape;
+for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const pose of Object.keys(POSES)) for (const shape of ['propeller', 'top hat', 'cap', 'devil horns']) for (const ink of [false, true]) {
+  const svg = petSVG({ stage, mood: 'fed', ate: 0, hat: { shape, color: 'yellow' } }, { hat, pose, ink });
+  const what = stage + ' ' + pose + ' in a ' + shape + (ink ? ' on orange' : '');
   const flames = cellsOf(svg, (f, rest) => f === flame.toUpperCase() && !/prs|ptw/.test(rest));
   const props = cellsOf(svg, (f, rest) => /class="(pp|hf-)/.test(rest));
   if (pose !== 'exit' && !flames.size) fail(what + ': no flames');
   if (touches(new Set(flames.keys()), new Set(props.keys()))) fail(what + ': a flame touches a prop');
   for (const f of new Set(cellsOf(svg, (f, rest) => /class="pp/.test(rest) && f !== '#FF4D00' && f !== '#141412' && f !== '#0A0A0A' && f !== '#F4F0E6').values())) if (family(f, flame)) fail(what + ': a prop in the aura\'s colours');
+}
+// On orange (ink) a pet is drawn as the critter is there: body in ink, eyes
+// and mouth cut out in orange, props in ink, the hat in its colours, an egg
+// in its shell. Off orange nothing changes.
+const fills = (svg) => { const n = new Map(); for (const [, f] of cellsOf(svg, () => true)) n.set(f, (n.get(f) || 0) + 1); return n; };
+for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak']) for (const pose of Object.keys(POSES)) {
+  const pet = { stage, mood, ate: 0, hat: { shape: 'propeller', color: 'teal' } };
+  const what = stage + ' ' + mood + ' ' + pose + ' on orange';
+  const svg = petSVG(pet, { hat, pose, ink: true });
+  const n = fills(svg);
+  const egg = stage === 'egg', weak = mood === 'weak' && !egg;
+  if (/style=/.test(svg)) fail(what + ': inline style');
+  if (egg && !n.get('#F4F0E6')) fail(what + ': the shell should stay');
+  if (!egg && (n.get(weak ? '#3B3A36' : '#0A0A0A') || 0) < 30) fail(what + ': the body should be in ink');
+  if (!egg && (n.get('#FF4D00') || 0) > 16) fail(what + ': orange should only cut out the face');
+  if (stage !== 'baby' && !egg && pose !== 'exit' && !svg.includes('#4FB3A6') && !svg.includes('#2F7F75')) fail(what + ': the hat lost its colour');
+  for (const m of svg.matchAll(/fill="(#[0-9A-F]{6})" class="pp (blink|bang|dots|cursor|zz|bobc|t3|spark s1)/g)) if (m[1] !== '#0A0A0A') fail(what + ': a bubble not in ink');
+  if (!(egg && pose === 'exit') && petSVG(pet, { hat, pose }) === svg) fail(what + ': drawn as off orange'); // a hollow shell has no ink
 }
 `

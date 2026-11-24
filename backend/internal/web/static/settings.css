@@ -824,11 +824,10 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .petpic .spr.pet { width: 40px; }
 .tile .spr.pet { width: 60px; max-width: none; }
 @media (max-width: 1100px) { .tile .spr.pet { width: 40px; } }
-/* On an orange tile (it needs you) the pet keeps its own colours on a small
-   dark plate, like the sidebar's corner. */
-.tile.wait .spr.pet { background: #0A0A0A; padding: 6px 8px 4px; box-sizing: content-box; }
+/* On orange (a tile that needs you, the sidebar's corner) the pet is drawn
+   in ink, as the critter is there (pets.js, ink): no plate behind it. */
 .rrow > .vis .spr.pet { width: 40px; }
-.rrow > .vis:has(.spr.pet) { overflow: hidden; background: #0A0A0A; }
+.rrow > .vis:has(.spr.pet) { overflow: hidden; }
 /* A ready egg wobbles and glows a little; hatching it shakes, flashes and
    bursts; the new pet pops in. Whole-pixel steps keep it crisp. */
 @keyframes prdy { 0%, 60%, 100% { transform: translateX(0) } 70% { transform: translateX(-1px) } 80% { transform: translateX(1px) } 90% { transform: translateX(-1px) } }
@@ -976,9 +975,9 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 .abtop { display: flex; align-items: flex-start; gap: 12px; }
 .abpic { width: 52px; flex: none; --body: var(--bar-ink); --cut: var(--orange); }
 .abpic .spr { width: 52px; }
-/* its pet, on a black square that turns white on hover */
-.abpet { width: 52px; height: 52px; flex: none; background: var(--bar-ink); border: 0; border-radius: 0; padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; }
-.abpet:hover { background: #FFFFFF; }
+/* its pet, in ink on the orange like the critter; outlined on hover */
+.abpet { width: 52px; height: 52px; flex: none; background: transparent; border: 0; border-radius: 0; padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; }
+.abpet:hover { box-shadow: inset 0 0 0 2px var(--bar-ink); }
 .abpic .abpet .spr.pet { width: 40px; }
 /* beside it: tool · branch, the pet's name · stage · level, its bar */
 .abhd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }

@@ -596,7 +596,7 @@ function setSprite(el, pose, tool, hat, opts = {}) {
 // critter's poses (pet-poses.js), bubble and all.
 const petCache = new Map();
 function petNode(pet, opts) {
-  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false,
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false, !!opts.ink,
     !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
   let node = petCache.get(k);
   if (!node) {
@@ -609,7 +609,7 @@ function petNode(pet, opts) {
 // setPet fills el with an agent's pet doing its agent's pose, the ice
 // cracking off when it wakes, the egg bursting while it hatches and the new
 // pet popping in. more: waking, mystery ("?" where its hat will be),
-// bubble (false: the pose without its bubble).
+// bubble (false: the pose without its bubble), ink (it sits on orange).
 function setPet(el, a, more = {}) {
   const { k, node } = petNode(a.pet, { hat: a.hat, pose: poseOf(a), ...more,
     hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
@@ -732,7 +732,7 @@ function tileFor(a) {
     // Woken from hibernation (it ate): the ice cracks off, once.
     if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
     t.mood = a.pet.mood;
-    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0) });
+    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0), ink: cls === 'wait' });
   } else {
     t.spr.className = 'spr c dk';
     setSprite(t.spr, poseOf(a), a.tool, a.hat);
@@ -1684,7 +1684,7 @@ function buildBar(a, body, view) {
     petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
     if (x.pet) {
       const p = x.pet;
-      setPet(petSpr, x, { bubble: false });
+      setPet(petSpr, x, { bubble: false, ink: true }); // the sidebar is orange
       petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${p.name} · ${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
       const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
       const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));

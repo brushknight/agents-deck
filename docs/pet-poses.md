@@ -196,6 +196,25 @@ everything that moves:
   clashing hat takes its shade. `P` is #E8E4DC, else the body colour, else the body's shade, the first that
   doesn't clash: so props are light on mighty and legend pets and orange on strong ones.
 
+## On orange
+
+Where the background is orange (a tile that needs you, the sidebar), the pet is drawn the way the critter
+always is there: in ink, with no plate behind it.
+
+| key | off orange | on orange |
+|---|---|---|
+| body `b`, shade `d` | #FF4D00, #C23A00 | #0A0A0A (a weak pet #3B3A36) |
+| eyes `e`, hungry mouth `m` | #141412, #BDB8AD | #FF4D00 (cut out) |
+| the weak art's eyes and mouth, the flag's dark squares `k` | #0A0A0A | #FF4D00 (cut out) |
+| props and bubbles `P` | see above | #0A0A0A, whatever the aura |
+| arms, mini pet | body colour | #0A0A0A |
+| hat | its colours | its colours (a hat's near-black stays #0A0A0A) |
+| egg shell, spots and crack | as drawn | as drawn; only its bubble is in ink |
+| flag light squares and pole light `w` | #F4F0E6 | #F4F0E6 |
+
+Auras stay as they are on orange, with the same one-cell gap and the same hat shade rule: the flames
+still read against the orange, and ink props never clash with them. Nothing changes off orange.
+
 ## Motion budget
 
 - All motion is CSS on a handful of paths: each colour of each moving layer is one path, rows of cells
@@ -203,4 +222,3 @@ everything that moves:
 - A pet off screen holds still: its animations pause until it scrolls back into view.
 - With reduced motion nothing moves: the first frame of each pair shows (`la`, hat frame 0), every bubble
   stays up.
-- On an orange tile (it needs you) the pet sits on a dark plate wide enough for its "?".

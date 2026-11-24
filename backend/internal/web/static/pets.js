@@ -72,10 +72,15 @@ const SMALL_HATS = {
 const COL = {
   b: '#FF4D00', d: '#C23A00', e: '#141412', w: '#F4F0E6', v: '#B9B4A8', k: '#0A0A0A', g: '#55524B', p: '#E8E4DC',
   m: '#BDB8AD', // the open mouth of a hungry pet: light grey, so it reads on the dark tile
-  c: '#F7F4EC',
+  c: '#F7F4EC', K: '#0A0A0A', // K: a hat's near-black
   q: '#8A867C', // the mystery hat's "?"
 };
 const WEAK_BODY = '#B0673F';
+// On orange (a tile that needs you, the sidebar) a pet is drawn as the
+// critter is there: its body in near-black ink, its eyes, mouth and dark
+// lines cut out in orange, props in ink; the hat keeps its colours and an
+// egg its shell. A weak pet's ink is a lighter grey.
+const ORANGE = '#FF4D00', INK = '#0A0A0A', WEAK_INK = '#3B3A36';
 
 // Power-up auras: flame tongues around the body, a pixel clear of it (the
 // first frame holds still, a second layer glows in and out), sparks drifting
@@ -160,8 +165,8 @@ function gridOf(name) {
 }
 
 // The deck's hat on an art: its still frame, moved from the critter's spot to
-// the pet's. a/b/c/d become h (hat colour), H (shade), c, k.
-const HAT_KEY = { a: 'h', b: 'H', c: 'c', d: 'k' };
+// the pet's. a/b/c/d become h (hat colour), H (shade), c, K.
+const HAT_KEY = { a: 'h', b: 'H', c: 'c', d: 'K' };
 // Devil horns, the hat only pets find: two small horns on the head.
 const HORNS = { kid: [[3, 3], [3, 4], [4, 4], [12, 3], [12, 4], [11, 4]], builder: [[2, 1], [2, 2], [3, 2], [13, 1], [13, 2], [12, 2]], weak: [[2, 3], [2, 4], [3, 4], [13, 3], [13, 4], [12, 4]] };
 // frame: one of the hat's working frames (critter[i]); its still one if none.
@@ -267,10 +272,15 @@ function paths(cells) {
   return out;
 }
 
-function colours(hat, spots, weak, sil) {
+function colours(hat, spots, weak, sil, ink, egg) {
   const [ha, hb] = HAT_COLORS[hat?.color] || HAT_COLORS.teal;
   const c = { ...COL, s: (HAT_COLORS[spots?.color] || HAT_COLORS[hat?.color] || HAT_COLORS.teal)[0], h: ha, H: hb };
   if (weak) { c.b = WEAK_BODY; c.d = WEAK_BODY; }
+  if (ink) {
+    c.b = c.d = weak ? WEAK_INK : INK;
+    c.e = c.m = ORANGE;
+    if (!egg) c.k = ORANGE; // the egg's crack stays dark on its shell
+  }
   if (sil) for (const k of Object.keys(c)) c[k] = sil;
   return c;
 }
@@ -370,7 +380,8 @@ function iceSVG(filled, waking) {
 
 // petSVG: the pet as SVG markup. opts: pose (the critter's pose,
 // deck-core.js poseOf: the pet does it, pet-poses.js), bubble (false: the
-// pose without its bubble), hat (the agent's hat: only the egg's spots take
+// pose without its bubble), ink (it sits on orange: drawn in ink, as the
+// critter is there), hat (the agent's hat: only the egg's spots take
 // its colour; the pet wears its own pet.hat), idle (eyes shut, without a
 // pose), working (it bobs, without a pose), waking (the ice cracks off),
 // mystery (a "?" where the hat will be, until it shows), hatching (the
@@ -383,7 +394,8 @@ export function petSVG(pet, opts = {}) {
   const moving = !opts.still && !opts.sil;
   const pose = moving && !opts.hatching && !opts.waking ? opts.pose || '' : '';
   const look = petLook(pet, opts);
-  const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
+  const ink = !!opts.ink && !opts.sil;
+  const c = colours(pet.hat, opts.hat, look.weak, opts.sil, ink, look.egg);
   const glow = look.aura && moving && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
   const flame = glow ? AURA[look.aura].outer : '';
   const keepOut = new Set([...look.pix].filter(([, ch]) => ch === 'q').map(([k]) => k));
@@ -412,7 +424,7 @@ export function petSVG(pet, opts = {}) {
   if ((glow && hatKeys.size && clashes(c.h, flame)) || p?.shade) { c.h = c.H; c.H = darker(c.H); }
   // Props and bubbles: light, else the body's colour, else its shade,
   // whichever stands out from the aura.
-  c.P = !glow ? c.p : [c.p, c.b, c.d].find((x) => !clashes(x, flame)) || c.d;
+  c.P = ink ? INK : !glow ? c.p : [c.p, c.b, c.d].find((x) => !clashes(x, flame)) || c.d;
   const cell = (ch) => c[ch] || c.b;
   const lay = (layers) => layers.map(([cells, cls]) => paths(cells.map(([x, y, ch]) => [x, y, cell(ch), 1, cls]))).join('');
   let bodyG;
