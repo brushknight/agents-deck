@@ -39,7 +39,7 @@ class AgentsApp extends StatefulWidget {
     this.cardHost,
     this.pairingCard,
     this.visible,
-    this.backButton = false,
+    this.backButton = true,
     this.menuBar = false,
   }) : assert(
          (openCard == null) == (cardHost == null),
@@ -54,7 +54,9 @@ class AgentsApp extends StatefulWidget {
   /// Wraps the board so [openCard] can find its host; null = [CardMorph].
   final Widget Function(Widget board)? cardHost;
 
-  /// A back button on agent cards, for hosts without an edge swipe.
+  /// A back button on every screen that isn't the deck (an agent's page, a
+  /// prompt, the pet's page, the session picker), edge swipe or not: it shows
+  /// how to go back. Off only for a host that draws its own.
   final bool backButton;
 
   /// In the menu bar app: an agent's page has no clock and no text under

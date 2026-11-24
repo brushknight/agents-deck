@@ -708,7 +708,7 @@ class _AgentDetailState extends State<AgentDetail> {
   Widget _label(String text, Color color) =>
       Text(text, style: DeckHud.mono(size: 14, color: color));
 
-  /// Text link variant of "focus terminal" (prompt cards' footers).
+  /// Text link variant of [openLabel] (prompt cards' footers).
   Widget _focusLink(
     Agent a, {
     required Color ink,
@@ -732,8 +732,8 @@ class _AgentDetailState extends State<AgentDetail> {
                 ),
           child: Text(
             _flashKey == 'focus' && _flash == _Flash.sent
-                ? (square ? 'FOCUSED' : 'focused')
-                : (square ? 'FOCUS TERMINAL' : 'focus terminal'),
+                ? (square ? 'OPENED' : 'opened')
+                : (square ? openLabel(a).toUpperCase() : openLabel(a)),
             style:
                 (square
                         ? DeckHud.rm(16, color, weight: 700, spacing: 1.92)
@@ -965,14 +965,8 @@ class _AgentDetailState extends State<AgentDetail> {
                   child: AgentButton(
                     key: const Key('agent-focus'),
                     label: _flashKey == 'focus' && _flash == _Flash.sent
-                        ? 'focused'
-                        : a.codexThread
-                        ? 'open in codex'
-                        : a.inApp
-                        ? 'open in ${a.app}'
-                        : a.hungry
-                        ? 'review in terminal'
-                        : 'focus terminal',
+                        ? 'opened'
+                        : openLabel(a),
                     onTap: _busy ? null : () => _focus(a),
                     fill: focusFlash?.$1 ?? DeckHud.ink,
                     ink: focusFlash?.$2 ?? DeckHud.bg,
@@ -1171,7 +1165,7 @@ class _AgentDetailState extends State<AgentDetail> {
               ),
               Expanded(
                 child: Text(
-                  _note ?? 'answer here or at the terminal',
+                  _note ?? 'or answer at the terminal',
                   key: _note == null ? null : const Key('agent-note'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1335,7 +1329,7 @@ class _AgentDetailState extends State<AgentDetail> {
               const SizedBox(width: 14),
               SizedBox(
                 width: 260,
-                child: _terminalButton(a, 'type in terminal'),
+                child: _terminalButton(a, openLabel(a)),
               ),
             ],
           ),
@@ -1421,12 +1415,12 @@ class _AgentDetailState extends State<AgentDetail> {
     );
   }
 
-  /// Outlined "focus the terminal" button for the dark prompt cards.
+  /// Outlined [openLabel] button for the dark prompt cards.
   Widget _terminalButton(Agent a, String label, {bool square = false}) {
     final flash = _flashColors('focus', onAccent: false);
     return AgentButton(
       key: const Key('agent-focus'),
-      label: _flashKey == 'focus' && _flash == _Flash.sent ? 'focused' : label,
+      label: _flashKey == 'focus' && _flash == _Flash.sent ? 'opened' : label,
       onTap: _busy ? null : () => _focus(a),
       fill: flash?.$1 ?? const Color(0x00000000),
       ink: flash?.$2 ?? DeckHud.ink,
@@ -1495,7 +1489,7 @@ class _AgentDetailState extends State<AgentDetail> {
           ],
           const Spacer(),
           Text(
-            _note ?? 'free-text answer · type it at the terminal',
+            _note ?? 'type the answer at the terminal',
             key: _note == null ? null : const Key('agent-note'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -1513,7 +1507,7 @@ class _AgentDetailState extends State<AgentDetail> {
                 pressedFill: DeckHud.ink,
                 pressedInk: DeckHud.bg,
               ),
-              Expanded(child: _terminalButton(a, 'focus terminal')),
+              Expanded(child: _terminalButton(a, openLabel(a))),
             ],
           ),
         ],
@@ -1700,6 +1694,16 @@ class _SubagentLine extends StatelessWidget {
 
 /// A square "‹" button that closes the card (hosts without an edge swipe),
 /// the same height and outline as the [AgentButton]s beside it.
+/// The one label for raising an agent's terminal, the same on every screen
+/// and every deck (the desk panel, the menu bar, the boards, the browser):
+/// "open in terminal"; "open in codex" for a Codex app thread and
+/// "open in `app`" for an agent in another app. Pressed: "opened".
+String openLabel(Agent a) => a.codexThread
+    ? 'open in codex'
+    : a.inApp
+    ? 'open in ${a.app}'
+    : 'open in terminal';
+
 class CardBackButton extends StatelessWidget {
   const CardBackButton({
     super.key,

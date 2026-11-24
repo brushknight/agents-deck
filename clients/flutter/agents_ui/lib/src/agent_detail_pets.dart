@@ -127,8 +127,9 @@ class _ContextSegments extends StatelessWidget {
     const n = 40;
     final on = (fraction.clamp(0.0, 1.0) * n).round();
     final hot = fraction >= 0.85;
+    // As tall as the percentage's digits beside it (18 px mono: 13).
     return SizedBox(
-      height: 10,
+      height: 13,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -643,14 +644,8 @@ extension _PetsPage on _AgentDetailState {
                     height: 64,
                     fontSize: 18,
                     label: _flashKey == 'focus' && _flash == _Flash.sent
-                        ? 'focused'
-                        : a.codexThread
-                        ? 'open in codex'
-                        : a.inApp
-                        ? 'open in ${a.app}'
-                        : a.hungry
-                        ? 'review in terminal'
-                        : 'focus terminal',
+                        ? 'opened'
+                        : openLabel(a),
                     onTap: _busy ? null : () => _focus(a),
                     fill: focusFlash?.$1 ?? DeckHud.ink,
                     ink: focusFlash?.$2 ?? DeckHud.bg,
@@ -1139,7 +1134,7 @@ extension _PetsPage on _AgentDetailState {
               const SizedBox(width: 14),
               SizedBox(
                 width: 260,
-                child: _terminalButton(a, 'focus terminal', square: true),
+                child: _terminalButton(a, openLabel(a), square: true),
               ),
             ],
           ),
@@ -1207,7 +1202,7 @@ extension _PetsPage on _AgentDetailState {
                 pressedInk: DeckHud.bg,
               ),
               Expanded(
-                child: _terminalButton(a, 'focus terminal', square: true),
+                child: _terminalButton(a, openLabel(a), square: true),
               ),
             ],
           ),
