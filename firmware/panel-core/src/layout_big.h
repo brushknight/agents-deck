@@ -8,7 +8,7 @@
 //
 //   home    the deck's 4 x 4 grid of square tiles by slot, paged, with the
 //           page bars under it (AgentTile, DeckGrid, _PageBars)
-//   card    the agent: its pet (or critter) on a ground line, the status
+//   card    the agent: its pet (or critter) on its baseline, the status
 //           chip, hearts and level, the name, the session and the level bar;
 //           doing now with the command and the subagents; the last prompt;
 //           context and where it runs; and square buttons in a row: focus,
@@ -189,7 +189,7 @@ static inline int bigBarAt(const BigBars& b, int x) {
 
 // ---------------------------------------------------------------- the card's parts
 // The agent's own screens on the 4" (the boards' pass 3 design): sharp
-// corners, the firmware's Roboto Mono sizes, the pet on its ground line.
+// corners, the firmware's Roboto Mono sizes, the pet on its baseline (no line drawn).
 //
 //   card    the pet in its zone (or, an egg ready to hatch, in a box with
 //           "tap to hatch"), the status chip, hearts and level, the name, the
@@ -944,7 +944,7 @@ static inline void petMeta(Canvas& c, const Theme& T, int right, int y, const Ag
   }
 }
 
-// The pet standing on its zone's ground line at groundY (cell `s`); with
+// The pet standing on its zone's baseline at groundY (cell `s`); with
 // pets off the critter, in body on cut.
 static inline void petZone(Canvas& c, const Rect& z, int s, const Agent& a, Pose pose, uint32_t ms, bool bubble, int groundY,
                            uint16_t body, uint16_t cut) {
@@ -1018,7 +1018,7 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
   const PanelUi& ui = *in.ui;
   const Pose pose = poseOf(a, in.nowEpoch);
   char buf[224];
-  // The pet: on its ground line, or (an egg ready to hatch) in its box with "tap to hatch".
+  // The pet: on its baseline, or (an egg ready to hatch) in its box with "tap to hatch".
   if (g.box) {
     const bool pressed = ui.pressed.kind == Hit::Hatch;
     c.rect(g.zone.x, g.zone.y, g.zone.w, g.zone.h, kLevel);
@@ -1031,7 +1031,6 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
     const Look k = lookOf(T, a);
     petZone(c, g.zone, a.pet.has ? kCell : kCell - 1, a, pose, in.ms, true, g.zone.y + g.zone.h - 2 - kCell,
             k.body == T.bg || k.body == T.dim ? T.ink : k.body, T.bg);
-    c.rect(g.zone.x, g.zone.y + g.zone.h - 2, g.zone.w, 2, kRule);
   }
   // The column: chip, hearts and level; the name; the session; the level bar.
   chip(c, T, g.textX, g.chipY, a, in.nowEpoch, false);

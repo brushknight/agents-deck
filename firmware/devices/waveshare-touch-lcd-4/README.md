@@ -28,7 +28,7 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   page. The mark is solid orange while you are on it, and an orange outline with a count while
   someone is on it. The board always starts on the first page.
 - **Card.** Tap a tile for the agent:
-  - its pet (with Agent pets on; otherwise its critter) on a ground line, doing what the agent does;
+  - its pet (with Agent pets on; otherwise its critter) doing what the agent does;
   - the status chip, the pet's hearts and level, the name, the session and the pet's level bar;
   - doing now: the command and the working subagents in a box (or the status when it isn't working);
   - the last prompt;

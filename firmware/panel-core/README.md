@@ -31,7 +31,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
 | `src/panel_layout.h` | the square boards' layout interface (`PanelLayout`) and UI state: screens, scroll, the finger |
 | `src/layout_147.h` | the 1.47" layout |
-| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel's grid at a scale (`BigSpec`; 2/3 for 480×480), and the agent's card and prompt in the boards' design (sharp corners, the pet on a ground line, square buttons; an egg ready to hatch says "tap to hatch"); its fonts (`tools/make_font_big.py`) |
+| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel's grid at a scale (`BigSpec`; 2/3 for 480×480), and the agent's card and prompt in the boards' design (sharp corners, the pet on its baseline, square buttons; an egg ready to hatch says "tap to hatch"); its fonts (`tools/make_font_big.py`) |
 | `src/layout_square.h` | the square boards' layout (`SquarePanel`), one system with per-board numbers (`SquareSpec`): home, card, prompt, notices, touch and scrolling |
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |
