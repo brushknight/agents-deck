@@ -261,7 +261,18 @@ extension _PetsPage on _AgentDetailState {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  chip,
+                  // The status chip, and the pet's level in the corner on
+                  // the same row: the name and its session line get the
+                  // whole width under them.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      chip,
+                      const Spacer(),
+                      const SizedBox(width: 16),
+                      _petMeta(pet, orange: orange),
+                    ],
+                  ),
                   const SizedBox(height: 6),
                   _FitName(
                     a.title,
@@ -284,28 +295,20 @@ extension _PetsPage on _AgentDetailState {
               ),
             ),
           ),
-          const SizedBox(width: 16),
-          _petMeta(pet, orange: orange),
         ],
       ),
     );
   }
 
-  /// Hearts, level and its bar, and the clock.
+  /// Hearts, level and its bar (no clock on this page).
   Widget _petMeta(AgentPet pet, {required bool orange}) {
     final ink = orange ? _pInkOnOrange : DeckHud.ink;
     final fill = orange ? _pInkOnOrange : _pLevel;
     final track = orange ? _pInkOnOrange.withValues(alpha: 0.22) : _pTrack;
-    final clock = _menuBar
-        ? const SizedBox.shrink()
-        : Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: HudClock(color: ink, size: 28),
-          );
     if (pet.isEgg) {
       final pct = pet.nextAt > 0 ? (pet.ate / pet.nextAt).clamp(0.0, 1.0) : 0.0;
       return Padding(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -322,17 +325,15 @@ extension _PetsPage on _AgentDetailState {
                 key: const Key('agent-pet-level'),
                 style: DeckHud.rm(20, ink, weight: 700, spacing: 1.2),
               ),
-              const SizedBox(height: 9),
+              const SizedBox(height: 7),
               _pBar(pct, width: 150, height: 6, fill: fill, track: track),
             ],
-            const SizedBox(height: 9),
-            clock,
           ],
         ),
       );
     }
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -351,10 +352,8 @@ extension _PetsPage on _AgentDetailState {
               ),
             ],
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 7),
           _pBar(pet.progress, width: 150, height: 6, fill: fill, track: track),
-          const SizedBox(height: 9),
-          clock,
         ],
       ),
     );
@@ -519,8 +518,7 @@ extension _PetsPage on _AgentDetailState {
     final intFlash = _flashColors('interrupt', onAccent: false);
     final rmFlash = _flashColors('dismiss', onAccent: false);
     final resumeFlash = _flashColors('resume', onAccent: false);
-    final others = _otherAccounts(a);
-    final armed = others.where((x) => x.name == _confirmHandoff).firstOrNull;
+    final account = _petAccount(a);
     final tool = switch (a.tool) {
       'claude' => 'claude code',
       '' => '',
@@ -541,7 +539,10 @@ extension _PetsPage on _AgentDetailState {
         children: [
           _petHead(state, a),
           const SizedBox(height: 22),
-          if (running) ..._petNow(a, subs) else ..._petStatus(state, a),
+          if (running)
+            ..._petNow(a, subs, account)
+          else
+            _petStatus(state, a, account),
           const SizedBox(height: 22),
           _pLabel('last prompt', _pMuted, tail: ago),
           const SizedBox(height: 8),
@@ -603,37 +604,6 @@ extension _PetsPage on _AgentDetailState {
               ],
             ],
           ),
-          // Another Claude account: one quiet line above the actions,
-          // a square button per account (two taps: it says what it does
-          // in between).
-          if (others.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Row(
-              key: const Key('agent-handoff'),
-              children: [
-                Expanded(
-                  child: armed == null
-                      ? _pLabel(
-                          'account',
-                          _pMuted,
-                          tail: a.account!.name,
-                          key: const Key('agent-handoff-note'),
-                        )
-                      : Text(
-                          _AgentDetailState._handoffNote(a, armed.name),
-                          key: const Key('agent-handoff-note'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: DeckHud.rm(16, DeckHud.accent, weight: 700),
-                        ),
-                ),
-                for (final to in others) ...[
-                  const SizedBox(width: 14),
-                  _handoffButton(a, to, square: true),
-                ],
-              ],
-            ),
-          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -728,7 +698,7 @@ extension _PetsPage on _AgentDetailState {
 
   /// "Doing now · bash", a dark command box with "$ the command", and one
   /// "↳" line per subagent.
-  List<Widget> _petNow(Agent a, List<AgentSubagent> subs) {
+  List<Widget> _petNow(Agent a, List<AgentSubagent> subs, Widget? account) {
     var act = a.activity;
     // Only its subagents work (the service says so in the activity): no
     // command to show, just them.
@@ -740,6 +710,7 @@ extension _PetsPage on _AgentDetailState {
     final shown = subs.take(2).toList();
     return [
       Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: _pLabel(
@@ -759,6 +730,7 @@ extension _PetsPage on _AgentDetailState {
               _pMuted,
               key: const Key('agent-subagent-count'),
             ),
+          if (account != null) ...[const SizedBox(width: 28), account],
         ],
       ),
       const SizedBox(height: 10),
@@ -825,7 +797,7 @@ extension _PetsPage on _AgentDetailState {
   }
 
   /// "Status" and how it is: finished, and whether anybody has looked.
-  List<Widget> _petStatus(AgentsState state, Agent a) {
+  Widget _petStatus(AgentsState state, Agent a, Widget? account) {
     final t = shortDuration(state.inStatus(a));
     final (String main, String rest, Color color) = switch (a.status) {
       AgentStatus.error => (a.errorMessage ?? 'error', '', DeckHud.accent),
@@ -850,26 +822,74 @@ extension _PetsPage on _AgentDetailState {
         DeckHud.ink,
       ),
     };
-    return [
-      _pLabel('status', _pMuted),
-      const SizedBox(height: 8),
-      Text.rich(
-        TextSpan(
+    final status = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _pLabel('status', _pMuted),
+        const SizedBox(height: 8),
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: main),
+              if (rest.isNotEmpty)
+                TextSpan(
+                  text: ' · $rest',
+                  style: const TextStyle(color: _pMuted),
+                ),
+            ],
+          ),
+          key: const Key('agent-status'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: DeckHud.rm(22, color, weight: 500).copyWith(height: 30 / 22),
+        ),
+      ],
+    );
+    if (account == null) return status;
+    // The status keeps left and gives way first; the account sits right.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: status),
+        const SizedBox(width: 28),
+        account,
+      ],
+    );
+  }
+
+  /// Which Claude account it runs in, when there is more than one: a label
+  /// and the name after a square in the account's colour.
+  Widget? _petAccount(Agent a) {
+    final acc = a.account;
+    if (acc == null || (_accounts?.length ?? 0) < 2) return null;
+    return Column(
+      key: const Key('agent-account'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _pLabel('account', _pMuted),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            TextSpan(text: main),
-            if (rest.isNotEmpty)
-              TextSpan(
-                text: ' · $rest',
-                style: const TextStyle(color: _pMuted),
+            Container(width: 10, height: 10, color: hatColor(acc.color).$1),
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Text(
+                acc.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: DeckHud.rm(
+                  22,
+                  DeckHud.ink,
+                  weight: 500,
+                ).copyWith(height: 30 / 22),
               ),
+            ),
           ],
         ),
-        key: const Key('agent-status'),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: DeckHud.rm(22, color, weight: 500).copyWith(height: 30 / 22),
-      ),
-    ];
+      ],
+    );
   }
 
   /// The back button in the actions row (the menu bar; hosts without an
@@ -1238,7 +1258,6 @@ extension _PetsPage on _AgentDetailState {
                     tailColor: _pMuted,
                   ),
                 ),
-                if (!_menuBar) HudClock(size: 28),
               ],
             ),
             const SizedBox(height: 18),
