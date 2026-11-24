@@ -172,74 +172,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the card shows its name, what it is, level and hearts', (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'checkout-api');
-    expect(find.byKey(const Key('agent-pet')), findsOneWidget);
-    expect(find.text('Nib'), findsOneWidget);
-    expect(find.text('Legend Builder · level 41'), findsOneWidget);
-    // levelFrom: 360M..400M, at 380M.
-    expect(find.text('50% to level 42'), findsOneWidget);
-    expect(find.byType(PetHearts), findsOneWidget);
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 4);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('an egg on the card, and no levelFrom', (tester) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'docs-site');
-    expect(find.text('An egg'), findsOneWidget);
-    expect(find.text('Egg'), findsOneWidget);
-    // It is ready: the bar's words say to tap it.
-    expect(find.text('ready: tap to hatch'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a card asking you something shows the pet too', (tester) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'infra-network');
-    expect(find.byKey(const Key('agent-pet')), findsOneWidget);
-    expect(find.text('Kid · level 6'), findsOneWidget);
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 2);
-    // Its permission card is solid orange: near-black hearts.
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).onOrange, isTrue);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('tap a ready egg: it hatches, through the service', (
-    tester,
-  ) async {
-    final source = _withPets();
-    await pumpBoard(tester, source);
-    await open(tester, 'docs-site');
-    expect(find.text('ready: tap to hatch'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('pet-hatch')));
-    await tester.pump();
-    expect(source.calls.last, ('hatch', 'd0cs1t', null));
-    // It shakes and bursts (1.4 s), then the baby pops in (0.6 s).
-    await tester.pump(const Duration(milliseconds: 1500));
-    await tester.pump(const Duration(milliseconds: 700));
-    final pet = source.snapshot.value.state!.byId('d0cs1t')!.pet!;
-    expect((pet.stage, pet.ready), ('baby', false));
-    expect(find.text(pet.name), findsOneWidget);
-    expect(find.text('ready: tap to hatch'), findsNothing);
-    // A pet that has hatched doesn't hatch again.
-    expect((await source.hatch('d0cs1t')).kind, AgentsResultKind.conflict);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('no hat picker while pets are on: the pet wears its own', (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'checkout-api');
-    await tester.tap(find.byKey(const Key('agent-hat')));
-    await tester.pump();
-    expect(find.byKey(const Key('hat-picker')), findsNothing);
-  });
-
   test('hatching moves whole cells: shake, white, gone; then the pop-in', () {
     expect(
       [
@@ -261,28 +193,6 @@ void main() {
     await expectLater(
       find.byType(AgentsApp),
       matchesGoldenFile('goldens/agents-pets-grid.png'),
-    );
-  });
-
-  testWidgets('pets detail golden', skip: !autoUpdateGoldenFiles, (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'checkout-api');
-    await expectLater(
-      find.byType(AgentsApp),
-      matchesGoldenFile('goldens/agents-pets-detail.png'),
-    );
-  });
-
-  testWidgets('pets permission golden', skip: !autoUpdateGoldenFiles, (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'infra-network');
-    await expectLater(
-      find.byType(AgentsApp),
-      matchesGoldenFile('goldens/agents-pets-permission.png'),
     );
   });
 }

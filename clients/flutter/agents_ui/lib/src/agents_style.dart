@@ -164,9 +164,14 @@ class AgentButton extends StatelessWidget {
     this.height = 68,
     this.fontSize = 19,
     this.alignLeft = false,
+    this.square = false,
   });
 
   final String label;
+
+  /// The agent page with pets on: square corners and a bold label, in
+  /// capitals unless it is a left-aligned answer.
+  final bool square;
 
   /// Null: disabled (no press feedback).
   final VoidCallback? onTap;
@@ -189,17 +194,21 @@ class AgentButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 22),
         decoration: BoxDecoration(
           color: pressed ? pressedFill : fill,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: square ? null : BorderRadius.circular(14),
           border: Border.all(color: pressed ? pressedFill : outline, width: 2),
         ),
         child: Text(
-          label,
+          square && !alignLeft ? label.toUpperCase() : label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: DeckHud.mono(
-            size: fontSize,
-            color: pressed ? pressedInk : ink,
-          ),
+          style: square
+              ? DeckHud.rm(
+                  fontSize,
+                  pressed ? pressedInk : ink,
+                  weight: 700,
+                  spacing: alignLeft ? 0 : fontSize * 0.12,
+                )
+              : DeckHud.mono(size: fontSize, color: pressed ? pressedInk : ink),
         ),
       ),
     );
