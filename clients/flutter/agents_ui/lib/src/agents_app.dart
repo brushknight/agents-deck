@@ -365,7 +365,13 @@ class _AgentsAppState extends State<AgentsApp> {
         return KeyEventResult.handled;
       },
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        // On whole device pixels when the host scales the deck.
+        padding: EdgeInsets.fromLTRB(
+          DeckPixels.snap(context, 8),
+          DeckPixels.snap(context, 8),
+          DeckPixels.snap(context, 8),
+          0,
+        ),
         child: Column(
           children: [
             Expanded(
