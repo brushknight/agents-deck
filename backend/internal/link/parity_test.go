@@ -116,11 +116,11 @@ func TestEndpointParity(t *testing.T) {
 			t.Errorf("Deck Link route %s is not in docs/protocol.md", e)
 		}
 	}
-	// Commands are Frame fields 30..49; each needs a route.
+	// Commands are Frame fields 30..49 and 70..89; each needs a route.
 	fields := (&linkpb.Frame{}).ProtoReflect().Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if n := fd.Number(); n >= 30 && n < 50 {
+		if n := fd.Number(); n >= 30 && n < 50 || n >= 70 && n < 90 {
 			if _, ok := Routes[string(fd.Name())]; !ok {
 				t.Errorf("command %s has no route", fd.Name())
 			}
@@ -155,8 +155,10 @@ func TestAgentParity(t *testing.T) {
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2,
-		Pet:       &model.Pet{Name: "Nib", Stage: "kid", Level: 6, Ate: 160000, NextAt: 190735, Hearts: 3, Mood: "fed", HatchedAt: now},
+		Project: &model.Project{ID: "p0a1b2c3d", Name: "harbor"}, ProjectFolder: "/x",
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, SlowedByYou: true, CPU: 12.5,
+		Pet: &model.Pet{Name: "Nib", Stage: "kid", Level: 6, Ate: 160000, LevelFrom: 152588, NextAt: 190735, Hearts: 3, Mood: "fed",
+			Ready: true, Hat: &model.PetHat{Shape: "devil horns", Color: "teal"}, HatchedAt: now},
 		StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
@@ -177,8 +179,28 @@ func TestAgentParity(t *testing.T) {
 	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
-	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
+	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 ||
+		!tile.Slowed || !tile.SlowedByYou || tile.Cpu != 0 {
 		t.Errorf("tile fields: %+v", tile)
+	}
+	// The project goes with the tile, the folder it matched with the card;
+	// an agent in no project has neither.
+	if tile.GetProject().GetId() != "p0a1b2c3d" || tile.GetProject().GetName() != "harbor" || tile.ProjectFolder != "" {
+		t.Errorf("tile project: %v, folder %q", tile.GetProject(), tile.ProjectFolder)
+	}
+	if card := toPB(full, uint32(linkpb.FieldGroup_FIELDS_CARD)); card.ProjectFolder != "/x" || card.Project != nil {
+		t.Errorf("card project: %v, folder %q", card.GetProject(), card.ProjectFolder)
+	}
+	if none := toPB(model.Agent{ID: "a3"}, 1|2); none.Project != nil || none.ProjectFolder != "" {
+		t.Errorf("no project: %v, folder %q", none.GetProject(), none.ProjectFolder)
+	}
+	long := full
+	long.Project = &model.Project{ID: "p0a1b2c3d", Name: strings.Repeat("n", 60)}
+	if n := toPB(long, 1).GetProject().GetName(); len(n) > 47 || !strings.HasSuffix(n, "…") {
+		t.Errorf("a long project name isn't clipped to Project.name: %q", n)
+	}
+	if n := toPB(full, uint32(linkpb.FieldGroup_FIELDS_NUMBERS)); n.Cpu != 12.5 || n.Slowed {
+		t.Errorf("numbers: cpu %v, slowed %v", n.Cpu, n.Slowed)
 	}
 }
 
@@ -238,8 +260,8 @@ func TestPairingAndWifiDocumented(t *testing.T) {
 	n := 0
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if fd.Number() < 60 {
-			continue
+		if fd.Number() < 60 || fd.Number() >= 70 {
+			continue // 70..89 are commands again
 		}
 		n++
 		if msg := string(fd.Message().Name()); !strings.Contains(string(linkDoc), "`"+msg) {

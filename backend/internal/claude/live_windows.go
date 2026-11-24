@@ -9,7 +9,7 @@ import (
 
 // processTTYs: Windows consoles have no terminal device a process could be
 // matched to, so jumping to a session's terminal is not available yet.
-func processTTYs(pids []int) map[int]string { return map[int]string{} }
+func processTTYs(pids []int) (map[int]string, bool) { return map[int]string{}, true }
 
 var winLive struct {
 	sync.Mutex

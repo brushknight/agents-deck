@@ -95,7 +95,15 @@ func newProjectID() string {
 	return "p" + hex.EncodeToString(b)
 }
 
+// readProjects reads projects.json and builds the index agents are matched
+// against from it (projectmatch.go).
 func (a *Admin) readProjects() []Project {
+	list := a.loadProjects()
+	a.reindex(list)
+	return list
+}
+
+func (a *Admin) loadProjects() []Project {
 	var file struct {
 		Projects []Project `json:"projects"`
 	}
@@ -142,7 +150,43 @@ func (a *Admin) writeProjects(list []Project) error {
 	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, a.projectsPath())
+	if err := os.Rename(tmp, a.projectsPath()); err != nil {
+		return err
+	}
+	a.reindex(list)
+	return nil
+}
+
+// folderTaken refuses a folder another project lists already: a folder
+// belongs to one project. A folder inside another project's folder is fine
+// (the deepest wins).
+func folderTaken(list []Project, self string, p Project) error {
+	i, f := folderOwner(list, self, p.Folders)
+	if i < 0 {
+		return nil
+	}
+	return projectErr(http.StatusConflict, f+" is a folder of "+list[i].Name+" already: a folder belongs to one project")
+}
+
+// ProjectError is a project change refused, with the HTTP status it answers
+// with (400 bad input, 404 no such project, 409 a clash, 503 can't start).
+type ProjectError struct {
+	Code int
+	Msg  string
+}
+
+func (e *ProjectError) Error() string { return e.Msg }
+
+func projectErr(code int, msg string) error { return &ProjectError{Code: code, Msg: msg} }
+
+// writeProjectErr answers err with its status (500 for anything else).
+func writeProjectErr(w http.ResponseWriter, err error) {
+	code := http.StatusInternalServerError
+	var pe *ProjectError
+	if errors.As(err, &pe) {
+		code = pe.Code
+	}
+	writeErr(w, code, err.Error())
 }
 
 // expandHome turns a leading ~/ into the home folder.
@@ -229,6 +273,78 @@ func findProject(list []Project, name string) int {
 	return -1
 }
 
+// AddProject checks p, gives it an id and adds it to the list.
+func (a *Admin) AddProject(p Project) (Project, error) {
+	p, err := cleanProject(p)
+	if err != nil {
+		return p, projectErr(http.StatusBadRequest, err.Error())
+	}
+	a.projects.mu.Lock()
+	defer a.projects.mu.Unlock()
+	list := a.readProjects()
+	if findProject(list, p.Name) >= 0 {
+		return p, projectErr(http.StatusConflict, "there is a project called "+p.Name+" already")
+	}
+	if err := folderTaken(list, "", p); err != nil {
+		return p, err
+	}
+	if len(list) >= MaxProjects {
+		return p, projectErr(http.StatusBadRequest, fmt.Sprintf("at most %d projects", MaxProjects))
+	}
+	p.ID = newProjectID()
+	if err := a.writeProjects(append(list, p)); err != nil {
+		return p, err
+	}
+	return withPaths([]Project{p})[0], nil
+}
+
+// EditProject changes the project called name (or with that id): edit gets
+// a copy to change, and the result is checked as a new project would be,
+// its name and folders against the others. The id stays.
+func (a *Admin) EditProject(name string, edit func(p *Project) error) (Project, error) {
+	a.projects.mu.Lock()
+	defer a.projects.mu.Unlock()
+	list := a.readProjects()
+	i := findProject(list, name)
+	if i < 0 {
+		return Project{}, projectErr(http.StatusNotFound, "no project called "+name)
+	}
+	p := list[i]
+	p.Folders = append([]string(nil), p.Folders...)
+	if err := edit(&p); err != nil {
+		return p, err
+	}
+	p, err := cleanProject(p)
+	if err != nil {
+		return p, projectErr(http.StatusBadRequest, err.Error())
+	}
+	if j := findProject(list, p.Name); j >= 0 && j != i {
+		return p, projectErr(http.StatusConflict, "there is a project called "+p.Name+" already")
+	}
+	if err := folderTaken(list, list[i].ID, p); err != nil {
+		return p, err
+	}
+	p.ID = list[i].ID
+	list[i] = p
+	if err := a.writeProjects(list); err != nil {
+		return p, err
+	}
+	return withPaths([]Project{p})[0], nil
+}
+
+// RemoveProject takes the project off the list. Its folders and agents
+// stay as they are.
+func (a *Admin) RemoveProject(name string) error {
+	a.projects.mu.Lock()
+	defer a.projects.mu.Unlock()
+	list := a.readProjects()
+	i := findProject(list, name)
+	if i < 0 {
+		return projectErr(http.StatusNotFound, "no project called "+name)
+	}
+	return a.writeProjects(append(list[:i], list[i+1:]...))
+}
+
 // projectsList is GET /admin/v1/projects.
 func (a *Admin) projectsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"projects": a.Projects(), "tools": ProjectTools, "canStart": a.Starter != nil})
@@ -241,83 +357,54 @@ func (a *Admin) projectsAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	p, err := cleanProject(p)
+	p, err := a.AddProject(p)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeProjectErr(w, err)
 		return
 	}
-	a.projects.mu.Lock()
-	defer a.projects.mu.Unlock()
-	list := a.readProjects()
-	if findProject(list, p.Name) >= 0 {
-		writeErr(w, http.StatusConflict, "there is a project called "+p.Name+" already")
-		return
-	}
-	if len(list) >= MaxProjects {
-		writeErr(w, http.StatusBadRequest, fmt.Sprintf("at most %d projects", MaxProjects))
-		return
-	}
-	p.ID = newProjectID()
-	list = append(list, p)
-	if err := a.writeProjects(list); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, withPaths([]Project{p})[0])
+	writeJSON(w, http.StatusOK, p)
 }
 
 // projectAction is POST /admin/v1/projects/{name}/{action}: update (the
 // whole project, its name too), remove, or start {"prompt", "tool",
-// "account", "folder"}. {name} is the project's name or its id.
+// "account", "folder", "title"}. {name} is the project's name or its id.
 func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	switch r.PathValue("action") {
 	case "update":
-		var p Project
-		if err := readBody(r, 4096, &p); err != nil {
+		var body Project
+		if err := readBody(r, 4096, &body); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		p, err := cleanProject(p)
+		p, err := a.EditProject(name, func(p *Project) error { *p = body; return nil })
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			writeProjectErr(w, err)
 			return
 		}
-		a.projects.mu.Lock()
-		defer a.projects.mu.Unlock()
-		list := a.readProjects()
-		i := findProject(list, name)
-		if i < 0 {
-			writeErr(w, http.StatusNotFound, "no project called "+name)
-			return
-		}
-		if j := findProject(list, p.Name); j >= 0 && j != i {
-			writeErr(w, http.StatusConflict, "there is a project called "+p.Name+" already")
-			return
-		}
-		p.ID = list[i].ID
-		list[i] = p
-		if err := a.writeProjects(list); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, withPaths([]Project{p})[0])
+		writeJSON(w, http.StatusOK, p)
 	case "remove":
-		a.projects.mu.Lock()
-		defer a.projects.mu.Unlock()
-		list := a.readProjects()
-		i := findProject(list, name)
-		if i < 0 {
-			writeErr(w, http.StatusNotFound, "no project called "+name)
-			return
-		}
-		if err := a.writeProjects(append(list[:i], list[i+1:]...)); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+		if err := a.RemoveProject(name); err != nil {
+			writeProjectErr(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case "start":
-		a.projectStart(w, r, name)
+		var b ProjectStart
+		if err := readBody(r, 16<<10, &b); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		started, err := a.StartInProject(name, b)
+		if err != nil {
+			writeProjectErr(w, err)
+			return
+		}
+		if started.Prompt != "" {
+			go a.firstPrompt(started)
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"id": started.ID, "project": started.Project,
+			"folder": started.Folder, "tool": started.Tool, "prompted": started.Prompt != ""})
 	default:
 		writeErr(w, http.StatusNotFound, "unknown action: update, remove or start")
 	}
@@ -326,65 +413,64 @@ func (a *Admin) projectAction(w http.ResponseWriter, r *http.Request) {
 // startWait is how long a new agent has to get ready for its first prompt.
 var startWait = 60 * time.Second
 
-// projectStart starts an agent in one of the project's folders (the first,
-// unless the body picks another), with its tool and account, and sends the
-// first prompt once it is ready. A tool or account in the body picks
-// another for this agent.
-func (a *Admin) projectStart(w http.ResponseWriter, r *http.Request, name string) {
-	var b struct {
-		Prompt  string `json:"prompt"`
-		Tool    string `json:"tool"`
-		Account string `json:"account"`
-		Folder  string `json:"folder"`
-	}
-	if err := readBody(r, 16<<10, &b); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	i := -1
+// ProjectStart is what to start in a project: each field is optional.
+type ProjectStart struct {
+	Prompt  string `json:"prompt"`  // its first task
+	Tool    string `json:"tool"`    // instead of the project's
+	Account string `json:"account"` // instead of the project's
+	Folder  string `json:"folder"`  // one of its folders (default: the first)
+	Title   string `json:"title"`   // its name on the deck (default: the project's)
+}
+
+// ProjectStarted is an agent StartInProject started. Prompt is the first
+// task, checked, not sent yet: the caller sends it once the agent is ready.
+type ProjectStarted struct {
+	ID, Project, Folder, Tool, Prompt string
+}
+
+// StartInProject starts an agent in one of the project's folders (the
+// first, unless o picks another), with its tool and account unless o picks
+// others.
+func (a *Admin) StartInProject(name string, o ProjectStart) (ProjectStarted, error) {
 	list := a.Projects()
-	if i = findProject(list, name); i < 0 {
-		writeErr(w, http.StatusNotFound, "no project called "+name)
-		return
+	i := findProject(list, name)
+	if i < 0 {
+		return ProjectStarted{}, projectErr(http.StatusNotFound, "no project called "+name)
 	}
 	p := list[i]
 	if a.Starter == nil {
-		writeErr(w, http.StatusServiceUnavailable, "this service can't start agents (demo mode)")
-		return
+		return ProjectStarted{}, projectErr(http.StatusServiceUnavailable, "this service can't start agents (demo mode)")
 	}
 	tool := p.Tool
-	if b.Tool != "" {
-		if !oneOf(b.Tool, ProjectTools...) {
-			writeErr(w, http.StatusBadRequest, "tool must be one of "+strings.Join(ProjectTools, ", "))
-			return
+	if o.Tool != "" {
+		if !oneOf(o.Tool, ProjectTools...) {
+			return ProjectStarted{}, projectErr(http.StatusBadRequest, "tool must be one of "+strings.Join(ProjectTools, ", "))
 		}
-		tool = b.Tool
+		tool = o.Tool
 	}
 	if tool == "" {
 		tool = "claude"
 	}
 	prompt := ""
-	if strings.TrimSpace(b.Prompt) != "" {
+	if strings.TrimSpace(o.Prompt) != "" {
 		var err error
-		if prompt, err = server.CleanPrompt(b.Prompt); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
+		if prompt, err = server.CleanPrompt(o.Prompt); err != nil {
+			return ProjectStarted{}, projectErr(http.StatusBadRequest, err.Error())
 		}
 	}
 	account := p.Account
-	if b.Account != "" {
-		if _, ok := accounts.Find(b.Account); !ok {
-			writeErr(w, http.StatusBadRequest, "no Claude account called "+b.Account)
-			return
+	if o.Account != "" {
+		if _, ok := accounts.Find(o.Account); !ok {
+			return ProjectStarted{}, projectErr(http.StatusBadRequest, "no Claude account called "+o.Account)
 		}
-		account = b.Account
+		account = o.Account
 	}
 	if tool != "claude" {
 		account = ""
 	}
 	dir := p.Path
-	if b.Folder != "" {
-		want, ok := filepath.Clean(expandHome(strings.TrimSpace(b.Folder))), false
+	if o.Folder != "" {
+		want, ok := filepath.Clean(expandHome(strings.TrimSpace(o.Folder))), false
 		for _, f := range p.Paths {
 			if filepath.Clean(f) == want {
 				dir, ok = f, true
@@ -392,25 +478,27 @@ func (a *Admin) projectStart(w http.ResponseWriter, r *http.Request, name string
 			}
 		}
 		if !ok {
-			writeErr(w, http.StatusBadRequest, b.Folder+" isn't one of "+p.Name+"'s folders")
-			return
+			return ProjectStarted{}, projectErr(http.StatusBadRequest, o.Folder+" isn't one of "+p.Name+"'s folders")
 		}
 	}
-	id, err := a.Starter.Create(server.CreateOpts{Dir: dir, Title: p.Name, Tool: tool, Account: account})
+	title := strings.TrimSpace(o.Title)
+	if title == "" {
+		title = p.Name
+	}
+	id, err := a.Starter.Create(server.CreateOpts{Dir: dir, Title: title, Tool: tool, Account: account})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		return ProjectStarted{}, projectErr(http.StatusBadRequest, err.Error())
+	}
+	return ProjectStarted{ID: id, Project: p.Name, Folder: dir, Tool: tool, Prompt: prompt}, nil
+}
+
+// firstPrompt sends a started agent its first task once it is ready.
+func (a *Admin) firstPrompt(s ProjectStarted) {
+	if err := a.Starter.WaitReady(s.ID, startWait); err != nil {
+		log.Printf("project %s: agent %s got no first prompt: %v", s.Project, s.ID, err)
 		return
 	}
-	if prompt != "" {
-		go func(st Starter) {
-			if err := st.WaitReady(id, startWait); err != nil {
-				log.Printf("project %s: agent %s got no first prompt: %v", p.Name, id, err)
-				return
-			}
-			if err := st.Prompt(id, prompt, false); err != nil {
-				log.Printf("project %s: agent %s: first prompt: %v", p.Name, id, err)
-			}
-		}(a.Starter)
+	if err := a.Starter.Prompt(s.ID, s.Prompt, false); err != nil {
+		log.Printf("project %s: agent %s: first prompt: %v", s.Project, s.ID, err)
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "project": p.Name, "folder": dir, "tool": tool, "prompted": prompt != ""})
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
@@ -36,6 +37,13 @@ func (r *rig) wait(d time.Duration) { r.at = r.at.Add(d); r.feed() }
 
 func (r *rig) view() *model.Pet { return r.b.View(model.Agent{ID: "a1"}) }
 
+func (r *rig) hatch() {
+	r.t.Helper()
+	if err := r.b.Hatch("a1"); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
 func TestLevels(t *testing.T) {
 	for _, c := range []struct {
 		ate   int64
@@ -61,23 +69,96 @@ func TestLevels(t *testing.T) {
 
 func TestEatingAndHatching(t *testing.T) {
 	r := newRig(t, "")
-	if p := r.view(); p.Stage != Egg || p.Hearts != 4 || p.Mood != Fed || p.Name != "" || p.NextAt != FirstLevel {
+	if p := r.view(); p.Stage != Egg || p.Hearts != 4 || p.Mood != Fed || p.Name != "" || p.NextAt != FirstLevel || p.Ready {
 		t.Fatalf("a new agent's pet: %+v", p)
 	}
+	if err := r.b.Hatch("a1"); err != ErrNotReady {
+		t.Errorf("hatching an egg nobody fed: %v", err)
+	}
 	r.eat(30_000)
-	if p := r.view(); p.Ate != 30_000 || p.Level != 0 || p.Name != "" {
+	if p := r.view(); p.Ate != 30_000 || p.Level != 0 || p.Name != "" || p.Ready || p.LevelFrom != 0 {
 		t.Errorf("cracking egg: %+v", p)
 	}
-	r.at = r.at.Add(time.Minute)
+	if err := r.b.Hatch("a1"); err != ErrNotReady {
+		t.Errorf("hatching a cracking egg: %v", err)
+	}
+	// Enough food: ready, but it waits to be seen, eating all the while.
 	r.eat(25_000)
+	r.wait(3 * time.Hour)
+	r.eat(20_000)
 	p := r.view()
-	if p.Level != 1 || p.Stage != Baby || p.Name == "" || !p.HatchedAt.Equal(r.at) {
+	if !p.Ready || p.Level != 0 || p.Stage != Egg || p.Name != "" || p.Ate != 75_000 || p.Hat != nil {
+		t.Fatalf("ready egg: %+v", p)
+	}
+	r.hatch()
+	p = r.view()
+	if p.Ready || p.Level != 2 || p.Stage != Baby || p.Name == "" || !p.HatchedAt.Equal(r.at) ||
+		p.LevelFrom != 62_500 || p.NextAt != 78_125 || p.Hat != nil {
 		t.Fatalf("hatched: %+v", p)
+	}
+	if err := r.b.Hatch("a1"); err != ErrNotReady {
+		t.Errorf("hatching twice: %v", err)
 	}
 	name := p.Name
 	r.eat(5_000_000)
-	if p := r.view(); p.Name != name || p.Stage != Strong || p.Ate != 5_055_000 {
+	if p := r.view(); p.Name != name || p.Stage != Strong || p.Ate != 5_075_000 || p.LevelFrom > p.Ate || p.NextAt <= p.Ate {
 		t.Errorf("grown: %+v", p)
+	}
+}
+
+// The mystery hat is rolled when it hatches, from the agent's id, and shows
+// from level 5 (a kid) on.
+func TestMysteryHat(t *testing.T) {
+	r := newRig(t, "")
+	r.eat(Threshold(4))
+	r.hatch()
+	if p := r.view(); p.Level != 4 || p.Hat != nil {
+		t.Fatalf("a baby shows no hat: %+v", p)
+	}
+	r.eat(Threshold(5) - Threshold(4))
+	p := r.view()
+	if p.Stage != Kid || p.Hat == nil {
+		t.Fatalf("a kid shows its hat: %+v", p)
+	}
+	want := mysteryHat("a1")
+	if p.Hat.Shape != want.Shape || p.Hat.Color != want.Color {
+		t.Errorf("hat %+v, want %+v", p.Hat, want)
+	}
+	// Every pet hat, devil horns too, comes up for some id; no project hat
+	// list changed.
+	seen := map[string]bool{}
+	for i := range 2000 {
+		seen[mysteryHat(string(rune('a'+i%26))+string(rune('a'+i/26))).Shape] = true
+	}
+	if len(seen) != len(PetHats) || !seen["devil horns"] {
+		t.Errorf("hats rolled: %v", seen)
+	}
+	for _, s := range hats.Shapes {
+		if s == "devil horns" {
+			t.Error("devil horns is a pet hat only")
+		}
+	}
+}
+
+// The level settings: tokens for level 1 and the step, read from config.json.
+func TestLevelSettings(t *testing.T) {
+	c := Config{On: true, FirstLevel: 10_000, Step: 2}
+	r := newRig(t, "")
+	r.b.Config = func() Config { return c }
+	r.eat(9_999)
+	if p := r.view(); p.Ready || p.NextAt != 10_000 {
+		t.Errorf("not yet: %+v", p)
+	}
+	r.eat(31_000)
+	r.hatch()
+	if p := r.view(); p.Level != 3 || p.LevelFrom != 40_000 || p.NextAt != 80_000 {
+		t.Errorf("level 3 at 40k with a step of 2: %+v", p)
+	}
+	// A slower setting never takes a level away.
+	c = Defaults()
+	r.feed()
+	if p := r.view(); p.Level != 3 || p.LevelFrom != Threshold(3) || p.NextAt != Threshold(4) {
+		t.Errorf("after the levels got slower: %+v", p)
 	}
 }
 
@@ -105,6 +186,7 @@ func TestFoodCountsOnce(t *testing.T) {
 func TestHungerAndWaking(t *testing.T) {
 	r := newRig(t, "")
 	r.eat(60_000)
+	r.hatch()
 	r.wait(11 * time.Hour)
 	if p := r.view(); p.Hearts != 4 || p.Mood != Fed {
 		t.Errorf("11 h: %+v", p)
@@ -166,7 +248,7 @@ func TestClockStopsWhileBusy(t *testing.T) {
 func TestOff(t *testing.T) {
 	r := newRig(t, "")
 	on := false
-	r.b.Enabled = func() bool { return on }
+	r.b.Config = func() Config { c := Defaults(); c.On = on; return c }
 	r.eat(60_000)
 	if r.view() != nil {
 		t.Fatal("pets are off: no pet in the API")
@@ -190,6 +272,7 @@ func TestSavedAndForgotten(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pets.json")
 	r := newRig(t, path)
 	r.eat(70_000)
+	r.hatch()
 	name := r.view().Name
 	if err := r.b.Save(); err != nil {
 		t.Fatal(err)
@@ -202,6 +285,9 @@ func TestSavedAndForgotten(t *testing.T) {
 	}
 	// Names differ between pets while there are names left.
 	r2.b.Feed([]Sight{{ID: "a1", Session: "s1", Tokens: model.Tokens{Input: 70_000}}, {ID: "b2", Tokens: model.Tokens{Input: 60_000}}})
+	if err := r2.b.Hatch("b2"); err != nil {
+		t.Fatal(err)
+	}
 	if other := r2.b.View(model.Agent{ID: "b2"}); other.Name == "" || other.Name == name {
 		t.Errorf("second pet's name %q (first %q)", other.Name, name)
 	}
@@ -213,19 +299,55 @@ func TestSavedAndForgotten(t *testing.T) {
 	}
 }
 
-func TestSwitch(t *testing.T) {
+// Agent pets is on unless config.json turns it off; the older "pets": true
+// and false still read, and levels outside the limits fall back.
+func TestSettings(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "config.json")
-	on := Switch(cfg)
-	if on() {
-		t.Error("no config: off")
+	get := Settings(cfg)
+	if c := get(); c != Defaults() || !c.On {
+		t.Errorf("no config: %+v", c)
 	}
-	os.WriteFile(cfg, []byte(`{"term":"tmux"}`), 0o600)
-	if on() {
-		t.Error("not set: off")
+	for _, x := range []struct {
+		json string
+		want Config
+	}{
+		{`{"term":"tmux"}`, Config{true, 50_000, 1.25}},
+		{`{"term":"tmux","pets":false}`, Config{false, 50_000, 1.25}},
+		{`{"pets":true}`, Config{true, 50_000, 1.25}},
+		{`{"pets":{"on":false,"firstLevel":20000,"step":1.5}}`, Config{false, 20_000, 1.5}},
+		{`{"pets":{"firstLevel":20000}}`, Config{true, 20_000, 1.25}},
+		{`{"pets":{"on":true,"firstLevel":5,"step":9}}`, Config{true, 50_000, 1.25}},
+	} {
+		os.WriteFile(cfg, []byte(x.json), 0o600)
+		if AlwaysOn { // pets can't be turned off for now: "off" reads as on
+			x.want.On = true
+		}
+		if c := get(); c != x.want {
+			t.Errorf("%s: %+v, want %+v", x.json, c, x.want)
+		}
 	}
-	os.WriteFile(cfg, []byte(`{"term":"tmux","pets":true}`), 0o600)
-	if !on() {
-		t.Error("pets: true is on")
+	if err := (Config{FirstLevel: 999, Step: 1.25}).Check(); err == nil {
+		t.Error("999 tokens for level 1 passed")
+	}
+	if err := (Config{FirstLevel: 50_000, Step: 1}).Check(); err == nil {
+		t.Error("a step of 1 passed")
+	}
+	if err := Defaults().Check(); err != nil {
+		t.Error(err)
+	}
+}
+
+// A pet that hatched by itself before eggs waited (an older pets.json) keeps
+// its name and finds its mystery hat.
+func TestOlderPetGetsItsHat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pets.json")
+	os.WriteFile(path, []byte(`{"a1":{"name":"Nib","hatchedAt":"2026-09-01T10:00:00Z","ate":200000,"seen":200000,"session":"s1","hearts":4}}`), 0o600)
+	r := newRig(t, path)
+	r.tok = 200_000
+	r.feed()
+	p := r.view()
+	if p.Name != "Nib" || p.Ready || p.Stage != Kid || p.Hat == nil || p.Hat.Shape != mysteryHat("a1").Shape {
+		t.Errorf("older pet: %+v", p)
 	}
 }
 

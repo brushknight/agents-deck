@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -11,8 +12,10 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/link"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/update"
 )
@@ -37,6 +40,9 @@ type System struct {
 		Version string `json:"version"`
 	} `json:"update"`
 	FirmwareUpdates int `json:"firmware_updates"`
+	// CPU is the CPU guard: how busy the computer is and what is held.
+	// Absent while the guard is off.
+	CPU *cpuguard.State `json:"cpu,omitempty"`
 }
 
 // SystemNow is the status line's numbers.
@@ -66,11 +72,75 @@ func (a *Admin) SystemNow() System {
 	}
 	u := a.updaterState()
 	s.Update.State, s.Update.Version = u.State, u.Version
+	if a.Guard != nil {
+		if g, ok := a.Guard.State(); ok {
+			s.CPU = &g
+		}
+	}
 	return s
 }
 
 func (a *Admin) system(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.SystemNow())
+}
+
+// cpuRelease: POST /admin/v1/cpu/release is Send them now: the CPU guard
+// stops holding queued prompts until the computer is calm again.
+func (a *Admin) cpuRelease(w http.ResponseWriter, r *http.Request) {
+	if a.Guard == nil {
+		writeErr(w, http.StatusNotFound, "this service has no CPU guard")
+		return
+	}
+	a.Guard.Release()
+	g, _ := a.Guard.State()
+	writeJSON(w, http.StatusOK, g)
+}
+
+// cpuSlow: POST /admin/v1/cpu/slow/{id} is Slow it (background mode for
+// the agent while the computer is busy), .../full-speed/{id} is Full speed
+// (out of it until the next busy spell). Both answer the guard, as release.
+func (a *Admin) cpuSlow(slow bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.Slower == nil || a.Guard == nil {
+			writeErr(w, http.StatusNotFound, "this service doesn't slow agents")
+			return
+		}
+		do := a.Slower.FullSpeed
+		if slow {
+			do = a.Slower.SlowNow
+		}
+		writeSlow(w, a.Guard, do(r.PathValue("id")))
+	}
+}
+
+func writeSlow(w http.ResponseWriter, guard *cpuguard.Guard, err error) {
+	switch {
+	case errors.Is(err, cpuguard.ErrCantSlow):
+		writeErr(w, http.StatusNotImplemented, err.Error())
+	case errors.Is(err, cpuguard.ErrNotBusy), errors.Is(err, cpuguard.ErrNoTerminal), errors.Is(err, cpuguard.ErrNotSlowed):
+		writeErr(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err.Error())
+	default:
+		g, _ := guard.State()
+		writeJSON(w, http.StatusOK, g)
+	}
+}
+
+// DropCPUOverride takes an override that is over out of config.json
+// (cpuguard.Guard.Ended), unless another one replaced it since.
+func (a *Admin) DropCPUOverride(o cpuguard.Override) {
+	err := a.editConfig(func(cfg map[string]any) error {
+		g := cpuguard.FromConfig(cfg["cpuGuard"])
+		if g.Override != nil && g.Override.Until.Equal(o.Until) && g.Override.Limit == o.Limit {
+			g.Override = nil
+			cfg["cpuGuard"] = g
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("cpu guard: can't drop the limit that is over from config.json: %v", err)
+	}
 }
 
 func (a *Admin) updaterState() update.State {
@@ -117,6 +187,11 @@ type Settings struct {
 	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
 	Updates       string `json:"updates"`  // notify | auto | off
 	Pets          bool   `json:"pets"`     // Agent pets: every agent gets a pet that eats its tokens
+	// The pets' levels (config.json "pets": {"firstLevel", "step"}): the
+	// tokens for level 1, and how many times that each level after needs
+	// of the one before.
+	PetFirstLevel int64   `json:"petFirstLevel"`
+	PetStep       float64 `json:"petStep"`
 
 	// Network: paired boards and phones may connect over the network
 	// (config.json deviceAddr). NetworkRunning is what this run of the
@@ -127,6 +202,9 @@ type Settings struct {
 	// Magic: the magic trick (off by default). The giver and the receiver
 	// are device names (/admin/v1/devices; the receiver needs "motion").
 	Magic devices.Magic `json:"magic"`
+
+	// CPUGuard: what the deck does when the computer is busy (cpuguard).
+	CPUGuard cpuguard.Setting `json:"cpuGuard"`
 
 	// Wifi is the network boards get on USB. Its password is never sent back.
 	Wifi struct {
@@ -165,7 +243,9 @@ func (a *Admin) SettingsNow() Settings {
 		s.Sessions = SessionsPick
 	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
-	s.Pets = boolean(cfg, "pets", false)
+	pc := pets.ConfigOf(cfg["pets"])
+	s.Pets, s.PetFirstLevel, s.PetStep = pc.On, pc.FirstLevel, pc.Step
+	s.CPUGuard = cpuguard.FromConfig(cfg["cpuGuard"])
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
 	if a.WifiSSID != nil {
@@ -191,9 +271,13 @@ type SettingsPatch struct {
 	Sessions      *string        `json:"sessions"`
 	Updates       *string        `json:"updates"`
 	Pets          *bool          `json:"pets"`
+	PetFirstLevel *int64         `json:"petFirstLevel"`
+	PetStep       *float64       `json:"petStep"`
 	Network       *bool          `json:"network"`
 	Magic         *devices.Magic `json:"magic"` // the whole setting
-	Wifi          *struct {
+	// CPUGuard: the keys given change ({"hold": false}), the others stay.
+	CPUGuard json.RawMessage `json:"cpuGuard"`
+	Wifi     *struct {
 		SSID     string `json:"ssid"`
 		Password string `json:"password"`
 		Forget   bool   `json:"forget"`
@@ -214,7 +298,7 @@ func oneOf(v string, allowed ...string) bool {
 
 func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	var p SettingsPatch
-	if err := readBody(r, 8192, &p); err != nil {
+	if err := readBody(r, 16384, &p); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -235,6 +319,20 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotImplemented, "starting at login is not available on this platform")
 		return
 	}
+	petLevels := p.PetFirstLevel != nil || p.PetStep != nil
+	if petLevels {
+		c := pets.Defaults()
+		if p.PetFirstLevel != nil {
+			c.FirstLevel = *p.PetFirstLevel
+		}
+		if p.PetStep != nil {
+			c.Step = *p.PetStep
+		}
+		if err := c.Check(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if p.Magic != nil {
 		if a.Devices == nil {
 			writeErr(w, http.StatusServiceUnavailable, "no device registry here")
@@ -254,7 +352,19 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var guard *cpuguard.Setting
+	if len(p.CPUGuard) > 0 && string(p.CPUGuard) != "null" {
+		g, err := cpuguard.Patch(cpuguard.FromConfig(a.readConfig()["cpuGuard"]), p.CPUGuard, time.Now())
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		guard = &g
+	}
 	err := a.editConfig(func(cfg map[string]any) error {
+		if guard != nil {
+			cfg["cpuGuard"] = *guard
+		}
 		if p.Notifications != nil {
 			cfg["notifications"] = *p.Notifications
 		}
@@ -270,8 +380,19 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
 		}
-		if p.Pets != nil {
-			cfg["pets"] = *p.Pets
+		if p.Pets != nil || petLevels {
+			// Written as {"on", "firstLevel", "step"}; an older "pets": true reads the same.
+			c := pets.Stored(cfg["pets"]) // keeps a stored "off" while pets are always on
+			if p.Pets != nil {
+				c.On = *p.Pets
+			}
+			if p.PetFirstLevel != nil {
+				c.FirstLevel = *p.PetFirstLevel
+			}
+			if p.PetStep != nil {
+				c.Step = *p.PetStep
+			}
+			cfg["pets"] = c
 		}
 		if p.Network != nil {
 			if *p.Network {
@@ -286,8 +407,11 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if p.Pets != nil && a.Store != nil {
-		a.Store.Touch() // the screens draw the pets, or stop drawing them
+	if (p.Pets != nil || petLevels) && a.Store != nil {
+		a.Store.Touch() // the screens draw the pets, or stop drawing them, or the new levels
+	}
+	if guard != nil && a.Guard != nil {
+		a.Guard.Set(*guard) // applies at once
 	}
 	res := map[string]any{}
 	if p.Wifi != nil {

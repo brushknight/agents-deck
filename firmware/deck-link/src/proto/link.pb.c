@@ -93,6 +93,9 @@ PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 PB_BIND(agentsdeck_link_v1_Resume, agentsdeck_link_v1_Resume, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_HatchPet, agentsdeck_link_v1_HatchPet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 
 
@@ -187,6 +190,9 @@ PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO
 
 
 PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Project, agentsdeck_link_v1_Project, AUTO)
 
 
 

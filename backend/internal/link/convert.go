@@ -49,19 +49,27 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		if a.Account != nil {
 			p.Account = &linkpb.Account{Name: a.Account.Name, Color: a.Account.Color}
 		}
+		if a.Project != nil {
+			p.Project = &linkpb.Project{Id: a.Project.ID, Name: a.Project.Name}
+		}
 		if a.Activity != nil {
 			p.Activity = &linkpb.Activity{Tool: a.Activity.Tool}
 		}
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
+		p.Slowed, p.SlowedByYou = a.Slowed, a.SlowedByYou
 		if a.Pet != nil {
 			p.Pet = &linkpb.Pet{Name: a.Pet.Name, Stage: a.Pet.Stage, Level: uint32(a.Pet.Level), Ate: a.Pet.Ate,
-				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt)}
+				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt),
+				Ready: a.Pet.Ready, LevelFrom: a.Pet.LevelFrom}
+			if a.Pet.Hat != nil {
+				p.Pet.Hat = &linkpb.Hat{Shape: a.Pet.Hat.Shape, Color: a.Pet.Hat.Color}
+			}
 		}
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
-		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch
+		p.AiTitle, p.Cwd, p.Branch, p.ProjectFolder = a.AITitle, a.Cwd, a.Branch, a.ProjectFolder
 		p.Model, p.ModelLabel, p.Effort = a.Model, a.ModelLabel, a.Effort
 		if a.Activity != nil {
 			if p.Activity == nil {
@@ -89,7 +97,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 	}
 	if has(linkpb.FieldGroup_FIELDS_NUMBERS) {
 		p.Tokens = &linkpb.Tokens{Input: a.Tokens.Input, Output: a.Tokens.Output, CacheRead: a.Tokens.CacheRead, CacheWrite: a.Tokens.CacheWrite}
-		p.CostUsd, p.Turns = a.CostUSD, uint32(a.Turns)
+		p.CostUsd, p.Turns, p.Cpu = a.CostUSD, uint32(a.Turns), float32(a.CPU)
 	}
 	clipMessage(p.ProtoReflect())
 	return p
