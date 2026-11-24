@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "deck_pet.h"
 #include "timeutil.h"
 
 // Agents kept in memory. The 1.47" board keeps 16; boards with PSRAM and a
@@ -106,6 +107,7 @@ struct Agent {
   char promptCtx[96];       // Prompt.context, e.g. "bash · ~/dev/infra"
   uint8_t optCount;
   Option opts[kMaxOptions];
+  deck_pet_t pet;           // its pet while Agent pets is on (pet.has); drawn in place of the critter (sprites.h)
 };
 
 struct Fleet {

@@ -144,8 +144,9 @@ aura or the ice reach one or two cells round it (`deck_pet_bounds()`). Colours c
 an alpha: the ice and the aura are see-through, so mix them with what's under them, or on a screen
 that can't, draw the ones at 128 or more solid and skip the rest. The hat stays readable inside an aura: the aura leaves a cell of background round the hat, and a
 hat in a colour close to the aura's (yellow or ink in strong, teal, blue or sky in mighty, yellow in
-legend: contrast under 1.6 and hue within 40 degrees) is drawn in its shade. `.outline` puts a dark edge round
-the pet, for a background in its own orange. `deck_pet_motion()` gives the small moves (a working pet
+legend: contrast under 1.6 and hue within 40 degrees) is drawn in its shade. `.plate` draws the pet on a dark
+square plate one cell larger than it on every side (covering the ice too), for a background in its
+own orange. `deck_pet_motion()` gives the small moves (a working pet
 bobs, an egg waiting to be seen rocks) for a board that redraws its critter anyway.
 `deck_pet_stage_name()` says "Grown-up" and the like, for a board that shows the pet's name, stage
 and level.
