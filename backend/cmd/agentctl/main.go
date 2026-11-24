@@ -172,6 +172,8 @@ func main() {
 	case "hook":
 		hook() // never fails, never prints
 		return
+	case "statusline":
+		os.Exit(statusline()) // prints only what the status line it chains prints
 	case "serve":
 		err = serve(args)
 	case "new":
@@ -1181,6 +1183,7 @@ func serve(args []string) error {
 		d.Adopt()
 		go d.Run()
 		go d.WatchCodex()
+		go d.WatchLimits()
 		go d.WatchOrca()
 		go d.WatchHerdr()
 		go d.WatchCmux()
