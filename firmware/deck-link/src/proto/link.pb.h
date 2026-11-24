@@ -249,6 +249,10 @@ typedef struct _agentsdeck_link_v1_Pet {
     uint32_t hearts; /* 0..4 */
     char mood[8]; /* fed, hungry, weak, asleep (hibernating) */
     int64_t hatched_at_ms; /* 0 while an egg */
+    bool ready; /* an egg that has eaten enough and waits to be seen hatching (HatchPet) */
+    int64_t level_from; /* ate where the current level started (0 for an egg), for progress bars */
+    bool has_hat;
+    agentsdeck_link_v1_Hat hat; /* its mystery hat (shape and color only); unset until it is a kid (level 5) */
 } agentsdeck_link_v1_Pet;
 
 typedef struct _agentsdeck_link_v1_Subagent {
@@ -358,6 +362,10 @@ typedef struct _agentsdeck_link_v1_Dismiss {
 typedef struct _agentsdeck_link_v1_Resume {
     char agent_id[12];
 } agentsdeck_link_v1_Resume;
+
+typedef struct _agentsdeck_link_v1_HatchPet {
+    char agent_id[12];
+} agentsdeck_link_v1_HatchPet;
 
 typedef struct _agentsdeck_link_v1_Move {
     char agent_id[12];
@@ -656,6 +664,9 @@ typedef struct _agentsdeck_link_v1_Frame {
         /* Which way the board should reach the deck (docs/link/protocol.md,
      "Bluetooth"). Board management, not a web API command. */
         agentsdeck_link_v1_LinkConfig link_config; /* deck → board, any transport: the uplink preference; the board answers with a Result */
+        /* More commands, board → deck, once fields 30..49 were taken: one per
+     web API endpoint, like those. */
+        agentsdeck_link_v1_HatchPet hatch_pet; /* POST /v1/agents/{id}/pet/hatch */
     } body;
 } agentsdeck_link_v1_Frame;
 
@@ -760,6 +771,7 @@ extern "C" {
 
 
 
+
 #define agentsdeck_link_v1_Magic_role_ENUMTYPE agentsdeck_link_v1_MagicRole
 #define agentsdeck_link_v1_Magic_arrive_ENUMTYPE agentsdeck_link_v1_Corner
 #define agentsdeck_link_v1_Magic_leave_ENUMTYPE agentsdeck_link_v1_Corner
@@ -819,7 +831,7 @@ extern "C" {
 #define agentsdeck_link_v1_Context_init_default  {0, 0}
 #define agentsdeck_link_v1_Hat_init_default      {"", "", 0}
 #define agentsdeck_link_v1_Account_init_default  {"", ""}
-#define agentsdeck_link_v1_Pet_init_default      {"", "", 0, 0, 0, 0, "", 0}
+#define agentsdeck_link_v1_Pet_init_default      {"", "", 0, 0, 0, 0, "", 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default}
 #define agentsdeck_link_v1_Subagent_init_default {"", "", "", ""}
 #define agentsdeck_link_v1_Answer_init_default   {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_default    {""}
@@ -828,6 +840,7 @@ extern "C" {
 #define agentsdeck_link_v1_Queue_init_default    {"", ""}
 #define agentsdeck_link_v1_Dismiss_init_default  {""}
 #define agentsdeck_link_v1_Resume_init_default   {""}
+#define agentsdeck_link_v1_HatchPet_init_default {""}
 #define agentsdeck_link_v1_Move_init_default     {"", 0}
 #define agentsdeck_link_v1_Order_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
@@ -880,7 +893,7 @@ extern "C" {
 #define agentsdeck_link_v1_Context_init_zero     {0, 0}
 #define agentsdeck_link_v1_Hat_init_zero         {"", "", 0}
 #define agentsdeck_link_v1_Account_init_zero     {"", ""}
-#define agentsdeck_link_v1_Pet_init_zero         {"", "", 0, 0, 0, 0, "", 0}
+#define agentsdeck_link_v1_Pet_init_zero         {"", "", 0, 0, 0, 0, "", 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero}
 #define agentsdeck_link_v1_Subagent_init_zero    {"", "", "", ""}
 #define agentsdeck_link_v1_Answer_init_zero      {"", "", ""}
 #define agentsdeck_link_v1_Focus_init_zero       {""}
@@ -889,6 +902,7 @@ extern "C" {
 #define agentsdeck_link_v1_Queue_init_zero       {"", ""}
 #define agentsdeck_link_v1_Dismiss_init_zero     {""}
 #define agentsdeck_link_v1_Resume_init_zero      {""}
+#define agentsdeck_link_v1_HatchPet_init_zero    {""}
 #define agentsdeck_link_v1_Move_init_zero        {"", 0}
 #define agentsdeck_link_v1_Order_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
@@ -982,6 +996,9 @@ extern "C" {
 #define agentsdeck_link_v1_Pet_hearts_tag        6
 #define agentsdeck_link_v1_Pet_mood_tag          7
 #define agentsdeck_link_v1_Pet_hatched_at_ms_tag 8
+#define agentsdeck_link_v1_Pet_ready_tag         9
+#define agentsdeck_link_v1_Pet_level_from_tag    10
+#define agentsdeck_link_v1_Pet_hat_tag           11
 #define agentsdeck_link_v1_Subagent_id_tag       1
 #define agentsdeck_link_v1_Subagent_title_tag    2
 #define agentsdeck_link_v1_Subagent_type_tag     3
@@ -1039,6 +1056,7 @@ extern "C" {
 #define agentsdeck_link_v1_Queue_cancel_id_tag   2
 #define agentsdeck_link_v1_Dismiss_agent_id_tag  1
 #define agentsdeck_link_v1_Resume_agent_id_tag   1
+#define agentsdeck_link_v1_HatchPet_agent_id_tag 1
 #define agentsdeck_link_v1_Move_agent_id_tag     1
 #define agentsdeck_link_v1_Move_slot_tag         2
 #define agentsdeck_link_v1_Order_agent_ids_tag   1
@@ -1164,6 +1182,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_firmware_offer_tag 64
 #define agentsdeck_link_v1_Frame_firmware_status_tag 65
 #define agentsdeck_link_v1_Frame_link_config_tag 66
+#define agentsdeck_link_v1_Frame_hatch_pet_tag   70
 
 /* Struct field encoding specification for nanopb */
 #define agentsdeck_link_v1_Frame_FIELDLIST(X, a) \
@@ -1210,7 +1229,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,wifi_config,body.wifi_config),  62) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,net_status,body.net_status),  63) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_offer,body.firmware_offer),  64) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,firmware_status,body.firmware_status),  65) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,hatch_pet,body.hatch_pet),  70)
 #define agentsdeck_link_v1_Frame_CALLBACK NULL
 #define agentsdeck_link_v1_Frame_DEFAULT NULL
 #define agentsdeck_link_v1_Frame_body_hello_MSGTYPE agentsdeck_link_v1_Hello
@@ -1256,6 +1276,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_firmware_offer_MSGTYPE agentsdeck_link_v1_FirmwareOffer
 #define agentsdeck_link_v1_Frame_body_firmware_status_MSGTYPE agentsdeck_link_v1_FirmwareStatus
 #define agentsdeck_link_v1_Frame_body_link_config_MSGTYPE agentsdeck_link_v1_LinkConfig
+#define agentsdeck_link_v1_Frame_body_hatch_pet_MSGTYPE agentsdeck_link_v1_HatchPet
 
 #define agentsdeck_link_v1_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol,          1) \
@@ -1444,9 +1465,13 @@ X(a, STATIC,   SINGULAR, INT64,    ate,               4) \
 X(a, STATIC,   SINGULAR, INT64,    next_at,           5) \
 X(a, STATIC,   SINGULAR, UINT32,   hearts,            6) \
 X(a, STATIC,   SINGULAR, STRING,   mood,              7) \
-X(a, STATIC,   SINGULAR, INT64,    hatched_at_ms,     8)
+X(a, STATIC,   SINGULAR, INT64,    hatched_at_ms,     8) \
+X(a, STATIC,   SINGULAR, BOOL,     ready,             9) \
+X(a, STATIC,   SINGULAR, INT64,    level_from,       10) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  hat,              11)
 #define agentsdeck_link_v1_Pet_CALLBACK NULL
 #define agentsdeck_link_v1_Pet_DEFAULT NULL
+#define agentsdeck_link_v1_Pet_hat_MSGTYPE agentsdeck_link_v1_Hat
 
 #define agentsdeck_link_v1_Subagent_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   id,                1) \
@@ -1497,6 +1522,11 @@ X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
 #define agentsdeck_link_v1_Resume_CALLBACK NULL
 #define agentsdeck_link_v1_Resume_DEFAULT NULL
+
+#define agentsdeck_link_v1_HatchPet_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   agent_id,          1)
+#define agentsdeck_link_v1_HatchPet_CALLBACK NULL
+#define agentsdeck_link_v1_HatchPet_DEFAULT NULL
 
 #define agentsdeck_link_v1_Move_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
@@ -1745,6 +1775,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_SendPrompt_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Queue_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Dismiss_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Resume_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_HatchPet_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Move_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Order_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Stash_msg;
@@ -1808,6 +1839,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Queue_fields &agentsdeck_link_v1_Queue_msg
 #define agentsdeck_link_v1_Dismiss_fields &agentsdeck_link_v1_Dismiss_msg
 #define agentsdeck_link_v1_Resume_fields &agentsdeck_link_v1_Resume_msg
+#define agentsdeck_link_v1_HatchPet_fields &agentsdeck_link_v1_HatchPet_msg
 #define agentsdeck_link_v1_Move_fields &agentsdeck_link_v1_Move_msg
 #define agentsdeck_link_v1_Order_fields &agentsdeck_link_v1_Order_msg
 #define agentsdeck_link_v1_Stash_fields &agentsdeck_link_v1_Stash_msg
@@ -1848,9 +1880,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3481
+#define agentsdeck_link_v1_AgentChanged_size     3528
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3478
+#define agentsdeck_link_v1_Agent_size            3525
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_CertIssued_size       1788
 #define agentsdeck_link_v1_CertRequest_size      603
@@ -1860,12 +1892,13 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_FirmwareOffer_size    200
 #define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3491
+#define agentsdeck_link_v1_Frame_size            3538
 #define agentsdeck_link_v1_GetState_size         0
 #define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732
 #define agentsdeck_link_v1_HatOverride_size      160
 #define agentsdeck_link_v1_Hat_size              32
+#define agentsdeck_link_v1_HatchPet_size         13
 #define agentsdeck_link_v1_Hello_size            135
 #define agentsdeck_link_v1_Interrupt_size        13
 #define agentsdeck_link_v1_LinkConfig_size       2
@@ -1881,7 +1914,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_NetStatus_size        96
 #define agentsdeck_link_v1_Option_size           110
 #define agentsdeck_link_v1_Order_size            416
-#define agentsdeck_link_v1_Pet_size              80
+#define agentsdeck_link_v1_Pet_size              127
 #define agentsdeck_link_v1_Ping_size             11
 #define agentsdeck_link_v1_Pong_size             11
 #define agentsdeck_link_v1_Prompt_size           1399

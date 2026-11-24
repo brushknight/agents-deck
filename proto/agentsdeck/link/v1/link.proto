@@ -76,6 +76,10 @@ message Frame {
     // Which way the board should reach the deck (docs/link/protocol.md,
     // "Bluetooth"). Board management, not a web API command.
     LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
+
+    // More commands, board → deck, once fields 30..49 were taken: one per
+    // web API endpoint, like those.
+    HatchPet hatch_pet = 70;      // POST /v1/agents/{id}/pet/hatch
   }
 }
 
@@ -297,6 +301,9 @@ message Pet {
   uint32 hearts = 6;        // 0..4
   string mood = 7;          // fed, hungry, weak, asleep (hibernating)
   int64 hatched_at_ms = 8;  // 0 while an egg
+  bool ready = 9;           // an egg that has eaten enough and waits to be seen hatching (HatchPet)
+  int64 level_from = 10;    // ate where the current level started (0 for an egg), for progress bars
+  Hat hat = 11;             // its mystery hat (shape and color only); unset until it is a kid (level 5)
 }
 
 message Subagent {
@@ -348,6 +355,7 @@ message Queue {
 }
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
+message HatchPet { string agent_id = 1; }  // hatch its pet's egg once it is ready (Pet.ready); Result 409 if it isn't
 
 message Move {
   string agent_id = 1;

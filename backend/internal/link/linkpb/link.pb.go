@@ -861,6 +861,7 @@ type Frame struct {
 	//	*Frame_FirmwareOffer
 	//	*Frame_FirmwareStatus
 	//	*Frame_LinkConfig
+	//	*Frame_HatchPet
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1297,6 +1298,15 @@ func (x *Frame) GetLinkConfig() *LinkConfig {
 	return nil
 }
 
+func (x *Frame) GetHatchPet() *HatchPet {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_HatchPet); ok {
+			return x.HatchPet
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -1484,6 +1494,12 @@ type Frame_LinkConfig struct {
 	LinkConfig *LinkConfig `protobuf:"bytes,66,opt,name=link_config,json=linkConfig,proto3,oneof"` // deck → board, any transport: the uplink preference; the board answers with a Result
 }
 
+type Frame_HatchPet struct {
+	// More commands, board → deck, once fields 30..49 were taken: one per
+	// web API endpoint, like those.
+	HatchPet *HatchPet `protobuf:"bytes,70,opt,name=hatch_pet,json=hatchPet,proto3,oneof"` // POST /v1/agents/{id}/pet/hatch
+}
+
 func (*Frame_Hello) isFrame_Body() {}
 
 func (*Frame_Welcome) isFrame_Body() {}
@@ -1569,6 +1585,8 @@ func (*Frame_FirmwareOffer) isFrame_Body() {}
 func (*Frame_FirmwareStatus) isFrame_Body() {}
 
 func (*Frame_LinkConfig) isFrame_Body() {}
+
+func (*Frame_HatchPet) isFrame_Body() {}
 
 type Hello struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2990,6 +3008,9 @@ type Pet struct {
 	Hearts        uint32                 `protobuf:"varint,6,opt,name=hearts,proto3" json:"hearts,omitempty"`                                // 0..4
 	Mood          string                 `protobuf:"bytes,7,opt,name=mood,proto3" json:"mood,omitempty"`                                     // fed, hungry, weak, asleep (hibernating)
 	HatchedAtMs   int64                  `protobuf:"varint,8,opt,name=hatched_at_ms,json=hatchedAtMs,proto3" json:"hatched_at_ms,omitempty"` // 0 while an egg
+	Ready         bool                   `protobuf:"varint,9,opt,name=ready,proto3" json:"ready,omitempty"`                                  // an egg that has eaten enough and waits to be seen hatching (HatchPet)
+	LevelFrom     int64                  `protobuf:"varint,10,opt,name=level_from,json=levelFrom,proto3" json:"level_from,omitempty"`        // ate where the current level started (0 for an egg), for progress bars
+	Hat           *Hat                   `protobuf:"bytes,11,opt,name=hat,proto3" json:"hat,omitempty"`                                      // its mystery hat (shape and color only); unset until it is a kid (level 5)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3078,6 +3099,27 @@ func (x *Pet) GetHatchedAtMs() int64 {
 		return x.HatchedAtMs
 	}
 	return 0
+}
+
+func (x *Pet) GetReady() bool {
+	if x != nil {
+		return x.Ready
+	}
+	return false
+}
+
+func (x *Pet) GetLevelFrom() int64 {
+	if x != nil {
+		return x.LevelFrom
+	}
+	return 0
+}
+
+func (x *Pet) GetHat() *Hat {
+	if x != nil {
+		return x.Hat
+	}
+	return nil
 }
 
 type Subagent struct {
@@ -3522,6 +3564,50 @@ func (x *Resume) GetAgentId() string {
 	return ""
 }
 
+type HatchPet struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HatchPet) Reset() {
+	*x = HatchPet{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HatchPet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HatchPet) ProtoMessage() {}
+
+func (x *HatchPet) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HatchPet.ProtoReflect.Descriptor instead.
+func (*HatchPet) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *HatchPet) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
 type Move struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
@@ -3532,7 +3618,7 @@ type Move struct {
 
 func (x *Move) Reset() {
 	*x = Move{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[29]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3544,7 +3630,7 @@ func (x *Move) String() string {
 func (*Move) ProtoMessage() {}
 
 func (x *Move) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[29]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3557,7 +3643,7 @@ func (x *Move) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Move.ProtoReflect.Descriptor instead.
 func (*Move) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{29}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Move) GetAgentId() string {
@@ -3583,7 +3669,7 @@ type Order struct {
 
 func (x *Order) Reset() {
 	*x = Order{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[30]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3595,7 +3681,7 @@ func (x *Order) String() string {
 func (*Order) ProtoMessage() {}
 
 func (x *Order) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[30]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3608,7 +3694,7 @@ func (x *Order) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Order.ProtoReflect.Descriptor instead.
 func (*Order) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{30}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *Order) GetAgentIds() []string {
@@ -3633,7 +3719,7 @@ type Stash struct {
 
 func (x *Stash) Reset() {
 	*x = Stash{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[31]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3645,7 +3731,7 @@ func (x *Stash) String() string {
 func (*Stash) ProtoMessage() {}
 
 func (x *Stash) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[31]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3658,7 +3744,7 @@ func (x *Stash) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Stash.ProtoReflect.Descriptor instead.
 func (*Stash) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{31}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *Stash) GetAgentIds() []string {
@@ -3685,7 +3771,7 @@ type MagicView struct {
 
 func (x *MagicView) Reset() {
 	*x = MagicView{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[32]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3697,7 +3783,7 @@ func (x *MagicView) String() string {
 func (*MagicView) ProtoMessage() {}
 
 func (x *MagicView) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[32]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3710,7 +3796,7 @@ func (x *MagicView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MagicView.ProtoReflect.Descriptor instead.
 func (*MagicView) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{32}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *MagicView) GetAgentIds() []string {
@@ -3733,7 +3819,7 @@ type Magic struct {
 
 func (x *Magic) Reset() {
 	*x = Magic{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[33]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3745,7 +3831,7 @@ func (x *Magic) String() string {
 func (*Magic) ProtoMessage() {}
 
 func (x *Magic) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[33]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3758,7 +3844,7 @@ func (x *Magic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Magic.ProtoReflect.Descriptor instead.
 func (*Magic) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{33}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Magic) GetRole() MagicRole {
@@ -3800,7 +3886,7 @@ type MoveAttention struct {
 
 func (x *MoveAttention) Reset() {
 	*x = MoveAttention{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[34]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3812,7 +3898,7 @@ func (x *MoveAttention) String() string {
 func (*MoveAttention) ProtoMessage() {}
 
 func (x *MoveAttention) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[34]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3825,7 +3911,7 @@ func (x *MoveAttention) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MoveAttention.ProtoReflect.Descriptor instead.
 func (*MoveAttention) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{34}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *MoveAttention) GetAgentId() string {
@@ -3853,7 +3939,7 @@ type Restore struct {
 
 func (x *Restore) Reset() {
 	*x = Restore{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[35]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3865,7 +3951,7 @@ func (x *Restore) String() string {
 func (*Restore) ProtoMessage() {}
 
 func (x *Restore) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[35]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3878,7 +3964,7 @@ func (x *Restore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Restore.ProtoReflect.Descriptor instead.
 func (*Restore) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{35}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Restore) GetAgentIds() []string {
@@ -3902,7 +3988,7 @@ type SetHat struct {
 
 func (x *SetHat) Reset() {
 	*x = SetHat{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[36]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3914,7 +4000,7 @@ func (x *SetHat) String() string {
 func (*SetHat) ProtoMessage() {}
 
 func (x *SetHat) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[36]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3927,7 +4013,7 @@ func (x *SetHat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetHat.ProtoReflect.Descriptor instead.
 func (*SetHat) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{36}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SetHat) GetAgentId() string {
@@ -3973,7 +4059,7 @@ type ListHats struct {
 
 func (x *ListHats) Reset() {
 	*x = ListHats{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[37]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3985,7 +4071,7 @@ func (x *ListHats) String() string {
 func (*ListHats) ProtoMessage() {}
 
 func (x *ListHats) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[37]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3998,7 +4084,7 @@ func (x *ListHats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHats.ProtoReflect.Descriptor instead.
 func (*ListHats) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{37}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{38}
 }
 
 type ListLive struct {
@@ -4009,7 +4095,7 @@ type ListLive struct {
 
 func (x *ListLive) Reset() {
 	*x = ListLive{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[38]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4021,7 +4107,7 @@ func (x *ListLive) String() string {
 func (*ListLive) ProtoMessage() {}
 
 func (x *ListLive) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[38]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4034,7 +4120,7 @@ func (x *ListLive) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLive.ProtoReflect.Descriptor instead.
 func (*ListLive) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{38}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{39}
 }
 
 type AddLive struct {
@@ -4047,7 +4133,7 @@ type AddLive struct {
 
 func (x *AddLive) Reset() {
 	*x = AddLive{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[39]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4059,7 +4145,7 @@ func (x *AddLive) String() string {
 func (*AddLive) ProtoMessage() {}
 
 func (x *AddLive) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[39]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4072,7 +4158,7 @@ func (x *AddLive) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddLive.ProtoReflect.Descriptor instead.
 func (*AddLive) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{39}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AddLive) GetSessionId() string {
@@ -4097,7 +4183,7 @@ type GetState struct {
 
 func (x *GetState) Reset() {
 	*x = GetState{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[40]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4109,7 +4195,7 @@ func (x *GetState) String() string {
 func (*GetState) ProtoMessage() {}
 
 func (x *GetState) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[40]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4122,7 +4208,7 @@ func (x *GetState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetState.ProtoReflect.Descriptor instead.
 func (*GetState) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{40}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{41}
 }
 
 // Continue a Claude session in another account (when one runs out of usage).
@@ -4136,7 +4222,7 @@ type Handoff struct {
 
 func (x *Handoff) Reset() {
 	*x = Handoff{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[41]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4148,7 +4234,7 @@ func (x *Handoff) String() string {
 func (*Handoff) ProtoMessage() {}
 
 func (x *Handoff) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[41]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4161,7 +4247,7 @@ func (x *Handoff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Handoff.ProtoReflect.Descriptor instead.
 func (*Handoff) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{41}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *Handoff) GetAgentId() string {
@@ -4186,7 +4272,7 @@ type ListAccounts struct {
 
 func (x *ListAccounts) Reset() {
 	*x = ListAccounts{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[42]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4198,7 +4284,7 @@ func (x *ListAccounts) String() string {
 func (*ListAccounts) ProtoMessage() {}
 
 func (x *ListAccounts) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[42]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4211,7 +4297,7 @@ func (x *ListAccounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccounts.ProtoReflect.Descriptor instead.
 func (*ListAccounts) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{42}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{43}
 }
 
 // The outcome of a command, with the web API's status code: 204 done,
@@ -4227,7 +4313,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[43]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4239,7 +4325,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[43]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4252,7 +4338,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{43}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *Result) GetCode() uint32 {
@@ -4280,7 +4366,7 @@ type HatList struct {
 
 func (x *HatList) Reset() {
 	*x = HatList{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[44]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4292,7 +4378,7 @@ func (x *HatList) String() string {
 func (*HatList) ProtoMessage() {}
 
 func (x *HatList) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[44]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4305,7 +4391,7 @@ func (x *HatList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HatList.ProtoReflect.Descriptor instead.
 func (*HatList) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{44}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *HatList) GetShapes() []string {
@@ -4340,7 +4426,7 @@ type HatOverride struct {
 
 func (x *HatOverride) Reset() {
 	*x = HatOverride{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4352,7 +4438,7 @@ func (x *HatOverride) String() string {
 func (*HatOverride) ProtoMessage() {}
 
 func (x *HatOverride) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[45]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4365,7 +4451,7 @@ func (x *HatOverride) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HatOverride.ProtoReflect.Descriptor instead.
 func (*HatOverride) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{45}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *HatOverride) GetFolder() string {
@@ -4398,7 +4484,7 @@ type LiveSessions struct {
 
 func (x *LiveSessions) Reset() {
 	*x = LiveSessions{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4410,7 +4496,7 @@ func (x *LiveSessions) String() string {
 func (*LiveSessions) ProtoMessage() {}
 
 func (x *LiveSessions) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[46]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4423,7 +4509,7 @@ func (x *LiveSessions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiveSessions.ProtoReflect.Descriptor instead.
 func (*LiveSessions) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{46}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *LiveSessions) GetSessions() []*LiveSession {
@@ -4448,7 +4534,7 @@ type LiveSession struct {
 
 func (x *LiveSession) Reset() {
 	*x = LiveSession{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4460,7 +4546,7 @@ func (x *LiveSession) String() string {
 func (*LiveSession) ProtoMessage() {}
 
 func (x *LiveSession) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[47]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4473,7 +4559,7 @@ func (x *LiveSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiveSession.ProtoReflect.Descriptor instead.
 func (*LiveSession) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{47}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *LiveSession) GetSessionId() string {
@@ -4535,7 +4621,7 @@ type AccountList struct {
 
 func (x *AccountList) Reset() {
 	*x = AccountList{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4547,7 +4633,7 @@ func (x *AccountList) String() string {
 func (*AccountList) ProtoMessage() {}
 
 func (x *AccountList) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[48]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4560,7 +4646,7 @@ func (x *AccountList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountList.ProtoReflect.Descriptor instead.
 func (*AccountList) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{48}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *AccountList) GetAccounts() []*AccountInfo {
@@ -4581,7 +4667,7 @@ type AccountInfo struct {
 
 func (x *AccountInfo) Reset() {
 	*x = AccountInfo{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4593,7 +4679,7 @@ func (x *AccountInfo) String() string {
 func (*AccountInfo) ProtoMessage() {}
 
 func (x *AccountInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[49]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4606,7 +4692,7 @@ func (x *AccountInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountInfo.ProtoReflect.Descriptor instead.
 func (*AccountInfo) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{49}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *AccountInfo) GetName() string {
@@ -4642,7 +4728,7 @@ type QueueList struct {
 
 func (x *QueueList) Reset() {
 	*x = QueueList{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4654,7 +4740,7 @@ func (x *QueueList) String() string {
 func (*QueueList) ProtoMessage() {}
 
 func (x *QueueList) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[50]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4667,7 +4753,7 @@ func (x *QueueList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueueList.ProtoReflect.Descriptor instead.
 func (*QueueList) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{50}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *QueueList) GetPrompts() []*QueuedPrompt {
@@ -4696,7 +4782,7 @@ type QueuedPrompt struct {
 
 func (x *QueuedPrompt) Reset() {
 	*x = QueuedPrompt{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4708,7 +4794,7 @@ func (x *QueuedPrompt) String() string {
 func (*QueuedPrompt) ProtoMessage() {}
 
 func (x *QueuedPrompt) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[51]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4721,7 +4807,7 @@ func (x *QueuedPrompt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueuedPrompt.ProtoReflect.Descriptor instead.
 func (*QueuedPrompt) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{51}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *QueuedPrompt) GetId() string {
@@ -4761,7 +4847,7 @@ type RestoreResult struct {
 
 func (x *RestoreResult) Reset() {
 	*x = RestoreResult{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[52]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4773,7 +4859,7 @@ func (x *RestoreResult) String() string {
 func (*RestoreResult) ProtoMessage() {}
 
 func (x *RestoreResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[52]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4786,7 +4872,7 @@ func (x *RestoreResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreResult.ProtoReflect.Descriptor instead.
 func (*RestoreResult) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{52}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *RestoreResult) GetResults() []*Restored {
@@ -4808,7 +4894,7 @@ type Restored struct {
 
 func (x *Restored) Reset() {
 	*x = Restored{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[53]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4820,7 +4906,7 @@ func (x *Restored) String() string {
 func (*Restored) ProtoMessage() {}
 
 func (x *Restored) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[53]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4833,7 +4919,7 @@ func (x *Restored) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Restored.ProtoReflect.Descriptor instead.
 func (*Restored) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{53}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *Restored) GetId() string {
@@ -4877,7 +4963,7 @@ type CertRequest struct {
 
 func (x *CertRequest) Reset() {
 	*x = CertRequest{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[54]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4889,7 +4975,7 @@ func (x *CertRequest) String() string {
 func (*CertRequest) ProtoMessage() {}
 
 func (x *CertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[54]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4902,7 +4988,7 @@ func (x *CertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CertRequest.ProtoReflect.Descriptor instead.
 func (*CertRequest) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{54}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *CertRequest) GetCsr() []byte {
@@ -4931,7 +5017,7 @@ type CertIssued struct {
 
 func (x *CertIssued) Reset() {
 	*x = CertIssued{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[55]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4943,7 +5029,7 @@ func (x *CertIssued) String() string {
 func (*CertIssued) ProtoMessage() {}
 
 func (x *CertIssued) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[55]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4956,7 +5042,7 @@ func (x *CertIssued) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CertIssued.ProtoReflect.Descriptor instead.
 func (*CertIssued) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{55}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *CertIssued) GetCert() []byte {
@@ -5021,7 +5107,7 @@ type WifiConfig struct {
 
 func (x *WifiConfig) Reset() {
 	*x = WifiConfig{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[56]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5033,7 +5119,7 @@ func (x *WifiConfig) String() string {
 func (*WifiConfig) ProtoMessage() {}
 
 func (x *WifiConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[56]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5046,7 +5132,7 @@ func (x *WifiConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WifiConfig.ProtoReflect.Descriptor instead.
 func (*WifiConfig) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{56}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *WifiConfig) GetSsid() string {
@@ -5087,7 +5173,7 @@ type NetStatus struct {
 
 func (x *NetStatus) Reset() {
 	*x = NetStatus{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[57]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5099,7 +5185,7 @@ func (x *NetStatus) String() string {
 func (*NetStatus) ProtoMessage() {}
 
 func (x *NetStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[57]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5112,7 +5198,7 @@ func (x *NetStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetStatus.ProtoReflect.Descriptor instead.
 func (*NetStatus) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{57}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *NetStatus) GetTransport() Transport {
@@ -5183,7 +5269,7 @@ type LinkConfig struct {
 
 func (x *LinkConfig) Reset() {
 	*x = LinkConfig{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[58]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5195,7 +5281,7 @@ func (x *LinkConfig) String() string {
 func (*LinkConfig) ProtoMessage() {}
 
 func (x *LinkConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[58]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5208,7 +5294,7 @@ func (x *LinkConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinkConfig.ProtoReflect.Descriptor instead.
 func (*LinkConfig) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{58}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *LinkConfig) GetUplink() Uplink {
@@ -5237,7 +5323,7 @@ type FirmwareOffer struct {
 
 func (x *FirmwareOffer) Reset() {
 	*x = FirmwareOffer{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[59]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5249,7 +5335,7 @@ func (x *FirmwareOffer) String() string {
 func (*FirmwareOffer) ProtoMessage() {}
 
 func (x *FirmwareOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[59]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5262,7 +5348,7 @@ func (x *FirmwareOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareOffer.ProtoReflect.Descriptor instead.
 func (*FirmwareOffer) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{59}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *FirmwareOffer) GetBoard() string {
@@ -5314,7 +5400,7 @@ type FirmwareStatus struct {
 
 func (x *FirmwareStatus) Reset() {
 	*x = FirmwareStatus{}
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5326,7 +5412,7 @@ func (x *FirmwareStatus) String() string {
 func (*FirmwareStatus) ProtoMessage() {}
 
 func (x *FirmwareStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5339,7 +5425,7 @@ func (x *FirmwareStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareStatus.ProtoReflect.Descriptor instead.
 func (*FirmwareStatus) Descriptor() ([]byte, []int) {
-	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{60}
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *FirmwareStatus) GetState() FirmwareState {
@@ -5367,7 +5453,7 @@ var File_agentsdeck_link_v1_link_proto protoreflect.FileDescriptor
 
 const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\n" +
-	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\x8a\x15\n" +
+	"\x1dagentsdeck/link/v1/link.proto\x12\x12agentsdeck.link.v1\"\xc7\x15\n" +
 	"\x05Frame\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\rR\x03seq\x121\n" +
 	"\x05hello\x18\n" +
@@ -5420,7 +5506,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x0efirmware_offer\x18@ \x01(\v2!.agentsdeck.link.v1.FirmwareOfferH\x00R\rfirmwareOffer\x12M\n" +
 	"\x0ffirmware_status\x18A \x01(\v2\".agentsdeck.link.v1.FirmwareStatusH\x00R\x0efirmwareStatus\x12A\n" +
 	"\vlink_config\x18B \x01(\v2\x1e.agentsdeck.link.v1.LinkConfigH\x00R\n" +
-	"linkConfigB\x06\n" +
+	"linkConfig\x12;\n" +
+	"\thatch_pet\x18F \x01(\v2\x1c.agentsdeck.link.v1.HatchPetH\x00R\bhatchPetB\x06\n" +
 	"\x04body\"\xf5\x01\n" +
 	"\x05Hello\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\rR\bprotocol\x12\x19\n" +
@@ -5542,7 +5629,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\tautomatic\x18\x03 \x01(\bR\tautomatic\"3\n" +
 	"\aAccount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05color\x18\x02 \x01(\tR\x05color\"\xc0\x01\n" +
+	"\x05color\x18\x02 \x01(\tR\x05color\"\xa0\x02\n" +
 	"\x03Pet\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x14\n" +
@@ -5551,7 +5638,12 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\anext_at\x18\x05 \x01(\x03R\x06nextAt\x12\x16\n" +
 	"\x06hearts\x18\x06 \x01(\rR\x06hearts\x12\x12\n" +
 	"\x04mood\x18\a \x01(\tR\x04mood\x12\"\n" +
-	"\rhatched_at_ms\x18\b \x01(\x03R\vhatchedAtMs\"X\n" +
+	"\rhatched_at_ms\x18\b \x01(\x03R\vhatchedAtMs\x12\x14\n" +
+	"\x05ready\x18\t \x01(\bR\x05ready\x12\x1d\n" +
+	"\n" +
+	"level_from\x18\n" +
+	" \x01(\x03R\tlevelFrom\x12)\n" +
+	"\x03hat\x18\v \x01(\v2\x17.agentsdeck.link.v1.HatR\x03hat\"X\n" +
 	"\bSubagent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x12\n" +
@@ -5578,6 +5670,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\aDismiss\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"#\n" +
 	"\x06Resume\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\"%\n" +
+	"\bHatchPet\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"5\n" +
 	"\x04Move\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
@@ -5819,7 +5913,7 @@ func file_agentsdeck_link_v1_link_proto_rawDescGZIP() []byte {
 }
 
 var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
-var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
+var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
 var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(Input)(0),             // 0: agentsdeck.link.v1.Input
 	(Scope)(0),             // 1: agentsdeck.link.v1.Scope
@@ -5864,38 +5958,39 @@ var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(*Queue)(nil),          // 40: agentsdeck.link.v1.Queue
 	(*Dismiss)(nil),        // 41: agentsdeck.link.v1.Dismiss
 	(*Resume)(nil),         // 42: agentsdeck.link.v1.Resume
-	(*Move)(nil),           // 43: agentsdeck.link.v1.Move
-	(*Order)(nil),          // 44: agentsdeck.link.v1.Order
-	(*Stash)(nil),          // 45: agentsdeck.link.v1.Stash
-	(*MagicView)(nil),      // 46: agentsdeck.link.v1.MagicView
-	(*Magic)(nil),          // 47: agentsdeck.link.v1.Magic
-	(*MoveAttention)(nil),  // 48: agentsdeck.link.v1.MoveAttention
-	(*Restore)(nil),        // 49: agentsdeck.link.v1.Restore
-	(*SetHat)(nil),         // 50: agentsdeck.link.v1.SetHat
-	(*ListHats)(nil),       // 51: agentsdeck.link.v1.ListHats
-	(*ListLive)(nil),       // 52: agentsdeck.link.v1.ListLive
-	(*AddLive)(nil),        // 53: agentsdeck.link.v1.AddLive
-	(*GetState)(nil),       // 54: agentsdeck.link.v1.GetState
-	(*Handoff)(nil),        // 55: agentsdeck.link.v1.Handoff
-	(*ListAccounts)(nil),   // 56: agentsdeck.link.v1.ListAccounts
-	(*Result)(nil),         // 57: agentsdeck.link.v1.Result
-	(*HatList)(nil),        // 58: agentsdeck.link.v1.HatList
-	(*HatOverride)(nil),    // 59: agentsdeck.link.v1.HatOverride
-	(*LiveSessions)(nil),   // 60: agentsdeck.link.v1.LiveSessions
-	(*LiveSession)(nil),    // 61: agentsdeck.link.v1.LiveSession
-	(*AccountList)(nil),    // 62: agentsdeck.link.v1.AccountList
-	(*AccountInfo)(nil),    // 63: agentsdeck.link.v1.AccountInfo
-	(*QueueList)(nil),      // 64: agentsdeck.link.v1.QueueList
-	(*QueuedPrompt)(nil),   // 65: agentsdeck.link.v1.QueuedPrompt
-	(*RestoreResult)(nil),  // 66: agentsdeck.link.v1.RestoreResult
-	(*Restored)(nil),       // 67: agentsdeck.link.v1.Restored
-	(*CertRequest)(nil),    // 68: agentsdeck.link.v1.CertRequest
-	(*CertIssued)(nil),     // 69: agentsdeck.link.v1.CertIssued
-	(*WifiConfig)(nil),     // 70: agentsdeck.link.v1.WifiConfig
-	(*NetStatus)(nil),      // 71: agentsdeck.link.v1.NetStatus
-	(*LinkConfig)(nil),     // 72: agentsdeck.link.v1.LinkConfig
-	(*FirmwareOffer)(nil),  // 73: agentsdeck.link.v1.FirmwareOffer
-	(*FirmwareStatus)(nil), // 74: agentsdeck.link.v1.FirmwareStatus
+	(*HatchPet)(nil),       // 43: agentsdeck.link.v1.HatchPet
+	(*Move)(nil),           // 44: agentsdeck.link.v1.Move
+	(*Order)(nil),          // 45: agentsdeck.link.v1.Order
+	(*Stash)(nil),          // 46: agentsdeck.link.v1.Stash
+	(*MagicView)(nil),      // 47: agentsdeck.link.v1.MagicView
+	(*Magic)(nil),          // 48: agentsdeck.link.v1.Magic
+	(*MoveAttention)(nil),  // 49: agentsdeck.link.v1.MoveAttention
+	(*Restore)(nil),        // 50: agentsdeck.link.v1.Restore
+	(*SetHat)(nil),         // 51: agentsdeck.link.v1.SetHat
+	(*ListHats)(nil),       // 52: agentsdeck.link.v1.ListHats
+	(*ListLive)(nil),       // 53: agentsdeck.link.v1.ListLive
+	(*AddLive)(nil),        // 54: agentsdeck.link.v1.AddLive
+	(*GetState)(nil),       // 55: agentsdeck.link.v1.GetState
+	(*Handoff)(nil),        // 56: agentsdeck.link.v1.Handoff
+	(*ListAccounts)(nil),   // 57: agentsdeck.link.v1.ListAccounts
+	(*Result)(nil),         // 58: agentsdeck.link.v1.Result
+	(*HatList)(nil),        // 59: agentsdeck.link.v1.HatList
+	(*HatOverride)(nil),    // 60: agentsdeck.link.v1.HatOverride
+	(*LiveSessions)(nil),   // 61: agentsdeck.link.v1.LiveSessions
+	(*LiveSession)(nil),    // 62: agentsdeck.link.v1.LiveSession
+	(*AccountList)(nil),    // 63: agentsdeck.link.v1.AccountList
+	(*AccountInfo)(nil),    // 64: agentsdeck.link.v1.AccountInfo
+	(*QueueList)(nil),      // 65: agentsdeck.link.v1.QueueList
+	(*QueuedPrompt)(nil),   // 66: agentsdeck.link.v1.QueuedPrompt
+	(*RestoreResult)(nil),  // 67: agentsdeck.link.v1.RestoreResult
+	(*Restored)(nil),       // 68: agentsdeck.link.v1.Restored
+	(*CertRequest)(nil),    // 69: agentsdeck.link.v1.CertRequest
+	(*CertIssued)(nil),     // 70: agentsdeck.link.v1.CertIssued
+	(*WifiConfig)(nil),     // 71: agentsdeck.link.v1.WifiConfig
+	(*NetStatus)(nil),      // 72: agentsdeck.link.v1.NetStatus
+	(*LinkConfig)(nil),     // 73: agentsdeck.link.v1.LinkConfig
+	(*FirmwareOffer)(nil),  // 74: agentsdeck.link.v1.FirmwareOffer
+	(*FirmwareStatus)(nil), // 75: agentsdeck.link.v1.FirmwareStatus
 }
 var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
 	15, // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
@@ -5907,77 +6002,79 @@ var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
 	24, // 6: agentsdeck.link.v1.Frame.agent_changed:type_name -> agentsdeck.link.v1.AgentChanged
 	25, // 7: agentsdeck.link.v1.Frame.agent_removed:type_name -> agentsdeck.link.v1.AgentRemoved
 	22, // 8: agentsdeck.link.v1.Frame.snapshot_end:type_name -> agentsdeck.link.v1.SnapshotEnd
-	47, // 9: agentsdeck.link.v1.Frame.magic:type_name -> agentsdeck.link.v1.Magic
+	48, // 9: agentsdeck.link.v1.Frame.magic:type_name -> agentsdeck.link.v1.Magic
 	36, // 10: agentsdeck.link.v1.Frame.answer:type_name -> agentsdeck.link.v1.Answer
 	37, // 11: agentsdeck.link.v1.Frame.focus:type_name -> agentsdeck.link.v1.Focus
 	38, // 12: agentsdeck.link.v1.Frame.interrupt:type_name -> agentsdeck.link.v1.Interrupt
 	41, // 13: agentsdeck.link.v1.Frame.dismiss:type_name -> agentsdeck.link.v1.Dismiss
-	43, // 14: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
-	44, // 15: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
+	44, // 14: agentsdeck.link.v1.Frame.move:type_name -> agentsdeck.link.v1.Move
+	45, // 15: agentsdeck.link.v1.Frame.order:type_name -> agentsdeck.link.v1.Order
 	42, // 16: agentsdeck.link.v1.Frame.resume:type_name -> agentsdeck.link.v1.Resume
-	49, // 17: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
-	50, // 18: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
-	51, // 19: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
-	52, // 20: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
-	53, // 21: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
-	54, // 22: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
-	55, // 23: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
-	56, // 24: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
-	48, // 25: agentsdeck.link.v1.Frame.move_attention:type_name -> agentsdeck.link.v1.MoveAttention
-	45, // 26: agentsdeck.link.v1.Frame.stash:type_name -> agentsdeck.link.v1.Stash
-	46, // 27: agentsdeck.link.v1.Frame.magic_view:type_name -> agentsdeck.link.v1.MagicView
+	50, // 17: agentsdeck.link.v1.Frame.restore:type_name -> agentsdeck.link.v1.Restore
+	51, // 18: agentsdeck.link.v1.Frame.set_hat:type_name -> agentsdeck.link.v1.SetHat
+	52, // 19: agentsdeck.link.v1.Frame.list_hats:type_name -> agentsdeck.link.v1.ListHats
+	53, // 20: agentsdeck.link.v1.Frame.list_live:type_name -> agentsdeck.link.v1.ListLive
+	54, // 21: agentsdeck.link.v1.Frame.add_live:type_name -> agentsdeck.link.v1.AddLive
+	55, // 22: agentsdeck.link.v1.Frame.get_state:type_name -> agentsdeck.link.v1.GetState
+	56, // 23: agentsdeck.link.v1.Frame.handoff:type_name -> agentsdeck.link.v1.Handoff
+	57, // 24: agentsdeck.link.v1.Frame.list_accounts:type_name -> agentsdeck.link.v1.ListAccounts
+	49, // 25: agentsdeck.link.v1.Frame.move_attention:type_name -> agentsdeck.link.v1.MoveAttention
+	46, // 26: agentsdeck.link.v1.Frame.stash:type_name -> agentsdeck.link.v1.Stash
+	47, // 27: agentsdeck.link.v1.Frame.magic_view:type_name -> agentsdeck.link.v1.MagicView
 	39, // 28: agentsdeck.link.v1.Frame.send_prompt:type_name -> agentsdeck.link.v1.SendPrompt
 	40, // 29: agentsdeck.link.v1.Frame.queue:type_name -> agentsdeck.link.v1.Queue
-	57, // 30: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
-	58, // 31: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
-	60, // 32: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
-	66, // 33: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
-	62, // 34: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
-	64, // 35: agentsdeck.link.v1.Frame.queue_list:type_name -> agentsdeck.link.v1.QueueList
-	68, // 36: agentsdeck.link.v1.Frame.cert_request:type_name -> agentsdeck.link.v1.CertRequest
-	69, // 37: agentsdeck.link.v1.Frame.cert_issued:type_name -> agentsdeck.link.v1.CertIssued
-	70, // 38: agentsdeck.link.v1.Frame.wifi_config:type_name -> agentsdeck.link.v1.WifiConfig
-	71, // 39: agentsdeck.link.v1.Frame.net_status:type_name -> agentsdeck.link.v1.NetStatus
-	73, // 40: agentsdeck.link.v1.Frame.firmware_offer:type_name -> agentsdeck.link.v1.FirmwareOffer
-	74, // 41: agentsdeck.link.v1.Frame.firmware_status:type_name -> agentsdeck.link.v1.FirmwareStatus
-	72, // 42: agentsdeck.link.v1.Frame.link_config:type_name -> agentsdeck.link.v1.LinkConfig
-	16, // 43: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
-	0,  // 44: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
-	1,  // 45: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
-	23, // 46: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
-	26, // 47: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
-	3,  // 48: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
-	4,  // 49: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
-	27, // 50: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
-	28, // 51: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
-	30, // 52: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
-	31, // 53: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
-	32, // 54: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
-	35, // 55: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
-	33, // 56: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
-	34, // 57: agentsdeck.link.v1.Agent.pet:type_name -> agentsdeck.link.v1.Pet
-	5,  // 58: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
-	29, // 59: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
-	6,  // 60: agentsdeck.link.v1.SendPrompt.mode:type_name -> agentsdeck.link.v1.SendMode
-	7,  // 61: agentsdeck.link.v1.Magic.role:type_name -> agentsdeck.link.v1.MagicRole
-	8,  // 62: agentsdeck.link.v1.Magic.arrive:type_name -> agentsdeck.link.v1.Corner
-	8,  // 63: agentsdeck.link.v1.Magic.leave:type_name -> agentsdeck.link.v1.Corner
-	59, // 64: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
-	61, // 65: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
-	63, // 66: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
-	65, // 67: agentsdeck.link.v1.QueueList.prompts:type_name -> agentsdeck.link.v1.QueuedPrompt
-	67, // 68: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
-	9,  // 69: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
-	10, // 70: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
-	11, // 71: agentsdeck.link.v1.NetStatus.ble:type_name -> agentsdeck.link.v1.BleState
-	12, // 72: agentsdeck.link.v1.NetStatus.uplink:type_name -> agentsdeck.link.v1.Uplink
-	12, // 73: agentsdeck.link.v1.LinkConfig.uplink:type_name -> agentsdeck.link.v1.Uplink
-	13, // 74: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
-	75, // [75:75] is the sub-list for method output_type
-	75, // [75:75] is the sub-list for method input_type
-	75, // [75:75] is the sub-list for extension type_name
-	75, // [75:75] is the sub-list for extension extendee
-	0,  // [0:75] is the sub-list for field type_name
+	58, // 30: agentsdeck.link.v1.Frame.result:type_name -> agentsdeck.link.v1.Result
+	59, // 31: agentsdeck.link.v1.Frame.hat_list:type_name -> agentsdeck.link.v1.HatList
+	61, // 32: agentsdeck.link.v1.Frame.live_sessions:type_name -> agentsdeck.link.v1.LiveSessions
+	67, // 33: agentsdeck.link.v1.Frame.restore_result:type_name -> agentsdeck.link.v1.RestoreResult
+	63, // 34: agentsdeck.link.v1.Frame.account_list:type_name -> agentsdeck.link.v1.AccountList
+	65, // 35: agentsdeck.link.v1.Frame.queue_list:type_name -> agentsdeck.link.v1.QueueList
+	69, // 36: agentsdeck.link.v1.Frame.cert_request:type_name -> agentsdeck.link.v1.CertRequest
+	70, // 37: agentsdeck.link.v1.Frame.cert_issued:type_name -> agentsdeck.link.v1.CertIssued
+	71, // 38: agentsdeck.link.v1.Frame.wifi_config:type_name -> agentsdeck.link.v1.WifiConfig
+	72, // 39: agentsdeck.link.v1.Frame.net_status:type_name -> agentsdeck.link.v1.NetStatus
+	74, // 40: agentsdeck.link.v1.Frame.firmware_offer:type_name -> agentsdeck.link.v1.FirmwareOffer
+	75, // 41: agentsdeck.link.v1.Frame.firmware_status:type_name -> agentsdeck.link.v1.FirmwareStatus
+	73, // 42: agentsdeck.link.v1.Frame.link_config:type_name -> agentsdeck.link.v1.LinkConfig
+	43, // 43: agentsdeck.link.v1.Frame.hatch_pet:type_name -> agentsdeck.link.v1.HatchPet
+	16, // 44: agentsdeck.link.v1.Hello.display:type_name -> agentsdeck.link.v1.Display
+	0,  // 45: agentsdeck.link.v1.Hello.inputs:type_name -> agentsdeck.link.v1.Input
+	1,  // 46: agentsdeck.link.v1.Welcome.scope:type_name -> agentsdeck.link.v1.Scope
+	23, // 47: agentsdeck.link.v1.SnapshotBegin.server:type_name -> agentsdeck.link.v1.Server
+	26, // 48: agentsdeck.link.v1.AgentChanged.agent:type_name -> agentsdeck.link.v1.Agent
+	3,  // 49: agentsdeck.link.v1.Agent.tool:type_name -> agentsdeck.link.v1.Tool
+	4,  // 50: agentsdeck.link.v1.Agent.status:type_name -> agentsdeck.link.v1.Status
+	27, // 51: agentsdeck.link.v1.Agent.activity:type_name -> agentsdeck.link.v1.Activity
+	28, // 52: agentsdeck.link.v1.Agent.waiting:type_name -> agentsdeck.link.v1.Prompt
+	30, // 53: agentsdeck.link.v1.Agent.tokens:type_name -> agentsdeck.link.v1.Tokens
+	31, // 54: agentsdeck.link.v1.Agent.context:type_name -> agentsdeck.link.v1.Context
+	32, // 55: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
+	35, // 56: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
+	33, // 57: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
+	34, // 58: agentsdeck.link.v1.Agent.pet:type_name -> agentsdeck.link.v1.Pet
+	5,  // 59: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
+	29, // 60: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
+	32, // 61: agentsdeck.link.v1.Pet.hat:type_name -> agentsdeck.link.v1.Hat
+	6,  // 62: agentsdeck.link.v1.SendPrompt.mode:type_name -> agentsdeck.link.v1.SendMode
+	7,  // 63: agentsdeck.link.v1.Magic.role:type_name -> agentsdeck.link.v1.MagicRole
+	8,  // 64: agentsdeck.link.v1.Magic.arrive:type_name -> agentsdeck.link.v1.Corner
+	8,  // 65: agentsdeck.link.v1.Magic.leave:type_name -> agentsdeck.link.v1.Corner
+	60, // 66: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
+	62, // 67: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
+	64, // 68: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
+	66, // 69: agentsdeck.link.v1.QueueList.prompts:type_name -> agentsdeck.link.v1.QueuedPrompt
+	68, // 70: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
+	9,  // 71: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
+	10, // 72: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
+	11, // 73: agentsdeck.link.v1.NetStatus.ble:type_name -> agentsdeck.link.v1.BleState
+	12, // 74: agentsdeck.link.v1.NetStatus.uplink:type_name -> agentsdeck.link.v1.Uplink
+	12, // 75: agentsdeck.link.v1.LinkConfig.uplink:type_name -> agentsdeck.link.v1.Uplink
+	13, // 76: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
+	77, // [77:77] is the sub-list for method output_type
+	77, // [77:77] is the sub-list for method input_type
+	77, // [77:77] is the sub-list for extension type_name
+	77, // [77:77] is the sub-list for extension extendee
+	0,  // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_agentsdeck_link_v1_link_proto_init() }
@@ -6029,6 +6126,7 @@ func file_agentsdeck_link_v1_link_proto_init() {
 		(*Frame_FirmwareOffer)(nil),
 		(*Frame_FirmwareStatus)(nil),
 		(*Frame_LinkConfig)(nil),
+		(*Frame_HatchPet)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -6036,7 +6134,7 @@ func file_agentsdeck_link_v1_link_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentsdeck_link_v1_link_proto_rawDesc), len(file_agentsdeck_link_v1_link_proto_rawDesc)),
 			NumEnums:      14,
-			NumMessages:   61,
+			NumMessages:   62,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

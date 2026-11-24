@@ -1195,7 +1195,7 @@ func serve(args []string) error {
 	if *demoMode {
 		petsPath = ""
 	}
-	petBook := pets.Open(petsPath, pets.Switch(paths.Config()))
+	petBook := pets.Open(petsPath, pets.Settings(paths.Config()))
 	st.Pet = petBook.View
 	go petBook.Follow(st.Subscribe, func() []pets.Sight {
 		var out []pets.Sight
@@ -1205,7 +1205,7 @@ func serve(args []string) error {
 		return out
 	}, st.Touch, nil)
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
-		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
+		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book, Pets: petBook,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()},
 		Tokens: &devices.Tokens{Path: paths.MCPTokens()}}
 	// Prompts queued for busy agents survive a restart (a demo keeps them in memory).

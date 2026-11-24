@@ -45,6 +45,7 @@ public:
 	uint32_t interrupt(const char *agentId) { return deck_interrupt(&ctx_, agentId); }
 	uint32_t dismiss(const char *agentId) { return deck_dismiss(&ctx_, agentId); }
 	uint32_t resume(const char *agentId) { return deck_resume(&ctx_, agentId); }
+	uint32_t hatchPet(const char *agentId) { return deck_hatch_pet(&ctx_, agentId); }
 	uint32_t move(const char *agentId, uint32_t slot) { return deck_move(&ctx_, agentId, slot); }
 	uint32_t moveAttention(const char *agentId, uint32_t slot) { return deck_move_attention(&ctx_, agentId, slot); }
 	uint32_t order(const char *const *agentIds, size_t n) { return deck_order(&ctx_, agentIds, n); }
