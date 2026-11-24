@@ -144,11 +144,11 @@ static inline int haloR(int s) { return 12 * s + 4; }
 // with its aura or ice and its bob.
 static inline RoundRect critterBox(int x, int y, int s, bool halo, bool pet = false) {
   int x0 = x - 10 * s - 1, x1 = x + 12 * s + 1, y0 = y - 11 * s - 1, y1 = y + 6 * s + 1;
-  if (pet) {
-    x0 = x - 13 * s - 1;
-    x1 = x + 13 * s + 1;
-    y0 = y - 13 * s - 1;
-    y1 = y + 8 * s + 1;
+  if (pet) {   // cell c of a pet is at x + (c - 8) s (sprites.h drawPet), plus its rock
+    x0 = x + (DECK_PET_REACH_X0 - 9) * s - 1;
+    x1 = x + (DECK_PET_REACH_X1 - 6) * s + 1;
+    y0 = y + (DECK_PET_REACH_Y0 - 8) * s - 1;
+    y1 = y + (DECK_PET_REACH_Y1 - 7) * s + 1;
   }
   if (halo) {
     const int r = haloR(s) + 10;

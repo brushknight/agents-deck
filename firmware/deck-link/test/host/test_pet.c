@@ -1,8 +1,8 @@
-/* Host tests for deck_pet: the looks match the web deck's pets.js cell for
- * cell (pet_golden.h, from tools/pet_golden.mjs), the state from Deck Link,
- * and the drawing: colours, scale, the aura, the plate, the ice, the
- * bounds and the moves. Build with make. */
-#include <math.h>
+/* Host tests for deck_pet: the looks match the web deck's pets.js and
+ * pet-poses.js cell for cell in every pose over time (pet_golden.h, from
+ * tools/pet_golden.mjs), the state from Deck Link, the stroke, the flames,
+ * the drawing (colours, layers, scale, the ice), the reach and the bounds.
+ * Build with make. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +21,10 @@ static int failures, checks;
 		}                                                                \
 	} while (0)
 
+#define FOR_GRID(x, y)                                                                     \
+	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)        \
+		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++)
+
 static uint32_t fnv(uint32_t h, const char *s)
 {
 	for (; *s; s++) {
@@ -34,43 +38,57 @@ static uint32_t look_hash(const deck_pet_look_t *l)
 {
 	uint32_t h = 0x811c9dc5u;
 	char buf[32];
-	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
-		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
-			const char k = deck_pet_at(l, x, y);
-			if (!k)
-				continue;
-			snprintf(buf, sizeof buf, "%d,%d,%c;", x, y, k);
-			h = fnv(h, buf);
-		}
+	FOR_GRID(x, y) {
+		const char k = deck_pet_at(l, x, y);
+		if (!k)
+			continue;
+		snprintf(buf, sizeof buf, "%d,%d,%c;", x, y, k);
+		h = fnv(h, buf);
+	}
 	return h;
 }
 
-static deck_pet_t pet_of(int stage, int mood, bool cracked)
+static deck_pet_t pet_of(int stage, int mood, int hat)
 {
 	deck_pet_t p;
 	memset(&p, 0, sizeof p);
 	p.has = true;
 	p.stage = (uint8_t)stage;
 	p.mood = (uint8_t)mood;
-	p.cracked = cracked;
+	p.hat = (uint8_t)hat;
+	p.hat_color = 1;
 	return p;
 }
 
+static deck_pet_opts_t posed(int pose, uint32_t ms)
+{
+	deck_pet_opts_t o;
+	memset(&o, 0, sizeof o);
+	o.pose = (uint8_t)pose;
+	o.ms = ms;
+	o.bubble = true;
+	return o;
+}
+
+static deck_pet_look_t L; /* about 4 KB: kept off the stack */
+
 static void test_golden(void)
 {
+	int bad = 0;
 	for (size_t i = 0; i < sizeof pet_golden / sizeof pet_golden[0]; i++) {
-		const deck_pet_t p = pet_of(pet_golden[i].stage, pet_golden[i].mood, pet_golden[i].cracked);
-		deck_pet_opts_t o = {0};
-		o.hat = (uint8_t)pet_golden[i].hat;
-		o.hat_color = (uint8_t)pet_golden[i].color;
-		o.idle = pet_golden[i].idle;
-		deck_pet_look_t l;
-		deck_pet_look(&l, &p, &o);
-		const uint32_t h = look_hash(&l);
-		if (h != pet_golden[i].hash)
-			fprintf(stderr, "golden %zu (stage %d mood %d hat %d): %08x, want %08x\n", i, pet_golden[i].stage,
-			        pet_golden[i].mood, pet_golden[i].hat, h, pet_golden[i].hash);
-		CHECK(h == pet_golden[i].hash);
+		deck_pet_t p = pet_of(pet_golden[i].stage, pet_golden[i].mood, pet_golden[i].hat);
+		p.cracked = pet_golden[i].cracked;
+		p.ready = pet_golden[i].ready;
+		for (size_t t = 0; t < sizeof pet_golden_ms / sizeof pet_golden_ms[0]; t++) {
+			const deck_pet_opts_t o = posed(pet_golden[i].pose, pet_golden_ms[t]);
+			deck_pet_look(&L, &p, &o);
+			const uint32_t h = look_hash(&L);
+			if (h != pet_golden[i].hash[t] && bad++ < 12)
+				fprintf(stderr, "golden %zu (stage %d mood %d hat %d pose %d) at %u ms: %08x, want %08x\n", i,
+				        pet_golden[i].stage, pet_golden[i].mood, pet_golden[i].hat, pet_golden[i].pose,
+				        pet_golden_ms[t], h, pet_golden[i].hash[t]);
+			CHECK(h == pet_golden[i].hash[t]);
+		}
 	}
 }
 
@@ -80,52 +98,117 @@ static void test_state(void)
 	deck_pet_t p;
 	memset(&p, 0x55, sizeof p);
 	deck_pet_from_proto(&p, false, &in); /* pets off */
-	CHECK(!p.has && p.name[0] == 0 && p.level == 0);
+	CHECK(!p.has && p.name[0] == 0 && p.level == 0 && p.hat == 0);
 
 	strcpy(in.name, "Pip");
 	strcpy(in.stage, "mighty");
 	strcpy(in.mood, "hungry");
 	in.level = 31;
-	in.ate = 5000000;
+	in.ate = 900;
+	in.next_at = 1000;
 	in.hearts = 9;
 	deck_pet_from_proto(&p, true, &in);
 	CHECK(p.has && strcmp(p.name, "Pip") == 0);
 	CHECK(p.stage == DECK_PET_MIGHTY && p.mood == DECK_PET_HUNGRY && p.level == 31 && p.hearts == 4);
-	CHECK(p.cracked);
+	CHECK(p.progress == 127); /* this level from 800 (the default step) to 1000 */
 	CHECK(strcmp(deck_pet_stage_name(p.stage), "Mighty") == 0);
 
 	strcpy(in.stage, "egg");
+	in.level = 0;
 	in.ate = DECK_PET_CRACK_AT - 1;
-	in.level = 70000;
+	in.next_at = 4 * (DECK_PET_CRACK_AT - 1);
 	deck_pet_from_proto(&p, true, &in);
-	CHECK(p.stage == DECK_PET_EGG && !p.cracked && p.level == 0xFFFF);
+	CHECK(p.stage == DECK_PET_EGG && !p.cracked && p.progress == 63);
 	in.ate = DECK_PET_CRACK_AT;
 	deck_pet_from_proto(&p, true, &in);
 	CHECK(p.cracked);
+	in.level = 70000;
+	deck_pet_from_proto(&p, true, &in);
+	CHECK(p.level == 0xFFFF);
 
-	/* Control bytes become spaces: a name is one line. */
 	strcpy(in.name, "Ab\tcd\n");
 	deck_pet_from_proto(&p, true, &in);
 	CHECK(strcmp(p.name, "Ab cd ") == 0);
 
 	CHECK(deck_pet_stage_of("") == DECK_PET_EGG);
-	CHECK(deck_pet_stage_of("grown") == DECK_PET_GROWN);
-	CHECK(deck_pet_stage_of("mythic") == DECK_PET_GROWN); /* a stage this firmware doesn't know */
-	CHECK(deck_pet_mood_of("asleep") == DECK_PET_ASLEEP);
+	CHECK(deck_pet_stage_of("mythic") == DECK_PET_GROWN);
 	CHECK(deck_pet_mood_of("bored") == DECK_PET_FED);
-	CHECK(strcmp(deck_pet_stage_name(DECK_PET_GROWN), "Grown-up") == 0);
-	CHECK(strcmp(deck_pet_stage_name(99), "") == 0);
-	CHECK(deck_pet_hat_of("top hat") == 11 && deck_pet_hat_of("tiara") == 0 && deck_pet_hat_of(NULL) == 0);
+	CHECK(strcmp(deck_pet_stage_name(DECK_PET_GROWN), "Grown-up") == 0 && strcmp(deck_pet_stage_name(99), "") == 0);
+	CHECK(deck_pet_hat_of("top hat") == 11 && deck_pet_hat_of("devil horns") == 14 && deck_pet_hat_of("tiara") == 0);
 	CHECK(deck_pet_hat_color_of("ink") == 7 && deck_pet_hat_color_of("mauve") == 0);
+}
+
+/* Every pet, every pose, many moments. */
+#define EACH_LOOK(body)                                                                              \
+	for (int st = 0; st < 7; st++)                                                               \
+		for (int mood = 0; mood < 4; mood++)                                                 \
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat += hat < 9 ? 2 : 1)   \
+				for (int pose = 0; pose <= DECK_PET_POSE_HUNGRY; pose++)             \
+					for (uint32_t ms = 0; ms < 2400; ms += 150) {                \
+						deck_pet_t p = pet_of(st, mood, hat);        \
+						p.ready = st == 0 && hat % 2;                \
+						p.cracked = p.ready;                         \
+						const deck_pet_opts_t o = posed(pose, ms);   \
+						deck_pet_look(&L, &p, &o);                   \
+						body                                         \
+					}
+
+static void test_stroke_and_reach(void)
+{
+	int rx0 = 99, ry0 = 99, rx1 = -99, ry1 = -99;
+	EACH_LOOK({
+		FOR_GRID(x, y) {
+			const bool cell = deck_pet_at(&L, x, y) != 0;
+			const bool near = deck_pet_at(&L, x + 1, y) || deck_pet_at(&L, x - 1, y) || deck_pet_at(&L, x, y + 1) ||
+			                  deck_pet_at(&L, x, y - 1);
+			/* the stroke: exactly the empty cells next to a drawn one (four ways) */
+			if (deck_pet_stroke_at(&L, x, y) != (!cell && near)) {
+				fprintf(stderr, "stroke at %d,%d: st %d mood %d hat %d pose %d ms %u\n", x, y, st, mood, hat, pose, ms);
+				CHECK(0);
+				goto out;
+			}
+		}
+		if (L.x0 < rx0) rx0 = L.x0;
+		if (L.y0 < ry0) ry0 = L.y0;
+		if (L.x1 > rx1) rx1 = L.x1;
+		if (L.y1 > ry1) ry1 = L.y1;
+		/* nothing reaches the grid's edge */
+		CHECK(L.x0 > DECK_PET_GRID_X0 - 1 && L.y0 > DECK_PET_GRID_Y0 - 1);
+		CHECK(L.x1 < DECK_PET_GRID_X0 + DECK_PET_GRID_W && L.y1 < DECK_PET_GRID_Y0 + DECK_PET_GRID_H);
+	})
+out:
+	printf("test_pet: the looks reach x %d..%d, y %d..%d\n", rx0, rx1, ry0, ry1);
+	CHECK(rx0 >= DECK_PET_REACH_X0 && ry0 >= DECK_PET_REACH_Y0 && rx1 <= DECK_PET_REACH_X1 && ry1 <= DECK_PET_REACH_Y1);
+}
+
+static void test_flames(void)
+{
+	for (int st = 0; st < 7; st++)
+		for (int mood = 0; mood < 4; mood++)
+			for (int pose = 0; pose <= DECK_PET_POSE_HUNGRY; pose++) {
+				deck_pet_t p = pet_of(st, mood, 11);
+				const deck_pet_opts_t o = posed(pose, 0);
+				deck_pet_look(&L, &p, &o);
+				int flames = 0, stars = 0;
+				FOR_GRID(x, y) {
+					flames += deck_pet_flame_at(&L, x, y);
+					stars += (L.star[y - DECK_PET_GRID_Y0] >> (x - DECK_PET_GRID_X0)) & 1u;
+				}
+				const bool glow = st >= DECK_PET_STRONG && mood != DECK_PET_WEAK && mood != DECK_PET_ASLEEP &&
+				                  pose != DECK_PET_POSE_EXIT;
+				CHECK((L.aura != 0) == glow);
+				CHECK((flames > 20) == glow);
+				CHECK((stars > 0) == (glow && st == DECK_PET_LEGEND));
+			}
 }
 
 /* ---- a canvas that mixes like a board would ---------------------------------- */
 
-#define CW 160
-#define CH 160
+#define CW 220
+#define CH 200
 #define BG 0x101010u
 static uint32_t px[CH][CW];
-static int fills, minx, miny, maxx, maxy;
+static int minx, miny, maxx, maxy;
 
 static uint32_t mix(uint32_t bg, uint32_t fg, uint8_t a)
 {
@@ -140,7 +223,6 @@ static uint32_t mix(uint32_t bg, uint32_t fg, uint8_t a)
 static void fill(void *user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha)
 {
 	(void)user;
-	fills++;
 	CHECK(w > 0 && h > 0);
 	if (x < minx) minx = x;
 	if (y < miny) miny = y;
@@ -152,29 +234,12 @@ static void fill(void *user, int x, int y, int w, int h, uint32_t rgb, uint8_t a
 				px[yy][xx] = mix(px[yy][xx], rgb, alpha);
 }
 
-static void clear(void)
-{
-	for (int y = 0; y < CH; y++)
-		for (int x = 0; x < CW; x++)
-			px[y][x] = BG;
-	fills = 0;
-	minx = miny = 1 << 20;
-	maxx = maxy = -(1 << 20);
-}
-
-static int ring_cells(const deck_pet_look_t *l, int x0, int y0, int s, uint32_t want)
-{
-	int n = 0;
-	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
-		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++)
-			if (!deck_pet_at(l, x, y) && px[y0 + y * s][x0 + x * s] == want)
-				n++;
-	return n;
-}
-
 static void draw(const deck_pet_look_t *l, int x, int y, int s)
 {
-	clear();
+	for (int yy = 0; yy < CH; yy++)
+		for (int xx = 0; xx < CW; xx++) px[yy][xx] = BG;
+	minx = miny = 1 << 20;
+	maxx = maxy = -(1 << 20);
 	deck_pet_draw(l, x, y, s, fill, NULL);
 	int bx, by, bw, bh;
 	deck_pet_bounds(l, s, &bx, &by, &bw, &bh);
@@ -183,263 +248,222 @@ static void draw(const deck_pet_look_t *l, int x, int y, int s)
 
 static void test_draw(void)
 {
-	deck_pet_look_t l;
-	deck_pet_opts_t o = {0};
-	o.hat = deck_pet_hat_of("crown");
-	o.hat_color = deck_pet_hat_color_of("blue");
-	deck_pet_t p = pet_of(DECK_PET_GROWN, DECK_PET_FED, false);
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.art == DECK_PET_ART_BUILDER && l.aura == DECK_PET_AURA_NONE && !l.ice);
-	CHECK(l.x0 >= DECK_PET_GRID_X0 + 2 && l.y0 >= DECK_PET_GRID_Y0 + 2);
-	CHECK(l.x1 <= DECK_PET_GRID_X0 + DECK_PET_GRID_W - 3 && l.y1 <= DECK_PET_GRID_Y0 + DECK_PET_GRID_H - 3);
-
-	/* Every cell is scale x scale pixels of its key's colour; nothing round it. */
-	for (int s = 1; s <= 4; s++) {
-		const int x0 = 20, y0 = 30;
-		draw(&l, x0, y0, s);
-		int cellsN = 0;
-		for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
-			for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
-				const char k = deck_pet_at(&l, x, y);
-				const uint32_t want = k ? deck_pet_rgb(&l, k) : BG;
-				cellsN += k != 0;
-				CHECK(px[y0 + y * s][x0 + x * s] == want);
-				CHECK(px[y0 + y * s + s - 1][x0 + x * s + s - 1] == want);
+	/* A strong grown-up with a top hat, running: every cell in its colour,
+	 * the stroke black, the flames under it all, the props white. */
+	deck_pet_t p = pet_of(DECK_PET_STRONG, DECK_PET_FED, 11);
+	for (int s = 1; s <= 3; s++)
+		for (uint32_t ms = 0; ms < 1200; ms += 200) {
+			const deck_pet_opts_t o = posed(DECK_PET_POSE_RUN, ms);
+			deck_pet_look(&L, &p, &o);
+			const int ox = 6 * 3 + 20, oy = 13 * 3 + 20;
+			draw(&L, ox, oy, s);
+			int props = 0;
+			FOR_GRID(x, y) {
+				const char k = deck_pet_at(&L, x, y);
+				const bool spark = (L.spark[y - DECK_PET_GRID_Y0] >> (x - DECK_PET_GRID_X0)) & 1u;
+				const uint32_t want = spark ? 0xFFFFFFu   /* the sparks rise in front */
+				                      : k ? deck_pet_rgb(&L, k)
+				                      : deck_pet_stroke_at(&L, x, y) ? 0x000000u
+				                      : deck_pet_flame_at(&L, x, y) ? 0xFFE08Au : BG;
+				CHECK(px[oy + y * s][ox + x * s] == want);
+				CHECK(px[oy + y * s + s - 1][ox + x * s + s - 1] == want);
+				props += k == 'P';
 			}
-		CHECK(fills < cellsN / 2); /* runs, not cells */
-	}
-	CHECK(deck_pet_rgb(&l, 'b') == 0xFF4D00);
-	CHECK(deck_pet_rgb(&l, 'h') == 0x6F8FD8 && deck_pet_rgb(&l, 'H') == 0x4A63A3);
-	CHECK(deck_pet_at(&l, 9, 1) == 'h'); /* the crown sits on the body's top row */
-	CHECK(deck_pet_at(&l, 100, 0) == 0 && deck_pet_at(&l, 0, -100) == 0);
+			CHECK(L.aura == DECK_PET_AURA_STRONG);
+			CHECK(props == 0 || deck_pet_rgb(&L, 'P') == 0xFFFFFFu);
+		}
+	CHECK(deck_pet_rgb(&L, 'h') == 0x6F8FD8 && deck_pet_rgb(&L, 'H') == 0x4A63A3);
 
-	/* No hat: the egg's spots are teal. */
-	deck_pet_opts_t bare = {0};
-	p = pet_of(DECK_PET_EGG, DECK_PET_FED, false);
-	deck_pet_look(&l, &p, &bare);
-	CHECK(deck_pet_at(&l, 8, 2) == 's' && deck_pet_rgb(&l, 's') == 0x4FB3A6);
-	deck_pet_look(&l, NULL, NULL); /* no pet at all: an egg */
-	CHECK(l.art == DECK_PET_ART_EGG);
+	/* Its own hat; the agent's hat only colours an egg's spots. */
+	deck_pet_opts_t o = posed(DECK_PET_POSE_NONE, 0);
+	o.hat = 3;
+	o.hat_color = 2; /* yellow */
+	p = pet_of(DECK_PET_EGG, DECK_PET_FED, 0);
+	deck_pet_look(&L, &p, &o);
+	CHECK(deck_pet_at(&L, 8, 2) == 's' && deck_pet_rgb(&L, 's') == 0xE8B94A);
+	o.hat = 0;
+	deck_pet_look(&L, &p, &o);
+	CHECK(deck_pet_rgb(&L, 's') == 0x4FB3A6); /* no hats: teal */
+	p = pet_of(DECK_PET_GROWN, DECK_PET_FED, 0);
+	deck_pet_look(&L, &p, &o);
+	int hat = 0;
+	FOR_GRID(x, y) hat += deck_pet_hat_at(&L, x, y);
+	CHECK(hat == 0);
+	p.hat = 11;
+	deck_pet_look(&L, &p, &o);
+	FOR_GRID(x, y) hat += deck_pet_hat_at(&L, x, y);
+	CHECK(hat > 20 && deck_pet_hat_at(&L, 5, -1));
+	deck_pet_look(&L, NULL, NULL); /* no pet at all: an egg */
+	CHECK(L.art == DECK_PET_ART_EGG);
 
-	/* Weak: brown body, no aura even at legend. */
-	p = pet_of(DECK_PET_LEGEND, DECK_PET_WEAK, false);
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.art == DECK_PET_ART_WEAK && l.weak && l.aura == DECK_PET_AURA_NONE);
-	CHECK(deck_pet_rgb(&l, 'd') == 0xB0673F);
-	p = pet_of(DECK_PET_KID, DECK_PET_WEAK, false);
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.art == DECK_PET_ART_KID && deck_pet_rgb(&l, 'b') == 0xB0673F);
+	/* Without its bubble: no props for a waiting pet. */
+	p = pet_of(DECK_PET_KID, DECK_PET_FED, 0);
+	o = posed(DECK_PET_POSE_WAIT, 0);
+	deck_pet_look(&L, &p, &o);
+	int props = 0;
+	FOR_GRID(x, y) props += deck_pet_at(&L, x, y) == 'P';
+	CHECK(props == 6);
+	o.bubble = false;
+	deck_pet_look(&L, &p, &o);
+	props = 0;
+	FOR_GRID(x, y) props += deck_pet_at(&L, x, y) == 'P';
+	CHECK(props == 0);
 
-	/* The aura: one ring of cells round the art in the stage's colour. */
-	const uint32_t aura_rgb[] = {0xFFE08A, 0x3FA9F5, 0xE8A317};
-	const uint8_t aura_a[] = {191, 179, 217};
-	for (int st = DECK_PET_STRONG; st <= DECK_PET_LEGEND; st++) {
-		p = pet_of(st, DECK_PET_FED, false);
-		deck_pet_look(&l, &p, &o);
-		CHECK(l.aura == DECK_PET_AURA_STRONG + (st - DECK_PET_STRONG));
-		draw(&l, 40, 40, 2);
-		const uint32_t ring = mix(BG, aura_rgb[st - DECK_PET_STRONG], aura_a[st - DECK_PET_STRONG]);
-		CHECK(ring_cells(&l, 40, 40, 2, ring) > 30);
-		CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == ring);  /* right under a foot */
-		CHECK(px[40 + (l.y1 + 2) * 2][40 + 4 * 2] == BG);    /* and only one cell deep */
-		/* On the plate the aura sits where it was, over the dark. */
-		o.plate = true;
-		deck_pet_look(&l, &p, &o);
-		draw(&l, 40, 40, 2);
-		CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == mix(0x0A0A0A, aura_rgb[st - DECK_PET_STRONG], aura_a[st - DECK_PET_STRONG]));
-		o.plate = false;
-	}
-	p = pet_of(DECK_PET_GROWN, DECK_PET_FED, false);
-	deck_pet_look(&l, &p, &o);
-	draw(&l, 40, 40, 2);
-	CHECK(px[40 + (l.y1 + 1) * 2][40 + 4 * 2] == BG); /* a grown-up has none */
+	/* Asleep: the ice cube over it, frost under it; it still asks. */
+	p = pet_of(DECK_PET_LEGEND, DECK_PET_ASLEEP, 0);
+	o = posed(DECK_PET_POSE_WAIT, 0);
+	deck_pet_look(&L, &p, &o);
+	CHECK(L.ice && L.aura == DECK_PET_AURA_NONE);
+	draw(&L, 60, 80, 2);
+	CHECK(deck_pet_at(&L, 6, 7) == 'b');
+	CHECK(px[80 + 7 * 2][60 + 6 * 2] == mix(0xFF4D00, 0x8FD0F2, 102)); /* the body, seen through the ice */
+	CHECK(px[80 + (L.ice_y1 + 1) * 2][60 + 8 * 2] == mix(BG, 0xDFF4FF, 115)); /* the frost */
+	props = 0;
+	FOR_GRID(x, y) props += deck_pet_at(&L, x, y) == 'P';
+	CHECK(props == 6); /* "?" beside the cube */
+	o = posed(DECK_PET_POSE_RUN, 300);
+	deck_pet_look(&L, &p, &o);
+	props = 0;
+	FOR_GRID(x, y) props += deck_pet_at(&L, x, y) == 'P';
+	CHECK(props == 0); /* frozen: no pose */
 
-	/* Asleep: the ice cube over it, no aura, frost under it. */
-	p = pet_of(DECK_PET_LEGEND, DECK_PET_ASLEEP, false);
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.ice && l.aura == DECK_PET_AURA_NONE);
-	draw(&l, 40, 40, 3);
-	const int bx = 40 + (l.x0 - 1) * 3, by = 40 + (l.y0 - 1) * 3;
-	CHECK(px[by][bx] == mix(mix(BG, 0x8FD0F2, 102), 0xDFF4FF, 230)); /* the cube's corner */
-	const int cx = 40 + 6 * 3, cy = 40 + 7 * 3;                    /* a body cell, seen through the ice */
-	CHECK(deck_pet_at(&l, 6, 7) == 'b');
-	CHECK(px[cy][cx] == mix(0xFF4D00, 0x8FD0F2, 102));
-	CHECK(px[40 + (l.y1 + 2) * 3][40 + 8 * 3] == mix(BG, 0xDFF4FF, 115)); /* the frost */
-	o.plate = true; /* the plate covers the cube and its frost */
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.plate_x0 <= l.x0 - 2 && l.plate_x1 >= l.x1 + 2 && l.plate_y0 <= l.y0 - 1 && l.plate_y1 >= l.y1 + 2);
-	draw(&l, 40, 40, 3);
-	CHECK(px[40 + (l.y1 + 2) * 3][40 + 8 * 3] == mix(0x0A0A0A, 0xDFF4FF, 115));
-	o.plate = false;
-
-	/* Hungry: the open mouth; idle: eyes shut (the mouth wins). */
-	p = pet_of(DECK_PET_GROWN, DECK_PET_HUNGRY, false);
-	o.idle = true;
-	deck_pet_look(&l, &p, &o);
-	CHECK(deck_pet_at(&l, 7, 7) == 'm' && deck_pet_at(&l, 8, 8) == 'm' && deck_pet_at(&l, 4, 5) == 'e');
-	p = pet_of(DECK_PET_GROWN, DECK_PET_FED, false);
-	deck_pet_look(&l, &p, &o);
-	CHECK(deck_pet_at(&l, 4, 5) == 'b' && deck_pet_at(&l, 3, 6) == 'e' && deck_pet_at(&l, 11, 6) == 'e');
-	o.idle = false;
+	/* Exited: hollow, no flames, the hat in its shade. */
+	p = pet_of(DECK_PET_LEGEND, DECK_PET_FED, 2);
+	o = posed(DECK_PET_POSE_EXIT, 0);
+	deck_pet_look(&L, &p, &o);
+	CHECK(!L.aura && deck_pet_at(&L, 7, 7) == 0 && deck_pet_rgb(&L, 'h') == 0x4A63A3);
 
 	/* Off the canvas: drawn clipped, no harm. */
-	draw(&l, -60, -60, 4);
-	draw(&l, CW - 10, CH - 10, 4);
+	draw(&L, -90, -90, 4);
+	draw(&L, CW - 10, CH - 10, 4);
 }
 
-/* WCAG contrast and hue, to check the kit's table of hat colours close to an aura's. */
-static double lum(uint32_t c)
+/* The face stays on top: in every frame of every pose (but the exited one's
+ * hollow outline) a hatched pet shows as many eye cells as in any other
+ * frame of that pose; none go under the body (the compacting squeeze once
+ * hid them). The weak grown-up's eyes are its dark cells, but not its
+ * mouth (the rows where columns 6 to 8 are all dark) or the flag's squares
+ * (right of column 12). */
+static int eye_cells(const deck_pet_look_t *l)
 {
-	double v[3];
-	for (int i = 0; i < 3; i++) {
-		const double x = ((c >> (16 - 8 * i)) & 0xFF) / 255.0;
-		v[i] = x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
-	}
-	return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
-}
-
-static double hue(uint32_t c)
-{
-	const double r = ((c >> 16) & 0xFF) / 255.0, g = ((c >> 8) & 0xFF) / 255.0, b = (c & 0xFF) / 255.0;
-	const double mx = fmax(r, fmax(g, b)), mn = fmin(r, fmin(g, b)), d = mx - mn;
-	if (d == 0)
-		return 0;
-	double h = mx == r ? fmod((g - b) / d, 6) : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
-	h *= 60;
-	return h < 0 ? h + 360 : h;
-}
-
-static void test_hat_in_aura(void)
-{
-	const uint32_t aura_rgb[] = {0, 0xFFE08A, 0x3FA9F5, 0xE8A317};
-	const uint32_t hat_main[] = {0x4FB3A6, 0x6F8FD8, 0xE8B94A, 0x6DBE6A, 0xA68BD8, 0xE58BB0, 0x5EC4D6, 0xE8E4DC};
-	const uint32_t hat_shade[] = {0x2F7F75, 0x4A63A3, 0xB08429, 0x468A44, 0x7660A6, 0xB05E80, 0x3A8E9C, 0xA8A39A};
-	int close = 0;
-	for (int au = DECK_PET_AURA_STRONG; au <= DECK_PET_AURA_LEGEND; au++)
-		for (int col = 0; col < DECK_PET_HAT_COLOR_COUNT; col++) {
-			const double l1 = lum(aura_rgb[au]), l2 = lum(hat_main[col]);
-			const double contrast = (fmax(l1, l2) + 0.05) / (fmin(l1, l2) + 0.05);
-			double dh = fabs(hue(aura_rgb[au]) - hue(hat_main[col]));
-			if (dh > 180)
-				dh = 360 - dh;
-			const bool want = contrast < 1.6 && dh <= 40;
-			CHECK(deck_pet_hat_blends((uint8_t)au, (uint8_t)col) == want);
-			close += want;
+	int n = 0;
+	FOR_GRID(x, y) {
+		const char k = deck_pet_at(l, x, y);
+		if (l->art != DECK_PET_ART_WEAK) {
+			n += k == 'e';
+			continue;
 		}
-	CHECK(close == 6); /* yellow, ink in strong; teal, blue, sky in mighty; yellow in legend */
-	CHECK(!deck_pet_hat_blends(DECK_PET_AURA_NONE, 2) && !deck_pet_hat_blends(9, 2) && !deck_pet_hat_blends(1, 99));
+		const bool mouth = deck_pet_at(l, 6, y) == 'k' && deck_pet_at(l, 7, y) == 'k' && deck_pet_at(l, 8, y) == 'k';
+		n += k == 'k' && x <= 12 && !(mouth && x >= 6 && x <= 8);
+	}
+	return n;
+}
 
-	for (int st = DECK_PET_KID; st <= DECK_PET_LEGEND; st++)
-		for (int hat = 1; hat <= DECK_PET_HAT_SHAPE_COUNT; hat++)
-			for (int col = 0; col < DECK_PET_HAT_COLOR_COUNT; col++)
-				for (int plate = 0; plate < 2; plate++) {
-					deck_pet_t p = pet_of(st, DECK_PET_FED, false);
-					deck_pet_opts_t o = {0};
-					o.hat = (uint8_t)hat;
-					o.hat_color = (uint8_t)col;
-					o.plate = plate;
-					deck_pet_look_t l;
-					deck_pet_look(&l, &p, &o);
-					/* In its shade when close to the aura, else its own colour. */
-					const bool toned = deck_pet_hat_blends(l.aura, (uint8_t)col);
-					CHECK(l.hat_toned == toned);
-					CHECK(deck_pet_rgb(&l, 'h') == (toned ? hat_shade[col] : hat_main[col]));
-					CHECK(deck_pet_rgb(&l, 'H') == hat_shade[col]);
-					/* Every empty cell next to the hat stays background (or the plate). */
-					draw(&l, 40, 40, 1);
-					int hat_cells = 0;
-					for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
-						for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
-							if (!deck_pet_hat_at(&l, x, y))
-								continue;
-							hat_cells++;
-							CHECK(deck_pet_at(&l, x, y) != 0);
-							for (int d = 0; d < 9; d++) {
-								const int nx = x + d % 3 - 1, ny = y + d / 3 - 1;
-								if (deck_pet_at(&l, nx, ny))
-									continue;
-								const uint32_t v = px[40 + ny][40 + nx];
-								CHECK(v == (plate ? 0x0A0A0Au : BG));
-							}
-						}
-					CHECK(hat_cells > 0);
-					/* The aura is still there round the body. */
-					if (l.aura) {
-						const uint32_t ring = mix(plate ? 0x0A0A0Au : BG, aura_rgb[l.aura], l.aura == 1 ? 191 : l.aura == 2 ? 179 : 217);
-						CHECK(ring_cells(&l, 40, 40, 1, ring) > 20);
+static void test_face(void)
+{
+	for (int st = DECK_PET_BABY; st <= DECK_PET_LEGEND; st++)
+		for (int mood = 0; mood < 4; mood++)
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat += 3)
+				for (int pose = DECK_PET_POSE_THINK; pose <= DECK_PET_POSE_HUNGRY; pose++) {
+					if (pose == DECK_PET_POSE_EXIT)
+						continue;
+					deck_pet_t p = pet_of(st, mood, hat);
+					int lo = 999, hi = -1;
+					for (uint32_t ms = 0; ms < 2400; ms += 50) {
+						const deck_pet_opts_t o = posed(pose, ms);
+						deck_pet_look(&L, &p, &o);
+						const int n = eye_cells(&L);
+						if (n < lo) lo = n;
+						if (n > hi) hi = n;
+					}
+					if (lo != hi || lo == 0)
+						fprintf(stderr, "face: stage %d mood %d hat %d pose %d: eye cells %d..%d\n", st, mood, hat, pose, lo, hi);
+					CHECK(lo == hi && lo > 0);
+				}
+}
+
+/* The feet stay on the body: in every frame of every pose (but the exited
+ * one's hollow outline) a hatched pet's body (body, shade, eyes, mouth,
+ * ground; not its hat, props or the mini pet in tow) is one piece, four
+ * ways: a jog lifts the feet with it. A piece with no body colour in it
+ * (the flag's checker) doesn't count. */
+static bool body_piece(char k) { return k == 'b' || k == 'd' || k == 'm' || k == 'g' || k == 'e' || k == 'k'; }
+
+static int pieces(const deck_pet_look_t *l, int pose)
+{
+	static uint8_t seen[DECK_PET_GRID_H][DECK_PET_GRID_W];
+	memset(seen, 0, sizeof seen);
+	static const int tow[] = {16, 16, 14, 14, 16, 17}; /* the mini pet's column, per art */
+	const int tow_x = pose == DECK_PET_POSE_DELEGATE ? tow[l->art] : 999;
+	int n = 0;
+	FOR_GRID(x0, y0) {
+		const char k = deck_pet_at(l, x0, y0);
+		if (!body_piece(k) || x0 >= tow_x || seen[y0 - DECK_PET_GRID_Y0][x0 - DECK_PET_GRID_X0])
+			continue;
+		int stack[DECK_PET_GRID_W * DECK_PET_GRID_H][2], top = 0;
+		bool coloured = false;
+		stack[top][0] = x0, stack[top][1] = y0, top++;
+		seen[y0 - DECK_PET_GRID_Y0][x0 - DECK_PET_GRID_X0] = 1;
+		while (top) {
+			top--;
+			const int x = stack[top][0], y = stack[top][1];
+			const char c = deck_pet_at(l, x, y);
+			coloured |= c == 'b' || c == 'd' || c == 'g';
+			static const int8_t d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+			for (int i = 0; i < 4; i++) {
+				const int nx = x + d[i][0], ny = y + d[i][1];
+				const char m = deck_pet_at(l, nx, ny);
+				if (!body_piece(m) || nx >= tow_x || seen[ny - DECK_PET_GRID_Y0][nx - DECK_PET_GRID_X0])
+					continue;
+				seen[ny - DECK_PET_GRID_Y0][nx - DECK_PET_GRID_X0] = 1;
+				stack[top][0] = nx, stack[top][1] = ny, top++;
+			}
+		}
+		n += coloured;
+	}
+	return n;
+}
+
+static void test_feet(void)
+{
+	for (int st = DECK_PET_BABY; st <= DECK_PET_LEGEND; st++)
+		for (int mood = 0; mood < 3; mood++)   /* (asleep: frozen, no pose) */
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat += 3)
+				for (int pose = DECK_PET_POSE_THINK; pose <= DECK_PET_POSE_HUNGRY; pose++) {
+					if (pose == DECK_PET_POSE_EXIT)
+						continue;
+					deck_pet_t p = pet_of(st, mood, hat);
+					for (uint32_t ms = 0; ms < 2400; ms += 50) {
+						const deck_pet_opts_t o = posed(pose, ms);
+						deck_pet_look(&L, &p, &o);
+						const int n = pieces(&L, pose);
+						if (n != 1)
+							fprintf(stderr, "feet: stage %d mood %d hat %d pose %d at %u ms: %d pieces\n", st, mood, hat, pose, ms, n);
+						CHECK(n == 1);
 					}
 				}
 }
 
-/* The plate: a dark square one cell larger than the art and hat on every
- * side, under every look, and only with .plate. */
-static void test_plate(void)
-{
-	for (int st = 0; st < 7; st++)
-		for (int mood = 0; mood < 4; mood++)
-			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat++) {
-				deck_pet_t p = pet_of(st, mood, st == 0 && hat % 2);
-				deck_pet_opts_t o = {0};
-				o.hat = (uint8_t)hat;
-				deck_pet_look_t l;
-				deck_pet_look(&l, &p, &o);
-				CHECK(!l.plate);
-				draw(&l, 40, 40, 2);
-				for (int y = 0; y < CH; y++)
-					for (int x = 0; x < CW; x++)
-						CHECK(px[y][x] != 0x0A0A0Au || deck_pet_at(&l, (x - 40) >> 1, (y - 40) >> 1)); /* no dark but the art's */
-				o.plate = true;
-				deck_pet_look(&l, &p, &o);
-				const int w = l.plate_x1 - l.plate_x0 + 1, h = l.plate_y1 - l.plate_y0 + 1;
-				CHECK(w == h || l.plate_x0 == DECK_PET_GRID_X0 || l.plate_y0 == DECK_PET_GRID_Y0 ||
-				      l.plate_x1 == DECK_PET_GRID_X0 + DECK_PET_GRID_W - 1 || l.plate_y1 == DECK_PET_GRID_Y0 + DECK_PET_GRID_H - 1);
-				CHECK(l.plate_x0 <= l.x0 - 1 && l.plate_x1 >= l.x1 + 1 && l.plate_y0 <= l.y0 - 1 && l.plate_y1 >= l.y1 + 1);
-				draw(&l, 40, 40, 2); /* (draw checks the bounds hold it) */
-				CHECK(px[40 + l.plate_y0 * 2][40 + l.plate_x0 * 2] == 0x0A0A0Au);
-				const uint32_t corner = px[40 + l.plate_y1 * 2 + 1][40 + l.plate_x1 * 2 + 1];
-				CHECK(l.ice ? corner != BG : corner == 0x0A0A0Au); /* asleep: the frost lies over it */
-				CHECK(px[40 + (l.plate_y1 + 1) * 2][40 + l.plate_x1 * 2] == BG);
-			}
-}
-
 static void test_motion(void)
 {
-	deck_pet_look_t l;
-	deck_pet_opts_t o = {0};
 	int dx, dy;
-	deck_pet_t p = pet_of(DECK_PET_KID, DECK_PET_FED, false);
-	deck_pet_look(&l, &p, &o);
-	deck_pet_motion(&l, 700, 4, &dx, &dy);
-	CHECK(dx == 0 && dy == 0); /* not working: still */
-	o.working = true;
-	deck_pet_look(&l, &p, &o);
-	deck_pet_motion(&l, 200, 4, &dx, &dy);
-	CHECK(dx == 0 && dy == 0);
-	deck_pet_motion(&l, 700, 4, &dx, &dy);
-	CHECK(dx == 0 && dy == -2);
-	deck_pet_motion(&l, 1700, 1, &dx, &dy);
-	CHECK(dy == -1);
-	p.mood = DECK_PET_ASLEEP; /* in the ice it holds still */
-	deck_pet_look(&l, &p, &o);
-	deck_pet_motion(&l, 700, 4, &dx, &dy);
-	CHECK(dx == 0 && dy == 0);
-
-	/* An egg waiting to be seen rocks. */
-	p = pet_of(DECK_PET_EGG, DECK_PET_FED, false);
-	p.ready = true;
-	deck_pet_look(&l, &p, &o);
-	CHECK(l.ready);
+	deck_pet_t p = pet_of(DECK_PET_EGG, DECK_PET_FED, 0);
+	p.ready = p.cracked = true;
+	deck_pet_opts_t o = posed(DECK_PET_POSE_NONE, 0);
+	deck_pet_look(&L, &p, &o);
+	CHECK(L.ready && L.art == DECK_PET_ART_CRACK);
 	int left = 0, right = 0;
-	for (uint32_t ms = 0; ms < 1600; ms += 50) {
-		deck_pet_motion(&l, ms, 2, &dx, &dy);
-		CHECK(dy == 0 && dx >= -1 && dx <= 1);
+	for (uint32_t ms = 0; ms < 1600; ms += 40) {   /* whole cells: still until 60 %, then -1, +1, -1 */
+		deck_pet_motion(&L, ms, 2, &dx, &dy);
+		CHECK(dy == 0 && (dx == 0 || dx == -2 || dx == 2));
+		CHECK((ms < 960 || ms >= 1440) == (dx == 0));
 		left += dx < 0;
 		right += dx > 0;
 	}
-	CHECK(left > 0 && right > 0);
+	CHECK(left == 8 && right == 4);
 	p.ready = false;
-	deck_pet_look(&l, &p, &(deck_pet_opts_t){0});
-	deck_pet_motion(&l, 250, 2, &dx, &dy);
+	deck_pet_look(&L, &p, &o);
+	deck_pet_motion(&L, 250, 2, &dx, &dy);
 	CHECK(dx == 0 && dy == 0);
 }
 
@@ -447,9 +471,11 @@ int main(void)
 {
 	test_golden();
 	test_state();
+	test_stroke_and_reach();
+	test_flames();
+	test_face();
+	test_feet();
 	test_draw();
-	test_hat_in_aura();
-	test_plate();
 	test_motion();
 	if (failures) {
 		fprintf(stderr, "test_pet: %d of %d checks failed\n", failures, checks);

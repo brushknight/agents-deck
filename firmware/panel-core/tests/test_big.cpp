@@ -88,27 +88,44 @@ int main() {
     assert(ui.screen == Screen::Home);
   }
 
-  // ---- the card's buttons (AgentButton row) by status and scope
+  // ---- the card's buttons: squares in a centred row at the foot, by status and scope
   {
     Agent run = mk("r", 0, Status::Running), idle = mk("i", 1, Status::Idle), ex = mk("x", 2, Status::Exited);
     BigButtons b = bigCardButtons(S, run, DeckScope::View);
-    assert(b.n == 0);
+    assert(b.n == 1 && b.kind[0] == Hit::Back && b.r[0].x == (S.w - big_ui::kAct) / 2);   // view scope: only back
     b = bigCardButtons(S, run, DeckScope::Act);
-    assert(b.n == 2 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Interrupt);
-    assert(b.r[1].w == bk(S, 200) && b.r[0].w == bigCardInner(S).w - bk(S, 14) - bk(S, 200) && b.r[0].h == bk(S, 68));
-    assert(b.r[0].y + b.r[0].h == S.h - bk(S, 30));
+    assert(b.n == 3 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Interrupt && b.kind[2] == Hit::Back);
+    assert(b.r[0].w == big_ui::kAct && b.r[0].h == big_ui::kAct && b.r[1].x == b.r[0].x + big_ui::kAct + big_ui::kActGap);
+    assert(b.r[0].y + b.r[0].h == S.h - big_ui::kM && b.r[0].x - 0 == S.w - (b.r[2].x + b.r[2].w));   // centred
+    b = bigCardButtons(S, run, DeckScope::Admin);
+    assert(b.n == 4 && b.kind[2] == Hit::Stop && b.kind[3] == Hit::Back && b.r[0].x >= big_ui::kM);
     b = bigCardButtons(S, idle, DeckScope::Act);
-    assert(b.n == 1 && b.kind[0] == Hit::Focus && b.r[0].w == bigCardInner(S).w);   // stop needs admin
+    assert(b.n == 2 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Back);   // stop needs admin
     b = bigCardButtons(S, idle, DeckScope::Admin);
-    assert(b.n == 2 && b.kind[1] == Hit::Stop);
+    assert(b.n == 3 && b.kind[1] == Hit::Stop);
     b = bigCardButtons(S, ex, DeckScope::Admin);
-    assert(b.n == 1 && b.kind[0] == Hit::Stop);                                       // remove
+    assert(b.n == 2 && b.kind[0] == Hit::Stop && b.kind[1] == Hit::Back);             // remove
     ex.resumable = true;
     b = bigCardButtons(S, ex, DeckScope::Admin);
-    assert(b.n == 2 && b.kind[0] == Hit::Resume && b.kind[1] == Hit::Stop);
+    assert(b.n == 3 && b.kind[0] == Hit::Resume && b.kind[1] == Hit::Stop);
+    {   // back: a tap goes home
+      Fleet f = fleetOf({run});
+      PanelUi ui;
+      bigOpen(ui, f, 0);
+      b = bigCardButtons(S, f.agents[0], DeckScope::View);
+      const DeckCommand c = tap(S, ui, f, b.r[0], DeckScope::View, 0);
+      assert(c.cmd == DeckCmd::None && ui.screen == Screen::Home);
+    }
+    // The card's parts stack without overlap: the column ends on the zone's foot.
+    for (const Agent* a : {&run, &idle, &ex}) {
+      const BigCard g = bigCard(S, *a, DeckScope::Admin);
+      assert(g.chipY >= big_ui::kM && g.barY + 3 <= g.zone.y + g.zone.h);
+      assert(g.nowY >= g.zone.y + g.zone.h && g.lastY > g.nowY && g.ctxY < g.whereY);
+      assert(g.whereY + big_ui::kLineXS <= bigCardButtons(S, *a, DeckScope::Admin).r[0].y);
+    }
 
-    // Stop: the first tap arms it ("tap again to stop"), the second sends Dismiss;
-    // armed, it lapses after 3 s.
+    // Stop: the first tap arms it ("again"), the second sends Dismiss; armed,
+    // it lapses after 3 s.
     Fleet f = fleetOf({idle});
     PanelUi ui;
     bigOpen(ui, f, 0);
@@ -138,9 +155,24 @@ int main() {
     assert(c.cmd == DeckCmd::Resume);
     c = tap(S, ui, f, b.r[1], DeckScope::Admin, 12000);                              // remove: one tap
     assert(c.cmd == DeckCmd::Dismiss);
+
+    // An egg ready to hatch: its box says "tap to hatch"; a tap asks the deck
+    // (HatchPet) or, on a Deck Link without it, says where to hatch it.
+    f.agents[0].status = Status::Idle;
+    f.agents[0].pet.has = true;
+    f.agents[0].pet.ready = f.agents[0].pet.cracked = true;
+    const BigCard g = bigCard(S, f.agents[0], DeckScope::Act);
+    assert(g.box && g.zone.h == big_ui::kZoneH + big_ui::kCtaH);
+    assert(bigHit(S, ui, f, g.zone.x + 5, g.zone.y + 5, DeckScope::View).kind == Hit::None);   // view scope: no
+    c = tap(S, ui, f, g.zone, DeckScope::Act, 13000);
+    if (kCanHatch) assert(c.cmd == DeckCmd::Hatch && !strcmp(c.agent, "i"));
+    else assert(c.cmd == DeckCmd::None && strstr(ui.toast, "hatch"));
+    f.agents[0].pet.ready = false;                                                   // not ready: no box, no hatch
+    assert(!bigCard(S, f.agents[0], DeckScope::Act).box);
+    assert(bigHit(S, ui, f, g.zone.x + 5, g.zone.y + 5, DeckScope::Act).kind == Hit::None);
   }
 
-  // ---- the prompt: one layout; choose an option, then send
+  // ---- the prompt: the whole screen orange; tap an answer to choose it, tap it again to send
   {
     Fleet f = fleetOf({mk("w", 0, Status::Waiting)});
     Agent& w = f.agents[0];
@@ -156,32 +188,30 @@ int main() {
       snprintf(w.waitKind, sizeof w.waitKind, "%s", kind);
       snprintf(w.waitDetail, sizeof w.waitDetail, "%s", !strcmp(kind, "permission") ? "terraform apply" : "");
       const BigPrompt p = bigPrompt(S, w);
-      assert(p.n == 3 && p.opt[0].h == bk(S, 74) && p.subs);
-      assert(p.opt[2].y + p.opt[2].h <= p.send.y - bk(S, 10));
-      assert(p.titleY >= bigTopBarBottom(S) && (p.box.h == 0) == (w.waitDetail[0] == 0));
-      if (p.box.h) assert(p.box.y + p.box.h <= p.opt[0].y);
-      assert(p.send.y == S.h - bk(S, 30) - bk(S, 68) && p.terminal.w == bk(S, 260));
+      assert(p.n == 3 && p.titleLines == 2 && (p.term.h == 0) == (w.waitDetail[0] == 0));
+      assert(p.titleY > p.askY && p.askY >= p.pet.y + p.pet.h);
+      if (p.term.h) assert(p.term.y >= p.titleY + 2 * big_ui::kLineQ && p.term.y + p.term.h <= p.opt[0].y);
+      for (int i = 0; i < 3; i++) assert(p.opt[i].h >= big_ui::kLineL + 4 && (i == 0 || p.opt[i].y >= p.opt[i - 1].y + p.opt[i - 1].h));
+      assert(p.opt[2].y + p.opt[2].h <= p.terminal.y && p.terminal.y + p.terminal.h == S.h - big_ui::kM);
     }
     PanelUi ui;
     bigOpen(ui, f, 0);
     assert(ui.screen == Screen::Prompt && ui.selected == -1);    // no primary: nothing chosen
     BigPrompt p = bigPrompt(S, w);
-    DeckCommand c = tap(S, ui, f, p.send, DeckScope::Act, 0);    // send with nothing chosen: nothing
-    assert(c.cmd == DeckCmd::None);
-    c = tap(S, ui, f, p.opt[2], DeckScope::Act, 100);
-    assert(c.cmd == DeckCmd::None && ui.selected == 2);
-    c = tap(S, ui, f, p.send, DeckScope::View, 200);             // view scope: a note, nothing sent
+    DeckCommand c = tap(S, ui, f, p.opt[2], DeckScope::Act, 100);
+    assert(c.cmd == DeckCmd::None && ui.selected == 2);          // chosen
+    c = tap(S, ui, f, p.opt[2], DeckScope::View, 200);           // view scope: a note, nothing sent
     assert(c.cmd == DeckCmd::None && strstr(ui.toast, "view only"));
-    c = tap(S, ui, f, p.send, DeckScope::Act, 300);
+    c = tap(S, ui, f, p.opt[2], DeckScope::Act, 300);            // again: sent
     assert(c.cmd == DeckCmd::Answer && !strcmp(c.prompt, "p9") && !strcmp(c.key, "3"));
     assert(ui.backAfterToast);
-    assert(tap(S, ui, f, p.send, DeckScope::Act, 400).cmd == DeckCmd::None);   // once
+    assert(tap(S, ui, f, p.opt[2], DeckScope::Act, 400).cmd == DeckCmd::None);   // once
     bigTick(ui, f, 2000);
     assert(ui.screen == Screen::Home);
-    // A refused answer keeps the prompt; "focus terminal" focuses.
+    // A refused answer keeps the prompt; focus focuses.
     bigOpen(ui, f, 0);
     tap(S, ui, f, p.opt[0], DeckScope::Act, 3000);
-    tap(S, ui, f, p.send, DeckScope::Act, 3100);
+    tap(S, ui, f, p.opt[0], DeckScope::Act, 3100);
     ui.cmdSeq = 5;
     bigResult(ui, 5, 409, 3200);
     assert(!ui.backAfterToast);
@@ -189,11 +219,12 @@ int main() {
     assert(ui.screen == Screen::Prompt);
     c = tap(S, ui, f, p.terminal, DeckScope::Act, 9100);
     assert(c.cmd == DeckCmd::Focus);
-    // Six options with hints still fit above the buttons (shorter, without hints).
+    // Six long answers still fit above focus (thinner rows).
     w.optCount = 6;
     for (int i = 3; i < 6; i++) snprintf(w.opts[i].key, sizeof w.opts[i].key, "%d", i + 1);
     p = bigPrompt(S, w);
-    assert(p.n == 6 && p.opt[0].y > p.titleY && p.opt[5].y + p.opt[5].h <= p.send.y);
+    assert(p.n == 6 && p.opt[0].y > p.titleY && p.opt[5].y + p.opt[5].h <= p.terminal.y);
+    for (int i = 0; i < 6; i++) assert(p.opt[i].h >= big_ui::kLineL + 4);
   }
 
   // ---- every screen at every scope and link state stays inside the frame
@@ -358,7 +389,7 @@ int main() {
     B.draw(cb, in);
     SquarePanel(specLcd4()).draw(cs, in);
     const BigButtons b = bigCardButtons(S, d.fleet.agents[i], DeckScope::Act);
-    assert(b.n == 2 && b.kind[0] == Hit::Focus);
+    assert(b.n == 3 && b.kind[0] == Hit::Focus && b.kind[2] == Hit::Back);
     const Theme T = deckTheme(false);
     // The focus button's face, beside its label, is filled; the small card has its round buttons elsewhere.
     const uint16_t face = big[(b.r[0].y + 6) * S.w + b.r[0].x + 12];

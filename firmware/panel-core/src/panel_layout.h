@@ -60,7 +60,7 @@ enum class Screen : uint8_t { Home, Card, Prompt };
 // What lies under a point.
 // NeedsYou: the "Needs you" screen's mark among the page bars.
 // ConfirmYes, ConfirmNo: the two buttons of "interrupt?" over a card.
-enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume, NeedsYou, ConfirmYes, ConfirmNo };
+enum class Hit : uint8_t { None, Tile, PageBar, Focus, Interrupt, Stop, Option, Send, Resume, NeedsYou, ConfirmYes, ConfirmNo, Hatch, Back };
 
 struct PanelHit {
   Hit kind = Hit::None;

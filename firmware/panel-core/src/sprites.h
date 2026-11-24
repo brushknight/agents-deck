@@ -522,10 +522,11 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
 
 // ---------------------------------------------------------------- agent pets
 // While Agent pets is on, each agent's pet (Agent::pet, the kit's deck_pet.h)
-// stands where its critter would, at the same scale: one pet cell is one
-// sprite unit. Cell (0, 0) sits at unit (-1, -5), so the pet's middle is the
-// body's and a grown-up's feet land on the critter's; its hat rises to unit
-// -7, the egg reaches unit 9, an aura or the ice two units round that.
+// stands where its critter would, at the same scale, and does the critter's
+// pose with its bubble: one pet cell is one sprite unit. Cell (0, 0) sits at
+// unit (-1, -5), so the pet's middle is the body's and a grown-up's feet land
+// on the critter's. With its bubbles, flag, flames and stroke it reaches
+// cells DECK_PET_REACH_* (units -6..23 across, -17..10 down).
 
 namespace sprite_detail {
 
@@ -545,38 +546,50 @@ static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb,
     }
 }
 
-// A background in the pet's own orange (a waiting tile, the accent disc): it stands on a dark plate.
-static inline bool petOnOrange(uint16_t bg) {
-  const int r = (bg >> 11) << 3, g = ((bg >> 5) & 63) << 2, b = (bg & 31) << 3;
-  return r >= 0xC0 && g < 0xA0 && b < 0x60;
-}
-
 }  // namespace sprite_detail
 
-// Draws the agent's pet with the sprite box's top-left at (x, y), as
-// drawSprite would its critter. `cut` is the colour behind it. A working
-// agent's pet bobs and an egg waiting to be seen rocks, on `ms`.
-static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, uint16_t cut, uint32_t ms) {
+// The pet's pose for the critter's (the kit's poses follow Pose, after NONE).
+static inline uint8_t petPose(Pose pose) { return (uint8_t)((int)pose + 1); }
+
+// Draws the agent's pet with its cell (0, 0) at pixel (x, y), in `pose` at
+// `ms`, with its bubble or not. The look is kept in static memory: pets are
+// drawn from one task.
+static inline void drawPetCells(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
   using namespace sprite_detail;
-  if (y + 16 * scale <= c.top || y - 6 * scale >= c.h) return;   // nothing of it in these rows (a strip)
+  // nothing of it in these rows (a strip of the frame)
+  if (y + (DECK_PET_REACH_Y1 + 1) * scale <= c.top || y + (DECK_PET_REACH_Y0 - 1) * scale >= c.h) return;
   deck_pet_opts_t o{};
+  o.pose = petPose(pose);
+  o.ms = ms;
+  o.bubble = bubble;
   o.hat = a.hat;
   o.hat_color = a.hatColor;
-  o.idle = a.status == Status::Idle || a.status == Status::Exited;
-  o.working = a.status == Status::Running;
-  o.plate = petOnOrange(cut);
-  deck_pet_look_t look;
+  static deck_pet_look_t look;
   deck_pet_look(&look, &a.pet, &o);
   int dx, dy;
   deck_pet_motion(&look, ms, scale, &dx, &dy);
-  deck_pet_draw(&look, x - scale + dx, y - scale + dy, scale, petFill, &c);
+  deck_pet_draw(&look, x + dx, y + dy, scale, petFill, &c);
+}
+
+// The pet with the sprite box's top-left at (x, y), as drawSprite would its critter.
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  drawPetCells(c, x - scale, y - scale, scale, a, pose, ms, bubble);
+}
+
+// The row under the pet's still art (its feet, the egg's foot, the weak one's
+// ground): stand it on a line there.
+static inline int petBottom(const Agent& a) {
+  static const uint8_t kBottom[] = {14, 14, 13, 13, 12, 13};   // per deck_pet_art_t
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, nullptr);
+  return look.art < sizeof kBottom ? kBottom[look.art] : 14;
 }
 
 // The agent as the deck shows it: its pet while it has one, else its critter
-// in `pose` (drawSprite, with its hat).
+// (drawSprite, with its hat); both in `pose`.
 static inline void drawCritter(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint16_t body, uint16_t cut,
                                uint32_t ms, bool bubble) {
-  if (a.pet.has) drawPet(c, x, y, scale, a, cut, ms);
+  if (a.pet.has) drawPet(c, x, y, scale, a, pose, ms, bubble);
   else drawSprite(c, x, y, scale, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
 }
 
