@@ -867,6 +867,8 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 .pet .prock { animation: prock 1.2s infinite; }
 .pet .prock.prk2 { animation-duration: .6s; }
 .pet .psq { animation: psq 1.2s infinite; }
+@keyframes psq1 { 0%, 32% { transform: none } 33%, 100% { transform: translateY(1px) } }
+.pet .psq.psq1 { animation-name: psq1; } /* the kid drops one pixel: its face sits low */
 .spr.off svg, .spr.off svg * { animation-play-state: paused !important; }
 .pet .pd1 { animation-delay: -.53s; } .pet .pd2 { animation-delay: -1.06s; } .pet .pd3 { animation-delay: -1.59s; } .pet .pd4 { animation-delay: -2.12s; }
 .pet .pd5 { animation-delay: -2.65s; } .pet .pd6 { animation-delay: -3.18s; } .pet .pd7 { animation-delay: -3.71s; } .pet .pd8 { animation-delay: -4.24s; } .pet .pd9 { animation-delay: -4.77s; }

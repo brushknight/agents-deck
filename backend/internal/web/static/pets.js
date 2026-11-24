@@ -383,7 +383,8 @@ export function petSVG(pet, opts = {}) {
   let bodyG;
   if (p?.top) {
     const top = [...pix].filter(([k]) => p.top.has(k)), low = [...pix].filter(([k]) => !p.top.has(k));
-    bodyG = `<g class="psq">${paths(top.map(([k, ch]) => [...at(k), cell(ch)]))}${lay(p.inner)}${lay(hatLayers)}</g>${paths(low.map(([k, ch]) => [...at(k), cell(ch)]))}`;
+    // the rows below first: the top drops over them, face and all
+    bodyG = `${paths(low.map(([k, ch]) => [...at(k), cell(ch)]))}<g class="psq${p.squeeze === 1 ? ' psq1' : ''}">${paths(top.map(([k, ch]) => [...at(k), cell(ch)]))}${lay(p.inner)}${lay(hatLayers)}</g>`;
   } else bodyG = paths([...pix].map(([k, ch]) => [...at(k), cell(ch)])) + (p ? lay(p.inner) + lay(hatLayers) : '');
   let behind = '', front = '', under = '', over = '';
   if ((look.asleep || opts.waking) && !opts.sil) {

@@ -121,8 +121,10 @@ within a cell of the mystery hat's "?" (the egg's, in the pet's view).
 - swing: down / mid on `la`, mid / down on `lb`.
 - step: the feet cells leave the body and are drawn twice: still x on `la`, mid-step x on `lb` (with `fast`
   for bash). Stepping feet stay put while the body bobs, as the critter's do.
-- squeeze: every body cell above row (first feet row - 2) drops 1 cell, then 2 cells, covering the two rows
-  above the feet; the eyes and hat drop with it. An egg keeps its bottom two rows (12 and 13).
+- squeeze: every body cell above row (first feet row - 2) drops 1 cell, then 2 cells, drawn over the two rows
+  above the feet; the eyes and hat drop with it and stay on top (a mouth on the rows below is squeezed shut). The kid drops only 1 cell (its face
+  reaches row 9, so it keeps one row, row 10, to drop over): every body cell above row 10 drops 1 cell
+  (class `psq1`). An egg keeps its bottom two rows (12 and 13).
 - hollow: every body cell whose four neighbours are all body cells is removed (the hat stays), the eyes become
   dots, the hat takes its shade, and there is no aura.
 - A working hat (any pose from think to compact in the table, the builder and weak arts) runs through the
@@ -181,6 +183,7 @@ those have whole-cell versions for pets (`hop`, `bobc`, `zz`). Each runs forever
 | prock | 1.2 s | 0, -1, 0, +1 cell in x, a quarter each |
 | prk2 | 0.6 s | prock at this speed |
 | psq | 1.2 s | 0, +1, +2 cells in y, a third each (springs back at the loop) |
+| psq1 | 1.2 s | 0 for a third, then +1 cell in y (the kid's squeeze) |
 | press2 / press1 | 1.2 s | press2 shows for the first third, press1 for two thirds, the last bar always |
 | hf-N-ms-i | N x ms | hat frame i shows for its ms slot |
 
@@ -198,6 +201,9 @@ spanning x 1 to 14 is drawn from x 0 to 15, a bubble box 5 x 5 becomes 7 x 7, an
   gaps (between the feet, between a raised arm and the head, inside a hollow outline).
 - Nothing see-through gets a stroke (the ice), and neither do auras, sparks or stars. A silhouette (a stage
   not reached yet) has none.
+- Within the pet, the body cells are painted first and every layer that moves on its own (the glancing and
+  scanning eyes, the chomping mouth, arms, the flag, hat frames) after them, so nothing of the body covers
+  the face; when squeezed, the rows it drops over are painted first and the dropping part after them.
 - Layers back to front: aura flames, the strokes, the pet (body, hat, eyes, arms, flag), its bubble and props
   in white, the aura's sparks and the legend's stars, and when it hibernates the ice over everything.
 

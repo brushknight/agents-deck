@@ -11,12 +11,14 @@ import { GLYPH } from './deck-core.js';
 // arms: the top row of a 1 x 2 arm hanging, half up and up (its column is
 // one left of the body's left edge on those two rows, one right of the
 // right edge); feet: their rows, columns, and columns mid-step; bubble: the top-left of the
-// 5 x 5 bubble box; tow: the top-left of the 5 x 3 mini pet in tow.
+// 5 x 5 bubble box; tow: the top-left of the 5 x 3 mini pet in tow;
+// squeeze: how far it drops while compacting (2 unless its face sits too
+// low to drop 2 without covering the eyes: the kid's).
 export const RIG = {
-  egg: { bubble: [14, -4], tow: [16, 11], bottom: 2 },
-  crack: { bubble: [14, -4], tow: [16, 11], bottom: 2 },
+  egg: { bubble: [14, -4], tow: [16, 11] },
+  crack: { bubble: [14, -4], tow: [16, 11] },
   baby: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 3], feet: [[12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [13, -1], tow: [14, 10] },
-  kid: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 4], feet: [[11, 12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [14, 0], tow: [14, 10] },
+  kid: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 4], feet: [[11, 12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [14, 0], tow: [14, 10], squeeze: 1 },
   builder: { eyes: [[4, 5, 1, 2], [10, 5, 1, 2]], mouth: [7, 7], arms: [7, 5, 2], feet: [[10, 11], [2, 4, 11, 13], [3, 5, 10, 12]], bubble: [16, -2], tow: [16, 9] },
   weak: { eyes: [[3, 7, 2, 1], [9, 7, 2, 1]], mouth: [6, 10], arms: [9, 7, 4], feet: [[11], [2, 4, 11, 13], [3, 5, 10, 12]], bubble: [15, 0], tow: [17, 9] },
 };
@@ -198,10 +200,12 @@ export function posePet(look, pose, opts = {}) {
     // the whole body moves: an egg rocks while it works
     if (egg) out.grp = ROCK.has(pose) ? `prock${spec.walk === 'fast' ? ' prk2' : ''}` : pose === 'celebrate' ? 'hop' : '';
     else out.grp = spec.grp || '';
-    // squeezed: all but its bottom two rows (above the feet) drop
+    // squeezed: all but the rows it drops over (above the feet) drop, and
+    // are drawn over them, face and all
     if (spec.squash) {
       const feetTop = rig.feet ? rig.feet[0][0] : Math.max(...[...pix.keys()].map((k) => at(k)[1])) + 1;
-      const split = feetTop - (rig.bottom || 2);
+      out.squeeze = rig.squeeze || 2;
+      const split = feetTop - out.squeeze;
       out.top = new Set([...pix.keys()].filter((k) => at(k)[1] < split));
     }
   }
