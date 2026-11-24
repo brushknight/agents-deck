@@ -345,7 +345,8 @@ function iceSVG(filled, waking) {
 // pose), working (it bobs, without a pose), waking (the ice cracks off),
 // mystery (a "?" where the hat will be, until it shows), hatching (the
 // ready egg shakes and bursts), born (the new pet pops in), sil (one colour,
-// no aura or stroke: a stage not reached yet), still (no aura or motion). A
+// no aura or stroke: a stage not reached yet), still (no aura or motion;
+// glow keeps the aura, still: the growth path). A
 // ready egg wobbles. The viewBox is the same for every pet, so all of them
 // are drawn at one scale; auras, strokes, bubbles and props reach outside
 // it. Back to front: flames, the stroke, the pet, its bubble and props,
@@ -356,7 +357,7 @@ export function petSVG(pet, opts = {}) {
   const pose = moving && !opts.hatching && !opts.waking ? opts.pose || '' : '';
   const look = petLook(pet, opts);
   const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
-  const glow = look.aura && moving && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
+  const glow = look.aura && !opts.sil && (moving || opts.glow) && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
   const keepOut = new Set([...look.pix].filter(([, ch]) => ch === 'q').map(([k]) => k));
   const p = pose ? posePet(look, pose, { bubble: opts.bubble, keepOut }) : null;
   const pix = p ? p.pix : look.pix;
