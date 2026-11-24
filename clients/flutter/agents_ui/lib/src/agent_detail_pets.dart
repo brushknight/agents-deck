@@ -9,6 +9,7 @@ part of 'agent_detail.dart';
 // page. Only the card is rounded; buttons, chips and boxes are square.
 
 const _pRule = Color(0xFF3B3A36);
+const _pLine = Color(0xFF262622);
 const _pText = Color(0xFFC9C5BC);
 const _pMuted = Color(0xFF9A968C);
 const _pOrange2 = Color(0xFFFF6A2E);
@@ -92,6 +93,17 @@ Widget _pBar(
   ),
 );
 
+/// "1,040,000".
+String _pNum(int n) {
+  final s = n.abs().toString();
+  final b = StringBuffer(n < 0 ? '-' : '');
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
+    b.write(s[i]);
+  }
+  return b.toString();
+}
+
 /// First letter up: "run this command?" -> "Run this command?".
 String _pSentence(String s) =>
     s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
@@ -145,13 +157,14 @@ extension _PetsPage on _AgentDetailState {
     ),
   );
 
-  /// The page while pets are on: a permission, or the overview (questions
-  /// keep their card for now).
+  /// The page while pets are on: the pet's own page, a prompt, or the
+  /// overview.
   Widget _petsBuild(AgentsState state, Agent a, AgentPrompt? p) {
+    if (_petPage) return _petView(state, a);
     return switch (p?.kind) {
       PromptKind.permission => _petPermission(state, a, p!),
-      PromptKind.question => _question(state, a, p!),
-      PromptKind.input => _input(state, a, p!),
+      PromptKind.question => _petQuestion(state, a, p!),
+      PromptKind.input => _petInput(state, a, p!),
       null => _petOverview(state, a),
     };
   }
@@ -333,6 +346,10 @@ extension _PetsPage on _AgentDetailState {
     final pose = critterPoseOf(a, inStatus: state.inStatus(a));
     final until = DateTime.now().add(critterCelebration - state.inStatus(a));
     final after = a.unseen ? CritterPose.hungry : CritterPose.idle;
+    void open() => _set(() {
+      _petPage = true;
+      _note = null;
+    });
     return PetHatcher(
       pet: pet,
       onHatch: () => widget.source.hatch(a.id),
@@ -402,11 +419,13 @@ extension _PetsPage on _AgentDetailState {
           return GestureDetector(
             key: const Key('agent-pet'),
             behavior: HitTestBehavior.opaque,
-            onTap: null,
+            onTap: open,
             child: Container(
               width: 144,
               height: 132,
-              color: _pInkOnOrange,
+              // On the orange card a near-black box; on the dark one a
+              // step lighter, so it still reads as a box.
+              color: orange ? _pInkOnOrange : DeckHud.panel,
               child: PetSprite(
                 pet: pet,
                 hat: a.hat,
@@ -422,7 +441,7 @@ extension _PetsPage on _AgentDetailState {
         return GestureDetector(
           key: const Key('agent-pet'),
           behavior: HitTestBehavior.opaque,
-          onTap: null,
+          onTap: open,
           child: SizedBox(
             width: 150,
             height: 128,
@@ -942,6 +961,663 @@ extension _PetsPage on _AgentDetailState {
           ),
         ],
       ),
+    );
+  }
+
+  /// A question: the same head and serif, its answers as square rows.
+  Widget _petQuestion(AgentsState state, Agent a, AgentPrompt p) {
+    final selected = p.options.where((o) => o.key == _selected).firstOrNull;
+    final sendFlash = _flashColors('send', onAccent: false);
+    final sent = _flashKey == 'send' && _flash == _Flash.sent;
+    return _petCard(
+      fill: DeckHud.bg,
+      border: DeckHud.accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _petHead(state, a, boxed: true),
+          const SizedBox(height: 18),
+          _pLabel(
+            'it asks',
+            _pMuted,
+            tail: p.context.isNotEmpty ? p.context : 'question',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _pSentence(p.title.isEmpty ? 'question' : p.title),
+            key: const Key('agent-question'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.serif(40, DeckHud.ink).copyWith(height: 44 / 40),
+          ),
+          if (p.detail.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              p.detail,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: DeckHud.rm(16, _pMuted).copyWith(height: 1.35),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Expanded(
+            child: _options([
+              for (final o in p.options) _questionRow(o, square: true),
+            ]),
+          ),
+          if (_note != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _note!,
+              key: const Key('agent-note'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: DeckHud.rm(16, DeckHud.accent),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              ..._petBack(
+                ink: DeckHud.ink,
+                outline: _pRule,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
+              Expanded(
+                child: AgentButton(
+                  key: const Key('agent-send'),
+                  square: true,
+                  height: 64,
+                  fontSize: 18,
+                  label: sent
+                      ? 'sent'
+                      : (selected == null ? 'send' : 'send ${selected.key}'),
+                  onTap: _busy || selected == null
+                      ? null
+                      : () => _run(
+                          'send',
+                          () => widget.source.answer(a.id, p.id, selected.key),
+                          closeOnOk: true,
+                        ),
+                  fill:
+                      sendFlash?.$1 ??
+                      (selected == null ? DeckHud.panel : DeckHud.accent),
+                  ink:
+                      sendFlash?.$2 ??
+                      (selected == null ? DeckHud.dim : DeckHud.bg),
+                  outline:
+                      sendFlash?.$1 ??
+                      (selected == null ? DeckHud.panel : DeckHud.accent),
+                  pressedFill: DeckHud.ink,
+                  pressedInk: DeckHud.bg,
+                ),
+              ),
+              const SizedBox(width: 14),
+              SizedBox(
+                width: 260,
+                child: _terminalButton(a, 'focus terminal', square: true),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A free-text answer: asked here, typed at the terminal.
+  Widget _petInput(AgentsState state, Agent a, AgentPrompt p) {
+    return _petCard(
+      fill: DeckHud.bg,
+      border: DeckHud.accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _petHead(state, a, boxed: true),
+          const SizedBox(height: 18),
+          _pLabel('it asks', _pMuted, tail: 'input'),
+          const SizedBox(height: 6),
+          Text(
+            _pSentence(p.title.isEmpty ? 'needs input' : p.title),
+            key: const Key('agent-question'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.serif(40, DeckHud.ink).copyWith(height: 44 / 40),
+          ),
+          if (p.detail.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              color: DeckHud.panel,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Text(
+                p.detail,
+                maxLines: 6,
+                overflow: TextOverflow.ellipsis,
+                style: DeckHud.rm(18, _pText).copyWith(height: 1.4),
+              ),
+            ),
+          ],
+          if (p.context.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              p.context,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: DeckHud.rm(16, DeckHud.dim),
+            ),
+          ],
+          const Spacer(),
+          Text(
+            _note ?? 'type the answer at the terminal',
+            key: _note == null ? null : const Key('agent-note'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.rm(16, _note == null ? DeckHud.dim : DeckHud.accent),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              ..._petBack(
+                ink: DeckHud.ink,
+                outline: _pRule,
+                pressedFill: DeckHud.ink,
+                pressedInk: DeckHud.bg,
+              ),
+              Expanded(
+                child: _terminalButton(a, 'focus terminal', square: true),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---- the pet's page ---------------------------------------------------------
+
+  Widget _petView(AgentsState state, Agent a) {
+    final pet = a.pet!;
+    final pose = critterPoseOf(a, inStatus: state.inStatus(a));
+    final egg = pet.isEgg;
+    final name = egg
+        ? (pet.ready ? 'An egg, ready' : 'An egg')
+        : (pet.name.isEmpty ? 'Its pet' : pet.name);
+    return _petCard(
+      fill: DeckHud.bg,
+      child: PetHatcher(
+        pet: pet,
+        onHatch: () => widget.source.hatch(a.id),
+        onProblem: (m) => _set(() => _note = m),
+        builder: (context, pet, hatch) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Pressable(
+                  key: const Key('pet-back'),
+                  onTap: () => _set(() {
+                    _petPage = false;
+                    _note = null;
+                  }),
+                  builder: (context, pressed) => Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: pressed ? DeckHud.ink : null,
+                      border: Border.all(
+                        color: pressed ? DeckHud.ink : _pRule,
+                        width: 2,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CustomPaint(
+                          size: const Size(16, 16),
+                          painter: _ChevronPainter(
+                            pressed ? DeckHud.bg : DeckHud.ink,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'BACK',
+                          style: DeckHud.rm(
+                            16,
+                            pressed ? DeckHud.bg : DeckHud.ink,
+                            weight: 700,
+                            spacing: 1.92,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _pLabel(
+                    a.title,
+                    _pMuted,
+                    tail: egg ? 'its egg' : 'its pet',
+                    tailColor: _pMuted,
+                  ),
+                ),
+                if (!_menuBar) HudClock(size: 28),
+              ],
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 284,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 280,
+                    height: 284,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          width: 280,
+                          height: 262,
+                          child: GestureDetector(
+                            key: const Key('pet-big'),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: hatch,
+                            child: PetSprite(
+                              pet: pet,
+                              hat: a.hat,
+                              pose: pose,
+                              mystery: pet.hat == null && pet.level < 5,
+                              cell: 10,
+                              width: 280,
+                              height: 262,
+                            ),
+                          ),
+                        ),
+                        const Positioned(
+                          left: 10,
+                          right: 10,
+                          top: 262,
+                          height: 2,
+                          child: ColoredBox(color: _pRule),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Transform.translate(
+                          offset: const Offset(0, -6),
+                          child: Text(
+                            name,
+                            key: const Key('pet-name'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: DeckHud.serif(
+                              72,
+                              DeckHud.ink,
+                            ).copyWith(height: 76 / 72),
+                          ),
+                        ),
+                        _pLabel(
+                          egg
+                              ? 'egg · level 0'
+                              : '${pet.kind} · level ${pet.level}',
+                          _pOrange2,
+                          key: const Key('pet-kind'),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "${a.title}'s ${egg ? 'egg' : 'pet'}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: DeckHud.rm(16, _pMuted),
+                        ),
+                        const Spacer(),
+                        _levelBox(pet, hatch),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            _petTiles(pet),
+            const SizedBox(height: 18),
+            ?_petNext(pet),
+            const Spacer(),
+            if (_note != null)
+              Text(
+                _note!,
+                key: const Key('agent-note'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: DeckHud.rm(16, DeckHud.accent),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The level bar with its numbers; for an egg, how far it is to hatching
+  /// and, when it is ready, "Hatch it".
+  Widget _levelBox(AgentPet pet, VoidCallback? hatch) {
+    final egg = pet.isEgg;
+    final pct = egg
+        ? (pet.nextAt > 0 ? (pet.ate / pet.nextAt).clamp(0.0, 1.0) : 0.0)
+        : pet.progress;
+    final (_, to) = pet.levelSpan;
+    return Container(
+      key: const Key('pet-level-box'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: const BoxDecoration(
+        color: DeckHud.panel,
+        border: Border(top: BorderSide(color: _pLevel, width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Expanded(
+                child: egg
+                    ? _pLabel(
+                        pet.ready ? 'ready to hatch' : 'until it hatches',
+                        _pLevel,
+                      )
+                    : Row(
+                        children: [
+                          _pLabel('level ${pet.level}', _pLevel),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: _Arrow(color: _pLevel, size: 16),
+                          ),
+                          _pLabel('${pet.level + 1}', _pLevel),
+                        ],
+                      ),
+              ),
+              Text(
+                '${(pct * 100).floor()}%',
+                style: DeckHud.rm(30, DeckHud.ink, weight: 700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _pBar(
+            pct,
+            width: double.infinity,
+            height: 14,
+            fill: _pLevel,
+            track: _pTrack,
+          ),
+          if (!egg) ...[
+            const SizedBox(height: 10),
+            DefaultTextStyle.merge(
+              style: DeckHud.rm(15, _pMuted),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: _pNum(pet.ate),
+                          style: DeckHud.rm(15, DeckHud.ink, weight: 700),
+                        ),
+                        const TextSpan(text: ' now'),
+                      ],
+                    ),
+                  ),
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: _pNum(to),
+                          style: DeckHud.rm(15, DeckHud.ink, weight: 700),
+                        ),
+                        TextSpan(text: ' for ${pet.level + 1}'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (hatch != null) ...[
+            const SizedBox(height: 14),
+            Pressable(
+              key: const Key('pet-hatch-it'),
+              onTap: hatch,
+              builder: (context, pressed) => Container(
+                height: 52,
+                alignment: Alignment.center,
+                color: pressed ? DeckHud.ink : _pLevel,
+                child: Text(
+                  'HATCH IT',
+                  style: DeckHud.rm(
+                    18,
+                    _pInkOnOrange,
+                    weight: 700,
+                    spacing: 2.16,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Strength, what it ate, its hat and when it hatched.
+  Widget _petTiles(AgentPet pet) {
+    final egg = pet.isEgg;
+    final hat = pet.hat;
+    final hatched = pet.hatchedAt;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    Widget tile(
+      String key,
+      String label,
+      Color color,
+      String value,
+      String sub, [
+      Widget? extra,
+    ]) => Expanded(
+      child: Container(
+        key: Key('pet-tile-$key'),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: DeckHud.panel,
+          border: Border(top: BorderSide(color: color, width: 3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _pLabel(label, color, size: 14),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: DeckHud.rm(
+                18,
+                DeckHud.ink,
+                weight: 700,
+              ).copyWith(height: 1.15),
+            ),
+            if (extra != null) ...[const SizedBox(height: 6), extra],
+            const SizedBox(height: 6),
+            Text(
+              sub,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: DeckHud.rm(14, _pMuted).copyWith(height: 17 / 14),
+            ),
+          ],
+        ),
+      ),
+    );
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          egg
+              ? tile(
+                  'strength',
+                  'strength',
+                  const Color(0xFFE8452B),
+                  'none yet',
+                  'they come when it hatches',
+                )
+              : tile(
+                  'strength',
+                  'strength',
+                  const Color(0xFFE8452B),
+                  '${pet.hearts} of $petMaxHearts',
+                  petMoodNames[pet.mood] ?? pet.mood,
+                  PetHearts(hearts: pet.hearts, size: 2),
+                ),
+          const SizedBox(width: 12),
+          tile(
+            'ate',
+            'ate',
+            const Color(0xFF5EC4D6),
+            pet.ate >= 1000000
+                ? '${(pet.ate / 1000000).toStringAsFixed(2)}m'
+                : _pNum(pet.ate),
+            'tokens, all time',
+          ),
+          const SizedBox(width: 12),
+          hat == null
+              ? tile(
+                  'hat',
+                  'hat',
+                  const Color(0xFFB48CE0),
+                  '?',
+                  'a surprise: it shows at level 5',
+                )
+              : tile(
+                  'hat',
+                  'hat',
+                  const Color(0xFFB48CE0),
+                  '${hat.color} ${hat.shape}',
+                  'rolled at hatching, for good',
+                ),
+          const SizedBox(width: 12),
+          hatched == null
+              ? tile(
+                  'hatched',
+                  'hatched',
+                  const Color(0xFF8FCB6B),
+                  'not yet',
+                  pet.ready ? 'ready now' : 'at ${_pNum(pet.nextAt)} tokens',
+                )
+              : tile(
+                  'hatched',
+                  'hatched',
+                  const Color(0xFF8FCB6B),
+                  '${hatched.toLocal().day} ${months[hatched.toLocal().month - 1]} ${hatched.toLocal().year}',
+                  pet.name.isEmpty ? '' : 'as ${pet.name}',
+                ),
+        ],
+      ),
+    );
+  }
+
+  /// The next stage it unlocks, as a dark shape: what it is and when.
+  Widget? _petNext(AgentPet pet) {
+    final i = petStages.indexOf(pet.stage);
+    if (i < 0 || i + 1 >= petStages.length) return null;
+    final next = petStages[i + 1];
+    final lv = petStageLevel[next]!;
+    final what = next == 'baby'
+        ? 'It hatches'
+        : '${petStageNames[next]}${next == 'kid'
+              ? ': its hat shows'
+              : lv >= 20
+              ? ': a new glow'
+              : ''}';
+    final at = next == 'baby' ? pet.nextAt : pet.levelAt(lv);
+    final left = at - pet.ate;
+    return Row(
+      key: const Key('pet-next'),
+      children: [
+        SizedBox(
+          width: 88,
+          height: 72,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                width: 88,
+                height: 62,
+                child: PetSprite(
+                  pet: AgentPet(stage: next),
+                  sil: const Color(0xFF55524B),
+                  cell: 3,
+                  width: 88,
+                  height: 62,
+                ),
+              ),
+              const Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                height: 2,
+                child: ColoredBox(color: _pLine),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _pLabel('next', _pLevel, tail: 'level $lv', tailColor: _pLevel),
+              const SizedBox(height: 4),
+              Text(
+                what,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: DeckHud.rm(
+                  20,
+                  DeckHud.ink,
+                  weight: 700,
+                ).copyWith(height: 1.2),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'at ${_pNum(at)} tokens eaten, ${pet.ready || left <= 0 ? 'ready now' : '${_pNum(left)} to go'}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: DeckHud.rm(15, _pMuted).copyWith(height: 1.2),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

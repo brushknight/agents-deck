@@ -268,6 +268,25 @@ const petStageNames = {
   'legend': 'Legend',
 };
 
+/// The level each stage starts at.
+const petStageLevel = {
+  'egg': 0,
+  'baby': 1,
+  'kid': 5,
+  'grown': 10,
+  'strong': 20,
+  'mighty': 30,
+  'legend': 40,
+};
+
+/// What a pet's mood is called on screen.
+const petMoodNames = {
+  'fed': 'fed',
+  'hungry': 'hungry',
+  'weak': 'weak',
+  'asleep': 'hibernating',
+};
+
 /// A pet's full hearts.
 const petMaxHearts = 4;
 
@@ -344,6 +363,23 @@ class AgentPet {
     final from = levelFrom ?? petLevelAt(level);
     final to = nextAt > 0 ? nextAt : petLevelAt(level + 1);
     return (from, to);
+  }
+
+  /// The tokens eaten that reach level [n] for this pet. The levels can be
+  /// changed in the service's config.json, so they are worked out from its
+  /// own numbers (as the web does): a hatched pet's [levelFrom] and [nextAt]
+  /// give the step, an egg's [nextAt] the first level.
+  int levelAt(int n) {
+    if (n < 1) return 0;
+    var first = 50000.0, step = 1.25;
+    final from = levelFrom ?? 0;
+    if (level >= 1 && from > 0 && nextAt > from) {
+      step = nextAt / from;
+      first = from / _pow(step, level - 1);
+    } else if (level == 0 && nextAt > 0) {
+      first = nextAt.toDouble();
+    }
+    return (first * _pow(step, n - 1)).round();
   }
 
   /// How far it is to the next level, 0..1.

@@ -79,6 +79,9 @@ class _AgentDetailState extends State<AgentDetail> {
   /// The hat picker is open (tap the mascot).
   bool _hats = false;
 
+  /// The pet's own page is open (tap the pet, Agent pets on).
+  bool _petPage = false;
+
   bool get _menuBar => widget.menuBar;
 
   /// setState for the pets page (an extension can't call it).
@@ -1368,7 +1371,9 @@ class _AgentDetailState extends State<AgentDetail> {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: DeckHud.mono(size: 18, color: fg),
+                      style: square
+                          ? DeckHud.rm(18, fg, weight: 700)
+                          : DeckHud.mono(size: 18, color: fg),
                     ),
                     if (sub.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -1376,10 +1381,15 @@ class _AgentDetailState extends State<AgentDetail> {
                         sub,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: DeckHud.mono(
-                          size: 13.5,
-                          color: ink ? agentsRowSubOnInk : DeckHud.dim,
-                        ),
+                        style: square
+                            ? DeckHud.rm(
+                                16,
+                                ink ? agentsRowSubOnInk : DeckHud.dim,
+                              )
+                            : DeckHud.mono(
+                                size: 13.5,
+                                color: ink ? agentsRowSubOnInk : DeckHud.dim,
+                              ),
                       ),
                     ],
                   ],
