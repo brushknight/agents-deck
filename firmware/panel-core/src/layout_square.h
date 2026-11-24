@@ -1330,7 +1330,7 @@ static inline int capTop(const Font& f) { return (f.cellH * 795 + 500) / 1000 - 
 // head) to its feet, standing still: the block and the onigiri, with and
 // without a hat, differ, and so does a pet. Measured on a small drawing at scale 2.
 static inline int critterMid(const Rect& box, int s, const Agent& a) {
-  constexpr int kS = 2, kW = 26 * kS, kH = 22 * kS, kX = 5 * kS, kY = 5 * kS;
+  constexpr int kS = 2, kW = 26 * kS, kH = 30 * kS, kX = 5 * kS, kY = 12 * kS;
   constexpr uint16_t kBlank = 0x1234;
   static uint16_t px[kW * kH];
   for (int i = 0; i < kW * kH; i++) px[i] = kBlank;
@@ -2026,7 +2026,7 @@ class SquarePanel : public PanelLayout {
       const int k = S.cardScale;
       int right = from.x + 20 * k;
       if (cg.name.x > from.x && right > cg.name.x - 2) right = cg.name.x - 2;
-      if (a.pet.has) c.rect(from.x - 5 * k, from.y - 5 * k, right - (from.x - 5 * k), 21 * k, T.bg);   // a pet's reach
+      if (a.pet.has) c.rect(from.x - 7 * k, from.y - 12 * k, right - (from.x - 7 * k), 28 * k, T.bg);   // a pet's reach
       else c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
     }
     c.dim50();                                 // the card behind it at half brightness
