@@ -1433,7 +1433,7 @@ const petOpen = () => !!bar?.pet && bar.pet === bar.id && bar.el.classList.conta
 function fillPet(pane, a) {
   const p = a.pet;
   const hatch = Date.now() < (hatching.get(a.id) || 0), born = Date.now() < (bornUntil.get(a.id) || 0);
-  const sig = JSON.stringify([p, a.hat, poseOf(a), a.id, hatch, born]);
+  const sig = JSON.stringify([p, a.hat, poseOf(a), a.id, hatch, born, !!S.panel]);
   if (bar.petSig === sig) return;
   bar.petSig = sig;
   const mystery = !p.hat && (p.level || 0) < 5;
@@ -1488,6 +1488,7 @@ function fillPet(pane, a) {
       h('span', { class: 'pvt' }, `${agentName(a)} · its pet`),
       h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc closes the pet)', title: 'Close', onclick: closeBar }, icon('x', 16, 2.2))),
     h('div', { class: 'pvbd' },
+      S.panel ? h('div', { class: 'pvacts' }, h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'pet-back-sq', 'aria-label': 'Back to the agent', title: 'Back to the agent', onclick: () => openPet(false) }, icon('back', 14, 2.2))) : null,
       h('div', { class: 'pvtop' },
         h('div', { class: 'pvbox' }, big),
         h('div', { class: 'petid' },
@@ -1582,13 +1583,14 @@ function buildBar(a, body, view) {
   const petBtn = h('button', { type: 'button', class: 'abpet', hidden: true, 'aria-label': 'Its pet', title: 'Its pet', 'data-k': 'bar-pet', onclick: () => openPet(true) }, petSpr);
   const meta = h('span', { class: 'abmeta' });
   const petLine = h('span', { class: 'abpetln', hidden: true });
+  const petHearts = h('span', { class: 'abhearts', hidden: true }); // its hearts, as on the menu bar app's agent page
   const progFill = h('i', {});
   const progTxt = h('span', { class: 'abptx' });
   const prog = h('div', { class: 'abprog', hidden: true }, h('span', { class: 'abpbar', 'aria-hidden': 'true' }, progFill), progTxt);
   const tag = h('span', { class: 'abtag' });
   const sum = h('span', { class: 'absum' });
   const head = [
-    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn), h('div', { class: 'abhd' }, meta, petLine, prog),
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn), h('div', { class: 'abhd' }, meta, h('div', { class: 'abpetrow' }, petLine, petHearts), prog),
       h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
     h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
     sum,
@@ -1720,6 +1722,9 @@ function buildBar(a, body, view) {
   // bottom: numbers, actions, keys
   const nums = barNumbers();
   const acts = h('div', { class: 'abacts' });
+  // Panel view: a square Back first, as on the menu bar app's agent page
+  const back = h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'bar-back', 'aria-label': 'Back to the grid', title: 'Back to the grid · Esc', hidden: !S.panel, onclick: closeBar }, icon('back', 14, 2.2));
+  acts.append(back);
   if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
@@ -1731,10 +1736,20 @@ function buildBar(a, body, view) {
   return (x) => {
     spr.hidden = !!x.pet;
     petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
+    if (!x.pet) petHearts.hidden = true;
+    back.hidden = !S.panel;
     if (x.pet) {
       const p = x.pet;
       setPet(petSpr, x, { bubble: false });
       petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
+      const hs = `${p.hearts || 0}`;
+      petHearts.hidden = p.stage === 'egg';
+      if (petHearts.dataset.n !== hs) {
+        petHearts.dataset.n = hs;
+        petHearts.replaceChildren(...Array.from({ length: MAX_HEARTS }, (_, i) => svgNode(heartSVG(i < (p.hearts || 0), true))));
+        petHearts.title = `${p.hearts || 0} of ${MAX_HEARTS} hearts`;
+        petHearts.setAttribute('aria-label', petHearts.title);
+      }
       const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
       const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));
       progFill.style.width = `${pct.toFixed(1)}%`;

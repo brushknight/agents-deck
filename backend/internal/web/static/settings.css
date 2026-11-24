@@ -1153,6 +1153,14 @@ svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
 .abacts { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
 .abacts .btn { height: auto; border: 2px solid var(--bar-ink); padding: 6px 12px; font-size: 11px; line-height: 16px; letter-spacing: 0.12em; font-weight: 700; color: var(--bar-ink); background: transparent; }
 .abacts .btn:hover:not(:disabled) { background: var(--bar-ink); color: var(--orange); border-color: var(--bar-ink); }
+/* Panel view's Back: square, like the other actions */
+.abacts .btn.sq, .pvacts .btn.sq { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.abacts .btn.sq[hidden] { display: none; }
+.pvacts { display: flex; gap: 8px; }
+.abpetrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.abhearts { display: inline-flex; gap: 2px; flex: none; }
+.abhearts svg { width: 14px; height: 12px; display: block; }
+.abhearts[hidden] { display: none; }
 .abfull { font-size: 11px; line-height: 16px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; text-decoration: underline; color: var(--bar-ink); padding: 8px 0; }
 .abfull:hover { text-decoration-thickness: 2px; }
 .abnote { margin: 0; font-size: 12px; line-height: 16px; }

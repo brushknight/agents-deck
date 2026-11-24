@@ -126,10 +126,13 @@ export function petKind(pet) {
 }
 
 // A pixel heart, full or empty.
-export function heartSVG(full) {
+// onOrange: near-black hearts, the empty ones faint, as red won't read on
+// orange (the sidebar).
+export function heartSVG(full, onOrange = false) {
   const d = ['.rr.rr.', 'rrrrrrr', 'rrrrrrr', '.rrrrr.', '..rrr..', '...r...']
     .flatMap((row, y) => [...row].map((c, x) => (c === 'r' ? `M${x} ${y}h1v1h-1z` : ''))).join('');
-  return `<svg viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="${d}" fill="${full ? '#E8452B' : '#3B3A36'}"/></svg>`;
+  const fill = onOrange ? `#0A0A0A"${full ? '' : ' opacity="0.25"'}` : `${full ? '#E8452B' : '#3B3A36'}"`;
+  return `<svg viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="${d}" fill="${fill}/></svg>`;
 }
 
 const key = (x, y) => `${x},${y}`;

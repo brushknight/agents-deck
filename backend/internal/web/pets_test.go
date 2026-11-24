@@ -182,6 +182,16 @@ for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep
   for (const m of svg.matchAll(/fill="(#[0-9A-F]{6})" class="pp (blink|bang|dots|cursor|zz|bobc|t3|spark s1)/g)) if (m[1] !== STROKE && m[1] !== '#FFFFFF') fail(what + ': a bubble not white');
 }
 if (petSVG({ stage: 'mighty', mood: 'fed' }, { hat, sil: '#3B3A36' }).includes(STROKE)) fail('silhouette: no stroke');
+// A stage not reached yet is a still dark shape: no hat, no aura, nothing
+// that moves (as the growth path draws it, glow asked or not).
+for (const stage of STAGES) for (const glow of [false, true]) {
+  const svg = petSVG({ stage, mood: 'fed', ate: 0, ready: stage === 'egg', hat: { shape: 'crown', color: 'yellow' } }, { hat, still: true, glow, sil: '#3B3A36' });
+  const classes = [...svg.matchAll(/class="([^"]*)"/g)].map((m) => m[1]).filter((c) => c !== 'pet' && c !== 'pall');
+  if (classes.length) fail(stage + ' silhouette: moves (' + classes.join(', ') + ')');
+  if (new Set(svg.match(/fill="#[0-9A-Fa-f]{6}"/g)).size !== 1) fail(stage + ' silhouette: more than one colour');
+}
+// Hearts on orange: near-black, the empty ones faint.
+if (!heartSVG(true, true).includes('#0A0A0A') || !heartSVG(false, true).includes('opacity="0.25"') || heartSVG(true, true).includes('opacity')) fail('hearts on orange');
 // Every pose of every hatched pet shows both eyes in every frame: the SVG
 // drawn as the browser paints it (document order, each path moved and faded
 // by its motion classes and those of its groups, as settings.css times them).
