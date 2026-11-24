@@ -98,6 +98,13 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running. Besides
                                   // Claude's tools: "Compact" while compacting, "Task" for subagents at work
   "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160)
+  "lastAnswer": "Fixed the race: the token check now runs after login …", // its reply that ended its latest
+                                  // finished turn, as plain text (Markdown marks taken out, one line), truncated to
+                                  // 1000 chars (boards: 160); "" until it has finished a turn with text. Claude: the
+                                  // text after the turn's last tool call in its transcript; Codex: the turn's final
+                                  // message. An interrupted turn keeps the answer before it. Clients show it in place
+                                  // of lastPrompt once the agent is idle or has exited
+  "lastAnswerAt": "2026-10-08T00:48:10Z", // omitted until there is an answer: when it gave it
   "waiting": null,                // Prompt, only when status == "waiting"
   "error": null,                  // { "message": "api 529 overloaded" } only when status == "error"
   "tokens": { "input": 1200, "output": 84000, "cacheRead": 3100000, "cacheWrite": 210000 },

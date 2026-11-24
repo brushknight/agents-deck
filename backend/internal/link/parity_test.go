@@ -150,7 +150,7 @@ func TestAgentParity(t *testing.T) {
 	now := time.Now()
 	full := model.Agent{ID: "a1", Slot: 3, AttentionSlot: 2, Title: "t", AITitle: "ai", Tool: "claude", Status: model.Waiting, StatusSince: now,
 		Cwd: "/x/y", Folder: "y", Branch: "main", Model: "m", ModelLabel: "M", Effort: "high",
-		Activity: &model.Activity{Tool: "Edit", Detail: "f.go"}, LastPrompt: "do it",
+		Activity: &model.Activity{Tool: "Edit", Detail: "f.go"}, LastPrompt: "do it", LastAnswer: "done", LastAnswerAt: now,
 		Waiting: &model.Prompt{ID: "p", Kind: "question", Title: "?", Detail: "d", Context: "c", Options: []model.Option{{Key: "1", Label: "yes"}}},
 		Error:   &model.ErrInfo{Message: "boom"}, Tokens: model.Tokens{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4},
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
