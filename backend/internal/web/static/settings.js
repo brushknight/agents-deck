@@ -680,21 +680,28 @@ function freeSpot(slot, label) {
 }
 
 // Drag a tile onto another (they swap) or onto a free spot: the service
-// keeps the order, so the boards follow.
+// keeps the order, so the boards follow. By project, a tile swaps only with
+// another in its project (there are no free spots there).
 let dragId = null;
+const canDrop = (id) => {
+  if (!dragId || dragId === id) return false;
+  if (!byProject()) return true;
+  const of = (x) => agentsList().find((a) => a.id === x);
+  return !!id && groupKey(of(dragId) || {}) === groupKey(of(id) || {});
+};
 function wireDrag(el, id) {
   el.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); });
   el.addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.tile.drop').forEach((x) => x.classList.remove('drop')); });
   wireDrop(el, null, id);
 }
 function wireDrop(el, slot, id) {
-  el.addEventListener('dragover', (e) => { if (dragId && dragId !== id) { e.preventDefault(); el.classList.add('drop'); } });
+  el.addEventListener('dragover', (e) => { if (canDrop(id)) { e.preventDefault(); el.classList.add('drop'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));
   el.addEventListener('drop', async (e) => {
     e.preventDefault();
     el.classList.remove('drop');
     const target = slot ?? agentsList().find((a) => a.id === id)?.slot;
-    if (!dragId || target == null) return;
+    if (!canDrop(id) || target == null) return;
     try { await api('POST', `/v1/agents/${encodeURIComponent(dragId)}/move`, { slot: target }); } catch (ex) { if (ex.status !== 401) toast(ex.message, true); }
     await load('state');
     updateDeck();
@@ -720,6 +727,104 @@ function reconcile(parent, want) {
   want.forEach((el, i) => { if (parent.children[i] !== el) parent.insertBefore(el, parent.children[i] || null); });
   while (parent.children.length > want.length) parent.lastChild.remove();
 }
+
+// ---- Home by project ------------------------------------------------------------------------------
+// Home shows the tiles as the deck has them (All: pages of 16, the default)
+// or under their project (By project: a header per project, No project last,
+// and a chip per project to show only that one). This browser remembers both.
+
+const HOME_PREF = 'settings.home';
+let homePref = { view: 'all', filter: 'all' };
+try {
+  const v = JSON.parse(localStorage.getItem(HOME_PREF) || 'null');
+  if (v && ['all', 'project'].includes(v.view)) homePref = { view: v.view, filter: typeof v.filter === 'string' ? v.filter : 'all' };
+} catch (e) { /* private window */ }
+function setHomePref(patch) {
+  homePref = { ...homePref, ...patch };
+  try { localStorage.setItem(HOME_PREF, JSON.stringify(homePref)); } catch (e) { /* private window */ }
+}
+// byProject: Home's grid is grouped now (the panel view and the agent
+// page's small deck keep their pages).
+const byProject = () => homePref.view === 'project' && S.page === 'home' && !S.panel && hasProjects();
+const NO_PROJECT = 'none';
+const groupKey = (a) => a.project?.id || NO_PROJECT;
+const lastSegment = (p) => p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || p;
+// The switch shows once there are projects, or agents in one.
+const hasProjects = () => (S.projects?.projects || []).length > 0 || agentsList().some((a) => a.project);
+
+// projectGroups: the agents by project, in the Projects list's order (any it
+// doesn't list yet by name), No project last; each in the deck's order.
+function projectGroups() {
+  const list = S.projects?.projects || [];
+  const order = new Map(list.map((p, i) => [p.id, i]));
+  const groups = new Map();
+  for (const a of bySlot()) {
+    const k = groupKey(a);
+    if (!groups.has(k)) groups.set(k, { key: k, name: a.project?.name || 'No project', agents: [], project: list.find((p) => p.id === k) });
+    groups.get(k).agents.push(a);
+  }
+  const rank = (g) => (g.key === NO_PROJECT ? 2e6 : order.get(g.key) ?? 1e6);
+  return [...groups.values()].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
+}
+
+// groupFolders: which of the project's folders its agents are in, with
+// counts, in the project's own order: [{path, n}]. Only when it has more
+// than one folder, or its agents are in more than one.
+function groupFolders(g) {
+  const n = new Map();
+  for (const a of g.agents) if (a.projectFolder) n.set(a.projectFolder, (n.get(a.projectFolder) || 0) + 1);
+  const known = g.project?.paths || g.project?.folders || [];
+  if (known.length < 2 && n.size < 2) return [];
+  const at = (p) => { const i = known.indexOf(p); return i < 0 ? known.length : i; };
+  return [...n].map(([path, c]) => ({ path, n: c })).sort((x, y) => at(x.path) - at(y.path) || y.n - x.n || x.path.localeCompare(y.path));
+}
+
+// The shown filter: a group that is gone shows them all.
+const homeFilter = (groups) => (groups.some((g) => g.key === homePref.filter) ? homePref.filter : 'all');
+
+// homeBar: over the tiles: All or By project, and in By project a chip per
+// project (and No project) with its count.
+function homeBar() {
+  if (!hasProjects()) return null;
+  const view = seg('Show', [{ value: 'all', text: 'All' }, { value: 'project', text: 'By project' }], homePref.view,
+    (v) => { setHomePref({ view: v }); updateDeck(); deck?.bar.querySelector('[aria-checked="true"]')?.focus(); }, { key: 'home-view' });
+  if (homePref.view !== 'project') return [view];
+  const groups = projectGroups();
+  const cur = homeFilter(groups);
+  const chipBtn = (key, text, n) => h('button', {
+    type: 'button', class: `chip fchip${cur === key ? ' fill' : ''}`, 'aria-pressed': cur === key ? 'true' : 'false', 'data-k': `home-filter:${key}`,
+    onclick: () => { setHomePref({ filter: key }); updateDeck(); },
+  }, `${text} ${n}`);
+  return [view, h('div', { class: 'chips', role: 'group', 'aria-label': 'Show the agents of' },
+    chipBtn('all', 'All', agentsList().length), ...groups.map((g) => chipBtn(g.key, g.name, g.agents.length)))];
+}
+
+// fillGroups: a section per project (or only the chosen one), kept per
+// project so the tiles in it move only when they have to.
+const groupEls = new Map();
+function fillGroups() {
+  const groups = projectGroups();
+  const cur = homeFilter(groups);
+  const els = groups.filter((g) => cur === 'all' || g.key === cur).map((g) => {
+    let el = groupEls.get(g.key);
+    if (!el) {
+      el = { head: h('div', { class: 'rule' }), folders: h('p', { class: 'sub pgf' }), grid: h('div', { class: 'grid4' }) };
+      el.sec = h('section', { class: 'pgroup', 'data-group': g.key }, el.head, el.folders, el.grid);
+      groupEls.set(g.key, el);
+    }
+    el.head.replaceChildren(h('h2', {}, g.name), h('span', { class: 'm' }, plural(g.agents.length, 'agent')));
+    const fs = groupFolders(g);
+    el.folders.hidden = !fs.length;
+    put(el.folders, ...fs.flatMap((f, i) => [i ? ' · ' : null, h('span', { title: f.path }, `${lastSegment(f.path)} ${f.n}`)]));
+    el.grid.setAttribute('aria-label', `Agents in ${g.name}`);
+    reconcile(el.grid, g.agents.map(tileFor));
+    return el.sec;
+  });
+  reconcile(deck.groups, els);
+}
+
+// Home's order of agents, for stepping through them with ← →.
+const homeOrder = () => (byProject() ? projectGroups().flatMap((g) => g.agents) : bySlot());
 
 // qrow: an agent that needs you, in the deck's side column.
 function qrow(a) {
@@ -773,11 +878,13 @@ function drawHome() {
   const list = agentsList();
   if (!list.length && S.state) return drawEmptyDeck();
   const grid = h('div', { class: 'grid4', 'aria-label': 'Agents' });
+  const groups = h('div', { class: 'pgroups' });
+  const bar = h('div', { class: 'homebar' });
   const pager = h('div', { class: 'pager' });
   const side = h('div', { class: 'deckside' });
-  deck = { grid, pager, side, strip: h('div', { class: 'stripwrap' }) };
+  deck = { grid, groups, bar, pager, side, strip: h('div', { class: 'stripwrap' }) };
   fillDeck();
-  return [h('h1', { class: 'sr' }, 'Home'), deck.strip, h('div', { class: 'deckrow' }, h('div', { class: 'deckmain' }, grid, pager), side)];
+  return [h('h1', { class: 'sr' }, 'Home'), deck.strip, h('div', { class: 'deckrow' }, h('div', { class: 'deckmain' }, bar, grid, groups, pager), side)];
 }
 
 function updateDeck() {
@@ -791,18 +898,32 @@ function updateDeck() {
 function fillDeck() {
   const pages = pageCount();
   S.deckPage = Math.min(S.deckPage || 0, pages - 1);
-  reconcile(deck.grid, cells(S.deckPage));
-  slideIn(deck.grid);
-  const onPage = agentsList().filter((a) => Math.floor((a.slot ?? 0) / SPOTS) === S.deckPage).length;
-  const pageBtns = [];
-  for (let p = 0; p < pages + (onPage === SPOTS && S.deckPage === pages - 1 ? 1 : 0); p++) {
-    const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
-    pageBtns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === S.deckPage ? 'page' : null, 'aria-label': `Page ${p + 1}${hot ? ', an agent there needs you' : ''}`,
-      onclick: () => goPage(p) }, String(p + 1)));
+  const grouped = byProject();
+  const bar = homeBar();
+  deck.bar.hidden = !bar;
+  if (bar) put(deck.bar, ...bar);
+  deck.grid.hidden = grouped;
+  deck.groups.hidden = !grouped;
+  const viewSeg = seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' });
+  if (grouped) {
+    reconcile(deck.grid, []);
+    fillGroups();
+    const n = deck.groups.querySelectorAll('.tile').length;
+    deck.pager.replaceChildren(h('span', { class: 'sub' }, `${plural(n, 'agent')}${n < agentsList().length ? ` of ${agentsList().length}` : ''}`), h('span', { class: 'sp' }), viewSeg);
+  } else {
+    reconcile(deck.groups, []);
+    reconcile(deck.grid, cells(S.deckPage));
+    slideIn(deck.grid);
+    const onPage = agentsList().filter((a) => Math.floor((a.slot ?? 0) / SPOTS) === S.deckPage).length;
+    const pageBtns = [];
+    for (let p = 0; p < pages + (onPage === SPOTS && S.deckPage === pages - 1 ? 1 : 0); p++) {
+      const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
+      pageBtns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === S.deckPage ? 'page' : null, 'aria-label': `Page ${p + 1}${hot ? ', an agent there needs you' : ''}`,
+        onclick: () => goPage(p) }, String(p + 1)));
+    }
+    deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
+      h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }), viewSeg);
   }
-  deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
-    h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
-    seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
   put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
@@ -1540,7 +1661,7 @@ function barNumbers() {
 
 // barStep: ← and → while the sidebar is open go to the agent before or after.
 function barStep(d) {
-  const list = bySlot();
+  const list = homeOrder();
   const i = list.findIndex((x) => x.id === S.arg);
   if (i < 0 || list.length < 2) return;
   location.hash = `#home/${encodeURIComponent(list[(i + d + list.length) % list.length].id)}`;
@@ -3573,7 +3694,7 @@ document.addEventListener('keydown', (e) => {
   if (!typing && S.page === 'home' && S.arg && bar?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); bar.answer(e.key); }
   if (!typing && S.page === 'home' && S.arg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); barStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   const inSwitch = document.activeElement?.getAttribute('role') === 'radio' && !document.activeElement.closest('.pager, .pvbar');
-  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch) {
+  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch && !byProject()) {
     e.preventDefault();
     const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
     if (next >= 0 && next < pageCount()) goPage(next);
