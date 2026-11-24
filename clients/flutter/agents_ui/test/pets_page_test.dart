@@ -244,6 +244,113 @@ void main() {
     expect(find.text('LV 1'), findsOneWidget);
   });
 
+  testWidgets('a question: the pet boxed, the answers as square rows', (
+    tester,
+  ) async {
+    final source = await pumpBoard(tester);
+    await open(tester, 'auth-flow');
+    expect(
+      find.text('Which session strategy should the login flow use?'),
+      findsOneWidget,
+    );
+    expect(find.text('IT ASKS · QUESTION · 1 OF 1'), findsOneWidget);
+    expect(
+      tester
+          .widget<PetSprite>(
+            find.descendant(
+              of: find.byKey(const Key('agent-pet')),
+              matching: find.byType(PetSprite),
+            ),
+          )
+          .calm,
+      isTrue,
+    );
+    await golden(tester, 'question');
+    await tester.tap(find.byKey(const Key('agent-option-2')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('agent-send')));
+    await tester.pump();
+    expect(source.calls.last.$1, 'answer');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tap the pet: its page, and back', (tester) async {
+    await pumpBoard(tester);
+    await open(tester, 'checkout-api');
+    await tester.tap(find.byKey(const Key('agent-pet')));
+    await tester.pump();
+    // It goes by its agent's name; its own name isn't shown.
+    expect(find.text('Juno'), findsNothing);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('pet-name')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data,
+      'checkout-api',
+    );
+    expect(find.text('BUILDER · LEVEL 14'), findsOneWidget);
+    expect(find.text('LEVEL 14'), findsOneWidget);
+    expect(find.text('its pet'), findsOneWidget);
+    // The whole growth path: reached stages in their real look, the ones
+    // ahead as dark shapes.
+    final path = tester
+        .widgetList<PetSprite>(
+          find.descendant(
+            of: find.byKey(const Key('pet-path')),
+            matching: find.byType(PetSprite),
+          ),
+        )
+        .toList();
+    expect(path, hasLength(petStages.length));
+    // Juno is a grown-up (index 3): egg to grown-up real, strong on dark.
+    expect(
+      [for (final p in path) p.sil != null],
+      [
+        false, false, false, false, true, true, true, //
+      ],
+    );
+    expect(find.text('as a baby'), findsOneWidget);
+    expect(find.byType(HudClock), findsNothing);
+    expect(find.text('57%'), findsOneWidget);
+    expect(find.text('teal beanie'), findsOneWidget);
+    expect(find.text('rolled at hatching, for good'), findsOneWidget);
+    expect(find.text('Strong: a new glow'), findsOneWidget);
+    expect(
+      find.text('at 3,469,434 tokens eaten, 2,429,434 to go'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await golden(tester, 'pet');
+    await tester.tap(find.byKey(const Key('pet-back')));
+    await tester.pump();
+    expect(find.byKey(const Key('pet-name')), findsNothing);
+    expect(find.text('FOCUS TERMINAL'), findsOneWidget);
+  });
+
+  testWidgets('an egg that becomes ready on its page: hatch it there', (
+    tester,
+  ) async {
+    final source = await pumpBoard(tester, readyEgg: false);
+    await open(tester, 'docs-site');
+    await tester.tap(find.byKey(const Key('agent-pet')));
+    await tester.pump();
+    expect(find.text('its egg'), findsOneWidget);
+    expect(find.text('?'), findsOneWidget); // its hat: a surprise
+    source.load(petsPageState());
+    await tester.pump();
+    expect(find.text('its egg, ready to hatch'), findsOneWidget);
+    expect(find.text('It hatches'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await golden(tester, 'petegg');
+    await tester.tap(find.byKey(const Key('pet-hatch-it')));
+    await tester.pump();
+    expect(source.calls.last, ('hatch', 'd0cs1t', null));
+  });
+
   testWidgets('real-world text: long names fit, wrappers left out', (
     tester,
   ) async {
