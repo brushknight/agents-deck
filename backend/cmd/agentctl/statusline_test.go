@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/claude"
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 func TestNextStatusLine(t *testing.T) {
@@ -74,5 +77,22 @@ func TestStatusLineReportsOnChange(t *testing.T) {
 	}
 	if !reportDue(data, work, a, now.Add(reportEvery)) {
 		t.Error("the same limits after reportEvery aren't due")
+	}
+}
+
+// With the deck's status line in the account's settings.json, the one it
+// replaced still runs after it.
+func TestNextStatusLineSaved(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AGENTSTERM_HOME", filepath.Join(home, "data"))
+	acct := filepath.Join(home, "acct")
+	os.MkdirAll(acct, 0o700)
+	t.Setenv("CLAUDE_CONFIG_DIR", acct)
+	os.WriteFile(filepath.Join(acct, "settings.json"), []byte(`{"statusLine":{"type":"command","command":"~/bin/mine.sh"}}`), 0o600)
+	if err := claude.AddDeckStatusLine(acct, "/x/agentctl", paths.StatusLineSaved()); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextStatusLine([]byte(`{"cwd":"` + home + `"}`)); got != "~/bin/mine.sh" {
+		t.Errorf("got %q, want the account's own status line", got)
 	}
 }

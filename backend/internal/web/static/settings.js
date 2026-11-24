@@ -2541,6 +2541,11 @@ function drawAgents() {
       seg('Put sessions on the deck', [{ value: 'auto', text: 'Automatically' }, { value: 'pick', text: 'I choose' }], S.settings.sessions, (v) => patchSettings({ sessions: v })),
     ], { cls: 'tint' }));
   }
+  if (S.settings?.usageEverySession !== undefined) { // an older service has no such setting
+    rows.push(row('Report usage from every Claude session', 'Adds the deck\'s status line to each Claude account\'s settings, so sessions you start yourself show the weekly usage too. Your own status line still shows. Turning it off puts your settings back.', [
+      toggle('Report usage from every Claude session', S.settings.usageEverySession, (on, el) => patchSettings({ usageEverySession: on }, el)),
+    ], { cls: 'tint' }));
+  }
   if (S.errors.live) rows.push(row(`Couldn't list them: ${S.errors.live.message}`, null, [], { cls: 'thin' }));
   else if (!live.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'txt dim' }, 'Nothing: every Claude session on this computer is on the deck.')));
   for (const s of live) {

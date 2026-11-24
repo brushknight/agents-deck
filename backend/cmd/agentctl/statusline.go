@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
@@ -94,7 +95,9 @@ func nextStatusLine(in []byte) string {
 			return c
 		}
 	}
-	return ""
+	// With "Report usage from every Claude session" on, the account's own
+	// status line was moved aside for the deck's: it still runs.
+	return claude.SavedStatusLine(paths.StatusLineSaved(), dir)
 }
 
 // statusLineIn is a settings file's status line command ("" for none).
@@ -116,9 +119,7 @@ func statusLineIn(path string) string {
 }
 
 // isDeckStatusLine: a command that runs agentctl statusline (the deck's own).
-func isDeckStatusLine(c string) bool {
-	return strings.Contains(c, "agentctl") && strings.Contains(c, " statusline")
-}
+func isDeckStatusLine(c string) bool { return claude.IsDeckStatusLine(c) }
 
 // Claude Code runs the status line often (several times a second while an
 // agent works), but the limits in it change far less: the deck is told only

@@ -31,6 +31,10 @@ type Config struct {
 	ClaudeArgs []string `json:"claudeArgs"`
 	// Codex: mirror Codex app/CLI threads onto the board (default on).
 	Codex *bool `json:"codex"`
+	// UsageEverySession: the deck's status line is in every Claude
+	// account's settings.json, so every session reports its usage limits
+	// (Settings, off by default).
+	UsageEverySession bool `json:"usageEverySession"`
 	// Orca: mirror agents running in the Orca app onto the board (default on).
 	Orca *bool `json:"orca"`
 	// Herdr: mirror agents running in herdr onto the board (default on).

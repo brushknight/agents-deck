@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"path/filepath"
 	"time"
@@ -118,4 +119,30 @@ func (d *Daemon) WatchLimits() {
 		}
 		time.Sleep(15 * time.Second)
 	}
+}
+
+// UsageEverySession is "Report usage from every Claude session": with on,
+// the deck's status line goes into every Claude account's own settings.json
+// (the default ~/.claude too), so sessions started outside the deck report
+// their usage as well; with off, the status lines they had come back.
+func (d *Daemon) UsageEverySession(on bool) error {
+	dirs := []string{accounts.Home()}
+	for _, a := range accounts.List() {
+		if p := a.Path(); p != "" && filepath.Clean(p) != filepath.Clean(accounts.Home()) {
+			dirs = append(dirs, p)
+		}
+	}
+	var errs []error
+	for _, dir := range dirs {
+		var err error
+		if on {
+			err = claude.AddDeckStatusLine(dir, d.Agentctl, paths.StatusLineSaved())
+		} else {
+			err = claude.RemoveDeckStatusLine(dir, paths.StatusLineSaved())
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
