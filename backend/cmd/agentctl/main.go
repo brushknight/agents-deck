@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -1077,6 +1078,7 @@ type fileConfig struct {
 	Link       struct {
 		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
 	} `json:"link"`
+	CPUGuard json.RawMessage `json:"cpuGuard"` // cpuguard.Setting, read with cpuguard.FromConfig
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1232,6 +1234,40 @@ func serve(args []string) error {
 			panes = tmux.SessionTTYs()
 		}
 		return proc.TopUsers(daemon.AgentTerminals(st.Entries(), panes), n)
+	}
+	// The CPU guard: while the computer is busy it warns, and holds queued
+	// prompts and start_agent over MCP.
+	guard := cpuguard.New(machine)
+	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
+	guard.Queued = func() (n int) {
+		for _, c := range srv.Queue.Agents() {
+			n += c
+		}
+		return n
+	}
+	guard.Top = func() []proc.CPUUser { return adm.CPUTop(5).Users }
+	guard.Changed, guard.Logf = st.Touch, log.Printf
+	srv.Guard, adm.Guard = guard, guard
+	go guard.Run(machineCtx)
+	// While busy, the heaviest agent runs in background mode (macOS). Undone
+	// when calm and on a clean stop; after a crash, here on the next start.
+	// A demo's agents have no processes: nothing to slow.
+	if !*demoMode {
+		slower := &cpuguard.Slower{Guard: guard, List: proc.Processes, File: paths.Slowed(), Self: os.Getpid(),
+			Logf: log.Printf, Changed: st.Touch}
+		slower.Agents = func() []proc.AgentTerminal {
+			var live []store.Entry
+			for _, e := range st.Entries() {
+				if e.A.Status != model.Exited {
+					live = append(live, e)
+				}
+			}
+			return daemon.AgentTerminals(live, tmux.SessionTTYs())
+		}
+		slower.Recover()
+		defer slower.Stop()
+		go slower.Run(machineCtx)
+		guard.Slowed, guard.SlowedByYou, st.Slow, adm.Slower = slower.Slowed, slower.SlowedByYou, slower.Use, slower
 	}
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,

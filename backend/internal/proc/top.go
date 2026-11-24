@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -59,14 +60,19 @@ type psRow struct {
 	tty       string
 	cpu       float64 // percent of one core
 	comm      string
+	start     string // ps lstart ("Mon Nov 23 10:04:05 2026"), when asked for
 }
 
 // parsePS reads `ps -o pid=,ppid=,tty=,%cpu=,comm=`; the program's path is
 // last and may hold spaces.
-func parsePS(out string) []psRow {
+func parsePS(out string) []psRow { return parsePSWith(out, 0) }
+
+// parsePSWith reads ps rows with n more words between %cpu and comm (the
+// five of lstart) into start.
+func parsePSWith(out string, n int) []psRow {
 	var rows []psRow
 	for _, l := range strings.Split(out, "\n") {
-		var f [4]string
+		f := make([]string, 4+n)
 		rest := strings.TrimSpace(l)
 		ok := true
 		for i := range f {
@@ -81,9 +87,49 @@ func parsePS(out string) []psRow {
 		if !ok || rest == "" || e1 != nil || e2 != nil || e3 != nil {
 			continue
 		}
-		rows = append(rows, psRow{pid, ppid, f[2], cpu, rest})
+		rows = append(rows, psRow{pid, ppid, f[2], cpu, rest, strings.Join(f[4:], " ")})
 	}
 	return rows
+}
+
+// PS is one process, for background mode (cpuguard).
+type PS struct {
+	PID, PPID int
+	TTY       string  // "ttys012", "pts/3"; "??" or "?" for none
+	CPU       float64 // percent of one core, as ps has it
+	Start     string  // when it started, to tell a reused pid apart
+	Comm      string
+}
+
+// Processes runs ps once for every process, with its start time. Not on
+// Windows.
+func Processes() ([]PS, error) {
+	if runtime.GOOS == "windows" {
+		return nil, errors.New("not on Windows")
+	}
+	all := "-ax"
+	if runtime.GOOS == "linux" {
+		all = "-e"
+	}
+	out, err := Output(10*time.Second, "/bin/ps", all, "-o", "pid=,ppid=,tty=,%cpu=,lstart=,comm=")
+	if err != nil {
+		return nil, err
+	}
+	return parseProcesses(string(out)), nil
+}
+
+func parseProcesses(out string) []PS {
+	var list []PS
+	for _, r := range parsePSWith(out, 5) {
+		list = append(list, PS{PID: r.pid, PPID: r.ppid, TTY: r.tty, CPU: r.cpu, Start: r.start, Comm: r.comm})
+	}
+	return list
+}
+
+// IsDeck says whether a process is the deck's own: this service (self), a
+// helper it runs, or any agentctl (a hook on an agent's terminal too).
+func IsDeck(pid, ppid int, comm string, self int) bool {
+	return pid == self || ppid == self || programName(comm) == "agentctl"
 }
 
 // programName is the name to group a process under: the app it belongs to
@@ -114,7 +160,7 @@ func groupCPU(rows []psRow, agents []AgentTerminal, self, cores, n int) []CPUUse
 		key, u := "deck", CPUUser{}
 		a, onAgent := byTTY[r.tty]
 		switch {
-		case name == "agentctl" || r.pid == self || r.ppid == self: // a hook on an agent's terminal too
+		case IsDeck(r.pid, r.ppid, r.comm, self):
 		case onAgent:
 			key, u = "agent "+a.ID, CPUUser{Kind: "agent", Name: a.Title, Agent: a.ID}
 		default:
