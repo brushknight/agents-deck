@@ -39,8 +39,12 @@ func TestPetArt(t *testing.T) {
 }
 
 const petCheck = `
-import { petSVG, STAGES } from './pets.js';
+import { petSVG, STAGES, levelAt, petKind, heartSVG } from './pets.js';
 const fail = (m) => { console.error(m); process.exitCode = 1; };
+// The same numbers as the service (internal/pets Threshold).
+if (levelAt(0) !== 0 || levelAt(1) !== 50000 || levelAt(5) !== 122070 || levelAt(40) !== 300926554) fail('levels differ from the service');
+if (petKind({ stage: 'strong' }) !== 'Strong Builder' || petKind({ stage: 'grown' }) !== 'Builder' || petKind({ stage: 'egg' }) !== 'Egg') fail('pet kinds');
+if (heartSVG(true) === heartSVG(false) || /style=/.test(heartSVG(true))) fail('hearts');
 if (petSVG(null) !== '') fail('no pet: no drawing');
 const hat = { shape: 'top hat', color: 'yellow' };
 const box = (s) => /viewBox="([^"]+)"/.exec(s)[1];
