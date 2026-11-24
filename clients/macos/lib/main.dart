@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -183,6 +184,20 @@ class MenuBarDeck extends StatelessWidget {
 
   Widget _deck(ServiceStatus? status) {
     final down = status != null && status.state == ServiceState.notRunning;
+    // The deck is laid out at 720 and shown smaller: the grid snaps its
+    // tiles to whole device pixels at that scale.
+    return LayoutBuilder(
+      builder: (context, box) => DeckPixels(
+        devicePerDesign:
+            math.min(box.maxWidth, box.maxHeight) /
+            design *
+            MediaQuery.devicePixelRatioOf(context),
+        child: _fitted(down, status),
+      ),
+    );
+  }
+
+  Widget _fitted(bool down, ServiceStatus? status) {
     return FittedBox(
       child: SizedBox.square(
         dimension: design,
@@ -196,6 +211,7 @@ class MenuBarDeck extends StatelessWidget {
                       source: source,
                       visible: visible,
                       backButton: true, // no edge swipe here
+                      menuBar: true,
                       pairingCard: (problem) => NotRunningCard(
                         status: service?.status.value,
                         onStart: service?.start,

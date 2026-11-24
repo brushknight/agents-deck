@@ -150,6 +150,35 @@ class _HudClockState extends State<HudClock> {
 /// The deck's 4×4 board: square cells with an 8 px gap, as large as the
 /// space allows, centred. With [square] false the cells fill the space
 /// instead (a little shorter than wide when room is needed below the grid).
+/// How many device pixels one design pixel of the deck takes, when a host
+/// scales the deck (the menu bar app shows the 720 deck at 0.61): the grid
+/// then puts every tile edge and gap on whole device pixels, so tiles are
+/// all one size, gaps even and borders crisp.
+class DeckPixels extends InheritedWidget {
+  const DeckPixels({
+    super.key,
+    required this.devicePerDesign,
+    required super.child,
+  });
+
+  final double devicePerDesign;
+
+  static double? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DeckPixels>()?.devicePerDesign;
+
+  /// [v] design pixels, to the nearest whole device pixel (unchanged
+  /// without a [DeckPixels] above).
+  static double snap(BuildContext context, double v) {
+    final s = of(context);
+    if (s == null || s <= 0) return v;
+    return (v * s).roundToDouble() / s;
+  }
+
+  @override
+  bool updateShouldNotify(DeckPixels old) =>
+      old.devicePerDesign != devicePerDesign;
+}
+
 class DeckGrid extends StatelessWidget {
   const DeckGrid({super.key, required this.cells, this.square = true});
 
@@ -161,36 +190,68 @@ class DeckGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = DeckPixels.of(context);
     return LayoutBuilder(
       builder: (context, box) {
-        final w = math.max(0.0, (box.maxWidth - gap * (columns - 1)) / columns);
-        final h = math.max(0.0, (box.maxHeight - gap * (rows - 1)) / rows);
+        var g = gap;
+        var w = math.max(0.0, (box.maxWidth - gap * (columns - 1)) / columns);
+        var h = math.max(0.0, (box.maxHeight - gap * (rows - 1)) / rows);
+        if (s != null && s > 0) {
+          // Whole device pixels: one tile size and one gap everywhere.
+          final gd = (gap * s).roundToDouble();
+          g = gd / s;
+          w =
+              math.max(
+                0.0,
+                ((box.maxWidth * s - gd * (columns - 1)) / columns)
+                    .floorToDouble(),
+              ) /
+              s;
+          h =
+              math.max(
+                0.0,
+                ((box.maxHeight * s - gd * (rows - 1)) / rows).floorToDouble(),
+              ) /
+              s;
+        }
         final side = math.min(w, h);
         final cellW = square ? side : w, cellH = square ? side : h;
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var r = 0; r * columns < cells.length; r++) ...[
-                if (r > 0) const SizedBox(height: gap),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (var c = 0; c < columns; c++) ...[
-                      if (c > 0) const SizedBox(width: gap),
-                      SizedBox(
-                        width: cellW,
-                        height: cellH,
-                        child: r * columns + c < cells.length
-                            ? cells[r * columns + c]
-                            : null,
-                      ),
-                    ],
+        final grid = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var r = 0; r * columns < cells.length; r++) ...[
+              if (r > 0) SizedBox(height: g),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var c = 0; c < columns; c++) ...[
+                    if (c > 0) SizedBox(width: g),
+                    SizedBox(
+                      width: cellW,
+                      height: cellH,
+                      child: r * columns + c < cells.length
+                          ? cells[r * columns + c]
+                          : null,
+                    ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ],
+          ],
+        );
+        if (s == null || s <= 0) return Center(child: grid);
+        // Centred on a whole device pixel too.
+        final rowsShown = (cells.length / columns).ceil();
+        final totalW = cellW * columns + g * (columns - 1);
+        final totalH = cellH * rowsShown + g * math.max(0, rowsShown - 1);
+        final left = (((box.maxWidth - totalW) / 2) * s).roundToDouble() / s;
+        final top = (((box.maxHeight - totalH) / 2) * s).roundToDouble() / s;
+        return Padding(
+          padding: EdgeInsets.only(
+            left: math.max(0, left),
+            top: math.max(0, top),
           ),
+          child: Align(alignment: Alignment.topLeft, child: grid),
         );
       },
     );

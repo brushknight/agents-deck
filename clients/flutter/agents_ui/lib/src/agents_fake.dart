@@ -37,7 +37,8 @@ class FakeAgentsSource implements AgentsSource {
 
   /// The fixture fleet. Status ages are spread out (38m, 2m, 12m, …) so
   /// the tiles and pills read like a real afternoon instead of all "0s".
-  factory FakeAgentsSource.demo({bool animate = false}) {
+  /// [pets]: Agent pets on, every agent with one of [demoPets].
+  factory FakeAgentsSource.demo({bool animate = false, bool pets = false}) {
     final json = jsonDecode(agentsDemoStateJson) as Map<String, dynamic>;
     final now = DateTime.now().toUtc();
     (json['server'] as Map)['time'] = now.toIso8601String();
@@ -45,6 +46,7 @@ class FakeAgentsSource implements AgentsSource {
       final slot = (a['slot'] as num).toInt();
       final age = _demoAges[slot % _demoAges.length];
       a['statusSince'] = now.subtract(age).toIso8601String();
+      if (pets) a['pet'] = demoPets[a['id']] ?? demoPets['']!;
     }
     return FakeAgentsSource._(
       json,
@@ -65,6 +67,60 @@ class FakeAgentsSource implements AgentsSource {
     link: link,
     attention: attention,
   );
+
+  /// Made-up pets for the demo fleet, by agent id ("" for any other).
+  static const demoPets = <String, Map<String, dynamic>>{
+    'k3f9a2': {
+      'name': 'Juno', 'stage': 'grown', 'level': 14, 'ate': 1040000, //
+      'levelFrom': 909495, 'nextAt': 1136868, 'hearts': 3, 'mood': 'fed',
+      'hat': {'shape': 'beanie', 'color': 'teal'},
+      'hatchedAt': '2026-11-02T10:00:00Z',
+    },
+    'h0m3l4': {
+      'name': 'Pim', 'stage': 'kid', 'level': 6, 'ate': 160000, //
+      'levelFrom': 152588, 'nextAt': 190735, 'hearts': 2, 'mood': 'hungry',
+      'hat': {'shape': 'wizard', 'color': 'purple'},
+      'hatchedAt': '2026-11-20T10:00:00Z',
+    },
+    'd0cs1t': {'stage': 'egg', 'ate': 52000, 'nextAt': 50000, 'ready': true},
+    't3st5a': {'stage': 'egg', 'ate': 42000, 'nextAt': 50000},
+    '1nfr4t': {
+      'name': 'Moss', 'stage': 'grown', 'level': 12, 'ate': 700000, //
+      'levelFrom': 582077, 'nextAt': 727596, 'hearts': 0, 'mood': 'weak',
+      'hat': {'shape': 'hard hat', 'color': 'yellow'},
+      'hatchedAt': '2026-10-21T10:00:00Z',
+    },
+    'k8sn0d': {
+      'name': 'Bree', 'stage': 'mighty', 'level': 33, 'ate': 70000000, //
+      'levelFrom': 63108872, 'nextAt': 78886091, 'hearts': 4, 'mood': 'fed',
+      'hat': {'shape': 'top hat', 'color': 'sky'},
+      'hatchedAt': '2026-09-14T10:00:00Z',
+    },
+    '4uthfl': {
+      'name': 'Fen', 'stage': 'kid', 'level': 7, 'ate': 200000, //
+      'levelFrom': 190735, 'nextAt': 238419, 'hearts': 4, 'mood': 'fed',
+      'hat': {'shape': 'devil horns', 'color': 'red'},
+      'hatchedAt': '2026-11-12T10:00:00Z',
+    },
+    'h4ptic': {
+      'name': 'Nib', 'stage': 'legend', 'level': 41, 'ate': 389000000, //
+      'levelFrom': 376158192, 'nextAt': 470197740, 'hearts': 4,
+      'mood': 'fed', 'hat': {'shape': 'crown', 'color': 'yellow'},
+      'hatchedAt': '2026-08-18T10:00:00Z',
+    },
+    'plug1n': {
+      'name': 'Oat', 'stage': 'baby', 'level': 2, 'ate': 70000, //
+      'levelFrom': 62500, 'nextAt': 78125, 'hearts': 1, 'mood': 'fed',
+      'hatchedAt': '2026-11-23T10:00:00Z',
+    },
+    'fw0t4x': {
+      'name': 'Tuft', 'stage': 'strong', 'level': 22, 'ate': 6000000, //
+      'levelFrom': 5421011, 'nextAt': 6776264, 'hearts': 3, 'mood': 'fed',
+      'hat': {'shape': 'propeller', 'color': 'blue'},
+      'hatchedAt': '2026-10-09T10:00:00Z',
+    },
+    '': {'stage': 'egg', 'ate': 12000, 'nextAt': 50000},
+  };
 
   static const _demoAges = [
     Duration(minutes: 38), Duration(minutes: 2), Duration(minutes: 12),
@@ -250,6 +306,29 @@ class FakeAgentsSource implements AgentsSource {
         }
         _setStatus(a, 'idle');
         a['resumable'] = false;
+      case 'hatch':
+        // As the service does: only an egg that is ready hatches, into a
+        // baby with a name (made up here from the agent's id).
+        final pet = a['pet'];
+        if (pet is! Map || pet['stage'] != 'egg' || pet['ready'] != true) {
+          return const AgentsResult(
+            AgentsResultKind.conflict,
+            "this pet isn't an egg ready to hatch",
+          );
+        }
+        const names = ['Nib', 'Pip', 'Bix', 'Tup', 'Mox', 'Zib', 'Fen', 'Kip'];
+        a['pet'] = {
+          ...pet,
+          'name':
+              names[agentId.codeUnits.fold(0, (s, c) => s + c) % names.length],
+          'stage': 'baby',
+          'level': 1,
+          'levelFrom': 50000,
+          'nextAt': 62500,
+          'hearts': petMaxHearts,
+          'ready': false,
+          'hatchedAt': DateTime.now().toUtc().toIso8601String(),
+        };
       case 'handoff':
         final name = body?['account'];
         final to = accountList.where((x) => x.name == name).firstOrNull;
@@ -307,6 +386,9 @@ class FakeAgentsSource implements AgentsSource {
 
   @override
   Future<AgentsResult> resume(String agentId) => _command('resume', agentId);
+
+  @override
+  Future<AgentsResult> hatch(String agentId) => _command('hatch', agentId);
 
   /// Claude accounts for `GET /v1/accounts` (none set up by default, like a
   /// Mac with a single account).

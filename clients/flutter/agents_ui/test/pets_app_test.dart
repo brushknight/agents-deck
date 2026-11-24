@@ -26,6 +26,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 190735,
     'hearts': 2,
     'mood': 'hungry',
+    'hat': {'shape': 'wizard', 'color': 'purple'},
   },
   'd0cs1t': {'stage': 'egg', 'ate': 42000, 'nextAt': 50000, 'ready': true},
   't3st5a': {
@@ -36,6 +37,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 3600000,
     'hearts': 3,
     'mood': 'fed',
+    'hat': {'shape': 'propeller', 'color': 'blue'},
   },
   '1nfr4t': {
     'name': 'Moss',
@@ -45,6 +47,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 800000,
     'hearts': 0,
     'mood': 'weak',
+    'hat': {'shape': 'hard hat', 'color': 'yellow'},
   },
   'k8sn0d': {
     'name': 'Bree',
@@ -54,6 +57,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 70000000,
     'hearts': 4,
     'mood': 'fed',
+    'hat': {'shape': 'top hat', 'color': 'sky'},
   },
   'h4ptic': {
     'name': 'Oat',
@@ -132,87 +136,56 @@ void main() {
     for (final id in _pets.keys) {
       expect(inTile(id, PetSprite), findsOneWidget, reason: id);
     }
-    // checkout-api's subagent still gets its mini critter; the agent
-    // itself is its pet.
-    expect(inTile('k3f9a2', CritterSprite), findsOneWidget);
+    // With pets on, a tile's subagents are a count in its corner, not the
+    // old mini critters: the pet itself shows a mini pet in tow when its
+    // agent delegates.
+    expect(inTile('k3f9a2', CritterSprite), findsNothing);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('agent-tile-k3f9a2')),
+              matching: find.byKey(const Key('agent-tile-subagents')),
+            ),
+          )
+          .data,
+      '3 SUB',
+    );
     expect(inTile('h0m3l4', CritterSprite), findsNothing);
     // Agents without a pet keep their critter.
     expect(inTile('scr4tc', CritterSprite), findsOneWidget);
     expect(inTile('scr4tc', PetSprite), findsNothing);
-    // The same box as the critter it replaces.
+    // The pet stands on a ground line and keeps all of it in the tile.
+    expect(tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).fit, isTrue);
+    // Each pet does its agent's pose: infra-network needs you, in its own
+    // colours on the orange tile (no plate: the stroke keeps it apart).
     expect(
-      tester.getSize(inTile('h0m3l4', PetSprite)),
-      tester.getSize(
-        find.descendant(
-          of: find.byKey(const ValueKey('agent-tile-scr4tc')),
-          matching: find.byType(CritterSprite),
-        ),
-      ),
+      tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).pose,
+      CritterPose.wait,
     );
-    // Only the orange tile (infra-network needs you) gets the dark plate.
-    expect(tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).plate, isTrue);
-    for (final id in _pets.keys.where((id) => id != 'h0m3l4')) {
-      expect(
-        tester.widget<PetSprite>(inTile(id, PetSprite)).plate,
-        isFalse,
-        reason: id,
-      );
-    }
+    expect(
+      tester.widget<PetSprite>(inTile('k3f9a2', PetSprite)).pose,
+      isNot(CritterPose.wait),
+    );
     // No level or hearts on tiles.
     expect(find.byType(PetHearts), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the card shows its name, what it is, level and hearts', (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'checkout-api');
-    expect(find.byKey(const Key('agent-pet')), findsOneWidget);
-    expect(find.text('Nib'), findsOneWidget);
-    expect(find.text('Legend Builder · level 41'), findsOneWidget);
-    // levelFrom: 360M..400M, at 380M.
-    expect(find.text('50% to level 42'), findsOneWidget);
-    expect(find.byType(PetHearts), findsOneWidget);
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 4);
-    // A dark card: no plate.
+  test('hatching moves whole cells: shake, white, gone; then the pop-in', () {
     expect(
-      tester
-          .widget<PetSprite>(
-            find.descendant(
-              of: find.byKey(const Key('agent-pet')),
-              matching: find.byType(PetSprite),
-            ),
-          )
-          .plate,
-      isFalse,
+      [
+        for (final t in [0.05, 0.15, 0.25, 0.55, 0.65])
+          PetHatchStep.hatch(t).dx,
+      ],
+      [0, -1, 1, -2, 2],
     );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('an egg on the card, and no levelFrom', (tester) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'docs-site');
-    expect(find.text('An egg'), findsOneWidget);
-    expect(find.text('Egg'), findsOneWidget);
-    expect(find.text('84% to hatching'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a card asking you something shows the pet too', (tester) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'infra-network');
-    expect(find.byKey(const Key('agent-pet')), findsOneWidget);
-    expect(find.text('Kid · level 6'), findsOneWidget);
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 2);
-    // Its permission card is solid orange: the pet sits on a dark plate.
-    Finder cardPet() => find.descendant(
-      of: find.byKey(const Key('agent-pet')),
-      matching: find.byType(PetSprite),
-    );
-    expect(tester.widget<PetSprite>(cardPet()).plate, isTrue);
-    expect(tester.widget<PetHearts>(find.byType(PetHearts)).onOrange, isTrue);
-    expect(tester.takeException(), isNull);
+    expect(PetHatchStep.hatch(0.75), const PetHatchStep(white: true));
+    expect(PetHatchStep.hatch(0.9).shown, isFalse);
+    expect(PetHatchStep.born(0.1), const PetHatchStep(dy: 2, shown: false));
+    expect(PetHatchStep.born(0.3), const PetHatchStep(dy: 2));
+    expect(PetHatchStep.born(0.6), const PetHatchStep(dy: -1));
+    expect(PetHatchStep.born(0.9), const PetHatchStep());
   });
 
   testWidgets('pets grid golden', skip: !autoUpdateGoldenFiles, (tester) async {
@@ -220,28 +193,6 @@ void main() {
     await expectLater(
       find.byType(AgentsApp),
       matchesGoldenFile('goldens/agents-pets-grid.png'),
-    );
-  });
-
-  testWidgets('pets detail golden', skip: !autoUpdateGoldenFiles, (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'checkout-api');
-    await expectLater(
-      find.byType(AgentsApp),
-      matchesGoldenFile('goldens/agents-pets-detail.png'),
-    );
-  });
-
-  testWidgets('pets permission golden', skip: !autoUpdateGoldenFiles, (
-    tester,
-  ) async {
-    await pumpBoard(tester, _withPets());
-    await open(tester, 'infra-network');
-    await expectLater(
-      find.byType(AgentsApp),
-      matchesGoldenFile('goldens/agents-pets-permission.png'),
     );
   });
 }
