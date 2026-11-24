@@ -121,35 +121,34 @@ title and options (key, label, primary). Helpers: `deck_tiles_find`, `deck_tiles
 ## Agent pets
 
 While Agent pets is on (the deck's Settings, General), every agent has a pet (`Agent.pet`, in
-`FIELDS_TILE`) that the deck shows in place of its critter. `deck_pet.h` keeps one in 26 bytes and
-draws it with the web deck's pixel art (`backend/internal/web/static/pets.js`): the egg (cracked once
-it has eaten 30k tokens), the baby, the kid and the grown-up, which strong, mighty and legend pets
-stay, with a one-cell aura round them in pale yellow, blue or gold. A hungry pet has its mouth open;
-its eyes are shut while it is weak or its agent is idle; a weak grown-up lies down, brown; a
-hibernating pet sits in an ice cube. The kid, the grown-up and the weak one wear the agent's hat.
+`FIELDS_TILE`) that the deck shows in place of its critter. `deck_pet.h` keeps one in 28 bytes and
+draws it as the web deck does (`backend/internal/web/static/pets.js`; `docs/pet-poses.md` is the
+spec): the egg (cracked once it has eaten 30k tokens, or ready to hatch), the baby, the kid and the
+grown-up, which strong, mighty and legend pets stay, with flames round them in pale yellow, blue or
+gold. A hungry pet has its mouth open; its eyes are shut while it is weak or its agent is idle; a weak
+grown-up lies down, brown; a hibernating pet sits in an ice cube. The kid and up wear their own hat
+(`Pet.hat`, devil horns included); the agent's hat colours an egg's spots.
+
+Every pet has a black stroke one pet pixel wide, four ways round it, drawn under it. It keeps the hat
+apart from any aura and the pet apart from an orange background, so the pet keeps its own colours
+everywhere.
 
 ```c
 deck_pet_t pet;
 deck_pet_from_proto(&pet, a->has_pet, &a->pet);         /* in on_agent; has_pet false: pets are off */
 
-deck_pet_look_t look;                                   /* 584 bytes: build it, draw it, drop it */
-deck_pet_opts_t o = {.hat = deck_pet_hat_of(a->hat.shape), .hat_color = deck_pet_hat_color_of(a->hat.color),
-                     .idle = idle, .working = running};
+deck_pet_look_t look;                                   /* 1.4 KB: build it, draw it, drop it */
+deck_pet_opts_t o = {0};
+o.idle = idle;                                          /* eyes shut */
 deck_pet_look(&look, &pet, &o);
 deck_pet_draw(&look, x, y, scale, fill, ctx);           /* fill(ctx, x, y, w, h, 0xRRGGBB, alpha) */
 ```
 
-The art is 16 x 14 cells (cell (0, 0) at the pixel you give); a hat rises two cells above it, and the
-aura or the ice reach one or two cells round it (`deck_pet_bounds()`). Colours come as 0xRRGGBB with
-an alpha: the ice and the aura are see-through, so mix them with what's under them, or on a screen
-that can't, draw the ones at 128 or more solid and skip the rest. The hat stays readable inside an aura: the aura leaves a cell of background round the hat, and a
-hat in a colour close to the aura's (yellow or ink in strong, teal, blue or sky in mighty, yellow in
-legend: contrast under 1.6 and hue within 40 degrees) is drawn in its shade. `.plate` draws the pet on a dark
-square plate one cell larger than it on every side (covering the ice too), for a background in its
-own orange. `deck_pet_motion()` gives the small moves (a working pet
-bobs, an egg waiting to be seen rocks) for a board that redraws its critter anyway.
-`deck_pet_stage_name()` says "Grown-up" and the like, for a board that shows the pet's name, stage
-and level.
+The art is 16 x 14 cells (cell (0, 0) at the pixel you give). The hat, the flames and the stroke reach
+past it, to the cells `DECK_PET_REACH_*` give (for a fixed box round a pet; `deck_pet_bounds()` gives
+one look's). Colours come as 0xRRGGBB with an alpha: only the ice is see-through, so mix it with
+what's under it, or skip it on a screen that can't. `deck_pet_motion()` gives the rock of an egg
+waiting to be seen. `deck_pet_look()` uses about 2 KB of its own scratch, so draw pets from one task.
 
 `test/host/pet_golden.h` holds every look's cells as pets.js draws them (`tools/pet_golden.mjs`
 writes it); `test_pet` checks the kit against it, so a change to the art goes in both.
@@ -236,7 +235,7 @@ Measured on ESP32 (xtensa gcc) with the defaults:
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
 | of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
-| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) | 26 / 584 |
+| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1372 / 1136 static |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
 The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.

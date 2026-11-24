@@ -336,7 +336,7 @@ static void pet_fill(void *user, int x, int y, int w, int h, uint32_t rgb, uint8
 // cell per sprite cell, its cell (0, 0) at sprite cell (-1, -5).
 static void pet_draw(lv_layer_t *layer, const critter_t *c, int32_t x0, int32_t y0, int s, uint32_t ms)
 {
-	deck_pet_look_t look;
+	static deck_pet_look_t look; // 1.4 KB: off the UI task's stack
 	deck_pet_look(&look, &c->pet, &c->pet_opts);
 	int dx, dy;
 	deck_pet_motion(&look, ms, s, &dx, &dy);
