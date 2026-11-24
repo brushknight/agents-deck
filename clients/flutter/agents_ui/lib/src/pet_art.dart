@@ -629,20 +629,15 @@ class _PetScene {
     Color cell(String ch) => col[ch] ?? col['b']!;
     grp = p?.grp ?? '';
     calm = d.calm;
-    // The body and what moves with it; the cells that drop when it is
-    // squeezed form group 2.
+    // The body and what moves with it, in the web's paint order: the body
+    // cells that don't drop (all of them when nothing is squeezed), then
+    // the ones that drop when it is squeezed (group 2, over the rows they
+    // drop onto), then the layers that move on their own (glancing and
+    // scanning eyes, the chomping mouth, arms, the flag, hat frames), so
+    // nothing of the body covers the face.
     final top = p?.top;
+    squeeze = p != null && p.squeeze == 1 ? 'psq1' : 'psq';
     final bodyParts = <(List<(int, int, String)>, String, int)>[
-      (
-        [
-          for (final MapEntry(key: (x, y), value: ch) in pix.entries)
-            if (top != null && top.contains((x, y))) (x, y, ch),
-        ],
-        '',
-        2,
-      ),
-      for (final (cells, cls) in [...?p?.inner, ...hatParts])
-        (cells, cls, top != null ? 2 : 1),
       (
         [
           for (final MapEntry(key: (x, y), value: ch) in pix.entries)
@@ -651,6 +646,17 @@ class _PetScene {
         '',
         1,
       ),
+      if (top != null)
+        (
+          [
+            for (final MapEntry(key: (x, y), value: ch) in pix.entries)
+              if (top.contains((x, y))) (x, y, ch),
+          ],
+          '',
+          2,
+        ),
+      for (final (cells, cls) in [...?p?.inner, ...hatParts])
+        (cells, cls, top != null ? 2 : 1),
     ];
     final outerParts = [
       for (final (c, cls) in [...?p?.outer]) (c, cls, 0),
@@ -696,7 +702,7 @@ class _PetScene {
     classes = {
       for (final l in [...body, ...outer, ...strokes]) l.cls,
       grp,
-      if (top != null) 'psq',
+      if (top != null) squeeze,
     }.toList();
     final xs = filled.map((c) => c.$1), ys = filled.map((c) => c.$2);
     bounds = Rect.fromLTRB(
@@ -723,6 +729,9 @@ class _PetScene {
   late final String grp;
   late final List<String> classes;
   late final bool calm;
+
+  /// The squeeze's motion class: psq, or psq1 for a pet that drops 1 row.
+  late final String squeeze;
 
   /// A ready egg: it wobbles.
   late final bool ready;
@@ -770,10 +779,10 @@ class _PetScene {
       add(Rect.fromLTRB(x.toDouble(), y - 3.0, x + 1.0, y + 10.0));
     }
     final posed = [...strokes, ...body, ...outer];
-    final squeezed = classes.contains('psq');
+    final squeezed = classes.contains(squeeze);
     for (var t = 0; t < 4800; t += 50) {
       final (_, gx, gy) = motion(grp, t, false);
-      final (_, qx, qy) = motion('psq', t, false);
+      final (_, qx, qy) = motion(squeeze, t, false);
       for (final l in posed) {
         final (a, dx, dy) = motion(l.cls, t, false);
         if (a <= 0) continue;
@@ -974,18 +983,18 @@ Map<(int, int), Color> petCellsAt(
   final s = _PetScene.of(pet, spots, draw);
   final out = <(int, int), Color>{};
   final (_, gx, gy) = s.motion(s.grp, ms, still);
-  final (_, qx, qy) = s.motion('psq', ms, still);
+  final (_, qx, qy) = s.motion(s.squeeze, ms, still);
   for (final l in [...s.strokes, ...s.body, ...s.outer]) {
     final (a, dx, dy) = s.motion(l.cls, ms, still);
     if (a <= 0) continue;
     final ox =
         dx +
         (l.group > 0 ? gx : 0) +
-        (l.group == 2 && s.classes.contains('psq') ? qx : 0);
+        (l.group == 2 && s.classes.contains(s.squeeze) ? qx : 0);
     final oy =
         dy +
         (l.group > 0 ? gy : 0) +
-        (l.group == 2 && s.classes.contains('psq') ? qy : 0);
+        (l.group == 2 && s.classes.contains(s.squeeze) ? qy : 0);
     final b = l.path.getBounds();
     for (var y = b.top.round(); y < b.bottom.round(); y++) {
       for (var x = b.left.round(); x < b.right.round(); x++) {
@@ -1251,8 +1260,8 @@ class _PetPainter extends CustomPainter {
     // A ready egg wobbles, all of it.
     if (s.ready && !still) canvas.translate(petReadyWobble(t).toDouble(), 0);
     final (_, gx, gy) = s.motion(s.grp, t, still);
-    final (_, qx, qy) = s.motion('psq', t, still);
-    final squeezed = s.classes.contains('psq');
+    final (_, qx, qy) = s.motion(s.squeeze, t, still);
+    final squeezed = s.classes.contains(s.squeeze);
 
     void draw(
       List<_Layer> layers, [
