@@ -183,6 +183,9 @@ static void send(const DeckCommand& c) {
     case DeckCmd::Interrupt: ui.cmdSeq = deck_interrupt(link(), c.agent); break;
     case DeckCmd::Dismiss:   ui.cmdSeq = deck_dismiss(link(), c.agent); break;
     case DeckCmd::Resume:    ui.cmdSeq = deck_resume(link(), c.agent); break;
+#ifdef agentsdeck_link_v1_Frame_hatch_pet_tag
+    case DeckCmd::Hatch:     ui.cmdSeq = deck_hatch_pet(link(), c.agent); break;
+#endif
     default: return;
   }
   PANEL_LOG("command %d for %s, seq %u", (int)c.cmd, c.agent, (unsigned)ui.cmdSeq);

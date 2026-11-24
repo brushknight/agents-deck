@@ -551,10 +551,10 @@ static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb,
 // The pet's pose for the critter's (the kit's poses follow Pose, after NONE).
 static inline uint8_t petPose(Pose pose) { return (uint8_t)((int)pose + 1); }
 
-// Draws the agent's pet with the sprite box's top-left at (x, y), as
-// drawSprite would its critter, in `pose` at `ms`, with its bubble or not.
-// The look is kept in static memory: pets are drawn from one task.
-static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+// Draws the agent's pet with its cell (0, 0) at pixel (x, y), in `pose` at
+// `ms`, with its bubble or not. The look is kept in static memory: pets are
+// drawn from one task.
+static inline void drawPetCells(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
   using namespace sprite_detail;
   // nothing of it in these rows (a strip of the frame)
   if (y + (DECK_PET_REACH_Y1 + 1) * scale <= c.top || y + (DECK_PET_REACH_Y0 - 1) * scale >= c.h) return;
@@ -568,7 +568,21 @@ static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, P
   deck_pet_look(&look, &a.pet, &o);
   int dx, dy;
   deck_pet_motion(&look, ms, scale, &dx, &dy);
-  deck_pet_draw(&look, x - scale + dx, y - scale + dy, scale, petFill, &c);
+  deck_pet_draw(&look, x + dx, y + dy, scale, petFill, &c);
+}
+
+// The pet with the sprite box's top-left at (x, y), as drawSprite would its critter.
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  drawPetCells(c, x - scale, y - scale, scale, a, pose, ms, bubble);
+}
+
+// The row under the pet's still art (its feet, the egg's foot, the weak one's
+// ground): stand it on a line there.
+static inline int petBottom(const Agent& a) {
+  static const uint8_t kBottom[] = {14, 14, 13, 13, 12, 13};   // per deck_pet_art_t
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, nullptr);
+  return look.art < sizeof kBottom ? kBottom[look.art] : 14;
 }
 
 // The agent as the deck shows it: its pet while it has one, else its critter

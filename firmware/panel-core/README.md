@@ -9,7 +9,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | board | layout | folder |
 |---|---|---|
 | Waveshare ESP32-S3-LCD-1.47B, 320×172 | `layout_147.h`: one agent in detail and a mini-board | `devices/waveshare-lcd-147` |
-| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's UI at 2/3 | `devices/waveshare-touch-lcd-4` |
+| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's grid at 2/3; the boards' own card and prompt | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
 | LilyGO T4-S3, 2.41″ AMOLED, 450×600 | `layout_square.h`, `specT4S3()`: the 1.8″'s UI with 2×3 tiles on screen, bigger critters, the card's numbers one to a line | `devices/lilygo-t4-s3` |
 | Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_spring.h`, `layoutSpring28()`: the spring carousel, nine to a turn | `devices/waveshare-touch-lcd-28c` |
@@ -31,7 +31,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
 | `src/panel_layout.h` | the square boards' layout interface (`PanelLayout`) and UI state: screens, scroll, the finger |
 | `src/layout_147.h` | the 1.47" layout |
-| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel (grid, card, prompts) at a scale (`BigSpec`; 2/3 for 480×480); its fonts (`tools/make_font_big.py`) |
+| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel's grid at a scale (`BigSpec`; 2/3 for 480×480), and the agent's card and prompt in the boards' design (sharp corners, the pet on a ground line, square buttons; an egg ready to hatch says "tap to hatch"); its fonts (`tools/make_font_big.py`) |
 | `src/layout_square.h` | the square boards' layout (`SquarePanel`), one system with per-board numbers (`SquareSpec`): home, card, prompt, notices, touch and scrolling |
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |
@@ -115,7 +115,7 @@ The screens that show one agent in detail show the pet's name, stage and level (
 |---|---|
 | `layout_147.h` | the hero's bottom line, in place of turns and cost |
 | `layout_square.h` (card) | under the name and the pill |
-| `layout_big.h` (card) | beside the critter, after the subagents |
+| `layout_big.h` (card) | the pet itself, with hearts, level and the level bar beside it |
 | `round_ui.h` (detail) | the third line, in place of model, effort and context (the ring still shows context) |
 
 `tests/test_pets.cpp` checks it; `sim/render.cpp` draws every screen with pets when its last

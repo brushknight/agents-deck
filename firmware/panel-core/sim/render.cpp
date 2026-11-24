@@ -308,6 +308,12 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   in.scope = DeckScope::Admin;
   open("1nfr4t");
   shot("card-error");
+  for (int i = 0; i < f.count; i++)                 // with pets: an egg ready to hatch
+    if (f.agents[i].pet.ready) {
+      bigOpen(ui, f, i);
+      shot("card-ready");
+      break;
+    }
   open("h0m3l4");
   shot("permission");
   open("4uthfl");
