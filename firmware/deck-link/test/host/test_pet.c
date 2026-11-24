@@ -260,7 +260,9 @@ static void test_draw(void)
 			int props = 0;
 			FOR_GRID(x, y) {
 				const char k = deck_pet_at(&L, x, y);
-				const uint32_t want = k ? deck_pet_rgb(&L, k)
+				const bool spark = (L.spark[y - DECK_PET_GRID_Y0] >> (x - DECK_PET_GRID_X0)) & 1u;
+				const uint32_t want = spark ? 0xFFFFFFu   /* the sparks rise in front */
+				                      : k ? deck_pet_rgb(&L, k)
 				                      : deck_pet_stroke_at(&L, x, y) ? 0x000000u
 				                      : deck_pet_flame_at(&L, x, y) ? 0xFFE08Au : BG;
 				CHECK(px[oy + y * s][ox + x * s] == want);
@@ -380,6 +382,68 @@ static void test_face(void)
 				}
 }
 
+/* The feet stay on the body: in every frame of every pose (but the exited
+ * one's hollow outline) a hatched pet's body (body, shade, eyes, mouth,
+ * ground; not its hat, props or the mini pet in tow) is one piece, four
+ * ways: a jog lifts the feet with it. A piece with no body colour in it
+ * (the flag's checker) doesn't count. */
+static bool body_piece(char k) { return k == 'b' || k == 'd' || k == 'm' || k == 'g' || k == 'e' || k == 'k'; }
+
+static int pieces(const deck_pet_look_t *l, int pose)
+{
+	static uint8_t seen[DECK_PET_GRID_H][DECK_PET_GRID_W];
+	memset(seen, 0, sizeof seen);
+	static const int tow[] = {16, 16, 14, 14, 16, 17}; /* the mini pet's column, per art */
+	const int tow_x = pose == DECK_PET_POSE_DELEGATE ? tow[l->art] : 999;
+	int n = 0;
+	FOR_GRID(x0, y0) {
+		const char k = deck_pet_at(l, x0, y0);
+		if (!body_piece(k) || x0 >= tow_x || seen[y0 - DECK_PET_GRID_Y0][x0 - DECK_PET_GRID_X0])
+			continue;
+		int stack[DECK_PET_GRID_W * DECK_PET_GRID_H][2], top = 0;
+		bool coloured = false;
+		stack[top][0] = x0, stack[top][1] = y0, top++;
+		seen[y0 - DECK_PET_GRID_Y0][x0 - DECK_PET_GRID_X0] = 1;
+		while (top) {
+			top--;
+			const int x = stack[top][0], y = stack[top][1];
+			const char c = deck_pet_at(l, x, y);
+			coloured |= c == 'b' || c == 'd' || c == 'g';
+			static const int8_t d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+			for (int i = 0; i < 4; i++) {
+				const int nx = x + d[i][0], ny = y + d[i][1];
+				const char m = deck_pet_at(l, nx, ny);
+				if (!body_piece(m) || nx >= tow_x || seen[ny - DECK_PET_GRID_Y0][nx - DECK_PET_GRID_X0])
+					continue;
+				seen[ny - DECK_PET_GRID_Y0][nx - DECK_PET_GRID_X0] = 1;
+				stack[top][0] = nx, stack[top][1] = ny, top++;
+			}
+		}
+		n += coloured;
+	}
+	return n;
+}
+
+static void test_feet(void)
+{
+	for (int st = DECK_PET_BABY; st <= DECK_PET_LEGEND; st++)
+		for (int mood = 0; mood < 3; mood++)   /* (asleep: frozen, no pose) */
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat += 3)
+				for (int pose = DECK_PET_POSE_THINK; pose <= DECK_PET_POSE_HUNGRY; pose++) {
+					if (pose == DECK_PET_POSE_EXIT)
+						continue;
+					deck_pet_t p = pet_of(st, mood, hat);
+					for (uint32_t ms = 0; ms < 2400; ms += 50) {
+						const deck_pet_opts_t o = posed(pose, ms);
+						deck_pet_look(&L, &p, &o);
+						const int n = pieces(&L, pose);
+						if (n != 1)
+							fprintf(stderr, "feet: stage %d mood %d hat %d pose %d at %u ms: %d pieces\n", st, mood, hat, pose, ms, n);
+						CHECK(n == 1);
+					}
+				}
+}
+
 static void test_motion(void)
 {
 	int dx, dy;
@@ -389,13 +453,14 @@ static void test_motion(void)
 	deck_pet_look(&L, &p, &o);
 	CHECK(L.ready && L.art == DECK_PET_ART_CRACK);
 	int left = 0, right = 0;
-	for (uint32_t ms = 0; ms < 1600; ms += 50) {
+	for (uint32_t ms = 0; ms < 1600; ms += 40) {   /* whole cells: still until 60 %, then -1, +1, -1 */
 		deck_pet_motion(&L, ms, 2, &dx, &dy);
-		CHECK(dy == 0 && dx >= -1 && dx <= 1);
+		CHECK(dy == 0 && (dx == 0 || dx == -2 || dx == 2));
+		CHECK((ms < 960 || ms >= 1440) == (dx == 0));
 		left += dx < 0;
 		right += dx > 0;
 	}
-	CHECK(left > 0 && right > 0);
+	CHECK(left == 8 && right == 4);
 	p.ready = false;
 	deck_pet_look(&L, &p, &o);
 	deck_pet_motion(&L, 250, 2, &dx, &dy);
@@ -409,6 +474,7 @@ int main(void)
 	test_stroke_and_reach();
 	test_flames();
 	test_face();
+	test_feet();
 	test_draw();
 	test_motion();
 	if (failures) {

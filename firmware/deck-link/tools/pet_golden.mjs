@@ -40,6 +40,7 @@ function move(cls, ms, zz2) {
   if (c.has('la')) vis = ms % per < per / 2;
   if (c.has('lb')) vis = ms % per >= per / 2;
   if (c.has('bob')) dy = ms % per >= per / 2 ? -1 : 0;
+  if (c.has('pjog')) dy = ms % (c.has('pjf') ? 400 : 500) >= (c.has('pjf') ? 200 : 250) ? -1 : 0;
   if (c.has('hop')) dy = ms % 400 >= 200 ? -2 : 0;
   if (c.has('prock')) dx = q(c.has('prk2') ? 600 : 1200);
   if (c.has('scan')) dx = q(1200);

@@ -139,7 +139,7 @@ its own colours: the stroke keeps it apart.
 deck_pet_t pet;
 deck_pet_from_proto(&pet, a->has_pet, &a->pet);         /* in on_agent; has_pet false: pets are off */
 
-deck_pet_look_t look;                                   /* 1.4 KB: build it, draw it, drop it */
+deck_pet_look_t look;                                   /* 1.6 KB: build it, draw it, drop it */
 deck_pet_opts_t o = {0};
 o.pose = DECK_PET_POSE_BASH;                            /* what its agent does */
 o.ms = millis();                                        /* where the pose's motion is */
@@ -149,10 +149,10 @@ deck_pet_draw(&look, x, y, scale, fill, ctx);           /* fill(ctx, x, y, w, h,
 ```
 
 The art is 16 x 14 cells (cell (0, 0) at the pixel you give). Bubbles, the flag and the flames reach
-past it, to cells -5..24 across and -10..15 down (`DECK_PET_REACH_*`, for a fixed box round a pet;
+past it, to cells -5..24 across and -12..15 down (`DECK_PET_REACH_*`, for a fixed box round a pet;
 `deck_pet_bounds()` gives one look's). Colours come as 0xRRGGBB with an alpha: only the ice is
 see-through, so mix it with what's under it, or skip it on a screen that can't. `deck_pet_motion()`
-gives the rock of an egg waiting to be seen. `deck_pet_look()` uses about 2.7 KB of its own scratch,
+gives the wobble of an egg waiting to be seen. `deck_pet_look()` uses about 2.9 KB of its own scratch,
 so draw pets from one task.
 
 `test/host/pet_golden.h` holds every pose's cells over time as pets.js and pet-poses.js draw them
@@ -241,7 +241,7 @@ Measured on ESP32 (xtensa gcc) with the defaults:
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
 | of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
-| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1372 / 2752 static |
+| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1640 / 2944 static |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
 The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.

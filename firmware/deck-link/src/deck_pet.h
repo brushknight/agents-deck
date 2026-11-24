@@ -92,9 +92,9 @@ const char *deck_pet_stage_name(uint8_t stage);
  * (15, 13); a hat rises to y -2, bubbles and the flag reach right and up,
  * flames above the hat, the stroke a cell round all of it. */
 #define DECK_PET_GRID_X0 (-6)
-#define DECK_PET_GRID_Y0 (-11)
+#define DECK_PET_GRID_Y0 (-14)
 #define DECK_PET_GRID_W 32
-#define DECK_PET_GRID_H 28
+#define DECK_PET_GRID_H 31
 
 /* Which picture. */
 typedef enum {
@@ -162,6 +162,7 @@ typedef struct {
 	uint32_t stroke[DECK_PET_GRID_H];
 	uint32_t flame[DECK_PET_GRID_H];
 	uint32_t star[DECK_PET_GRID_H];
+	uint32_t spark[DECK_PET_GRID_H];
 	uint32_t hat_cells[DECK_PET_GRID_H];
 	uint8_t art;  /* deck_pet_art_t */
 	uint8_t aura; /* deck_pet_aura_t */
@@ -205,11 +206,11 @@ void deck_pet_bounds(const deck_pet_look_t *look, int scale, int *bx, int *by, i
 
 /* The furthest any look reaches, in cells (inclusive): for a board's fixed box round a pet. */
 #define DECK_PET_REACH_X0 (-5)
-#define DECK_PET_REACH_Y0 (-10)
+#define DECK_PET_REACH_Y0 (-12)
 #define DECK_PET_REACH_X1 24
 #define DECK_PET_REACH_Y1 15
 
-/* An egg waiting to be seen rocks a cell from side to side (pixels, added to x). */
+/* An egg waiting to be seen wobbles a whole cell from side to side (pixels, added to x). */
 void deck_pet_motion(const deck_pet_look_t *look, uint32_t ms, int scale, int *dx, int *dy);
 
 #ifdef __cplusplus
