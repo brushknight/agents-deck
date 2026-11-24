@@ -469,6 +469,8 @@ class Agent {
     this.modelLabel = '',
     this.activity,
     this.lastPrompt = '',
+    this.lastAnswer = '',
+    this.lastAnswerAt,
     this.waiting,
     this.errorMessage,
     this.tokensInput = 0,
@@ -516,6 +518,17 @@ class Agent {
   final String modelLabel;
   final AgentActivity? activity;
   final String lastPrompt;
+
+  /// Its reply that ended its latest finished turn, as plain text ("" until
+  /// it has one), and when it gave it.
+  final String lastAnswer;
+  final DateTime? lastAnswerAt;
+
+  /// The agent's page shows [lastAnswer] in place of [lastPrompt]: once it
+  /// has finished (idle) or ended, and has an answer.
+  bool get showsAnswer =>
+      lastAnswer.isNotEmpty &&
+      (status == AgentStatus.idle || status == AgentStatus.exited);
 
   /// Set only while [status] is waiting.
   final AgentPrompt? waiting;
@@ -617,6 +630,8 @@ class Agent {
           ? null
           : AgentActivity(tool: _str(act['tool']), detail: _str(act['detail'])),
       lastPrompt: _str(j['lastPrompt']),
+      lastAnswer: _str(j['lastAnswer']),
+      lastAnswerAt: _time(j['lastAnswerAt']),
       waiting: wait == null ? null : AgentPrompt.fromJson(wait),
       errorMessage: err == null ? null : _str(err['message']),
       tokensInput: _int(tokens['input']),
@@ -761,13 +776,24 @@ class AgentsState {
 
   /// "last active 3h ago" for [a], or "" while the deck doesn't know.
   String lastActiveText(Agent a, [DateTime? localNow]) {
-    final at = a.lastActive;
+    final ago = agoText(a.lastActive, localNow);
+    return ago.isEmpty ? '' : 'last active $ago';
+  }
+
+  /// "answered 3m ago" for [a]'s last answer, or "" when it has none.
+  String answeredText(Agent a, [DateTime? localNow]) {
+    final ago = agoText(a.lastAnswerAt, localNow);
+    return ago.isEmpty ? '' : 'answered $ago';
+  }
+
+  /// "just now", "12m ago", "3h ago", "2d ago" for [at]; "" for null.
+  String agoText(DateTime? at, [DateTime? localNow]) {
     if (at == null) return '';
     final d = serverNow(localNow).difference(at);
-    if (d.inMinutes < 1) return 'last active just now';
-    if (d.inHours < 1) return 'last active ${d.inMinutes}m ago';
-    if (d.inHours < 48) return 'last active ${d.inHours}h ago';
-    return 'last active ${d.inDays}d ago';
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inHours < 1) return '${d.inMinutes}m ago';
+    if (d.inHours < 48) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
   }
 
   /// How long [a] has been in its current status (zero when unknown).

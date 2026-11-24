@@ -758,6 +758,7 @@ class _AgentDetailState extends State<AgentDetail> {
     };
     final body = AgentLook.of(a).body;
     final (nowLabel, nowValue) = _doingNow(a);
+    final lastLabel = a.showsAnswer ? 'last answer' : 'last prompt';
     final footer = [
       a.modelLabel,
       tildePath(a.cwd),
@@ -861,10 +862,12 @@ class _AgentDetailState extends State<AgentDetail> {
             ],
           ),
           const SizedBox(height: 26),
-          if (state.lastActiveText(a) case final active when active.isNotEmpty)
+          // Finished or ended: what it answered; else what it was asked.
+          if ((a.showsAnswer ? state.answeredText(a) : state.lastActiveText(a))
+              case final active when active.isNotEmpty)
             Row(
               children: [
-                _label('last prompt', DeckHud.dim),
+                _label(lastLabel, DeckHud.dim),
                 const Spacer(),
                 Text(
                   active,
@@ -874,7 +877,7 @@ class _AgentDetailState extends State<AgentDetail> {
               ],
             )
           else
-            _label('last prompt', DeckHud.dim),
+            _label(lastLabel, DeckHud.dim),
           const SizedBox(height: 8),
           // As many lines of it as fit (subagent rows take the room first).
           Expanded(
@@ -887,7 +890,14 @@ class _AgentDetailState extends State<AgentDetail> {
                     .clamp(0, 4);
                 if (lines == 0) return const SizedBox.shrink();
                 return Text(
-                  a.lastPrompt.isEmpty ? '—' : a.lastPrompt,
+                  a.showsAnswer
+                      ? a.lastAnswer
+                      : a.lastPrompt.isEmpty
+                      ? '—'
+                      : a.lastPrompt,
+                  key: Key(
+                    a.showsAnswer ? 'agent-last-answer' : 'agent-last-prompt',
+                  ),
                   maxLines: lines,
                   overflow: TextOverflow.ellipsis,
                   style: DeckHud.rm(17, DeckHud.ink).merge(style),
