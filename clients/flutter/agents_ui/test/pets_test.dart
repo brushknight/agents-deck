@@ -409,6 +409,58 @@ void main() {
     expect(widest * 4, lessThanOrEqualTo(158));
   });
 
+  test('the face shows in every frame of every pose', () {
+    // Every hatched stage and mood doing every pose, painted every 50 ms
+    // over 2.4 s in paint order: both eyes always show, and never fewer
+    // eye cells than at the start (a body layer must never cover them).
+    // A hat without near-black cells, so only eyes (and the weak art's
+    // mouth) have the eyes' colour.
+    const hat = AgentHat(shape: 'beanie', color: 'teal');
+    for (final stage in petStages.skip(1)) {
+      for (final mood in ['fed', 'hungry', 'weak', 'asleep']) {
+        final pet = AgentPet(stage: stage, mood: mood, hat: hat);
+        final art = PetLook.of(pet).art;
+        final eyeColor = art == 'weak'
+            ? const Color(0xFF0A0A0A)
+            : const Color(0xFF141412);
+        for (final pose in CritterPose.values) {
+          if (pose == CritterPose.exited) continue; // eyes become body dots
+          int? start;
+          for (var ms = 0; ms < 2400; ms += 50) {
+            final cells = petCellsAt(pet, PetDraw(pose: pose), ms);
+            var eyes = [
+              for (final e in cells.entries)
+                // (x 15 and up: the flag's dark squares, not a face)
+                if (e.value == eyeColor && e.key.$1 < 15) e.key,
+            ];
+            if (art == 'weak' && eyes.isNotEmpty) {
+              // Its mouth shares the eyes' colour and sits rows lower: keep
+              // the top two rows of that colour, where the eyes are.
+              final top = eyes.map((c) => c.$2).reduce((a, b) => a < b ? a : b);
+              eyes = [
+                for (final c in eyes)
+                  if (c.$2 <= top + 1) c,
+              ];
+            }
+            final why = '$stage $mood $pose at $ms ms';
+            expect(eyes.where((c) => c.$1 < 8), isNotEmpty, reason: why);
+            expect(eyes.where((c) => c.$1 >= 8), isNotEmpty, reason: why);
+            start ??= eyes.length;
+            expect(eyes.length, greaterThanOrEqualTo(start), reason: why);
+          }
+        }
+      }
+    }
+  });
+
+  test('the kid drops one row while compacting, the others two', () {
+    expect(petMotion('psq1', 0).$3, 0);
+    expect(petMotion('psq1', 500).$3, 1);
+    expect(petMotion('psq1', 1000).$3, 1);
+    expect(petRig['kid']!.squeeze, 1);
+    expect(petRig['builder']!.squeeze, 2);
+  });
+
   group('auras', () {
     test(
       'flames start a cell out (the stroke fills it), never on the body',
