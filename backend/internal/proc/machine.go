@@ -86,6 +86,25 @@ func (m *MachineMeter) reportAt(now time.Time) MachineCPU {
 	return r
 }
 
+// Average is the machine's CPU use over the span before now, for any span
+// (the CPU guard's window). ok is false when the readings don't reach that
+// far back yet, or the last one is older than 15 s.
+func (m *MachineMeter) Average(span time.Duration) (avg float64, ok bool) {
+	return m.averageAt(time.Now(), span)
+}
+
+func (m *MachineMeter) averageAt(now time.Time, span time.Duration) (float64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n := len(m.samples); n == 0 || now.Sub(m.samples[n-1].at) > 3*machineEvery {
+		return 0, false
+	}
+	if a := m.average(now, span); a != nil {
+		return *a, true
+	}
+	return 0, false
+}
+
 // average is the mean of the readings in the span before now, or nil when
 // the readings don't reach that far back yet.
 func (m *MachineMeter) average(now time.Time, span time.Duration) *float64 {

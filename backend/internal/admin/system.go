@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/server"
@@ -37,6 +39,9 @@ type System struct {
 		Version string `json:"version"`
 	} `json:"update"`
 	FirmwareUpdates int `json:"firmware_updates"`
+	// CPU is the CPU guard: how busy the computer is and what is held.
+	// Absent while the guard is off.
+	CPU *cpuguard.State `json:"cpu,omitempty"`
 }
 
 // SystemNow is the status line's numbers.
@@ -66,11 +71,28 @@ func (a *Admin) SystemNow() System {
 	}
 	u := a.updaterState()
 	s.Update.State, s.Update.Version = u.State, u.Version
+	if a.Guard != nil {
+		if g, ok := a.Guard.State(); ok {
+			s.CPU = &g
+		}
+	}
 	return s
 }
 
 func (a *Admin) system(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.SystemNow())
+}
+
+// cpuRelease: POST /admin/v1/cpu/release is Send them now: the CPU guard
+// stops holding queued prompts until the computer is calm again.
+func (a *Admin) cpuRelease(w http.ResponseWriter, r *http.Request) {
+	if a.Guard == nil {
+		writeErr(w, http.StatusNotFound, "this service has no CPU guard")
+		return
+	}
+	a.Guard.Release()
+	g, _ := a.Guard.State()
+	writeJSON(w, http.StatusOK, g)
 }
 
 func (a *Admin) updaterState() update.State {
@@ -127,6 +149,9 @@ type Settings struct {
 	// are device names (/admin/v1/devices; the receiver needs "motion").
 	Magic devices.Magic `json:"magic"`
 
+	// CPUGuard: what the deck does when the computer is busy (cpuguard).
+	CPUGuard cpuguard.Setting `json:"cpuGuard"`
+
 	// Wifi is the network boards get on USB. Its password is never sent back.
 	Wifi struct {
 		SSID string `json:"ssid"`
@@ -164,6 +189,7 @@ func (a *Admin) SettingsNow() Settings {
 		s.Sessions = SessionsPick
 	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
+	s.CPUGuard = cpuguard.FromConfig(cfg["cpuGuard"])
 	s.Network = str(cfg, "deviceAddr", ":7341") != ""
 	s.NetworkRunning = a.NetworkOn
 	if a.WifiSSID != nil {
@@ -190,7 +216,9 @@ type SettingsPatch struct {
 	Updates       *string        `json:"updates"`
 	Network       *bool          `json:"network"`
 	Magic         *devices.Magic `json:"magic"` // the whole setting
-	Wifi          *struct {
+	// CPUGuard: the keys given change ({"hold": false}), the others stay.
+	CPUGuard json.RawMessage `json:"cpuGuard"`
+	Wifi     *struct {
 		SSID     string `json:"ssid"`
 		Password string `json:"password"`
 		Forget   bool   `json:"forget"`
@@ -251,7 +279,23 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var guard *cpuguard.Setting
+	if len(p.CPUGuard) > 0 && string(p.CPUGuard) != "null" {
+		g := cpuguard.FromConfig(a.readConfig()["cpuGuard"])
+		if err := json.Unmarshal(p.CPUGuard, &g); err != nil {
+			writeErr(w, http.StatusBadRequest, "cpuGuard: "+err.Error())
+			return
+		}
+		if err := g.Check(); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		guard = &g
+	}
 	err := a.editConfig(func(cfg map[string]any) error {
+		if guard != nil {
+			cfg["cpuGuard"] = *guard
+		}
 		if p.Notifications != nil {
 			cfg["notifications"] = *p.Notifications
 		}
@@ -279,6 +323,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if guard != nil && a.Guard != nil {
+		a.Guard.Set(*guard) // applies at once
 	}
 	res := map[string]any{}
 	if p.Wifi != nil {

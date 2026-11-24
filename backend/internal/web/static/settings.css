@@ -466,6 +466,36 @@ select.pick:disabled { opacity: 0.45; }
 .stripwrap .strip { margin: 0; }
 .stripwrap { display: flex; flex-direction: column; gap: 14px; }
 .lostbar { border-color: var(--orange); }
+/* the CPU guard: a CPU cell first in the strip, and a block while the computer is busy */
+.strip.cpu { grid-template-columns: 1fr 1.25fr 1fr 1fr 1.25fr; }
+@media (max-width: 900px) { .strip.cpu { grid-template-columns: repeat(3, minmax(0, 1fr)); } .strip.cpu a:nth-child(4) { border-left: 0; } }
+/* the warning: a thing that needs you (.ask), a gauge in its black square */
+.cpuask { margin-right: 6px; }
+.cpuask .af { width: 56px; height: 56px; color: var(--orange); }
+.cpuask .grow { gap: 4px; font-size: 14px; line-height: 20px; }
+.cpuask .grow b { font-weight: 700; }
+/* narrow: the button goes under the text, the whole width */
+@media (max-width: 600px) { .cpuask { flex-wrap: wrap; } .cpuask .grow { flex-basis: calc(100% - 70px); } .cpuask .btn.fix { width: 100%; } }
+/* who uses the CPU: a line each, every column a fixed width so they line up */
+.cpuu { display: grid; grid-template-columns: 40px minmax(0, 1fr) 120px 56px; align-items: center; column-gap: 14px; padding: 10px 16px; border-top: 1px solid var(--rule); }
+.cpuu:first-child { border-top: 0; }
+.cpuu .bar { width: 120px; }
+.cpuu .pc { font-size: 16px; text-align: right; }
+.face.lt { font-family: var(--f-mono); font-size: 16px; font-weight: 700; color: var(--soft); }
+@media (max-width: 600px) {
+  .cpuu { grid-template-columns: 40px minmax(0, 1fr) 56px; row-gap: 8px; }
+  .cpuu .bar { grid-row: 2; grid-column: 2 / -1; width: 100%; }
+  .cpuu .face { grid-row: span 2; align-self: start; }
+}
+.rule .m.acc2 { color: var(--orange2); }
+.rule .go { font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--orange2); background: none; border: 0; padding: 0; cursor: pointer; }
+.rule .go:hover:not(:disabled) { color: var(--ink); }
+.rule .go:disabled { opacity: 0.45; cursor: default; }
+/* a small Held chip beside Cancel (not the buttons' height) */
+.row.qitem > .r:has(> .btn.sm:not(.link)) > .chip.held { height: 24px; }
+/* one size for every button in a row (the CPU guard's) */
+.btn.fix { width: 172px; }
+.seg.even button { width: 62px; padding: 0; justify-content: center; text-align: center; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .grid4.small { gap: 8px; }
 .tile {

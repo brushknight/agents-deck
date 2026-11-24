@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -1077,6 +1078,7 @@ type fileConfig struct {
 	Link       struct {
 		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
 	} `json:"link"`
+	CPUGuard json.RawMessage `json:"cpuGuard"` // cpuguard.Setting, read with cpuguard.FromConfig
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1233,6 +1235,20 @@ func serve(args []string) error {
 		}
 		return proc.TopUsers(daemon.AgentTerminals(st.Entries(), panes), n)
 	}
+	// The CPU guard: while the computer is busy it warns, and holds queued
+	// prompts and start_agent over MCP.
+	guard := cpuguard.New(machine)
+	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
+	guard.Queued = func() (n int) {
+		for _, c := range srv.Queue.Agents() {
+			n += c
+		}
+		return n
+	}
+	guard.Top = func() []proc.CPUUser { return adm.CPUTop(5).Users }
+	guard.Changed, guard.Logf = st.Touch, log.Printf
+	srv.Guard, adm.Guard = guard, guard
+	go guard.Run(machineCtx)
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}

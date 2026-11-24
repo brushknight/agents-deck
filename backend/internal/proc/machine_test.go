@@ -79,6 +79,17 @@ func TestMachineAverages(t *testing.T) {
 		t.Fatalf("report %+v", r)
 	}
 
+	// Any span: 5 minutes is 4 at 20% and 1 at 80%; 15 minutes is too far back.
+	if avg, ok := m.averageAt(at, 5*time.Minute); !ok || avg != 32 {
+		t.Errorf("5 minutes: %v %v", avg, ok)
+	}
+	if _, ok := m.averageAt(at, 15*time.Minute); ok {
+		t.Error("15 minutes of readings from 10")
+	}
+	if _, ok := m.averageAt(at.Add(time.Minute), time.Minute); ok {
+		t.Error("an average from a stale meter")
+	}
+
 	young := NewMachineMeter()
 	young.add(t0.Add(5*time.Second), 10)
 	young.add(t0.Add(60*time.Second), 30)

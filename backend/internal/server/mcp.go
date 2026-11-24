@@ -709,6 +709,9 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	if !ok {
 		return "", errors.New("starting agents is not available on this service (demo mode)")
 	}
+	if held, why := s.holding(); held {
+		return "", errors.New(why)
+	}
 	folder, err := a.need("folder")
 	if err != nil {
 		return "", err
