@@ -10,15 +10,16 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/web"
 )
 
-// The pets' pixel art (pets.js), run in node when it is installed: every
-// stage and mood draws, at one scale, with few shapes and no inline styles.
+// The pets' pixel art (pets.js, pet-poses.js), run in node when it is
+// installed: every stage, mood and pose draws, at one scale, with few shapes
+// and no inline styles.
 func TestPetArt(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"deck-core.js", "pets.js"} {
+	for _, name := range []string{"deck-core.js", "pets.js", "pet-poses.js"} {
 		b, err := fs.ReadFile(web.Static(), name)
 		if err != nil {
 			t.Fatal(err)
@@ -40,6 +41,7 @@ func TestPetArt(t *testing.T) {
 
 const petCheck = `
 import { petSVG, STAGES, levelAt, petKind, heartSVG, AURA_COLORS } from './pets.js';
+import { POSES } from './pet-poses.js';
 import { HAT_ART, HAT_COLORS } from './deck-core.js';
 const fail = (m) => { console.error(m); process.exitCode = 1; };
 // The same numbers as the service (internal/pets Threshold).
@@ -124,4 +126,59 @@ if (!petSVG({ stage: 'kid', mood: 'asleep' }, { hat }).includes('pfall')) fail('
 if (!petSVG({ stage: 'kid', mood: 'fed' }, { hat, waking: true }).includes('pws ps4')) fail('waking: no shards');
 const sil = petSVG({ stage: 'mighty', mood: 'fed' }, { hat, sil: '#3B3A36' });
 if (new Set(sil.match(/fill="#[0-9A-Fa-f]{6}"/g)).size !== 1 || sil.includes('prs')) fail('silhouette: one colour, no aura');
+
+// The critter's poses on every pet: whole pixels, one scale, few shapes; the
+// pose's bubble and motion show; the ice and the pet's hunger win where the
+// spec (docs/pet-poses.md) says.
+const SIGN = { run: 'dots', think: 't3', read: 'pp"', bash: 'cursor', write: 'cursor', web: 'lb slow', plan: 'tick2', delegate: 'pp bob',
+  compact: 'press2', celebrate: 'spark s1', hungry: 'bobc', wait: 'blink', err: 'bang', start: 'dots', idle: 'zz' };
+const MOTION = { run: 'class="bob"', bash: 'class="bob fast"', delegate: 'class="bob"', celebrate: 'class="hop"', compact: 'class="psq"' };
+const pp = (s) => (s.match(/class="pp[ "]/g) || []).length;
+for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep']) for (const pose of [...Object.keys(POSES)]) for (const bubble of [true, false]) {
+  const what = stage + ' ' + mood + ' ' + pose + (bubble ? '' : ' without its bubble');
+  const pet = { stage, mood, ate: 40000, hat: { shape: 'propeller', color: 'pink' } };
+  const s = petSVG(pet, { hat, pose, bubble });
+  if (/style=|NaN|undefined|Infinity/.test(s)) fail(what + ': bad markup');
+  if (box(s) !== vb) fail(what + ': drawn at another scale');
+  const shapes = (s.match(/<(path|rect)/g) || []).length;
+  if (shapes > 48) fail(what + ': ' + shapes + ' shapes');
+  if (/[0-9]\.[0-9]/.test(s.replace(/viewBox="[^"]+"/, '').replace(/opacity="[^"]+"/g, ''))) fail(what + ': a shape off the pixel grid');
+  if (mood !== 'asleep' && /opacity=/.test(s)) fail(what + ': see-through pixels');
+  const sign = SIGN[pose];
+  const awake = pose === 'idle' && mood === 'hungry' && stage !== 'egg'; // hungry for food: no sleep
+  if (mood === 'asleep') {
+    // in the ice only "?" and "!" show
+    if ((pose === 'wait' || pose === 'err') && bubble ? !s.includes(sign) : pp(s)) fail(what + ': the ice should win');
+    continue;
+  }
+  if (sign && bubble && !awake && sign !== 'pp bob' && !s.includes(sign)) fail(what + ': no ' + sign);
+  if (sign && !bubble && sign !== 'pp bob' && sign !== 'pp"' && s.includes(sign) && !['t3'].includes(sign)) fail(what + ': a bubble was asked away');
+  if (stage === 'egg') {
+    if (['run', 'think', 'read', 'bash', 'web', 'plan', 'delegate'].includes(pose) && !s.includes('prock')) fail(what + ': the egg should rock');
+    if (pose === 'bash' && !s.includes('prock prk2')) fail(what + ': the egg should rock fast');
+    continue;
+  }
+  if (MOTION[pose] && !s.includes(MOTION[pose])) fail(what + ': no ' + MOTION[pose]);
+  if (awake && (s.includes('zz') || !s.includes('#BDB8AD'))) fail(what + ': a pet hungry for food stays awake, mouth open');
+  if (mood === 'hungry' && pose === 'run' && !s.includes('#BDB8AD')) fail(what + ': its hunger should stay visible');
+  if (pose === 'exit' && s.includes('prs')) fail(what + ': no aura on an exited agent\'s pet');
+}
+// A working hat runs through its frames (not the kid's small cuts); other poses hold it still.
+const ph = { stage: 'grown', mood: 'fed', hat: { shape: 'propeller', color: 'teal' } };
+if (!petSVG(ph, { hat, pose: 'run' }).includes('hf-4-120-3 hfo')) fail('working hat: no frames');
+if (petSVG(ph, { hat, pose: 'wait' }).includes('hf-')) fail('waiting: the hat should hold still');
+if (petSVG({ ...ph, stage: 'kid' }, { hat, pose: 'run' }).includes('hf-')) fail('kid: its small hat holds still');
+// The mystery "?" keeps the bubble away.
+if (petSVG({ stage: 'egg', mood: 'fed', ate: 0 }, { hat, mystery: true, pose: 'wait' }).includes('blink')) fail('egg: the bubble over the mystery hat');
+// Auras keep a pixel clear of every prop and of a moving hat, and props
+// stand out from the flames.
+for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const pose of Object.keys(POSES)) for (const shape of ['propeller', 'top hat', 'cap', 'devil horns']) {
+  const svg = petSVG({ stage, mood: 'fed', ate: 0, hat: { shape, color: 'yellow' } }, { hat, pose });
+  const what = stage + ' ' + pose + ' in a ' + shape;
+  const flames = cellsOf(svg, (f, rest) => f === flame.toUpperCase() && !/prs|ptw/.test(rest));
+  const props = cellsOf(svg, (f, rest) => /class="(pp|hf-)/.test(rest));
+  if (pose !== 'exit' && !flames.size) fail(what + ': no flames');
+  if (touches(new Set(flames.keys()), new Set(props.keys()))) fail(what + ': a flame touches a prop');
+  for (const f of new Set(cellsOf(svg, (f, rest) => /class="pp/.test(rest) && f !== '#FF4D00' && f !== '#141412' && f !== '#0A0A0A' && f !== '#F4F0E6').values())) if (family(f, flame)) fail(what + ': a prop in the aura\'s colours');
+}
 `

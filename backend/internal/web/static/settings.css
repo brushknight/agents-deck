@@ -798,6 +798,21 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 .dk .hf-4-280-1 { animation: hf4 1120ms linear infinite; animation-delay: -840ms; }
 .dk .hf-4-280-2 { animation: hf4 1120ms linear infinite; animation-delay: -560ms; }
 .dk .hf-4-280-3 { animation: hf4 1120ms linear infinite; animation-delay: -280ms; }
+.dk .hf-4-300-0 { animation: hf4 1200ms linear infinite; animation-delay: -0ms; }
+.dk .hf-4-300-1 { animation: hf4 1200ms linear infinite; animation-delay: -900ms; }
+.dk .hf-4-300-2 { animation: hf4 1200ms linear infinite; animation-delay: -600ms; }
+.dk .hf-4-300-3 { animation: hf4 1200ms linear infinite; animation-delay: -300ms; }
+.dk .hf-4-320-0 { animation: hf4 1280ms linear infinite; animation-delay: -0ms; }
+.dk .hf-4-320-1 { animation: hf4 1280ms linear infinite; animation-delay: -960ms; }
+.dk .hf-4-320-2 { animation: hf4 1280ms linear infinite; animation-delay: -640ms; }
+.dk .hf-4-320-3 { animation: hf4 1280ms linear infinite; animation-delay: -320ms; }
+/* compacting: the stack of pages presses into one while the body squeezes */
+@keyframes press2 { 0%, 32% { opacity: 1 } 33%, 100% { opacity: 0 } }
+@keyframes press1 { 0%, 65% { opacity: 1 } 66%, 100% { opacity: 0 } }
+@keyframes squash { 0%, 32% { transform: none } 33%, 65% { transform: scaleY(.85) } 66%, 100% { transform: scaleY(.7) } }
+.dk .press2 { animation: press2 1.2s infinite; }
+.dk .press1 { animation: press1 1.2s infinite; }
+.dk .squash { animation: squash 1.2s infinite; transform-box: fill-box; transform-origin: 50% 100%; }
 @media (prefers-reduced-motion: reduce) { .dk svg *, .dk svg { animation: none !important; } .dk .lb, .dk .hfo { opacity: 0; } }
 
 /* ---------- agent pets (pets.js): every colour layer is one path, and these
@@ -811,7 +826,7 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 @media (max-width: 1100px) { .tile .spr.pet { width: 40px; } }
 /* On an orange tile (it needs you) the pet keeps its own colours on a small
    dark plate, like the sidebar's corner. */
-.tile.wait .spr.pet { background: #0A0A0A; padding: 4px; box-sizing: content-box; }
+.tile.wait .spr.pet { background: #0A0A0A; padding: 6px 8px 4px; box-sizing: content-box; }
 .rrow > .vis .spr.pet { width: 40px; }
 .rrow > .vis:has(.spr.pet) { overflow: hidden; background: #0A0A0A; }
 /* A ready egg wobbles and glows a little; hatching it shakes, flashes and
@@ -836,6 +851,23 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 .pet .pfall { animation: pfall 2.6s linear infinite; opacity: 0; }
 .pet .pgl { animation: pgl 4.8s steps(1) infinite; opacity: 0; }
 .pet .pbob { animation: pbob 1s infinite; }
+/* The critter's poses on a pet (pet-poses.js) take the critter's classes
+   above (la, lb, bob, glance, blink, ...); these keep the ones that move
+   by part of a pixel on whole pixels, and add the egg's rocking and the
+   squeeze. Off screen (.off) it all holds still. */
+@keyframes phop { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-2px) } }
+@keyframes pbobc { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(1px) } }
+@keyframes pzz { 0%, 49% { transform: translateY(0); opacity: .9 } 50%, 100% { transform: translateY(-1px); opacity: .45 } }
+@keyframes prock { 0%, 24% { transform: none } 25%, 49% { transform: translateX(-1px) } 50%, 74% { transform: none } 75%, 100% { transform: translateX(1px) } }
+@keyframes psq { 0%, 32% { transform: none } 33%, 65% { transform: translateY(1px) } 66%, 100% { transform: translateY(2px) } }
+.pet .hop { animation: phop .4s infinite; }
+.pet .bobc { animation: pbobc .6s infinite; }
+.pet .zz { animation: pzz 2.4s infinite; }
+.pet .zz + .zz { animation-delay: -1.2s; }
+.pet .prock { animation: prock 1.2s infinite; }
+.pet .prock.prk2 { animation-duration: .6s; }
+.pet .psq { animation: psq 1.2s infinite; }
+.spr.off svg, .spr.off svg * { animation-play-state: paused !important; }
 .pet .pd1 { animation-delay: -.53s; } .pet .pd2 { animation-delay: -1.06s; } .pet .pd3 { animation-delay: -1.59s; } .pet .pd4 { animation-delay: -2.12s; }
 .pet .pd5 { animation-delay: -2.65s; } .pet .pd6 { animation-delay: -3.18s; } .pet .pd7 { animation-delay: -3.71s; } .pet .pd8 { animation-delay: -4.24s; } .pet .pd9 { animation-delay: -4.77s; }
 .pet .pt1 { animation-delay: -.27s; } .pet .pt2 { animation-delay: -.54s; } .pet .pt3 { animation-delay: -.81s; } .pet .pt4 { animation-delay: -1.08s; }

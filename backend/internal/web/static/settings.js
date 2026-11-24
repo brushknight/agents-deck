@@ -592,11 +592,11 @@ function setSprite(el, pose, tool, hat, opts = {}) {
 }
 
 // Agent pets (pets.js): an agent's pet in place of its critter, while
-// Agent pets is on (the service then sends each agent's "pet").
+// Agent pets is on (the service then sends each agent's "pet"). It does the
+// critter's poses (pet-poses.js), bubble and all.
 const petCache = new Map();
-const PET_IDLE = new Set(['idle', 'exited']);
 function petNode(pet, opts) {
-  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, !!opts.idle, !!opts.working,
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false,
     !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
   let node = petCache.get(k);
   if (!node) {
@@ -606,16 +606,27 @@ function petNode(pet, opts) {
   }
   return { k, node: node.cloneNode(true) };
 }
-// setPet fills el with an agent's pet: eyes shut while it is idle, the ice
+// setPet fills el with an agent's pet doing its agent's pose, the ice
 // cracking off when it wakes, the egg bursting while it hatches and the new
-// pet popping in. more: waking, mystery ("?" where its hat will be).
+// pet popping in. more: waking, mystery ("?" where its hat will be),
+// bubble (false: the pose without its bubble).
 function setPet(el, a, more = {}) {
-  const { k, node } = petNode(a.pet, { hat: a.hat, idle: PET_IDLE.has(a.status), working: a.status === 'running', ...more,
+  const { k, node } = petNode(a.pet, { hat: a.hat, pose: poseOf(a), ...more,
     hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
   if (el.dataset.pose === `pet${k}`) return;
   el.dataset.pose = `pet${k}`;
-  el.className = 'spr pet';
+  el.className = `spr pet dk${el.classList.contains('off') ? ' off' : ''}`;
   el.replaceChildren(node);
+  watchPet(el);
+}
+// Pets off screen hold still: their motion pauses until they scroll back.
+const petSeen = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
+const petWatched = new WeakSet();
+function watchPet(el) {
+  if (!petSeen || petWatched.has(el)) return;
+  petWatched.add(el);
+  petSeen.observe(el);
 }
 
 // Hatching you witness: an egg that has eaten enough waits, ready, until you
@@ -1378,7 +1389,7 @@ const petOpen = () => !!bar?.pet && bar.pet === bar.id && bar.el.classList.conta
 function fillPet(pane, a) {
   const p = a.pet;
   const hatch = Date.now() < (hatching.get(a.id) || 0), born = Date.now() < (bornUntil.get(a.id) || 0);
-  const sig = JSON.stringify([p, a.hat, a.status, a.id, hatch, born]);
+  const sig = JSON.stringify([p, a.hat, poseOf(a), a.id, hatch, born]);
   if (bar.petSig === sig) return;
   bar.petSig = sig;
   const mystery = !p.hat && (p.level || 0) < 5;
@@ -1673,7 +1684,7 @@ function buildBar(a, body, view) {
     petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
     if (x.pet) {
       const p = x.pet;
-      setPet(petSpr, x);
+      setPet(petSpr, x, { bubble: false });
       petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${p.name} · ${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
       const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
       const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));

@@ -1,0 +1,206 @@
+# Pet poses
+
+An agent's pet is the critter's new shape: it does every pose the critter does (see the header of
+`clients/flutter/agents_ui/lib/src/critter.dart`), with the critter's bubbles, props and timings, drawn on
+the pet's own pixel grid. This page is the spec for the browser (`backend/internal/web/static/pet-poses.js`
+and `pets.js`), so the panel (Flutter) and the boards (firmware) can draw the same thing.
+
+## The grid
+
+- One cell is one pet pixel. x grows to the right, y grows down. The art's rows are 0 to 13.
+- The browser draws the pet in a `viewBox` of x -2 to 18, y -3 to 14 (20 x 17 cells). Auras, bubbles and
+  props may reach outside it; nothing clips them on a tile.
+- Every shape is a whole cell, fully opaque (only the ice is see-through). Motion moves whole cells.
+- Arts: `egg` (fewer than 30,000 tokens eaten, not ready), `crack` (30,000 or more, or ready), `baby`,
+  `kid`, `builder` (grown, strong, mighty, legend), `weak` (a weak grown-up or higher). A weak baby or kid
+  keeps its art, in the weak colour.
+- Colours used by poses: body `b` #FF4D00 (weak: #B0673F), eyes `e` #141412 (the weak art's eyes and mouth
+  `k` #0A0A0A), hungry mouth `m` #BDB8AD, flag light `w` #F4F0E6, flag dark `k` #0A0A0A, and `P`, the prop
+  colour (see "Colours inside an aura").
+
+## The rig
+
+Where each pose anchors, per art. Eyes are `[x, y, w, h]`, left then right.
+
+| art | eyes | mouth | arm rows (down, mid, up) | feet rows | feet x (still) | feet x (mid-step) | bubble box | mini in tow |
+|---|---|---|---|---|---|---|---|---|
+| egg, crack | none | none | none | none | none | none | 14, -4 | 16, 11 |
+| baby | [5,7,1,2] [10,7,1,2] | 7, 9 | 9, 7, 3 | 12 | 4 6 9 11 | 3 5 10 12 | 13, -1 | 14, 10 |
+| kid | [5,7,1,2] [10,7,1,2] | 7, 9 | 9, 7, 4 | 11, 12 | 4 6 9 11 | 3 5 10 12 | 14, 0 | 14, 10 |
+| builder | [4,5,1,2] [10,5,1,2] | 7, 7 | 7, 5, 2 | 10, 11 | 2 4 11 13 | 3 5 10 12 | 16, -2 | 16, 9 |
+| weak | [3,7,2,1] [9,7,2,1] | 6, 10 | 9, 7, 4 | 11 | 2 4 11 13 | 3 5 10 12 | 15, 0 | 17, 9 |
+
+The bubble box and the mini give the top-left cell.
+
+### Arms
+
+Pets have no arms in their still art. An arm comes out only in poses that move it: think, run, delegate,
+celebrate, error. An arm is 1 x 2 cells in the body colour. For a top row y, the left arm is one cell left
+of the body's leftmost cell on rows y and y+1, the right arm one cell right of the rightmost (the pencil and
+the ground don't count). That gives:
+
+| art | down (L / R) | mid (L / R) | up (L / R) |
+|---|---|---|---|
+| baby | (2,9-10) / (13,9-10) | (2,7-8) / (13,7-8) | (4,3-4) / (11,3-4) |
+| kid | (2,9-10) / (13,9-10) | (1,7-8) / (14,7-8) | (2,4-5) / (13,4-5) |
+| builder | (-1,7-8) / (16,7-8) | (-1,5-6) / (16,5-6) | (0,2-3) / (15,2-3) |
+| weak | (-1,9-10) / (16,9-10) | (-1,7-8) / (16,7-8) | (0,4-5) / (14,4-5) |
+
+### Eyes
+
+A pose moves the art's eyes (the cells under them become body colour) or draws a mark in their place. With
+t = y for eyes 2 tall and t = y - 1 for the weak art's flat eyes, for an eye `[x, y, w, h]`:
+
+- open: as in the art. up: one row higher. glance: up, and the whole pair moves -1 / +1 in x.
+  scan: as in the art, the pair moves 0, -1, 0, +1 in x.
+- shut: one row at y+h-1, from x-1 to x+w-1 (left eye) or x to x+w (right eye).
+- happy "^": (x-1, t+1), x to x+w-1 on row t, (x+w, t+1).
+- X: (x-1, t), (x+w, t), x to x+w-1 on row t+1, (x-1, t+2), (x+w, t+2).
+- strain "> <": left (x-1, t), x to x+w-1 on row t+1, (x-1, t+2); right (x+w, t), x to x+w-1 on row t+1,
+  (x+w, t+2).
+- dot (exited): one cell at (x+w-1, y+h-1) left, (x, y+h-1) right, in the body colour.
+
+For example the builder's X eyes are (3,5) (5,5) (4,6) (3,7) (5,7) and (9,5) (11,5) (10,6) (9,7) (11,7).
+
+### The bubble
+
+Glyphs sit in the bubble box at an offset (dx, dy) from its top-left; `#` is a cell in `P`.
+
+| bubble | glyph rows | offset | motion |
+|---|---|---|---|
+| think | `#` at (0,4); `#` at (1,2); `##` `##` at (3,0) | | t1, t2, t3 |
+| read | `.##..` `#..#.` `#..#.` `.##..` `....#` | 0, 0 | still |
+| bash, write | `#..` `.#.` `#..` | 0, 1 | still |
+| | cursor `##` | 3, 3 | cursor |
+| web | `.###.` `#.#.#` `#####` `#.#.#` `.###.` / `.###.` `##.##` `#####` `##.##` `.###.` | 0, 0 | la slow / lb slow |
+| plan | `#.###` on rows 0, 2, 4; a tick cell in the body colour over each `#` at x 0 | 0, 0 | tick0, tick1, tick2 |
+| "…" (run, starting) | `#.#.#` | 0, 4 | dots |
+| compact | `####` at rows 0, 2, 4 | 0, 0 | press2, press1, still |
+| cookie (hungry) | `.###.` `##.##` `#####` `#.###` `.###.` | 0, 0 | bobc |
+| "?" (waiting) | `###` `..#` `.#.` `...` `.#.` | 1, 0 | blink |
+| "!" (error) | `#` `#` `#` `.` `#` | 2, 0 | still |
+| "z z" (idle) | `####` `..#.` `.#..` `####` at (0,1); `###` `.#.` `###` at (4,-2) | | zz, zz (half a cycle later) |
+| sparks (an egg's celebration) | plus `.#.` `###` `.#.` at (0,2) and (2,0) | | spark s0, spark s1 |
+
+The bubble is left out where the pet is drawn without one (the sidebar's corner), and where it would come
+within a cell of the mystery hat's "?" (the egg's, in the pet's view).
+
+### Props
+
+- Finish flag (celebrate, hatched pets): the right arm is up; the pole is 6 cells in `P` at x = that arm's
+  x + 1, rows up-4 to up+1 (builder: x 16, rows -2 to 3). The checker is 3 x 2 at x pole+1 to pole+3, rows
+  up-4 to up-3: cell (cx, cy) is dark when (cx + cy + phase) is odd, light otherwise; phase 0 is `la`, 1 is
+  `lb`. Two sparks (the plus above) sit at (pole+5, up-4) and (pole+3, up-8), top-left, as `spark s0` and
+  `spark s1`.
+- Mini pet in tow (delegate): 5 x 3 in the body colour from its top-left: `#####` `#.#.#` (moves with `bob`),
+  then a feet row `#...#` (`la`) / `.#.#.` (`lb`).
+- Chomping mouth (hungry): the open mouth is 2 x 2 in `m` at the mouth cell (`la slow`); the shut mouth is
+  2 x 1 in `m` on its lower row (`lb slow`). The weak art opens a 3 x 1 line in `k` at (6,10) under its own
+  mouth (`la slow`) and shows only its own mouth in between.
+
+## The poses
+
+| pose | when | eyes | arms | body motion | feet | bubble / props |
+|---|---|---|---|---|---|---|
+| think | running, no tool | glance | down / mid | | | think |
+| read | Read, Grep, Glob, LS | scan | | | | read |
+| bash, write | Bash, Edit, Write and friends | open | | bob fast | step fast | bash |
+| web | WebFetch, WebSearch | up | | | | web |
+| plan | TodoWrite | open | | | | plan |
+| delegate | Task, Agent | open | swing | bob | step | mini in tow |
+| run | any other tool | open | swing | bob | step | "…" |
+| compact | compacting | strain | | squeeze | | compact |
+| celebrate | idle for under 6 s after a turn | happy | up / up | hop | with the body | flag and sparks |
+| hungry | idle with an unseen result | up | | | | cookie, chomping mouth |
+| wait | waiting | up | | | | "?" |
+| err | error | X | up / up | | | "!" |
+| start | starting | open | | | | "…" |
+| exit | exited | dots | | | | hollow outline |
+| idle | idle | shut | | | | "z z" |
+
+- swing: down / mid on `la`, mid / down on `lb`.
+- step: the feet cells leave the body and are drawn twice: still x on `la`, mid-step x on `lb` (with `fast`
+  for bash). Stepping feet stay put while the body bobs, as the critter's do.
+- squeeze: every body cell above row (first feet row - 2) drops 1 cell, then 2 cells, covering the two rows
+  above the feet; the eyes and hat drop with it. An egg keeps its bottom two rows (12 and 13).
+- hollow: every body cell whose four neighbours are all body cells is removed (the hat stays), the eyes become
+  dots, the hat takes its shade, and there is no aura.
+- A working hat (any pose from think to compact in the table, the builder and weak arts) runs through the
+  hat's working frames from `HAT_ART` (`critter` frames, `ms` each). Cells that are the same in every frame
+  are drawn with the body; the others one layer per frame. The kid's small hats and the devil horns have no
+  frames and hold still. Every other pose shows the still hat.
+
+### Eggs
+
+An egg has no eyes, arms or feet. It shows the same bubbles at its bubble box, and:
+
+- rocks while its agent works (think, read, web, plan, run, delegate: `prock`; bash and write rock twice as
+  fast: `prk2`), moving 0, -1, 0, +1 cells in x;
+- squeezes while compacting, hops when a turn ends (sparks, no flag), and is drawn hollow when its agent
+  has exited;
+- a mini pet trots beside it while it delegates.
+
+A ready egg still wobbles and glows (`prdy`); the pose plays on top of it.
+
+## Which wins
+
+From the top, the first rule that applies decides:
+
+1. A drawing that holds still (stage previews, the ready-egg list, the dark shapes of stages ahead): no pose.
+2. Hatching (the burst) and waking (the ice cracking off, 2 s): no pose until it ends.
+3. Hibernating (the ice): the pet stays frozen, eyes shut, no motion. Only waiting and error show their "?"
+   and "!" beside the cube, so an agent that needs you still says so.
+4. Hungry for food (the pet's mood) and idle: it stays awake, eyes open and mouth open, no "z z".
+5. Otherwise the agent's pose plays in full. A pet hungry for food keeps its 2 x 2 grey mouth in every pose
+   (the chomping mouth replaces it in the hungry pose); a weak pet keeps its weak art and colour, slumped on
+   its ground line, and does the pose there.
+6. An exited agent's pet has no aura.
+
+## Timings
+
+The classes are the critter's (`settings.css`, the deck's critters), except where it moves by part of a cell:
+those have whole-cell versions for pets (`hop`, `bobc`, `zz`). Each runs forever unless noted.
+
+| class | period | what |
+|---|---|---|
+| la / lb | 0.5 s | la shows for the first half, lb for the second |
+| fast | 0.2 s | la, lb and bob at this speed |
+| slow | 0.8 s | la and lb at this speed |
+| bob | 0.5 s | 0, then -1 cell in y for the second half |
+| hop | 0.4 s | 0, then -2 cells in y for the second half |
+| glance | 1.2 s | -1 cell in x, then +1 |
+| scan | 1.2 s | 0, -1, 0, +1 cell in x, a quarter each |
+| t1 / t2 / t3 | 1.2 s | t1 always; t2 from 25 %; t3 from 50 % |
+| cursor | 1 s | on, then off, half each |
+| tick0 / tick1 / tick2 | 2 s | each shows until 25 / 50 / 75 % |
+| dots | 1.2 s | opacity 0.2, 1, 0.2 in 3 steps |
+| blink | 1 s | opacity 1 for 60 %, then 0.15 |
+| spark | 0.6 s | opacity 1 for the first third, then 0.45; s1 starts 0.2 s later |
+| bobc | 0.6 s | 0, then +1 cell in y |
+| zz | 2.4 s | 0 at opacity 0.9, then -1 cell at 0.45; the second z half a cycle later |
+| prock | 1.2 s | 0, -1, 0, +1 cell in x, a quarter each |
+| prk2 | 0.6 s | prock at this speed |
+| psq | 1.2 s | 0, +1, +2 cells in y, a third each (springs back at the loop) |
+| press2 / press1 | 1.2 s | press2 shows for the first third, press1 for two thirds, the last bar always |
+| hf-N-ms-i | N x ms | hat frame i shows for its ms slot |
+
+## Colours inside an aura
+
+Strong, mighty and legend pets glow (`pets.js`, `AURA`), and the rules that keep the hat readable cover
+everything that moves:
+
+- The flames keep one cell clear (8 neighbours) of the hat and of every prop, bubble, arm and mini pet, at
+  every place their motion takes them (the hat's frames, bob, hop, rock, squeeze). Sparks don't rise through
+  a prop and stars aren't drawn next to one.
+- A colour clashes with the aura when their contrast is under 1.6 and their hues are within 40 degrees. A
+  clashing hat takes its shade. `P` is #E8E4DC, else the body colour, else the body's shade, the first that
+  doesn't clash: so props are light on mighty and legend pets and orange on strong ones.
+
+## Motion budget
+
+- All motion is CSS on a handful of paths: each colour of each moving layer is one path, rows of cells
+  joined into rectangles. A posed pet stays under 48 shapes.
+- A pet off screen holds still: its animations pause until it scrolls back into view.
+- With reduced motion nothing moves: the first frame of each pair shows (`la`, hat frame 0), every bubble
+  stays up.
+- On an orange tile (it needs you) the pet sits on a dark plate wide enough for its "?".
