@@ -219,6 +219,62 @@ void main() {
     await golden(tester, 'idle');
   });
 
+  // The pets page with an answer from an hour ago on search-index (idle)
+  // and checkout-api (working).
+  Future<void> pumpAnswers(WidgetTester tester) async {
+    final state = petsPageState();
+    final ago = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+    for (final a in (state['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['id'] == 'h4ptic' || a['id'] == 'k3f9a2') {
+        a['lastAnswer'] =
+            'Rebuilt the product index with typo tolerance on names and brands.';
+        a['lastAnswerAt'] = ago.toIso8601String();
+      }
+    }
+    tester.view.physicalSize = const Size(720, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: DeckHud.bg),
+        home: Scaffold(
+          body: AgentsApp(
+            source: FakeAgentsSource.fromState(state),
+            animate: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('idle with an answer: the answer in place of the prompt', (
+    tester,
+  ) async {
+    await pumpAnswers(tester);
+    await open(tester, 'search-index');
+    expect(find.text('LAST ANSWER · 1H AGO'), findsOneWidget);
+    expect(
+      find.text(
+        'Rebuilt the product index with typo tolerance on names and brands.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('agent-last-prompt')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('working: the prompt, not the answer from before', (
+    tester,
+  ) async {
+    await pumpAnswers(tester);
+    await open(tester, 'checkout-api');
+    expect(find.byKey(const Key('agent-last-prompt')), findsOneWidget);
+    expect(find.byKey(const Key('agent-last-answer')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('an egg: how far to hatching', (tester) async {
     await pumpBoard(tester);
     await open(tester, 'api-tests');

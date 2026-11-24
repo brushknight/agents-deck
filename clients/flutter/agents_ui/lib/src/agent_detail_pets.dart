@@ -518,7 +518,10 @@ extension _PetsPage on _AgentDetailState {
       tildePath(a.cwd),
       a.branch,
     ].where((s) => s.isNotEmpty).join(' · ');
-    final ago = state.lastActiveText(a).replaceFirst('last active ', '');
+    // Finished or ended: what it answered; else what it was asked.
+    final answer = a.showsAnswer;
+    final lastLabel = answer ? 'last answer' : 'last prompt';
+    final ago = state.agoText(answer ? a.lastAnswerAt : a.lastActive);
     final subs = running ? a.subagents : const <AgentSubagent>[];
     return _petCard(
       fill: DeckHud.bg,
@@ -534,13 +537,13 @@ extension _PetsPage on _AgentDetailState {
           if (running && account != null)
             Row(
               children: [
-                Expanded(child: _pLabel('last prompt', _pMuted, tail: ago)),
+                Expanded(child: _pLabel(lastLabel, _pMuted, tail: ago)),
                 const SizedBox(width: 16),
                 _petAccountName(a, 16),
               ],
             )
           else
-            _pLabel('last prompt', _pMuted, tail: ago),
+            _pLabel(lastLabel, _pMuted, tail: ago),
           const SizedBox(height: 8),
           // Up to five lines of it, as many as fit.
           Expanded(
@@ -552,8 +555,12 @@ extension _PetsPage on _AgentDetailState {
                 );
                 if (lines == 0) return const SizedBox.shrink();
                 return Text(
-                  a.lastPrompt.isEmpty ? '-' : _pPrompt(a.lastPrompt),
-                  key: const Key('agent-last-prompt'),
+                  answer
+                      ? a.lastAnswer
+                      : a.lastPrompt.isEmpty
+                      ? '-'
+                      : _pPrompt(a.lastPrompt),
+                  key: Key(answer ? 'agent-last-answer' : 'agent-last-prompt'),
                   maxLines: lines,
                   overflow: TextOverflow.ellipsis,
                   style: DeckHud.rm(20, _pText).copyWith(height: 1.45),
