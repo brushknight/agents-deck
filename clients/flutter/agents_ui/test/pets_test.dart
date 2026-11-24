@@ -382,6 +382,33 @@ void main() {
     });
   });
 
+  test('every pet, pose and hat fits a tile at 4 px a cell', () {
+    // The tile's pet box is 158 x 96 design pixels; at 5 px a cell most
+    // fit, the tallest (glows, stars, tall hats with a bubble) at 4.
+    final hats = [
+      null,
+      for (final shape in [...hatShapes, 'devil horns'])
+        AgentHat(shape: shape, color: 'yellow'),
+    ];
+    var tallest = 0.0, widest = 0.0;
+    for (final stage in petStages) {
+      for (final mood in ['fed', 'hungry', 'weak', 'asleep']) {
+        for (final hat in hats) {
+          for (final pose in CritterPose.values) {
+            final e = petExtent(
+              AgentPet(stage: stage, mood: mood, hat: hat, ate: 42000),
+              PetDraw(pose: pose),
+            );
+            if (e.height > tallest) tallest = e.height;
+            if (e.width > widest) widest = e.width;
+          }
+        }
+      }
+    }
+    expect(tallest * 4, lessThanOrEqualTo(96));
+    expect(widest * 4, lessThanOrEqualTo(158));
+  });
+
   group('auras', () {
     test(
       'flames start a cell out (the stroke fills it), never on the body',

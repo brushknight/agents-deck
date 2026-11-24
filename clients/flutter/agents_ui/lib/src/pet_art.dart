@@ -746,6 +746,48 @@ class _PetScene {
   /// Has parts that move at all.
   bool get moves => glows || ready || classes.any((c) => c.isNotEmpty);
 
+  /// Every cell anything of it can reach, at any moment of its motion: the
+  /// stroke, flames, sparks rising, stars, bubbles, props, the ice, a hat's
+  /// frames, hops and wobbles. Fitting this box keeps all of it inside.
+  late final Rect extent = _extent();
+
+  Rect _extent() {
+    var r = Rect.zero;
+    var first = true;
+    void add(Rect b) {
+      if (b.isEmpty) return;
+      r = first ? b : r.expandToInclude(b);
+      first = false;
+    }
+
+    for (final l in [...behind, ...glow, ...under, ...over, ...stars]) {
+      add(l.path.getBounds());
+    }
+    for (final (x, y) in sparks) {
+      add(Rect.fromLTRB(x.toDouble(), y - 9.0, x + 1.0, y + 1.0));
+    }
+    for (final (x, y) in snow) {
+      add(Rect.fromLTRB(x.toDouble(), y - 3.0, x + 1.0, y + 10.0));
+    }
+    final posed = [...strokes, ...body, ...outer];
+    final squeezed = classes.contains('psq');
+    for (var t = 0; t < 4800; t += 50) {
+      final (_, gx, gy) = motion(grp, t, false);
+      final (_, qx, qy) = motion('psq', t, false);
+      for (final l in posed) {
+        final (a, dx, dy) = motion(l.cls, t, false);
+        if (a <= 0) continue;
+        final x =
+            dx + (l.group > 0 ? gx : 0) + (l.group == 2 && squeezed ? qx : 0);
+        final y =
+            dy + (l.group > 0 ? gy : 0) + (l.group == 2 && squeezed ? qy : 0);
+        add(l.path.getBounds().shift(Offset(x.toDouble(), y.toDouble())));
+      }
+    }
+    if (ready) r = Rect.fromLTRB(r.left - 1, r.top, r.right + 1, r.bottom);
+    return r;
+  }
+
   /// The motion of [cls] at [ms].
   (double, int, int) motion(String cls, int ms, bool still) {
     if (calm && cls.contains('blink')) return (1, 0, 0);
@@ -956,6 +998,12 @@ Map<(int, int), Color> petCellsAt(
   return out;
 }
 
+/// Every cell [pet] can reach drawn as [draw], over all of its motion
+/// (for tests: what has to fit a tile).
+@visibleForTesting
+Rect petExtent(AgentPet pet, PetDraw draw) =>
+    _PetScene.of(pet, null, draw).extent;
+
 /// One motion step, in [CritterClock] ticks (50 ms): the pose classes are
 /// checked every tick, but a pet repaints only when what it shows changes.
 const _msPerTick = 50;
@@ -983,10 +1031,20 @@ class PetSprite extends StatefulWidget {
     this.calm = false,
     this.celebrateUntil,
     this.afterCelebrate = CritterPose.idle,
+    this.fit = false,
+    this.ground,
   });
 
   final AgentPet pet;
   final double width;
+
+  /// Keep all of it inside the [width] × [height] box: at most [cell] per
+  /// pet pixel, smaller (whole device pixels) when its glow, hat or bubble
+  /// would leave the box, standing on the box's bottom edge.
+  final bool fit;
+
+  /// With [fit]: a ground line under its feet, in this colour.
+  final Color? ground;
 
   /// With [cell]: the box's height (the ground line is its bottom edge).
   final double? height;
@@ -1111,6 +1169,8 @@ class _PetSpriteState extends State<PetSprite> {
           scene: scene,
           still: _still,
           cell: cell,
+          fit: widget.fit,
+          ground: widget.ground,
           ms: _still || !scene.moves ? null : _ms,
         ),
       ),
@@ -1124,6 +1184,8 @@ class _PetPainter extends CustomPainter {
     required _PetScene scene,
     required this.still,
     this.cell,
+    this.fit = false,
+    this.ground,
     this.ms,
   }) : _scene = scene,
        super(repaint: ms);
@@ -1134,6 +1196,8 @@ class _PetPainter extends CustomPainter {
   /// glint; stars stay lit.
   final bool still;
   final double? cell;
+  final bool fit;
+  final Color? ground;
   final ValueListenable<int>? ms;
 
   static final _paint = Paint()..isAntiAlias = false;
@@ -1148,7 +1212,43 @@ class _PetPainter extends CustomPainter {
     double snap(double v, double tr) =>
         ((v + tr) * scale).roundToDouble() / scale - tr;
     final double u, ox, oy;
-    if (cell case final c?) {
+    if (fit) {
+      // Everything it can reach fits the box: the biggest whole number of
+      // device pixels per cell up to [cell], standing on the bottom edge
+      // (its stroke just above it), centred, pushed in from the sides.
+      final e = s.extent;
+      final most = ((cell ?? 5) * scale).roundToDouble();
+      final ud = math.max(
+        1.0,
+        math.min(
+          most,
+          math.min(
+            (size.width * scale / e.width).floorToDouble(),
+            (size.height * scale / e.height).floorToDouble(),
+          ),
+        ),
+      );
+      u = ud / scale;
+      var x = size.width / 2 - 8 * u;
+      if (x + e.left * u < 0) x = -e.left * u;
+      if (x + e.right * u > size.width) x = size.width - e.right * u;
+      ox = snap(x, m[12] / scale);
+      oy = snap(size.height - e.bottom * u, m[13] / scale);
+      if (ground case final g?) {
+        // The ground line, under the feet across what it reaches.
+        _paint.color = g;
+        final y = oy + s.look.bottom * u;
+        canvas.drawRect(
+          Rect.fromLTRB(
+            ox + e.left * u,
+            y,
+            ox + e.right * u,
+            y + math.max(1 / scale, (2 * scale).roundToDouble() / scale),
+          ),
+          _paint,
+        );
+      }
+    } else if (cell case final c?) {
       // On a ground line: the art's lowest row on the box's bottom edge,
       // its middle column on the box's centre.
       u = math.max(1.0, (c * scale).roundToDouble()) / scale;
@@ -1262,5 +1362,7 @@ class _PetPainter extends CustomPainter {
       old._scene != _scene ||
       old.still != still ||
       old.cell != cell ||
+      old.fit != fit ||
+      old.ground != ground ||
       old.ms != ms;
 }

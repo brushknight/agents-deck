@@ -198,15 +198,17 @@ class _AgentsAppState extends State<AgentsApp> {
       id: 'agent/${a.id}',
       // The flight's colour = the card it lands as.
       fill: p?.kind == PromptKind.permission ? DeckHud.accent : DeckHud.bg,
-      builder: (close) => CritterScope(
-        clock: _cardClock,
-        child: AgentDetail(
-          source: widget.source,
-          agentId: a.id,
-          onClose: close,
-          onVisible: _cardVisible,
-          showBack: widget.backButton,
-          menuBar: widget.menuBar,
+      builder: (close) => agentsOwnText(
+        CritterScope(
+          clock: _cardClock,
+          child: AgentDetail(
+            source: widget.source,
+            agentId: a.id,
+            onClose: close,
+            onVisible: _cardVisible,
+            showBack: widget.backButton,
+            menuBar: widget.menuBar,
+          ),
         ),
       ),
     );
@@ -220,11 +222,13 @@ class _AgentsAppState extends State<AgentsApp> {
       cellKey,
       id: 'add/$slot',
       fill: DeckHud.bg,
-      builder: (close) => LivePicker(
-        source: widget.source,
-        slot: slot,
-        onClose: close,
-        showBack: widget.backButton,
+      builder: (close) => agentsOwnText(
+        LivePicker(
+          source: widget.source,
+          slot: slot,
+          onClose: close,
+          showBack: widget.backButton,
+        ),
       ),
     );
   }
@@ -234,9 +238,11 @@ class _AgentsAppState extends State<AgentsApp> {
     return CritterScope(
       clock: _gridClock,
       child: (widget.cardHost ?? (board) => CardMorph(child: board))(
-        ValueListenableBuilder<AgentsSnapshot>(
-          valueListenable: widget.source.snapshot,
-          builder: (context, snap, _) => _body(snap),
+        agentsOwnText(
+          ValueListenableBuilder<AgentsSnapshot>(
+            valueListenable: widget.source.snapshot,
+            builder: (context, snap, _) => _body(snap),
+          ),
         ),
       ),
     );
@@ -572,9 +578,27 @@ class _AgentTileState extends State<AgentTile> {
                         ),
                       ),
                     ),
-                  // Subagents at work: a small critter in the top-left
-                  // corner (body only), with a count when there are more.
-                  if (a.subagents.isNotEmpty)
+                  // Subagents at work, with pets on: only how many, in the
+                  // top-left corner (the pet shows a mini pet in tow when
+                  // its agent delegates).
+                  if (a.subagents.isNotEmpty && a.pet != null)
+                    Positioned(
+                      top: 9,
+                      left: 10,
+                      child: Text(
+                        '${a.subagents.length} SUB',
+                        key: const Key('agent-tile-subagents'),
+                        style: DeckHud.rm(
+                          11,
+                          c(look.meta),
+                          weight: 700,
+                          spacing: 1.3,
+                        ),
+                      ),
+                    )
+                  // Without pets: a small critter in the top-left corner
+                  // (body only), with a count when there are more.
+                  else if (a.subagents.isNotEmpty)
                     Positioned(
                       top: 8,
                       left: 9,
@@ -618,16 +642,24 @@ class _AgentTileState extends State<AgentTile> {
                         dimension: _tileDesign,
                         child: Column(
                           children: [
-                            const SizedBox(height: 30),
                             // With Agent pets on, its pet takes the
-                            // critter's place, at the critter's size.
-                            if (a.pet case final pet?)
-                              // It does its agent's pose, in its own
-                              // colours with its black stroke (on orange
-                              // too).
+                            // critter's place: on a ground line, at the
+                            // critter's scale, smaller when its glow, hat
+                            // or bubble would leave the tile (nothing
+                            // does). It does its agent's pose, in its own
+                            // colours with its black stroke (on orange
+                            // too).
+                            if (a.pet case final pet?) ...[
+                              const SizedBox(height: 8),
                               Opacity(
                                 opacity: out == null ? 1 : 0.55,
                                 child: PetSprite(
+                                  fit: true,
+                                  cell: 92 / 18,
+                                  height: 96,
+                                  ground: fill == DeckHud.accent
+                                      ? const Color(0x730A0A0A)
+                                      : const Color(0xFF3B3A36),
                                   pet: pet,
                                   hat: a.hat,
                                   pose: critterPoseOf(
@@ -641,10 +673,12 @@ class _AgentTileState extends State<AgentTile> {
                                   afterCelebrate: a.unseen
                                       ? CritterPose.hungry
                                       : CritterPose.idle,
-                                  width: 92,
+                                  width: _tileDesign - 12,
                                 ),
-                              )
-                            else
+                              ),
+                              const SizedBox(height: 6),
+                            ] else ...[
+                              const SizedBox(height: 30),
                               CritterSprite(
                                 pose: critterPoseOf(
                                   a,
@@ -666,7 +700,8 @@ class _AgentTileState extends State<AgentTile> {
                                     : c(look.bubble!),
                                 cut: fill,
                               ),
-                            const SizedBox(height: 14),
+                              const SizedBox(height: 14),
+                            ],
                             _line(
                               a.title,
                               DeckHud.mono(size: 16, color: c(look.label)),
@@ -1263,3 +1298,23 @@ class AgentsPairingCard extends StatelessWidget {
     );
   }
 }
+
+/// The deck's text, whatever the host app's theme: every style here names
+/// its own font and size, and this keeps the rest from inheriting the host's
+/// (a Material theme's font, underlines outside a Material, a system text
+/// scale). The deck is laid out in design pixels; hosts scale it as a
+/// whole.
+Widget agentsOwnText(Widget child) => Builder(
+  builder: (context) => MediaQuery(
+    data: (MediaQuery.maybeOf(context) ?? const MediaQueryData()).copyWith(
+      textScaler: TextScaler.noScaling,
+    ),
+    child: DefaultTextStyle(
+      style: DeckHud.rm(
+        16,
+        DeckHud.ink,
+      ).copyWith(decoration: TextDecoration.none),
+      child: child,
+    ),
+  ),
+);
