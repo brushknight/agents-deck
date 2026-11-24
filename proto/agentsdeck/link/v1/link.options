@@ -107,3 +107,7 @@ agentsdeck.link.v1.FirmwareOffer.version max_size:24
 agentsdeck.link.v1.FirmwareOffer.sha256 max_size:32
 agentsdeck.link.v1.FirmwareOffer.path   max_size:96
 agentsdeck.link.v1.FirmwareStatus.error max_size:96
+agentsdeck.link.v1.Limits.sets            max_count:4
+agentsdeck.link.v1.LimitSet.account       max_size:16
+agentsdeck.link.v1.LimitSet.windows       max_count:4
+agentsdeck.link.v1.LimitWindow.label      max_size:16

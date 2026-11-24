@@ -29,10 +29,11 @@ typedef enum _agentsdeck_link_v1_Scope {
 /* Bits of Subscribe.fields. id and slot are always sent. */
 typedef enum _agentsdeck_link_v1_FieldGroup {
     agentsdeck_link_v1_FieldGroup_FIELDS_NONE = 0,
-    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued */
+    agentsdeck_link_v1_FieldGroup_FIELDS_TILE = 1, /* title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, out_until */
     agentsdeck_link_v1_FieldGroup_FIELDS_CARD = 2, /* ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active */
     agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT = 4, /* waiting */
-    agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS = 8 /* tokens, cost_usd, turns */
+    agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS = 8, /* tokens, cost_usd, turns */
+    agentsdeck_link_v1_FieldGroup_FIELDS_LIMITS = 16 /* not an agent field: the board also gets Limits frames */
 } agentsdeck_link_v1_FieldGroup;
 
 typedef enum _agentsdeck_link_v1_Tool {
@@ -81,6 +82,13 @@ typedef enum _agentsdeck_link_v1_Corner {
     agentsdeck_link_v1_Corner_CORNER_BOTTOM_LEFT = 2,
     agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT = 3
 } agentsdeck_link_v1_Corner;
+
+typedef enum _agentsdeck_link_v1_LimitLevel {
+    agentsdeck_link_v1_LimitLevel_LIMIT_OK = 0, /* under 80% */
+    agentsdeck_link_v1_LimitLevel_LIMIT_NEAR = 1, /* 80 to 94% */
+    agentsdeck_link_v1_LimitLevel_LIMIT_LOW = 2, /* 95 to 99% */
+    agentsdeck_link_v1_LimitLevel_LIMIT_OUT = 3 /* 100%, or hit */
+} agentsdeck_link_v1_LimitLevel;
 
 typedef enum _agentsdeck_link_v1_Transport {
     agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED = 0,
@@ -293,6 +301,7 @@ typedef struct _agentsdeck_link_v1_Agent {
     int64_t last_active_ms; /* its latest message sent or received; 0 = not known yet */
     uint32_t attention_slot; /* its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there */
     uint32_t queued; /* prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE) */
+    int64_t out_until_ms; /* its account (or its model) is out of usage until then; 0 = not out */
 } agentsdeck_link_v1_Agent;
 
 typedef struct _agentsdeck_link_v1_AgentChanged {
@@ -379,6 +388,32 @@ typedef struct _agentsdeck_link_v1_Magic {
     agentsdeck_link_v1_Corner arrive; /* tiles fly in from this corner (the receiver on a take, the giver on a give-back) */
     agentsdeck_link_v1_Corner leave; /* and out to this one (the giver on a take, the receiver on a give-back) */
 } agentsdeck_link_v1_Magic;
+
+typedef struct _agentsdeck_link_v1_LimitWindow {
+    char label[16]; /* "week", "Fable week", "spend" */
+    uint32_t used; /* percent used */
+    int64_t resets_at_ms; /* 0 = not known */
+    agentsdeck_link_v1_LimitLevel level;
+    bool hit; /* the tool said it stopped on this limit */
+    bool stale; /* it reset since the last report (JSON "reset"): used is not known now */
+} agentsdeck_link_v1_LimitWindow;
+
+/* LimitSet is one account in one tool. */
+typedef struct _agentsdeck_link_v1_LimitSet {
+    agentsdeck_link_v1_Tool tool;
+    char account[16]; /* the account's name; "" with one account, and for Codex */
+    agentsdeck_link_v1_LimitLevel level; /* the worst of its windows (a per-model hit counts as NEAR) */
+    int64_t as_of_ms; /* when the tool last reported */
+    pb_size_t windows_count;
+    agentsdeck_link_v1_LimitWindow windows[4]; /* the ones to show, the week first */
+} agentsdeck_link_v1_LimitSet;
+
+/* Limits, deck to board: how much of each account's usage is gone, as
+ Claude Code and Codex last reported it (docs/protocol.md, "Limits"). */
+typedef struct _agentsdeck_link_v1_Limits {
+    pb_size_t sets_count;
+    agentsdeck_link_v1_LimitSet sets[4];
+} agentsdeck_link_v1_Limits;
 
 /* MoveAttention moves an agent on the "Needs you" grid, like Move on the deck. */
 typedef struct _agentsdeck_link_v1_MoveAttention {
@@ -600,6 +635,7 @@ typedef struct _agentsdeck_link_v1_Frame {
         agentsdeck_link_v1_AgentRemoved agent_removed;
         agentsdeck_link_v1_SnapshotEnd snapshot_end;
         agentsdeck_link_v1_Magic magic; /* its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow) */
+        agentsdeck_link_v1_Limits limits; /* the accounts' usage limits (State.limits), with FIELDS_LIMITS: after a SnapshotEnd when there are any, and when they change */
         /* Commands, board → deck: one per web API endpoint (docs/protocol.md). */
         agentsdeck_link_v1_Answer answer; /* POST /v1/agents/{id}/answer */
         agentsdeck_link_v1_Focus focus; /* POST /v1/agents/{id}/focus */
@@ -660,8 +696,8 @@ extern "C" {
 #define _agentsdeck_link_v1_Scope_ARRAYSIZE ((agentsdeck_link_v1_Scope)(agentsdeck_link_v1_Scope_SCOPE_ADMIN+1))
 
 #define _agentsdeck_link_v1_FieldGroup_MIN agentsdeck_link_v1_FieldGroup_FIELDS_NONE
-#define _agentsdeck_link_v1_FieldGroup_MAX agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS
-#define _agentsdeck_link_v1_FieldGroup_ARRAYSIZE ((agentsdeck_link_v1_FieldGroup)(agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS+1))
+#define _agentsdeck_link_v1_FieldGroup_MAX agentsdeck_link_v1_FieldGroup_FIELDS_LIMITS
+#define _agentsdeck_link_v1_FieldGroup_ARRAYSIZE ((agentsdeck_link_v1_FieldGroup)(agentsdeck_link_v1_FieldGroup_FIELDS_LIMITS+1))
 
 #define _agentsdeck_link_v1_Tool_MIN agentsdeck_link_v1_Tool_TOOL_UNSPECIFIED
 #define _agentsdeck_link_v1_Tool_MAX agentsdeck_link_v1_Tool_TOOL_SIM
@@ -686,6 +722,10 @@ extern "C" {
 #define _agentsdeck_link_v1_Corner_MIN agentsdeck_link_v1_Corner_CORNER_TOP_LEFT
 #define _agentsdeck_link_v1_Corner_MAX agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT
 #define _agentsdeck_link_v1_Corner_ARRAYSIZE ((agentsdeck_link_v1_Corner)(agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT+1))
+
+#define _agentsdeck_link_v1_LimitLevel_MIN agentsdeck_link_v1_LimitLevel_LIMIT_OK
+#define _agentsdeck_link_v1_LimitLevel_MAX agentsdeck_link_v1_LimitLevel_LIMIT_OUT
+#define _agentsdeck_link_v1_LimitLevel_ARRAYSIZE ((agentsdeck_link_v1_LimitLevel)(agentsdeck_link_v1_LimitLevel_LIMIT_OUT+1))
 
 #define _agentsdeck_link_v1_Transport_MIN agentsdeck_link_v1_Transport_TRANSPORT_UNSPECIFIED
 #define _agentsdeck_link_v1_Transport_MAX agentsdeck_link_v1_Transport_TRANSPORT_BLE
@@ -750,6 +790,12 @@ extern "C" {
 #define agentsdeck_link_v1_Magic_leave_ENUMTYPE agentsdeck_link_v1_Corner
 
 
+#define agentsdeck_link_v1_LimitSet_tool_ENUMTYPE agentsdeck_link_v1_Tool
+#define agentsdeck_link_v1_LimitSet_level_ENUMTYPE agentsdeck_link_v1_LimitLevel
+
+#define agentsdeck_link_v1_LimitWindow_level_ENUMTYPE agentsdeck_link_v1_LimitLevel
+
+
 
 
 
@@ -796,7 +842,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_default   {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
-#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0, 0}
 #define agentsdeck_link_v1_Activity_init_default {"", ""}
 #define agentsdeck_link_v1_Prompt_init_default   {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default}}
 #define agentsdeck_link_v1_Option_init_default   {"", "", 0, 0}
@@ -817,6 +863,9 @@ extern "C" {
 #define agentsdeck_link_v1_Stash_init_default    {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
 #define agentsdeck_link_v1_MagicView_init_default {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_Magic_init_default    {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
+#define agentsdeck_link_v1_Limits_init_default   {0, {agentsdeck_link_v1_LimitSet_init_default, agentsdeck_link_v1_LimitSet_init_default, agentsdeck_link_v1_LimitSet_init_default, agentsdeck_link_v1_LimitSet_init_default}}
+#define agentsdeck_link_v1_LimitSet_init_default {_agentsdeck_link_v1_Tool_MIN, "", _agentsdeck_link_v1_LimitLevel_MIN, 0, 0, {agentsdeck_link_v1_LimitWindow_init_default, agentsdeck_link_v1_LimitWindow_init_default, agentsdeck_link_v1_LimitWindow_init_default, agentsdeck_link_v1_LimitWindow_init_default}}
+#define agentsdeck_link_v1_LimitWindow_init_default {"", 0, 0, _agentsdeck_link_v1_LimitLevel_MIN, 0, 0}
 #define agentsdeck_link_v1_MoveAttention_init_default {"", 0}
 #define agentsdeck_link_v1_Restore_init_default  {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_default   {"", "", "", "", 0}
@@ -856,7 +905,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
-#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0}
+#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0, 0}
 #define agentsdeck_link_v1_Activity_init_zero    {"", ""}
 #define agentsdeck_link_v1_Prompt_init_zero      {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero}}
 #define agentsdeck_link_v1_Option_init_zero      {"", "", 0, 0}
@@ -877,6 +926,9 @@ extern "C" {
 #define agentsdeck_link_v1_Stash_init_zero       {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}, 0}
 #define agentsdeck_link_v1_MagicView_init_zero   {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_Magic_init_zero       {_agentsdeck_link_v1_MagicRole_MIN, 0, _agentsdeck_link_v1_Corner_MIN, _agentsdeck_link_v1_Corner_MIN}
+#define agentsdeck_link_v1_Limits_init_zero      {0, {agentsdeck_link_v1_LimitSet_init_zero, agentsdeck_link_v1_LimitSet_init_zero, agentsdeck_link_v1_LimitSet_init_zero, agentsdeck_link_v1_LimitSet_init_zero}}
+#define agentsdeck_link_v1_LimitSet_init_zero    {_agentsdeck_link_v1_Tool_MIN, "", _agentsdeck_link_v1_LimitLevel_MIN, 0, 0, {agentsdeck_link_v1_LimitWindow_init_zero, agentsdeck_link_v1_LimitWindow_init_zero, agentsdeck_link_v1_LimitWindow_init_zero, agentsdeck_link_v1_LimitWindow_init_zero}}
+#define agentsdeck_link_v1_LimitWindow_init_zero {"", 0, 0, _agentsdeck_link_v1_LimitLevel_MIN, 0, 0}
 #define agentsdeck_link_v1_MoveAttention_init_zero {"", 0}
 #define agentsdeck_link_v1_Restore_init_zero     {0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define agentsdeck_link_v1_SetHat_init_zero      {"", "", "", "", 0}
@@ -998,6 +1050,7 @@ extern "C" {
 #define agentsdeck_link_v1_Agent_last_active_ms_tag 35
 #define agentsdeck_link_v1_Agent_attention_slot_tag 36
 #define agentsdeck_link_v1_Agent_queued_tag      37
+#define agentsdeck_link_v1_Agent_out_until_ms_tag 44
 #define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Answer_agent_id_tag   1
 #define agentsdeck_link_v1_Answer_prompt_id_tag  2
@@ -1023,6 +1076,18 @@ extern "C" {
 #define agentsdeck_link_v1_Magic_taken_tag       2
 #define agentsdeck_link_v1_Magic_arrive_tag      3
 #define agentsdeck_link_v1_Magic_leave_tag       4
+#define agentsdeck_link_v1_LimitWindow_label_tag 1
+#define agentsdeck_link_v1_LimitWindow_used_tag  2
+#define agentsdeck_link_v1_LimitWindow_resets_at_ms_tag 3
+#define agentsdeck_link_v1_LimitWindow_level_tag 4
+#define agentsdeck_link_v1_LimitWindow_hit_tag   5
+#define agentsdeck_link_v1_LimitWindow_stale_tag 6
+#define agentsdeck_link_v1_LimitSet_tool_tag     1
+#define agentsdeck_link_v1_LimitSet_account_tag  2
+#define agentsdeck_link_v1_LimitSet_level_tag    3
+#define agentsdeck_link_v1_LimitSet_as_of_ms_tag 4
+#define agentsdeck_link_v1_LimitSet_windows_tag  5
+#define agentsdeck_link_v1_Limits_sets_tag       1
 #define agentsdeck_link_v1_MoveAttention_agent_id_tag 1
 #define agentsdeck_link_v1_MoveAttention_slot_tag 2
 #define agentsdeck_link_v1_Restore_agent_ids_tag 1
@@ -1105,6 +1170,7 @@ extern "C" {
 #define agentsdeck_link_v1_Frame_agent_removed_tag 22
 #define agentsdeck_link_v1_Frame_snapshot_end_tag 23
 #define agentsdeck_link_v1_Frame_magic_tag       24
+#define agentsdeck_link_v1_Frame_limits_tag      25
 #define agentsdeck_link_v1_Frame_answer_tag      30
 #define agentsdeck_link_v1_Frame_focus_tag       31
 #define agentsdeck_link_v1_Frame_interrupt_tag   32
@@ -1152,6 +1218,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_changed,body.agent_changed),  21)
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,agent_removed,body.agent_removed),  22) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,snapshot_end,body.snapshot_end),  23) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,magic,body.magic),  24) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (body,limits,body.limits),  25) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,answer,body.answer),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,focus,body.focus),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (body,interrupt,body.interrupt),  32) \
@@ -1197,6 +1264,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (body,link_config,body.link_config),  66)
 #define agentsdeck_link_v1_Frame_body_agent_removed_MSGTYPE agentsdeck_link_v1_AgentRemoved
 #define agentsdeck_link_v1_Frame_body_snapshot_end_MSGTYPE agentsdeck_link_v1_SnapshotEnd
 #define agentsdeck_link_v1_Frame_body_magic_MSGTYPE agentsdeck_link_v1_Magic
+#define agentsdeck_link_v1_Frame_body_limits_MSGTYPE agentsdeck_link_v1_Limits
 #define agentsdeck_link_v1_Frame_body_answer_MSGTYPE agentsdeck_link_v1_Answer
 #define agentsdeck_link_v1_Frame_body_focus_MSGTYPE agentsdeck_link_v1_Focus
 #define agentsdeck_link_v1_Frame_body_interrupt_MSGTYPE agentsdeck_link_v1_Interrupt
@@ -1345,7 +1413,8 @@ X(a, STATIC,   SINGULAR, STRING,   app,              33) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  account,          34) \
 X(a, STATIC,   SINGULAR, INT64,    last_active_ms,   35) \
 X(a, STATIC,   SINGULAR, UINT32,   attention_slot,   36) \
-X(a, STATIC,   SINGULAR, UINT32,   queued,           37)
+X(a, STATIC,   SINGULAR, UINT32,   queued,           37) \
+X(a, STATIC,   SINGULAR, INT64,    out_until_ms,     44)
 #define agentsdeck_link_v1_Agent_CALLBACK NULL
 #define agentsdeck_link_v1_Agent_DEFAULT NULL
 #define agentsdeck_link_v1_Agent_activity_MSGTYPE agentsdeck_link_v1_Activity
@@ -1487,6 +1556,32 @@ X(a, STATIC,   SINGULAR, UENUM,    arrive,            3) \
 X(a, STATIC,   SINGULAR, UENUM,    leave,             4)
 #define agentsdeck_link_v1_Magic_CALLBACK NULL
 #define agentsdeck_link_v1_Magic_DEFAULT NULL
+
+#define agentsdeck_link_v1_Limits_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  sets,              1)
+#define agentsdeck_link_v1_Limits_CALLBACK NULL
+#define agentsdeck_link_v1_Limits_DEFAULT NULL
+#define agentsdeck_link_v1_Limits_sets_MSGTYPE agentsdeck_link_v1_LimitSet
+
+#define agentsdeck_link_v1_LimitSet_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    tool,              1) \
+X(a, STATIC,   SINGULAR, STRING,   account,           2) \
+X(a, STATIC,   SINGULAR, UENUM,    level,             3) \
+X(a, STATIC,   SINGULAR, INT64,    as_of_ms,          4) \
+X(a, STATIC,   REPEATED, MESSAGE,  windows,           5)
+#define agentsdeck_link_v1_LimitSet_CALLBACK NULL
+#define agentsdeck_link_v1_LimitSet_DEFAULT NULL
+#define agentsdeck_link_v1_LimitSet_windows_MSGTYPE agentsdeck_link_v1_LimitWindow
+
+#define agentsdeck_link_v1_LimitWindow_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   label,             1) \
+X(a, STATIC,   SINGULAR, UINT32,   used,              2) \
+X(a, STATIC,   SINGULAR, INT64,    resets_at_ms,      3) \
+X(a, STATIC,   SINGULAR, UENUM,    level,             4) \
+X(a, STATIC,   SINGULAR, BOOL,     hit,               5) \
+X(a, STATIC,   SINGULAR, BOOL,     stale,             6)
+#define agentsdeck_link_v1_LimitWindow_CALLBACK NULL
+#define agentsdeck_link_v1_LimitWindow_DEFAULT NULL
 
 #define agentsdeck_link_v1_MoveAttention_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   agent_id,          1) \
@@ -1709,6 +1804,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Order_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Stash_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_MagicView_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Magic_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_Limits_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_LimitSet_msg;
+extern const pb_msgdesc_t agentsdeck_link_v1_LimitWindow_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_MoveAttention_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_Restore_msg;
 extern const pb_msgdesc_t agentsdeck_link_v1_SetHat_msg;
@@ -1771,6 +1869,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Stash_fields &agentsdeck_link_v1_Stash_msg
 #define agentsdeck_link_v1_MagicView_fields &agentsdeck_link_v1_MagicView_msg
 #define agentsdeck_link_v1_Magic_fields &agentsdeck_link_v1_Magic_msg
+#define agentsdeck_link_v1_Limits_fields &agentsdeck_link_v1_Limits_msg
+#define agentsdeck_link_v1_LimitSet_fields &agentsdeck_link_v1_LimitSet_msg
+#define agentsdeck_link_v1_LimitWindow_fields &agentsdeck_link_v1_LimitWindow_msg
 #define agentsdeck_link_v1_MoveAttention_fields &agentsdeck_link_v1_MoveAttention_msg
 #define agentsdeck_link_v1_Restore_fields &agentsdeck_link_v1_Restore_msg
 #define agentsdeck_link_v1_SetHat_fields &agentsdeck_link_v1_SetHat_msg
@@ -1806,9 +1907,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3398
+#define agentsdeck_link_v1_AgentChanged_size     3410
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3395
+#define agentsdeck_link_v1_Agent_size            3407
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_CertIssued_size       1788
 #define agentsdeck_link_v1_CertRequest_size      603
@@ -1818,7 +1919,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_FirmwareOffer_size    200
 #define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3408
+#define agentsdeck_link_v1_Frame_size            3420
 #define agentsdeck_link_v1_GetState_size         0
 #define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732
@@ -1826,6 +1927,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_FirmwareStatus_msg;
 #define agentsdeck_link_v1_Hat_size              32
 #define agentsdeck_link_v1_Hello_size            135
 #define agentsdeck_link_v1_Interrupt_size        13
+#define agentsdeck_link_v1_LimitSet_size         200
+#define agentsdeck_link_v1_LimitWindow_size      40
+#define agentsdeck_link_v1_Limits_size           812
 #define agentsdeck_link_v1_LinkConfig_size       2
 #define agentsdeck_link_v1_ListAccounts_size     0
 #define agentsdeck_link_v1_ListHats_size         0

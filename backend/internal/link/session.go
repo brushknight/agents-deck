@@ -99,6 +99,8 @@ type Session struct {
 	sent      map[string][]byte // agent id -> the AgentChanged it last got
 	sentMagic []byte            // the Magic it last got…
 	magicSent bool              // …if any since its last snapshot
+	sentLims  []byte            // the Limits it last got (FIELDS_LIMITS)…
+	limsSent  bool              // …if any since its last snapshot
 	ping      uint32
 
 	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
@@ -624,10 +626,31 @@ func (s *Session) push(full bool) error {
 		if err := s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}}); err != nil {
 			return err
 		}
-		s.magicSent = false
-		return s.pushMagic(st)
+		s.magicSent, s.limsSent = false, false
+		if err := s.pushMagic(st); err != nil {
+			return err
+		}
 	}
-	return nil
+	return s.pushLimits(st)
+}
+
+// pushLimits sends the accounts' usage limits to a board that subscribed to
+// them, when they changed, and after a snapshot when there are any.
+func (s *Session) pushLimits(st model.State) error {
+	if s.sub == nil || s.sub.Fields&uint32(linkpb.FieldGroup_FIELDS_LIMITS) == 0 {
+		return nil
+	}
+	m := limitsPB(st.Limits)
+	key, _ := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if s.limsSent && bytes.Equal(s.sentLims, key) {
+		return nil
+	}
+	first := !s.limsSent
+	s.sentLims, s.limsSent = key, true
+	if first && len(m.Sets) == 0 { // nothing to say yet
+		return nil
+	}
+	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Limits{Limits: m}})
 }
 
 // pushMagic sends the board its part in the magic trick when that changed,

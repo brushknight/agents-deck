@@ -80,6 +80,12 @@ type LocalController interface {
 	HistoryJSON() any
 }
 
+// StatusLiner takes Claude Code's status line reports (agentctl
+// statusline): the account's config folder and the status line input.
+type StatusLiner interface {
+	StatusLine(dir string, body []byte) error
+}
+
 // CreateOpts is the body of POST /local/agents.
 type CreateOpts struct {
 	Dir      string  `json:"dir"`
@@ -669,6 +675,19 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err := lc.Hook(r.URL.Query().Get("agent"), body); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /statusline", func(w http.ResponseWriter, r *http.Request) {
+		sl, ok := lc.(StatusLiner)
+		if !ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err := sl.StatusLine(r.URL.Query().Get("dir"), body); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}

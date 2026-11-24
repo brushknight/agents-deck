@@ -55,6 +55,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
+		p.OutUntilMs = ms(a.OutUntil)
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
 		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch
@@ -89,4 +90,27 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 	}
 	clipMessage(p.ProtoReflect())
 	return p
+}
+
+var limitLevels = map[string]linkpb.LimitLevel{"near": linkpb.LimitLevel_LIMIT_NEAR, "low": linkpb.LimitLevel_LIMIT_LOW, "out": linkpb.LimitLevel_LIMIT_OUT}
+
+// limitsPB converts the accounts' usage limits, without the windows that
+// aren't shown (five_hour), clipped to the link limits.
+func limitsPB(ls []model.Limits) *linkpb.Limits {
+	out := &linkpb.Limits{}
+	for _, l := range ls {
+		set := &linkpb.LimitSet{Tool: tools[l.Tool], Account: l.Account, Level: limitLevels[l.Level], AsOfMs: ms(l.AsOf)}
+		for _, w := range l.Windows {
+			if w.Hidden {
+				continue
+			}
+			set.Windows = append(set.Windows, &linkpb.LimitWindow{Label: w.Label, Used: uint32(max(w.Used, 0)),
+				ResetsAtMs: ms(w.ResetsAt), Level: limitLevels[w.Level], Hit: w.Hit, Stale: w.Reset})
+		}
+		if len(set.Windows) > 0 {
+			out.Sets = append(out.Sets, set)
+		}
+	}
+	clipMessage(out.ProtoReflect())
+	return out
 }

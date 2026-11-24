@@ -28,6 +28,7 @@ type line struct {
 	AITitle   string `json:"aiTitle"`
 	Custom    string `json:"customTitle"`
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
+	ErrKind   string `json:"error"`  // on an API error: rate_limit, server_error, …
 	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
 	Timestamp string `json:"timestamp"`
 	IsMeta    bool   `json:"isMeta"`                    // text Claude Code adds for itself (command caveats, reminders)
@@ -47,6 +48,11 @@ type line struct {
 		} `json:"usage"`
 	} `json:"message"`
 }
+
+// LimitHit, when set, gets each usage limit hit a transcript records ("You've
+// hit your Fable limit · resets …"): the transcript, the message and when it
+// was written. Set once, before transcripts are read.
+var LimitHit func(transcript, text string, at time.Time)
 
 // Tail reads transcript lines appended since the last call and folds usage,
 // model, branch, Claude's own title and API errors into the agent.
@@ -128,6 +134,11 @@ func Tail(e *store.Entry) bool {
 				}
 				if l.IsAPIErr {
 					lastErr = l.Message.Content
+					if l.ErrKind == "rate_limit" && LimitHit != nil {
+						if at, err := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil {
+							LimitHit(e.Transcript, blockText(l.Message.Content), at)
+						}
+					}
 					continue
 				}
 				if l.Message.Usage == nil || l.Message.ID == "" || l.Message.Model == "<synthetic>" {
@@ -222,6 +233,20 @@ func interruptText(content json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// blockText is the first text block of a message's content.
+func blockText(content json.RawMessage) string {
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(content, &blocks)
+	for _, b := range blocks {
+		if t := strings.TrimSpace(b.Text); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func apiErrorText(content json.RawMessage) string {

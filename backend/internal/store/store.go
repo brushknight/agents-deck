@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
@@ -181,6 +182,9 @@ type Store struct {
 	Account func(name, transcript string) *model.Account
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
+	// Limits is each account's usage limits, as the tools last reported
+	// them (nil: none are kept).
+	Limits func() []model.Limits
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -464,12 +468,17 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued := s.Hat, s.Account, s.Queued
+	hat, account, queued, lims := s.Hat, s.Account, s.Queued, s.Limits
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
 		counts = queued()
 	}
+	var ls []model.Limits
+	if lims != nil {
+		ls = lims()
+	}
+	now := time.Now()
 	for i := range agents {
 		agents[i].Queued = counts[agents[i].ID]
 		if hat != nil {
@@ -478,11 +487,13 @@ func (s *Store) Snapshot() model.State {
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
 		}
+		agents[i].OutUntil = limits.OutUntil(ls, agents[i], now)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })
 	return model.State{
 		Server: model.Server{Name: s.Name, Version: s.Version, Time: time.Now().UTC()},
 		Agents: agents,
+		Limits: ls,
 	}
 }
 

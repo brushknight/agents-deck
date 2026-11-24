@@ -17,6 +17,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/header"
+	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/server"
@@ -62,6 +63,7 @@ type Daemon struct {
 
 	lastAutoRestore time.Time
 	live            liveWatch
+	limits          *limits.Book // usage limits the tools report (limits.go)
 }
 
 func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
@@ -73,6 +75,7 @@ func New(st *store.Store, cfg Config, agentctl string) (*Daemon, error) {
 	if err := os.WriteFile(paths.HooksFile(), b, 0o600); err != nil {
 		return nil, err
 	}
+	d.startLimits()
 	return d, nil
 }
 

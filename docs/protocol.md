@@ -76,7 +76,8 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
 // State
 {
   "server": { "name": "workstation", "version": "0.1.0", "time": "2026-10-08T01:02:03Z" },
-  "agents": [ /* Agent, ordered by slot */ ]
+  "agents": [ /* Agent, ordered by slot */ ],
+  "limits": [ /* Limits, see "Usage limits"; omitted until a tool has reported */ ]
 }
 
 // Agent
@@ -134,6 +135,8 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // tmux's last output (not their start-up). The service also logs it itself
                                   // when it sees a prompt, a tool call, a turn end or an answer from the deck
                                   // (herdr: while it says working). Kept across restarts, never moved back
+  "outUntil": "2026-10-09T09:00:00Z"     // omitted unless its account (or, for a per-model limit, its model) is out of
+                                  // usage: then when it can run again (see "Usage limits")
 }
 
 // Prompt — something the agent is blocked on
@@ -180,6 +183,44 @@ Status meanings (what the tiles show):
 | `idle` | turn finished, waiting for a new prompt | dim critter asleep |
 | `error` | API error or crashed | accent outline, X eyes, "!" |
 | `exited` | process gone; stays 10 min (resumable), then moves to the CLI history (`agentctl resume`) | dim, hollow |
+
+### Usage limits
+
+`limits` says how much of each account's usage is gone, for direct use of Claude Code and Codex. The
+deck fetches nothing: the numbers are what the tools report themselves, and they move only while an
+agent in that account runs.
+
+- **Claude Code:** the agents the deck starts run `agentctl statusline` as their status line. It hands
+  Claude Code's `rate_limits` to the service, then runs the status line the project or the account has
+  (`.claude/settings.local.json`, `.claude/settings.json`, then the account's `settings.json`) with the
+  same input and passes its output on. Claude Code reports the week (`seven_day`), a 5-hour window
+  (`five_hour`, kept but `hidden`) and, behind a Claude apps gateway, `spend`. Per-model weekly limits
+  are not in that report: the service learns of one when Claude Code writes "You've hit your Fable
+  limit · resets …" into a transcript, and keeps it until that time.
+- **Codex:** `rate_limits` on the `token_count` events of its newest rollout, per `limit_id`.
+
+```jsonc
+// Limits: one account in one tool
+{
+  "tool": "claude",               // claude | codex
+  "account": "work",              // the account's name; omitted with one account, and for Codex
+  "plan": "pro",                  // omitted when the tool doesn't say
+  "level": "near",                // the worst shown window: ok | near | low | out (a per-model hit counts as near)
+  "asOf": "2026-10-08T00:50:41Z", // the tool's last report
+  "source": "statusline",         // statusline | transcript | rollout
+  "windows": [
+    { "id": "seven_day", "label": "week", "minutes": 10080, "used": 86, "resetsAt": "2026-10-09T09:00:00Z", "level": "near" },
+    { "id": "model_week:fable", "label": "Fable week", "model": "fable", "used": 100, "hit": true,
+      "resetsAt": "2026-10-09T23:00:00Z", "level": "out" },
+    { "id": "five_hour", "label": "5 hours", "minutes": 300, "used": 12, "resetsAt": "…", "level": "ok", "hidden": true }
+  ]
+}
+```
+
+`used` is a whole percent (a spend limit can pass 100). `level`: `ok` under 80, `near` from 80, `low`
+from 95, `out` at 100 or when the tool said it stopped (`hit`). Once `resetsAt` passes, a window shows
+`"reset": true` and `used: 0` until the next report; a hit is dropped. Codex buckets other than its
+plan's own are `<limit_id>:<window>` and labelled with their name.
 
 ### The "Needs you" grid
 

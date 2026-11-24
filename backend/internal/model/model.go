@@ -20,6 +20,37 @@ type State struct {
 	// Magic is this screen's part in the magic trick (absent: none, or the
 	// trick is off). Only the giver and the receiver get it.
 	Magic *Magic `json:"magic,omitempty"`
+	// Limits is how much of each account's usage is gone, as Claude Code
+	// and Codex last reported it (absent: nothing reported yet).
+	Limits []Limits `json:"limits,omitempty"`
+}
+
+// Limits is one account's usage limits in one tool: Claude Code per account
+// (config folder), Codex per login. Only what the tools report themselves,
+// for direct use of Claude Code and Codex.
+type Limits struct {
+	Tool    string        `json:"tool"`              // claude | codex
+	Account string        `json:"account,omitempty"` // the account's name; "" with one account, and for Codex
+	Plan    string        `json:"plan,omitempty"`    // the plan, as the tool names it ("" when not known)
+	Level   string        `json:"level"`             // the worst window shown: ok | near | low | out
+	AsOf    time.Time     `json:"asOf"`              // when the tool last reported
+	Source  string        `json:"source"`            // statusline | transcript | rollout
+	Windows []LimitWindow `json:"windows"`
+}
+
+// LimitWindow is one limit: a rolling window (the week), one model's week,
+// or a spend limit.
+type LimitWindow struct {
+	ID       string    `json:"id"`                // seven_day, five_hour, model_week:<model>, spend, or <limit>:<window> for Codex
+	Label    string    `json:"label"`             // "week", "Fable week", "5 hours", "spend"
+	Minutes  int       `json:"minutes,omitempty"` // the window's length, when known
+	Model    string    `json:"model,omitempty"`   // a per-model limit: the model family ("fable")
+	Used     int       `json:"used"`              // percent used, 0..100 (a spend limit can pass 100)
+	ResetsAt time.Time `json:"resetsAt,omitzero"` // when it resets
+	Level    string    `json:"level"`             // ok (< 80) | near (80..94) | low (95..99) | out (100, or hit)
+	Hit      bool      `json:"hit,omitempty"`     // the tool said this limit stopped it
+	Reset    bool      `json:"reset,omitempty"`   // reset since the last report: Used is not known now
+	Hidden   bool      `json:"hidden,omitempty"`  // kept for the record, not shown (five_hour)
 }
 
 // Magic: the giver (its agents are taken) or the receiver (it takes them
@@ -83,6 +114,7 @@ type Agent struct {
 	StartedAt     time.Time  `json:"startedAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastActive    time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
+	OutUntil      time.Time  `json:"outUntil,omitzero"`   // its account (or its model) is out of usage until then (zero: not out)
 }
 
 // Hat is the pixel hat an agent wears, picked by its working folder: shape
