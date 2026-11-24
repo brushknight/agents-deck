@@ -13,7 +13,7 @@
 //           doing now with the command and the subagents; the last prompt;
 //           context and where it runs; and square buttons in a row: focus,
 //           interrupt while running, otherwise stop ("again" arms it for
-//           3 s) or resume and remove once exited. An egg ready to hatch sits
+//           3 s) or resume and remove once exited, and back to the deck. An egg ready to hatch sits
 //           in a box that says "tap to hatch" (HatchPet).
 //   prompt  the whole screen orange: the pet boxed with its "?", what it
 //           asks, the command, and every answer as a row; tap one to choose
@@ -212,8 +212,8 @@ constexpr int kChipH = 18, kLineXS = 13, kLineS = 15, kLineM = 17, kLineL = 19, 
 // The button row: squares in a centred row at the foot.
 struct BigButtons {
   int n = 0;
-  Hit kind[3];
-  Rect r[3];
+  Hit kind[4];
+  Rect r[4];
 };
 
 static inline Rect bigCardInner(const BigSpec& S) {
@@ -228,15 +228,15 @@ static inline BigButtons bigCardButtons(const BigSpec& S, const Agent& a, DeckSc
   const bool exited = a.status == Status::Exited, running = a.status == Status::Running;
   // What the scope allows: focus and interrupt need act, stop / remove / resume admin.
   const bool act = canAct(scope), admin = scope == DeckScope::Admin;
-  if (!act) return b;
-  if (!exited) {
+  if (act && !exited) {
     b.kind[b.n++] = Hit::Focus;
     if (running) b.kind[b.n++] = Hit::Interrupt;
     if (admin) b.kind[b.n++] = Hit::Stop;
-  } else if (admin) {
+  } else if (act && admin) {
     if (a.resumable) b.kind[b.n++] = Hit::Resume;
     b.kind[b.n++] = Hit::Stop;
   }
+  b.kind[b.n++] = Hit::Back;   // back to the deck, as the menu bar app's agent page has it
   const int w = b.n * size + (b.n - 1) * big_ui::kActGap;
   for (int i = 0; i < b.n; i++)
     b.r[i] = Rect{(S.w - w) / 2 + i * (size + big_ui::kActGap), S.h - big_ui::kM - size, size, size};
@@ -427,6 +427,7 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
   DeckCommand out;
   switch (h.kind) {
     case Hit::Tile: bigOpen(ui, f, h.agent); break;
+    case Hit::Back: bigHome(ui); break;
     case Hit::PageBar: ui.page = h.index; ui.needsYou = false; break;
     case Hit::NeedsYou: ui.needsYou = ui.att != nullptr; break;
     case Hit::Focus:
@@ -973,6 +974,9 @@ static inline void icon(Canvas& c, Hit kind, int cx, int cy, int size, uint16_t 
     }
     case Hit::Interrupt: r(4, 3, 3, 10); r(9, 3, 3, 10); break;
     case Hit::Resume: r(5, 3, 2, 10); r(7, 4, 2, 8); r(9, 5, 2, 6); r(11, 7, 1, 2); break;
+    case Hit::Back:   // a chevron pointing left
+      for (int i = 0; i < 5; i++) { r(9 - i, 3 + i, 2, 2); r(9 - i, 11 - i, 2, 2); }
+      break;
     default: r(4, 4, 8, 8);
   }
 }
@@ -1116,6 +1120,7 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
       case Hit::Focus: act(c, T, b.r[i], Hit::Focus, "focus", true, false, pressed, false); break;
       case Hit::Interrupt: act(c, T, b.r[i], Hit::Interrupt, "interrupt", false, false, pressed, false); break;
       case Hit::Resume: act(c, T, b.r[i], Hit::Resume, "resume", false, false, pressed, false); break;
+      case Hit::Back: act(c, T, b.r[i], Hit::Back, "back", false, false, pressed, false); break;
       default: {
         const bool exited = a.status == Status::Exited;
         act(c, T, b.r[i], Hit::Stop, exited ? "remove" : armed ? "again" : "stop", false, true, pressed || (armed && !exited), false);

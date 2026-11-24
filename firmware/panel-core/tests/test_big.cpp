@@ -92,22 +92,30 @@ int main() {
   {
     Agent run = mk("r", 0, Status::Running), idle = mk("i", 1, Status::Idle), ex = mk("x", 2, Status::Exited);
     BigButtons b = bigCardButtons(S, run, DeckScope::View);
-    assert(b.n == 0);
+    assert(b.n == 1 && b.kind[0] == Hit::Back && b.r[0].x == (S.w - big_ui::kAct) / 2);   // view scope: only back
     b = bigCardButtons(S, run, DeckScope::Act);
-    assert(b.n == 2 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Interrupt);
+    assert(b.n == 3 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Interrupt && b.kind[2] == Hit::Back);
     assert(b.r[0].w == big_ui::kAct && b.r[0].h == big_ui::kAct && b.r[1].x == b.r[0].x + big_ui::kAct + big_ui::kActGap);
-    assert(b.r[0].y + b.r[0].h == S.h - big_ui::kM && b.r[0].x - 0 == S.w - (b.r[1].x + b.r[1].w));   // centred
+    assert(b.r[0].y + b.r[0].h == S.h - big_ui::kM && b.r[0].x - 0 == S.w - (b.r[2].x + b.r[2].w));   // centred
     b = bigCardButtons(S, run, DeckScope::Admin);
-    assert(b.n == 3 && b.kind[2] == Hit::Stop);
+    assert(b.n == 4 && b.kind[2] == Hit::Stop && b.kind[3] == Hit::Back && b.r[0].x >= big_ui::kM);
     b = bigCardButtons(S, idle, DeckScope::Act);
-    assert(b.n == 1 && b.kind[0] == Hit::Focus && b.r[0].x == (S.w - big_ui::kAct) / 2);   // stop needs admin
+    assert(b.n == 2 && b.kind[0] == Hit::Focus && b.kind[1] == Hit::Back);   // stop needs admin
     b = bigCardButtons(S, idle, DeckScope::Admin);
-    assert(b.n == 2 && b.kind[1] == Hit::Stop);
+    assert(b.n == 3 && b.kind[1] == Hit::Stop);
     b = bigCardButtons(S, ex, DeckScope::Admin);
-    assert(b.n == 1 && b.kind[0] == Hit::Stop);                                       // remove
+    assert(b.n == 2 && b.kind[0] == Hit::Stop && b.kind[1] == Hit::Back);             // remove
     ex.resumable = true;
     b = bigCardButtons(S, ex, DeckScope::Admin);
-    assert(b.n == 2 && b.kind[0] == Hit::Resume && b.kind[1] == Hit::Stop);
+    assert(b.n == 3 && b.kind[0] == Hit::Resume && b.kind[1] == Hit::Stop);
+    {   // back: a tap goes home
+      Fleet f = fleetOf({run});
+      PanelUi ui;
+      bigOpen(ui, f, 0);
+      b = bigCardButtons(S, f.agents[0], DeckScope::View);
+      const DeckCommand c = tap(S, ui, f, b.r[0], DeckScope::View, 0);
+      assert(c.cmd == DeckCmd::None && ui.screen == Screen::Home);
+    }
     // The card's parts stack without overlap: the column ends on the zone's foot.
     for (const Agent* a : {&run, &idle, &ex}) {
       const BigCard g = bigCard(S, *a, DeckScope::Admin);
@@ -381,7 +389,7 @@ int main() {
     B.draw(cb, in);
     SquarePanel(specLcd4()).draw(cs, in);
     const BigButtons b = bigCardButtons(S, d.fleet.agents[i], DeckScope::Act);
-    assert(b.n == 2 && b.kind[0] == Hit::Focus);
+    assert(b.n == 3 && b.kind[0] == Hit::Focus && b.kind[2] == Hit::Back);
     const Theme T = deckTheme(false);
     // The focus button's face, beside its label, is filled; the small card has its round buttons elsewhere.
     const uint16_t face = big[(b.r[0].y + 6) * S.w + b.r[0].x + 12];

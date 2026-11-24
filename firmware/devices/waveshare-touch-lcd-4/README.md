@@ -38,7 +38,8 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   - **focus**;
   - **interrupt** while the agent runs;
   - **stop**, which arms on the first tap ("again", for 3 s);
-  - once the agent has exited, resume and remove.
+  - once the agent has exited, resume and remove;
+  - **back** to the deck, as on the menu bar app's agent page.
 
   Focus and interrupt need scope `act`; stop, resume and remove need `admin`. An egg ready to hatch
   sits in a box that says **tap to hatch**: a tap hatches it (HatchPet, with a deck that has it).
