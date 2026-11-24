@@ -27,25 +27,29 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
   the left of the page bars) to go there, swipe left to come back; BOOT goes there after the last
   page. The mark is solid orange while you are on it, and an orange outline with a count while
   someone is on it. The board always starts on the first page.
-- **Card.** Tap a tile for the agent:
+- **Card.** Tap a tile for the agent, laid out as the desk panel's agent page:
   - its pet (with Agent pets on; otherwise its critter) doing what the agent does;
-  - the status chip, the pet's hearts and level, the name, the session and the pet's level bar;
-  - doing now: the command and the working subagents in a box (or the status when it isn't working);
-  - the last prompt;
+  - the status chip, the pet's hearts, level and level bar, the name and the session;
+  - doing now: the command and up to two working subagents in a box; or, when it isn't working, the
+    status, with the Claude account on the right (when there is more than one);
+  - the last prompt, or its last answer once it has finished (with a working agent, its account at
+    the end of that row);
   - context, and the tool, model, folder and branch.
 
-  Square buttons in a row underneath:
-  - **focus**;
-  - **interrupt** while the agent runs;
-  - **stop**, which arms on the first tap ("again", for 3 s);
-  - once the agent has exited, resume and remove;
-  - **back** to the deck, as on the menu bar app's agent page.
+  A row of sharp buttons underneath:
+  - **back** to the deck;
+  - **focus terminal**;
+  - **interrupt** while the agent runs, **stop** while it doesn't (it arms on the first tap:
+    "again", for 3 s);
+  - once the agent has exited, **resume** and **remove**.
 
   Focus and interrupt need scope `act`; stop, resume and remove need `admin`. An egg ready to hatch
   sits in a box that says **tap to hatch**: a tap hatches it (HatchPet, with a deck that has it).
-- **Prompts.** The whole screen turns orange: the pet in its box with its "?", what it asks, the
-  command and where it runs, and every answer as a row. Tap one to choose it (the primary is chosen
-  to start with), tap it again to send. **Focus** sits at the foot.
+- **Prompts.** A permission turns the screen orange; a question stays dark with an orange edge. Both
+  show the pet in its box with its "?", what it asks, the command (a permission) or the question's
+  detail, and every answer as a row. Tap one to choose it (the primary is chosen to start with), tap
+  it again to send; on a question **send** sends the chosen one. Back and **focus terminal** sit at
+  the foot.
 - **Back.** Swipe right, or press BOOT.
 - **The board's panel.** Pull down from the top edge of any screen (a tap there still opens the tile
   under it): the board's name, Wi-Fi and Bluetooth switches, how it reaches the deck, restart (hold
