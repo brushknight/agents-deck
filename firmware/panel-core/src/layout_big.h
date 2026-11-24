@@ -7,10 +7,11 @@
 // would use k = 1 and larger fonts.
 //
 //   home    the deck's 4 x 4 grid of square tiles by slot, paged, with the
-//           page bars under it (AgentTile, DeckGrid, _PageBars)
+//           page bars under it (AgentTile, DeckGrid, _PageBars); a pet is
+//           drawn small enough that all it reaches stays in its tile
 //   card    the agent: its pet (or critter) on its baseline, the status
 //           chip, hearts and level, the name, the session and the level bar;
-//           doing now with the command and the subagents; the last prompt;
+//           doing now with the command and the subagents; the last prompt (or answer);
 //           context and where it runs; and square buttons in a row: focus,
 //           interrupt while running, otherwise stop ("again" arms it for
 //           3 s) or resume and remove once exited, and back to the deck. An egg ready to hatch sits
@@ -718,6 +719,68 @@ static inline void ring(Canvas& c, const Rect& r, int t, int pct, uint16_t color
   }
 }
 
+// Every cell a pet's look reaches in this pose over its motion (its stroke,
+// flames, hat and bubble, and a ready egg's wobble), half-open, in cells from
+// its cell (0, 0). Kept for the last few looks: a look is built many times over.
+struct PetExtent { int x0, y0, x1, y1; };
+
+static inline PetExtent petExtent(const Agent& a, Pose pose, bool bubble) {
+  struct Entry { uint32_t key; PetExtent e; };
+  static Entry cache[24];
+  static uint8_t next;
+  uint32_t key = 2166136261u;
+  auto mix = [&](const void* p, size_t n) {
+    for (size_t i = 0; i < n; i++) key = (key ^ ((const uint8_t*)p)[i]) * 16777619u;
+  };
+  const uint8_t more[4] = {a.hat, a.hatColor, (uint8_t)pose, (uint8_t)bubble};
+  mix(&a.pet, sizeof a.pet);
+  mix(more, sizeof more);
+  if (!key) key = 1;
+  for (const Entry& en : cache)
+    if (en.key == key) return en.e;
+  PetExtent e{1 << 20, 1 << 20, -(1 << 20), -(1 << 20)};
+  deck_pet_opts_t o{};
+  o.pose = petPose(pose);
+  o.bubble = bubble;
+  o.hat = a.hat;
+  o.hat_color = a.hatColor;
+  static deck_pet_look_t look;
+  for (uint32_t ms = 0; ms < 3000; ms += 150) {   // 20 frames: a few ms on the board, once per look
+    o.ms = ms;
+    deck_pet_look(&look, &a.pet, &o);
+    int bx, by, bw, bh;
+    deck_pet_bounds(&look, 1, &bx, &by, &bw, &bh);
+    if (bw <= 0 || bh <= 0) continue;
+    if (bx < e.x0) e.x0 = bx;
+    if (by < e.y0) e.y0 = by;
+    if (bx + bw > e.x1) e.x1 = bx + bw;
+    if (by + bh > e.y1) e.y1 = by + bh;
+  }
+  if (e.x1 <= e.x0) e = PetExtent{0, 0, 16, 15};
+  e.x0 -= 1;   // a ready egg's wobble: a cell each way; and a cell over the top for frames between those
+  e.x1 += 1;
+  e.y0 -= 1;
+  cache[next] = Entry{key, e};
+  next = (uint8_t)((next + 1) % (sizeof cache / sizeof cache[0]));
+  return e;
+}
+
+// The pet so that all it reaches fits `box`: the biggest whole cell up to
+// `most`, standing on the box's foot, centred and pushed in from the sides
+// (PetSprite with fit).
+static inline void petFit(Canvas& c, const Rect& box, int most, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  const PetExtent e = petExtent(a, pose, bubble);
+  const int ew = e.x1 - e.x0, eh = e.y1 - e.y0;
+  int s = most;
+  if (box.w / ew < s) s = box.w / ew;
+  if (box.h / eh < s) s = box.h / eh;
+  if (s < 1) s = 1;
+  int x = box.x + box.w / 2 - 8 * s;
+  if (x + e.x0 * s < box.x) x = box.x - e.x0 * s;
+  if (x + e.x1 * s > box.x + box.w) x = box.x + box.w - e.x1 * s;
+  drawPetCells(c, x, box.y + box.h - e.y1 * s, s, a, pose, ms, bubble);
+}
+
 // AgentTile, laid out on the deck's 170 px design cell and scaled to the real one.
 static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent& a, const Rect& r, uint32_t ms,
                         int64_t now, bool pressed) {
@@ -749,9 +812,13 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   // The critter: its body where the deck draws it (92 px wide from y 30; the
   // feet at 30 + 12/13 of its height), at the nearest whole scale.
   const int s = S.tileScale;
-  const float unit = 92.f / 18.f;                    // the deck's critter: px per sprite unit
-  const int feet = oy + d(30 + 12 * unit);
-  drawCritter(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a, poseOf(a, now), cc(k.body), fill, ms, true);
+  if (a.pet.has) {                                   // its pet: all it reaches inside the tile, over the name
+    petFit(c, Rect{ox + d(6), oy + d(8), d(158), d(96)}, s, a, poseOf(a, now), ms, true);   // (fit, 158 x 96 at 6, 8)
+  } else {
+    const float unit = 92.f / 18.f;                  // the deck's critter: px per sprite unit
+    const int feet = oy + d(30 + 12 * unit);
+    drawCritter(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a, poseOf(a, now), cc(k.body), fill, ms, true);
+  }
   SQ_ADD(sprite, tp);
   SQ_T0(tt);
   // Title (mono 16) at 30 + 92 x 13/18 + 14; the status line (12.5) 5 px under it.
@@ -1088,9 +1155,9 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
     }
     lineAt(c, FONT_L, kLineL, kM, g.nowY + kLineXS + 3, buf, col, w);
   }
-  // The last prompt.
+  // The last prompt, or the last answer once it has finished.
   if (g.lastLines > 0) {
-    upperAt(c, FONT_XS, kM, g.lastY, "last prompt", kMuted);
+    upperAt(c, FONT_XS, kM, g.lastY, a.lastIsAnswer ? "last answer" : "last prompt", kMuted);
     textWrapped(c, FONT_M13, kM, g.lastY + kLineXS + 2 + (kLineM - FONT_M13.cellH) / 2,
                 a.lastPrompt[0] ? a.lastPrompt : "\xE2\x80\x94", kText, w, g.lastLines, kLineM);
   }

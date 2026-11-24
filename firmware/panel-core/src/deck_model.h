@@ -79,7 +79,17 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
   a.statusSince = in.status_since_ms > 0 ? in.status_since_ms / 1000 : 0;
   copyLine(a.model, sizeof a.model, in.model_label);
   copyLine(a.effort, sizeof a.effort, in.effort);
-  copyLine(a.lastPrompt, sizeof a.lastPrompt, in.last_prompt);
+  // Finished (idle or exited) with an answer: the answer, as the deck shows it.
+  a.lastIsAnswer = in.last_answer[0] && (a.status == Status::Idle || a.status == Status::Exited);
+  copyLine(a.lastPrompt, sizeof a.lastPrompt, a.lastIsAnswer ? in.last_answer : in.last_prompt);
+  const int64_t lastMs = a.lastIsAnswer ? in.last_answer_at_ms : in.last_active_ms;
+  a.lastAt = lastMs > 0 ? lastMs / 1000 : 0;
+  if (in.has_account) {
+    copyLine(a.account, sizeof a.account, in.account.name);
+    a.accountColor = kHatInk;
+    for (int i = 0; i < kHatColorCount; i++)
+      if (!strcmp(in.account.color, kHatColors[i])) a.accountColor = (uint8_t)i;
+  }
   a.tokensOut = in.has_tokens && in.tokens.output > 0 ? (uint64_t)in.tokens.output : 0;
   a.cacheRead = in.has_tokens && in.tokens.cache_read > 0 ? (uint64_t)in.tokens.cache_read : 0;
   if (in.has_activity) {

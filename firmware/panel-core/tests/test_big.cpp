@@ -227,6 +227,55 @@ int main() {
     for (int i = 0; i < 6; i++) assert(p.opt[i].h >= big_ui::kLineL + 4);
   }
 
+  // ---- the last prompt, or the last answer once it has finished; the account
+  {
+    agentsdeck_link_v1_Agent in = agentsdeck_link_v1_Agent_init_zero;
+    snprintf(in.id, sizeof in.id, "a1");
+    snprintf(in.last_prompt, sizeof in.last_prompt, "fix it");
+    snprintf(in.last_answer, sizeof in.last_answer, "fixed it");
+    in.last_answer_at_ms = 1700000000000;
+    in.last_active_ms = 1700000100000;
+    in.status = agentsdeck_link_v1_Status_STATUS_RUNNING;
+    Agent a;
+    agentFromLink(in, a);
+    assert(!a.lastIsAnswer && !strcmp(a.lastPrompt, "fix it") && a.lastAt == 1700000100 && !a.account[0]);
+    in.status = agentsdeck_link_v1_Status_STATUS_IDLE;
+    in.has_account = true;
+    snprintf(in.account.name, sizeof in.account.name, "personal");
+    snprintf(in.account.color, sizeof in.account.color, "teal");
+    agentFromLink(in, a);
+    assert(a.lastIsAnswer && !strcmp(a.lastPrompt, "fixed it") && a.lastAt == 1700000000);
+    assert(!strcmp(a.account, "personal") && a.accountColor == 0);
+    in.last_answer[0] = '\0';                                     // no answer yet: the prompt
+    agentFromLink(in, a);
+    assert(!a.lastIsAnswer && !strcmp(a.lastPrompt, "fix it"));
+  }
+
+  // ---- a pet fits its tile: all it can reach in its pose, over its motion, inside the tile
+  {
+    static DeckFleet d;
+    assert(fixture::load(FIXTURE, d));
+    const BigGrid g = bigGrid(S, 1);
+    for (int stage = 0; stage < 7; stage++) {
+      for (Pose pose : {Pose::Idle, Pose::Wait, Pose::Bash, Pose::Celebrate, Pose::Hungry, Pose::Delegate}) {
+        Agent a = d.fleet.agents[0];
+        a.pet.has = true;
+        a.pet.stage = (uint8_t)stage;
+        a.pet.level = (uint8_t)(stage * 8);
+        a.hat = 3;
+        a.pet.hat = stage >= 2 ? 2 : 0;
+        const big_detail::PetExtent e = big_detail::petExtent(a, pose, true);
+        const Rect cell = bigCell(g, 0);
+        const float u = cell.w / 170.f;
+        const int bw = (int)lroundf(158 * u), bh = (int)lroundf(96 * u);
+        int s = S.tileScale;
+        if (bw / (e.x1 - e.x0) < s) s = bw / (e.x1 - e.x0);
+        if (bh / (e.y1 - e.y0) < s) s = bh / (e.y1 - e.y0);
+        assert(s >= 1 && (e.y1 - e.y0) * s <= bh && (e.x1 - e.x0) * s <= bw);
+      }
+    }
+  }
+
   // ---- every screen at every scope and link state stays inside the frame
   {
     static DeckFleet d;

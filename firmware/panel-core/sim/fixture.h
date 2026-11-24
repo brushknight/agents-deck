@@ -175,6 +175,14 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
   FIXTURE_COPY(a.model, j["model"].str());
   FIXTURE_COPY(a.model_label, j["modelLabel"].str());
   FIXTURE_COPY(a.last_prompt, j["lastPrompt"].str());
+  FIXTURE_COPY(a.last_answer, j["lastAnswer"].str());
+  a.last_answer_at_ms = parseIso8601(j["lastAnswerAt"].str()) * 1000;
+  a.last_active_ms = parseIso8601(j["lastActive"].str()) * 1000;
+  if (!j["account"].isNull()) {
+    a.has_account = true;
+    FIXTURE_COPY(a.account.name, j["account"]["name"].str());
+    FIXTURE_COPY(a.account.color, j["account"]["color"].str());
+  }
   FIXTURE_COPY(a.effort, j["effort"].str());
   if (!j["activity"].isNull()) {
     a.has_activity = true;
