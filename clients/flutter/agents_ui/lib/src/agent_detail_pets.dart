@@ -105,6 +105,14 @@ String _pNum(int n) {
   return b.toString();
 }
 
+/// A prompt as people read it: the wrappers tools put round pasted text
+/// and messages (`<pasted_content id="...">`, `<agent-message ...>`: tags
+/// whose names have a "-" or "_") are left out, spaces folded.
+String _pPrompt(String s) => s
+    .replaceAll(RegExp(r'</?[a-zA-Z]+[-_][a-zA-Z_-]*(\s[^>]*)?>'), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
 /// First letter up: "run this command?" -> "Run this command?".
 String _pSentence(String s) =>
     s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
@@ -148,16 +156,18 @@ extension _PetsPage on _AgentDetailState {
     required Color fill,
     Color? border,
     required Widget child,
-  }) => DecoratedBox(
-    key: const Key('agent-pets-card'),
-    decoration: BoxDecoration(
-      color: fill,
-      borderRadius: BorderRadius.circular(_cardRadius),
-      border: border == null ? null : Border.all(color: border, width: 3),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(36, 32, 36, 30),
-      child: child,
+  }) => _PetDesignBox(
+    child: DecoratedBox(
+      key: const Key('agent-pets-card'),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(_cardRadius),
+        border: border == null ? null : Border.all(color: border, width: 3),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(36, 32, 36, 30),
+        child: child,
+      ),
     ),
   );
 
@@ -238,8 +248,8 @@ extension _PetsPage on _AgentDetailState {
       ),
     };
     final session = a.aiTitle.isNotEmpty ? a.aiTitle : a.folder;
-    return SizedBox(
-      height: 132,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 132),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -253,12 +263,12 @@ extension _PetsPage on _AgentDetailState {
                 children: [
                   chip,
                   const SizedBox(height: 6),
-                  Text(
+                  _FitName(
                     a.title,
                     key: const Key('agent-title'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: DeckHud.serif(56, ink).copyWith(height: 58 / 56),
+                    color: ink,
+                    size: 56,
+                    smallest: 34,
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -545,7 +555,7 @@ extension _PetsPage on _AgentDetailState {
                 );
                 if (lines == 0) return const SizedBox.shrink();
                 return Text(
-                  a.lastPrompt.isEmpty ? '-' : a.lastPrompt,
+                  a.lastPrompt.isEmpty ? '-' : _pPrompt(a.lastPrompt),
                   key: const Key('agent-last-prompt'),
                   maxLines: lines,
                   overflow: TextOverflow.ellipsis,
@@ -593,31 +603,33 @@ extension _PetsPage on _AgentDetailState {
               ],
             ],
           ),
+          // Another Claude account: one quiet line above the actions,
+          // a square button per account (two taps: it says what it does
+          // in between).
           if (others.isNotEmpty) ...[
             const SizedBox(height: 14),
             Row(
+              key: const Key('agent-handoff'),
               children: [
                 Expanded(
-                  child: Text(
-                    _AgentDetailState._handoffNote(
-                      a,
-                      (armed ?? others.first).name,
-                    ),
-                    key: const Key('agent-handoff-note'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: DeckHud.rm(
-                      16,
-                      armed == null ? DeckHud.dim : DeckHud.accent,
-                    ),
-                  ),
+                  child: armed == null
+                      ? _pLabel(
+                          'account',
+                          _pMuted,
+                          tail: a.account!.name,
+                          key: const Key('agent-handoff-note'),
+                        )
+                      : Text(
+                          _AgentDetailState._handoffNote(a, armed.name),
+                          key: const Key('agent-handoff-note'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: DeckHud.rm(16, DeckHud.accent, weight: 700),
+                        ),
                 ),
                 for (final to in others) ...[
                   const SizedBox(width: 14),
-                  SizedBox(
-                    width: 240,
-                    child: _handoffButton(a, to, square: true),
-                  ),
+                  _handoffButton(a, to, square: true),
                 ],
               ],
             ),
@@ -717,9 +729,15 @@ extension _PetsPage on _AgentDetailState {
   /// "Doing now · bash", a dark command box with "$ the command", and one
   /// "↳" line per subagent.
   List<Widget> _petNow(Agent a, List<AgentSubagent> subs) {
-    final act = a.activity;
-    final shown = subs.take(3).toList();
-    final more = subs.length - shown.length;
+    var act = a.activity;
+    // Only its subagents work (the service says so in the activity): no
+    // command to show, just them.
+    final subsOnly =
+        act != null && RegExp(r'^\d+ subagents? working$').hasMatch(act.detail);
+    if (subsOnly) act = null;
+    // Two of them at most: the count is on the right, and the last prompt
+    // keeps its room.
+    final shown = subs.take(2).toList();
     return [
       Row(
         children: [
@@ -727,7 +745,11 @@ extension _PetsPage on _AgentDetailState {
             child: _pLabel(
               'doing now',
               _pMuted,
-              tail: act == null ? 'thinking' : act.tool,
+              tail: subsOnly
+                  ? 'subagents'
+                  : act == null
+                  ? 'thinking'
+                  : act.tool,
               key: const Key('agent-doing'),
             ),
           ),
@@ -756,7 +778,9 @@ extension _PetsPage on _AgentDetailState {
                       style: TextStyle(color: _pOrange2),
                     ),
                   TextSpan(
-                    text: act == null
+                    text: subsOnly
+                        ? a.activity!.detail
+                        : act == null
                         ? 'thinking'
                         : (act.detail.isNotEmpty ? act.detail : act.verb),
                   ),
@@ -793,10 +817,6 @@ extension _PetsPage on _AgentDetailState {
                 overflow: TextOverflow.ellipsis,
                 style: DeckHud.rm(18, _pText).copyWith(height: 24 / 18),
               ),
-            ],
-            if (more > 0) ...[
-              const SizedBox(height: 8),
-              Text('+ $more more', style: DeckHud.rm(16, DeckHud.dim)),
             ],
           ],
         ),
@@ -1270,15 +1290,12 @@ extension _PetsPage on _AgentDetailState {
                       children: [
                         Transform.translate(
                           offset: const Offset(0, -6),
-                          child: Text(
+                          child: _FitName(
                             name,
                             key: const Key('pet-name'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: DeckHud.serif(
-                              72,
-                              DeckHud.ink,
-                            ).copyWith(height: 76 / 72),
+                            color: DeckHud.ink,
+                            size: 72,
+                            smallest: 40,
                           ),
                         ),
                         _pLabel(
@@ -1694,4 +1711,73 @@ class _ArrowPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ArrowPainter old) =>
       old.turn != turn || old.color != color;
+}
+
+/// The page is designed on a 720 x 720 card. A host that gives it less room
+/// gets the same page scaled down evenly, never reflowed into cut text.
+class _PetDesignBox extends StatelessWidget {
+  const _PetDesignBox({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      const design = 720.0;
+      if (!box.hasBoundedWidth ||
+          !box.hasBoundedHeight ||
+          (box.maxWidth >= design && box.maxHeight >= design)) {
+        return child;
+      }
+      return FittedBox(
+        child: SizedBox.square(dimension: design, child: child),
+      );
+    },
+  );
+}
+
+/// A name in the serif: as big as [size] when it fits on one line, else
+/// the largest size down to [smallest] that does, else two lines at
+/// [smallest]. It is measured in the font it is drawn in, so it never cuts
+/// a name short.
+class _FitName extends StatelessWidget {
+  const _FitName(
+    this.text, {
+    super.key,
+    required this.color,
+    required this.size,
+    required this.smallest,
+  });
+
+  final String text;
+  final Color color;
+  final double size;
+  final double smallest;
+
+  TextStyle _style(double s) =>
+      DeckHud.serif(s, color).copyWith(height: s * 1.04 / s);
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      for (var s = size; s >= smallest; s -= 2) {
+        final tp = TextPainter(
+          text: TextSpan(text: text, style: _style(s)),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+        )..layout();
+        final fits = tp.width <= box.maxWidth;
+        tp.dispose();
+        if (fits) {
+          return Text(text, maxLines: 1, softWrap: false, style: _style(s));
+        }
+      }
+      return Text(
+        text,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: _style(smallest),
+      );
+    },
+  );
 }
