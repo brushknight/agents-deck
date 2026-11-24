@@ -202,7 +202,7 @@ static const rig_t rigs[] = {
 enum {
 	M_NONE, M_LA, M_LB, M_LA_FAST, M_LB_FAST, M_LA_SLOW, M_LB_SLOW, M_BOB, M_BOB_FAST, M_HOP, M_ROCK,
 	M_ROCK2, M_GLANCE, M_SCAN, M_T2, M_T3, M_CURSOR, M_TICK0, M_TICK1, M_TICK2, M_DOTS, M_PRESS2,
-	M_PRESS1, M_BOBC, M_BLINK, M_ZZ, M_ZZ2, M_PSQ,
+	M_PRESS1, M_BOBC, M_BLINK, M_ZZ, M_ZZ2, M_PSQ, M_PSQ1,
 };
 
 /* Where a class puts its cells at ms; false while it is hidden (or faint). */
@@ -241,6 +241,7 @@ static bool motion(int m, uint32_t ms, int *dx, int *dy)
 	case M_ZZ: *dy = ms % 2400 >= 1200 ? -1 : 0; return true;
 	case M_ZZ2: *dy = (ms + 1200) % 2400 >= 1200 ? -1 : 0; return true;
 	case M_PSQ: *dy = (int)(ms % 1200 / 400); return true;
+	case M_PSQ1: *dy = ms % 1200 >= 400 ? 1 : 0; return true;
 	default: return true;
 	}
 }
@@ -619,8 +620,9 @@ typedef struct {
 	deck_pet_look_t *l;
 	uint32_t ms;
 	int gdx, gdy;   /* the body's motion */
-	int split;      /* squeezed: rows above it drop with M_PSQ */
+	int split;      /* squeezed: rows above it drop with sq */
 	bool squash;
+	int sq;         /* M_PSQ (two rows), or M_PSQ1 (the kid's one) */
 } pen_t;
 
 #define NO_SPLIT (-1000)
@@ -632,7 +634,7 @@ static void body_cell(const pen_t *p, int x, int y, char key, int m, bool top)
 	if (!motion(m, p->ms, &dx, &dy))
 		return;
 	if (top)
-		motion(M_PSQ, p->ms, &sx, &sy);
+		motion(p->sq, p->ms, &sx, &sy);
 	set(p->l->cell, x + dx + p->gdx + sx, y + dy + p->gdy + sy, key);
 }
 
@@ -874,7 +876,7 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 	const bool awake = pose_id == DECK_PET_POSE_IDLE && hungry; /* hungry for food: no "z z" */
 	const char body = art == DECK_PET_ART_WEAK ? 'd' : 'b';
 	const char eye = art == DECK_PET_ART_WEAK ? 'k' : 'e';
-	pen_t p = {look, opts->ms, 0, 0, NO_SPLIT, false};
+	pen_t p = {look, opts->ms, 0, 0, NO_SPLIT, false, M_PSQ};
 	int hat_frames = 0, hat_ms = 0;
 	const int eye_kind = awake ? (int)E_KEEP : (int)sp->eyes;
 	bool hollow = false;
@@ -943,8 +945,11 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 				for (int y = 0; y < ROWS; y++)
 					for (int x = 0; x < 16; x++)
 						if (get(pix_g, x, y) && y + 1 > feet_top) feet_top = y + 1;
-			p.split = feet_top - 2;
+			/* the kid's face reaches row 9: it drops one row, the others two */
+			const int squeeze = art == DECK_PET_ART_KID ? 1 : 2;
+			p.split = feet_top - squeeze;
 			p.squash = true;
+			p.sq = squeeze == 1 ? M_PSQ1 : M_PSQ;
 		}
 		/* a working hat cycles through its frames */
 		if (working(pose_id) && !asleep && pet && pet->hat >= 1 && pet->hat - 1 < 13 && has_hat_spot(art) &&
@@ -960,11 +965,18 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 		}
 	}
 
-	/* Draw the posed body: squeezed, the top rows first, then the hat and
-	 * the inner layers (they drop with the top), then the rows below; then
-	 * the outer layers. */
+	/* Draw the posed body: squeezed, the rows it drops over first, then the
+	 * top rows, the hat and the inner layers over them (they drop together,
+	 * the face stays on top); then the outer layers. */
 	const int frame = hat_frames ? (int)(p.ms / (uint32_t)hat_ms % (uint32_t)hat_frames) : 0;
 	const bool top = p.squash;
+	if (p.squash)
+		for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
+			for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
+				const char k = get(pix_g, x, y);
+				if (k && y >= p.split)
+					body_cell(&p, x, y, k, M_NONE, false);
+			}
 	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
 		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
 			const char k = get(pix_g, x, y);
@@ -975,7 +987,7 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 	{
 		int sx = 0, sy = 0;
 		if (top)
-			motion(M_PSQ, p.ms, &sx, &sy);
+			motion(p.sq, p.ms, &sx, &sy);
 		/* a working hat: the cells all its frames share now, the others after the inner layers */
 		for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
 			for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
@@ -1038,13 +1050,6 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 			if (k && !shared)
 				body_cell(&p, x, y, k, M_NONE, top);
 		}
-	if (p.squash)
-		for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
-			for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++) {
-				const char k = get(pix_g, x, y);
-				if (k && y >= p.split)
-					body_cell(&p, x, y, k, M_NONE, false);
-			}
 	if (posing && !bubble_only && !egg && sp->walk) { /* stepping feet */
 		const int fa = sp->walk == W_FAST ? M_LA_FAST : M_LA, fb = sp->walk == W_FAST ? M_LB_FAST : M_LB;
 		for (int r = 0; r < rig->nfeet; r++)
