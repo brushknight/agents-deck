@@ -96,6 +96,11 @@ abstract class AgentsSource {
   /// previous conversation.
   Future<AgentsResult> resume(String agentId);
 
+  /// `POST /v1/agents/{id}/pet/hatch`: hatches the agent's pet egg that is
+  /// ready ([AgentPet.ready]); a conflict when it isn't (or has hatched, or
+  /// Agent pets is off).
+  Future<AgentsResult> hatch(String agentId);
+
   /// `POST /v1/agents/{id}/move` — puts the agent at board position [slot]
   /// (free or not; an agent already there swaps into the old position).
   Future<AgentsResult> move(String agentId, int slot);
@@ -562,6 +567,10 @@ class HttpAgentsClient implements AgentsSource {
 
   @override
   Future<AgentsResult> resume(String agentId) => _post(agentId, 'resume');
+
+  @override
+  Future<AgentsResult> hatch(String agentId) =>
+      _postPath(['v1', 'agents', agentId, 'pet', 'hatch']);
 
   @override
   Future<AgentsResult> move(String agentId, int slot) =>
