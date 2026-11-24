@@ -9,7 +9,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | board | layout | folder |
 |---|---|---|
 | Waveshare ESP32-S3-LCD-1.47B, 320×172 | `layout_147.h`: one agent in detail and a mini-board | `devices/waveshare-lcd-147` |
-| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's UI at 2/3 | `devices/waveshare-touch-lcd-4` |
+| Waveshare ESP32-S3-Touch-LCD-4, 480×480 | `layout_big.h`, `specBig480()`: the Flutter desk panel's grid at 2/3; the boards' own card and prompt | `devices/waveshare-touch-lcd-4` |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, 368×448 | `layout_square.h`, `specAmoled18()`: 2×2 tiles in one scrolling list | `devices/waveshare-touch-amoled-18` |
 | LilyGO T4-S3, 2.41″ AMOLED, 450×600 | `layout_square.h`, `specT4S3()`: the 1.8″'s UI with 2×3 tiles on screen, bigger critters, the card's numbers one to a line | `devices/lilygo-t4-s3` |
 | Waveshare ESP32-S3-Touch-LCD-2.8C, 480×480 round | `layout_spring.h`, `layoutSpring28()`: the spring carousel, nine to a turn | `devices/waveshare-touch-lcd-28c` |
@@ -31,7 +31,7 @@ under [`../devices`](../devices) holds only its board's drivers (display, touch,
 | `src/ui_buttons.h` | the card's round icon buttons (focus, interrupt, stop with its hold ring), shared by square and round |
 | `src/panel_layout.h` | the square boards' layout interface (`PanelLayout`) and UI state: screens, scroll, the finger |
 | `src/layout_147.h` | the 1.47" layout |
-| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel (grid, card, prompts) at a scale (`BigSpec`; 2/3 for 480×480); its fonts (`tools/make_font_big.py`) |
+| `src/layout_big.h`, `src/font_big.h` | the big panel layout (`BigPanel`): the Flutter desk panel's grid at a scale (`BigSpec`; 2/3 for 480×480), and the agent's card and prompt in the boards' design (sharp corners, the pet on its baseline, square buttons; an egg ready to hatch says "tap to hatch"); its fonts (`tools/make_font_big.py`) |
 | `src/layout_square.h` | the square boards' layout (`SquarePanel`), one system with per-board numbers (`SquareSpec`): home, card, prompt, notices, touch and scrolling |
 | `src/grid_app.h` | the firmware of a touch board minus its drivers (Arduino) |
 | `src/round_geom.h` | circle geometry: polar placement, arcs, discs, pills, the round mask, hit tests, the rim drag |
@@ -98,13 +98,15 @@ have it: their home is a ring with no first page to sit left of.
 While Agent pets is on (the deck's Settings, General), every agent comes with its pet
 (`Agent::pet`, the kit's [`deck_pet.h`](../deck-link/README.md#agent-pets)), and every board draws the
 pet where the critter would be: `drawCritter()` in `sprites.h` draws the pet when there is one and
-the critter otherwise, so with pets off every screen is as before. One pet cell is one sprite unit
-at the critter's scale; the pet's middle is the body's, and a grown-up's feet are where the critter's
-are. Its hat rises a unit higher than a critter's (the 1.47" hero stands it a unit lower), and an
-aura or the ice reach two units round it: the spring carousel's critter box grows to match
-(`critterBox()`), so the partial redraw and the strips still cover it. On an orange background (a
-waiting tile, the accent disc) the pet stands on a dark square plate, one cell larger than it on every side. A working agent's pet bobs and an egg
-waiting to be seen rocks, on the animation clock the critters already use.
+the critter otherwise, so with pets off every screen is as before. The pet does the critter's pose
+(`poseOf()`), with its bubble where the critter has one, its black stroke, and its flames when it is
+strong, mighty or legend; on orange it keeps its own colours. One pet cell is one sprite unit at the
+critter's scale; the pet's middle is the body's, and a grown-up's feet are where the critter's are. Its
+hat rises a unit higher than a critter's (the 1.47" hero stands it a unit lower), and its bubbles, flag
+and flames reach further (the kit's `DECK_PET_REACH_*`): the spring carousel's critter box grows to
+match (`critterBox()`), so the partial redraw and the strips still cover it. An egg waiting to be seen
+rocks. The kit keeps its scratch and `drawPet()` its look in static memory, so pets are drawn from one
+task.
 
 The screens that show one agent in detail show the pet's name, stage and level (`petLine()`: "Pip
 · Kid · level 7", or "Egg"):
@@ -113,11 +115,11 @@ The screens that show one agent in detail show the pet's name, stage and level (
 |---|---|
 | `layout_147.h` | the hero's bottom line, in place of turns and cost |
 | `layout_square.h` (card) | under the name and the pill |
-| `layout_big.h` (card) | beside the critter, after the subagents |
+| `layout_big.h` (card) | the pet itself, with hearts, level and the level bar beside it |
 | `round_ui.h` (detail) | the third line, in place of model, effort and context (the ring still shows context) |
 
 `tests/test_pets.cpp` checks it; `sim/render.cpp` draws every screen with pets when its last
-argument is `pets`.
+argument is `pets`, and `pets.ppm`, the kit's pets on dark and on orange in a few poses.
 
 ## Wi-Fi
 

@@ -1,6 +1,6 @@
 // Agent pets on the panels (sprites.h drawPet, drawCritter, petLine): the
 // adapter keeps the pet, no pet draws exactly the critter, a pet stays in the
-// room a critter's box gives it, stands on a dark plate on orange, and every
+// room a critter's box gives it and does its pose, with no plate on orange, and every
 // layout draws its screens with pets inside the frame; the square card and
 // the detail screens show the pet's name, stage and level.
 #define PANEL_MAX_AGENTS 64
@@ -100,55 +100,62 @@ static void testNoPet() {
       }
 }
 
-// A pet stays in the room it is given: cells -4..19 x -4..15 at unit (-1, -5),
-// plus its rock and bob; it is drawn in its own colours; on orange it stands on a dark plate.
+// A pet stays in the room it is given: cells DECK_PET_REACH_* at unit (-1, -5),
+// plus its rock; it does the pose it is given with its bubble; on orange it
+// keeps its own colours with the black stroke, no plate.
 static void testRoom() {
-  constexpr int W = 200, H = 200, X = 60, Y = 60;
-  constexpr uint16_t kBg = 0x0000, kAccent = rgb565(0xFF, 0x4D, 0x00);
+  constexpr int W = 260, H = 260, X = 90, Y = 110;
+  constexpr uint16_t kBg = 0x0000, kAccent = rgb565(0xFF, 0x4D, 0x00), kGrey = rgb565(0x40, 0x40, 0x40);
   std::vector<uint16_t> px(W * H);
   Canvas c{px.data(), W, H};
   Agent a{};
-  constexpr uint16_t kGrey = rgb565(0x40, 0x40, 0x40), kDark = rgb565(0x0A, 0x0A, 0x0A);
-  // Draws it on bg; returns its dark pixels, checking that all it drew is in its room.
-  auto draw = [&](int s, uint16_t bg, uint32_t ms) {
+  // Draws it on bg in pose; returns its pixels, checking that all it drew is in its room.
+  auto draw = [&](int s, uint16_t bg, Pose pose, uint32_t ms) {
     c.fill(bg);
-    drawCritter(c, X, Y, s, a, Pose::Run, 0xFFFF, bg, ms, true);
+    drawCritter(c, X, Y, s, a, pose, 0xFFFF, bg, ms, true);
     const int half = s / 2 > 0 ? s / 2 : 1;
-    int drawn = 0, dark = 0;
+    int drawn = 0;
     for (int y = 0; y < H; y++)
       for (int x = 0; x < W; x++) {
-        const uint16_t p = px[y * W + x];
-        if (p == bg) continue;
+        if (px[y * W + x] == bg) continue;
         drawn++;
-        dark += p == kDark;
-        assert(x >= X - 5 * s - half && x < X + 19 * s + half);
-        assert(y >= Y - 5 * s - half && y < Y + 15 * s);
+        assert(x >= X + (DECK_PET_REACH_X0 - 1) * s - half && x < X + DECK_PET_REACH_X1 * s + half);
+        assert(y >= Y + (DECK_PET_REACH_Y0 - 1) * s && y < Y + DECK_PET_REACH_Y1 * s);
       }
     assert(drawn > 30 * s * s);
-    return dark;
+    return drawn;
   };
-  for (int s = 1; s <= 4; s++)
+  for (int s = 1; s <= 3; s++)
     for (int stage = 0; stage < 7; stage++)
       for (int mood = 0; mood < 4; mood++)
-        for (uint8_t hat : {0, 2, 11, 13})
-          for (Status st : {Status::Running, Status::Idle, Status::Waiting})
+        for (uint8_t hat : {0, 2, 11, 14})
+          for (int pose = 0; pose <= (int)Pose::Hungry; pose++)
             for (uint32_t ms : {0u, 300u, 700u}) {
               a.pet = pet(stage, mood);
               a.pet.ready = stage == 0 && mood == 0;
-              a.hat = hat;
-              a.status = st;
-              const int onGrey = draw(s, kGrey, ms);
-              assert(draw(s, kAccent, ms) > onGrey);   // the dark plate on orange
-              draw(s, kBg, ms);
+              a.pet.hat = hat;
+              draw(s, kGrey, (Pose)pose, ms);
+              draw(s, kAccent, (Pose)pose, ms);
             }
-  // The pet's own orange, not the critter's colour.
+  // The pet's own orange with its black stroke, on orange too: no plate, no critter colour.
   a.pet = pet(DECK_PET_GROWN, DECK_PET_FED);
-  a.status = Status::Idle;
-  c.fill(kBg);
-  drawCritter(c, X, Y, 2, a, Pose::Idle, 0xFFFF, kBg, 0, true);
-  int body = 0, white = 0;
-  for (uint16_t p : px) { body += p == kAccent; white += p == 0xFFFF; }
-  assert(body > 100 && white == 0);
+  for (uint16_t bg : {kBg, kAccent}) {
+    c.fill(bg == kBg ? kGrey : bg);
+    drawCritter(c, X, Y, 2, a, Pose::Idle, 0xFFFF, bg, 0, true);
+    int body = 0, white = 0, black = 0;
+    for (uint16_t p : px) { body += p == kAccent; white += p == 0xFFFF; black += p == 0x0000; }
+    assert(white > 0 && black > 40 && black < 400);   // the "z z" and the stroke round it all
+    if (bg == kBg) assert(body > 100);
+  }
+  // A pose moves it: running is not the same picture at two moments, and not idle's.
+  a.pet = pet(DECK_PET_KID, DECK_PET_FED);
+  std::vector<uint16_t> one;
+  draw(2, kBg, Pose::Run, 0);
+  one = px;
+  draw(2, kBg, Pose::Run, 300);
+  assert(px != one);
+  draw(2, kBg, Pose::Idle, 0);
+  assert(px != one);
 }
 
 // The spring's critter box holds a pet (the carousel redraws only that box).
@@ -162,14 +169,15 @@ static void testSpringBox() {
         for (uint32_t ms : {0u, 700u}) {
           a.pet = pet(stage, mood);
           a.pet.ready = stage == 0;
-          a.hat = 2;   // the cap: its brim reaches furthest left
-          a.status = Status::Waiting;
-          c.fill(0);
-          agentCritter(c, a, 240, 240, s, 0xFFFF, rgb565(0xFF, 0x4D, 0x00), ms, 0, false);
+          a.pet.hat = 11;   // the top hat: the flames rise furthest over it
+          a.status = Status::Running;
+          a.statusSince = 0;
+          c.fill(0x1234);
+          agentCritter(c, a, 240, 240, s, 0xFFFF, rgb565(0xFF, 0x4D, 0x00), ms, 0, true);
           const RoundRect b = spring_draw::critterBox(240, 240, s, false, true);
           for (int y = 0; y < 480; y++)
             for (int x = 0; x < 480; x++)
-              if (px[y * 480 + x]) assert(x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+              if (px[y * 480 + x] != 0x1234) assert(x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
         }
 }
 
