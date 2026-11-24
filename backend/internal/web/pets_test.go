@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/brushknight/agents-deck/backend/internal/web"
@@ -41,7 +43,7 @@ func TestPetArt(t *testing.T) {
 
 const petCheck = `
 import { petSVG, STAGES, levelAt, petKind, heartSVG, AURA_COLORS } from './pets.js';
-import { POSES } from './pet-poses.js';
+import { POSES, RIG } from './pet-poses.js';
 import { HAT_ART, HAT_COLORS } from './deck-core.js';
 const fail = (m) => { console.error(m); process.exitCode = 1; };
 // The same numbers as the service (internal/pets Threshold).
@@ -108,9 +110,9 @@ if (new Set(sil.match(/fill="#[0-9A-Fa-f]{6}"/g)).size !== 1 || sil.includes('pr
 // The critter's poses on every pet: whole pixels, one scale, few shapes; the
 // pose's bubble and motion show; the ice and the pet's hunger win where the
 // spec (docs/pet-poses.md) says.
-const SIGN = { run: 'dots', think: 't3', read: 'pp"', bash: 'cursor', write: 'cursor', web: 'lb slow', plan: 'tick2', delegate: 'pp bob',
+const SIGN = { run: 'dots', think: 't3', read: 'pp"', bash: 'cursor', write: 'cursor', web: 'lb slow', plan: 'tick2', delegate: 'pp lb',
   compact: 'press2', celebrate: 'spark s1', hungry: 'bobc', wait: 'blink', err: 'bang', start: 'dots', idle: 'zz' };
-const MOTION = { run: 'class="bob"', bash: 'class="bob fast"', delegate: 'class="bob"', celebrate: 'class="hop"', compact: 'class="psq' };
+const MOTION = { run: 'class="pjog"', bash: 'class="pjog pjf"', delegate: 'class="pjog"', celebrate: 'class="hop"', compact: 'class="psq' };
 const pp = (s) => (s.match(/class="pp[ "]/g) || []).length;
 for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep']) for (const pose of [...Object.keys(POSES)]) for (const bubble of [true, false]) {
   const what = stage + ' ' + mood + ' ' + pose + (bubble ? '' : ' without its bubble');
@@ -129,8 +131,8 @@ for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep
     if ((pose === 'wait' || pose === 'err') && bubble ? !s.includes(sign) : pp(s)) fail(what + ': the ice should win');
     continue;
   }
-  if (sign && bubble && !awake && sign !== 'pp bob' && !s.includes(sign)) fail(what + ': no ' + sign);
-  if (sign && !bubble && sign !== 'pp bob' && sign !== 'pp"' && s.includes(sign) && !['t3'].includes(sign)) fail(what + ': a bubble was asked away');
+  if (sign && bubble && !awake && sign !== 'pp lb' && !s.includes(sign)) fail(what + ': no ' + sign);
+  if (sign && !bubble && sign !== 'pp lb' && sign !== 'pp"' && s.includes(sign) && !['t3'].includes(sign)) fail(what + ': a bubble was asked away');
   if (stage === 'egg') {
     if (['run', 'think', 'read', 'bash', 'web', 'plan', 'delegate'].includes(pose) && !s.includes('prock')) fail(what + ': the egg should rock');
     if (pose === 'bash' && !s.includes('prock prk2')) fail(what + ': the egg should rock fast');
@@ -154,7 +156,7 @@ if (petSVG({ stage: 'egg', mood: 'fed', ate: 0 }, { hat, mystery: true, pose: 'w
 // are white; sparks and stars come after the pet, the ice last. A silhouette
 // has none.
 const STROKE = '#000000';
-const SKIP = /prs|ptw|pfc|pfall|pgl|pws|pwc|opacity/;
+const SKIP = /prs|ptw|ptc|pfc|pfall|pgl|pws|pwc|phw|opacity/;
 for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep']) for (const pose of Object.keys(POSES)) {
   const pet = { stage, mood, ate: 40000, hat: { shape: 'propeller', color: 'teal' } };
   const what = stage + ' ' + mood + ' ' + pose + ': stroke';
@@ -192,7 +194,8 @@ const motionOf = (cls, ms) => {
     if (k === 'la' && f(pace) >= 0.5) a = 0;
     if (k === 'lb' && f(pace) < 0.5) a = 0;
     if (k === 'hfo') a = 0; // hat frames: only frame 0 is checked
-    if (k === 'bob' && f(pace) >= 0.5) dy -= 1;
+    if (k === 'bob' && f(pace) >= 0.5) dy -= 0.5;
+    if (k === 'pjog' && f(c.has('pjf') ? 400 : 500) >= 0.5) dy -= 1;
     if (k === 'pbob' && f(1000) >= 0.5) dy -= 1;
     if (k === 'hop' && f(400) >= 0.5) dy -= 2;
     if (k === 'glance') dx += f(1200) < 0.5 ? -1 : 1;
@@ -209,7 +212,7 @@ const paint = (svg, ms) => {
     if (m[0] === '</g>') { stack.pop(); continue; }
     const [pa, px, py] = stack[stack.length - 1];
     if (m[0].startsWith('<g')) { const [a, dx, dy] = motionOf(m[1] || '', ms); stack.push([pa * a, px + dx, py + dy]); continue; }
-    if (m[4] || /prs|ptw/.test(m[5] || '')) continue; // see-through, and the aura's sparks and stars passing in front
+    if (m[4] || /prs|ptw|ptc/.test(m[5] || '')) continue; // see-through, and the aura's sparks and stars passing in front
     const [a, dx, dy] = motionOf(m[5] || '', ms);
     if (!(pa * a)) continue;
     for (const r of m[2].matchAll(/M(-?\d+) (-?\d+)h(\d+)v1h-\d+z/g)) for (let i = 0; i < +r[3]; i++) out.set((+r[1] + i + px + dx) + ',' + (+r[2] + py + dy), m[3].toUpperCase());
@@ -224,7 +227,7 @@ for (const stage of ['baby', 'kid', 'grown', 'strong', 'mighty', 'legend']) for 
   const ink = weak ? '#0A0A0A' : '#141412';
   const svg = petSVG({ stage, mood, ate: 0, hat: { shape: 'bandana', color: 'teal' } }, { hat, pose });
   // the face moves with the body (and drops with the squeeze): follow it
-  const grp = (/<g(?: class="([^"]*)")?>/.exec(svg) || [])[1] || '';
+  const grp = (/<g(?: class="([^"]*)")?>/.exec(svg.replace('<g class="pall">', '')) || [])[1] || '';
   const at = (ms) => { const [, gx, gy] = motionOf(grp, ms); const sq = (/<g class="(psq[^"]*)">/.exec(svg) || [])[1]; const [, qx, qy] = sq ? motionOf(sq, ms) : [1, 0, 0]; return [gx + qx, gy + qy]; };
   const count = (cells, [x, y, w, h], [ox, oy]) => [...cells].filter(([k, f]) => {
     const [cx, cy] = k.split(',').map(Number);
@@ -239,4 +242,70 @@ for (const stage of ['baby', 'kid', 'grown', 'strong', 'mighty', 'legend']) for 
     if (eyes.some((e, i) => count(cells, e, at(ms)) !== want[i])) { fail(stage + ' ' + mood + ' ' + pose + ' at ' + ms + ' ms: an eye is covered'); break; }
   }
 }
+
+// Each z of "z z" has its own class, so its own outline moves with it.
+{
+  const z = petSVG({ stage: 'grown', mood: 'fed' }, { hat, pose: 'idle' });
+  for (const c of ['pp zz z0', 'pp zz z1']) if (!z.includes('fill="#000000" class="' + c + '"') || !z.includes('fill="#FFFFFF" class="' + c + '"')) fail('idle: no outline of its own for ' + c);
+}
+// Walking, the feet never come apart from the body: in every frame each foot
+// cell has the body (or the foot's upper row) right above it.
+for (const stage of ['baby', 'kid', 'grown', 'legend']) for (const mood of ['fed', 'weak']) for (const pose of ['run', 'bash', 'write', 'delegate']) {
+  const weak = mood === 'weak' && !['baby', 'kid'].includes(stage);
+  const rig = RIG[weak ? 'weak' : stage === 'baby' || stage === 'kid' ? stage : 'builder'];
+  const body = weak ? '#B0673F' : '#FF4D00';
+  const svg = petSVG({ stage, mood, ate: 0 }, { hat, pose });
+  const grp = (/<g(?: class="([^"]*)")?>/.exec(svg.replace('<g class="pall">', '')) || [])[1] || '';
+  for (let ms = 0; ms < 1200; ms += 50) {
+    const cells = paint(svg, ms);
+    const [, , gy] = motionOf(grp, ms);
+    let bad = '';
+    for (const [k, f] of cells) {
+      const [x, y] = k.split(',').map(Number);
+      if (f !== body || x > 13 || !rig.feet[0].includes(y - gy)) continue;
+      if (cells.get(x + ',' + (y - 1)) !== body) bad = k;
+    }
+    if (bad) { fail(stage + ' ' + mood + ' ' + pose + ' at ' + ms + ' ms: a foot apart from the body at ' + bad); break; }
+  }
+}
 `
+
+// Pet animations move whole pet pixels: no fractional translation, no scale
+// or brightness in any pet keyframes; the critter's own bob is as it was.
+func TestPetKeyframes(t *testing.T) {
+	b, err := fs.ReadFile(web.Static(), "settings.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	kf := regexp.MustCompile(`@keyframes (p[a-z0-9]+) \{(.*)\}`)
+	n := 0
+	for _, line := range strings.Split(strings.ReplaceAll(css, "\n  ", " "), "\n") {
+		m := kf.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		n++
+		if strings.Contains(m[2], "scale(") || strings.Contains(m[2], "brightness(") {
+			t.Errorf("%s scales or flashes: %s", m[1], m[2])
+		}
+		for _, v := range regexp.MustCompile(`translate[XY]?\(([^)]*)\)`).FindAllStringSubmatch(m[2], -1) {
+			for _, num := range regexp.MustCompile(`-?[0-9.]+`).FindAllString(v[1], -1) {
+				if strings.Contains(num, ".") {
+					t.Errorf("%s moves by part of a pixel: %s", m[1], v[0])
+				}
+			}
+		}
+	}
+	if n < 10 {
+		t.Errorf("found only %d pet keyframes", n)
+	}
+	if !strings.Contains(css, "@keyframes bob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-0.5px) } }") {
+		t.Error("the critter's bob changed")
+	}
+	for _, line := range strings.Split(css, "\n") {
+		if strings.Contains(line, ".pet") && strings.Contains(line, " + .") {
+			t.Errorf("a pet rule picks a sibling (its outline would not follow): %s", line)
+		}
+	}
+}
