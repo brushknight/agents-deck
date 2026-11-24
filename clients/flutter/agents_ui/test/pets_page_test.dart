@@ -319,6 +319,46 @@ void main() {
     expect(source.calls.last, ('hatch', 'd0cs1t', null));
   });
 
+  testWidgets('real-world text: long names fit, wrappers left out', (
+    tester,
+  ) async {
+    final json = petsPageState();
+    final a = (json['agents'] as List).cast<Map<String, dynamic>>().first;
+    a['title'] = 'a made-up agent with a rather long descriptive name';
+    a['lastPrompt'] =
+        '<pasted_content id="ab12"> please tidy the export tables</pasted_content>';
+    a['account'] = {'name': 'personal', 'color': 'sky'};
+    final source = FakeAgentsSource.fromState(json)
+      ..accountList.addAll(const [
+        AgentAccount(name: 'personal', color: 'sky', isDefault: true),
+        AgentAccount(name: 'work', color: 'yellow'),
+      ]);
+    tester.view.physicalSize = const Size(720, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(home: AgentsApp(source: source, animate: false)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('agent-tile-k3f9a2')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 400));
+    // The whole name, smaller (two lines at the smallest), never cut short.
+    final name = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('agent-title')),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(name.data, a['title']);
+    expect(name.style!.fontSize, lessThan(56));
+    expect(find.text('please tidy the export tables'), findsOneWidget);
+    // One quiet line and a square button for the other account.
+    expect(find.byKey(const Key('agent-handoff')), findsOneWidget);
+    expect(find.text('CONTINUE ON WORK'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pets off: the critter page as before', (tester) async {
     tester.view.physicalSize = const Size(720, 720);
     tester.view.devicePixelRatio = 1.0;
