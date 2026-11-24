@@ -1691,7 +1691,8 @@ extension _PetsPage on _AgentDetailState {
                   hat: spots,
                   mystery: i == at && pet.hat == null && pet.level < 5,
                   fit: true,
-                  cell: 3,
+                  // One scale for every stage (the legend's glow fits at 2).
+                  cell: 2,
                   width: 86,
                   // The menu bar's bigger text leaves it less room.
                   height: _menuBar ? 38 : 52,
