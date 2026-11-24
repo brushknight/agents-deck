@@ -336,6 +336,50 @@ static void test_draw(void)
 	draw(&L, CW - 10, CH - 10, 4);
 }
 
+/* The face stays on top: in every frame of every pose (but the exited one's
+ * hollow outline) a hatched pet shows as many eye cells as in any other
+ * frame of that pose; none go under the body (the compacting squeeze once
+ * hid them). The weak grown-up's eyes are its dark cells, but not its
+ * mouth (the rows where columns 6 to 8 are all dark) or the flag's squares
+ * (right of column 12). */
+static int eye_cells(const deck_pet_look_t *l)
+{
+	int n = 0;
+	FOR_GRID(x, y) {
+		const char k = deck_pet_at(l, x, y);
+		if (l->art != DECK_PET_ART_WEAK) {
+			n += k == 'e';
+			continue;
+		}
+		const bool mouth = deck_pet_at(l, 6, y) == 'k' && deck_pet_at(l, 7, y) == 'k' && deck_pet_at(l, 8, y) == 'k';
+		n += k == 'k' && x <= 12 && !(mouth && x >= 6 && x <= 8);
+	}
+	return n;
+}
+
+static void test_face(void)
+{
+	for (int st = DECK_PET_BABY; st <= DECK_PET_LEGEND; st++)
+		for (int mood = 0; mood < 4; mood++)
+			for (int hat = 0; hat <= DECK_PET_HAT_SHAPE_COUNT; hat += 3)
+				for (int pose = DECK_PET_POSE_THINK; pose <= DECK_PET_POSE_HUNGRY; pose++) {
+					if (pose == DECK_PET_POSE_EXIT)
+						continue;
+					deck_pet_t p = pet_of(st, mood, hat);
+					int lo = 999, hi = -1;
+					for (uint32_t ms = 0; ms < 2400; ms += 50) {
+						const deck_pet_opts_t o = posed(pose, ms);
+						deck_pet_look(&L, &p, &o);
+						const int n = eye_cells(&L);
+						if (n < lo) lo = n;
+						if (n > hi) hi = n;
+					}
+					if (lo != hi || lo == 0)
+						fprintf(stderr, "face: stage %d mood %d hat %d pose %d: eye cells %d..%d\n", st, mood, hat, pose, lo, hi);
+					CHECK(lo == hi && lo > 0);
+				}
+}
+
 static void test_motion(void)
 {
 	int dx, dy;
@@ -364,6 +408,7 @@ int main(void)
 	test_state();
 	test_stroke_and_reach();
 	test_flames();
+	test_face();
 	test_draw();
 	test_motion();
 	if (failures) {

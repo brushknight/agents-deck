@@ -90,16 +90,17 @@ function frame(pet, pose, ms) {
   }
   const out = new Map();
   const [, gx, gy] = move(p.grp, ms);
-  const [, sx, sy] = p.top ? [true, 0, Math.floor((ms % 1200) / 400)] : [true, 0, 0];
+  const [, sx, sy] = p.top ? [true, 0, p.squeeze === 1 ? (ms % 1200 >= 400 ? 1 : 0) : Math.floor((ms % 1200) / 400)] : [true, 0, 0];
   const put = (x, y, ch, cls, inTop, inGroup, zz2) => {
     const [vis, dx, dy] = move(cls, ms, zz2);
     if (!vis) return;
     out.set(key(x + dx + (inGroup ? gx : 0) + (inTop ? sx : 0), y + dy + (inGroup ? gy : 0) + (inTop ? sy : 0)), ch);
   };
   const top = (k) => p.top && p.top.has(k);
+  // squeezed: the rows it drops over first, then the part that drops, face and hat on top
+  if (p.top) for (const [k, ch] of pix) if (!top(k)) put(...at(k), ch, '', false, true);
   for (const [k, ch] of pix) if (!p.top || top(k)) put(...at(k), ch, '', !!p.top, true);
   for (const [cells, cls] of [...p.inner, ...hatLayers]) for (const [x, y, ch] of cells) put(x, y, ch, cls, !!p.top, true);
-  if (p.top) for (const [k, ch] of pix) if (!top(k)) put(...at(k), ch, '', false, true);
   let z = 0;
   for (const [cells, cls] of p.outer) {
     const zz2 = cls.split(' ').includes('zz') && z++ > 0;
