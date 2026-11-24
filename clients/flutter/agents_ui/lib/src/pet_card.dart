@@ -5,6 +5,7 @@ library;
 import 'package:flutter/widgets.dart';
 
 import 'agents_model.dart';
+import 'critter.dart';
 import 'pet_art.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -23,7 +24,8 @@ class PetSummary extends StatelessWidget {
     this.hat,
     this.idle = false,
     this.ink = DeckHud.ink,
-    this.plate = false,
+    this.onOrange = false,
+    this.pose,
   });
 
   final AgentPet pet;
@@ -37,8 +39,11 @@ class PetSummary extends StatelessWidget {
   /// Text and bar colour (the card's ink).
   final Color ink;
 
-  /// The pet on a dark plate (on a solid orange card).
-  final bool plate;
+  /// On a solid orange card (near-black hearts).
+  final bool onOrange;
+
+  /// Its agent's pose, which the pet does.
+  final CritterPose? pose;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +54,7 @@ class PetSummary extends StatelessWidget {
       key: const Key('agent-pet'),
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        PetSprite(pet: pet, hat: hat, idle: idle, plate: plate, width: 54),
+        PetSprite(pet: pet, hat: hat, idle: idle, pose: pose, width: 54),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -101,7 +106,7 @@ class PetSummary extends StatelessWidget {
                     child: PetHearts(
                       hearts: pet.hearts,
                       size: 2,
-                      onOrange: plate,
+                      onOrange: onOrange,
                     ),
                   ),
                 ],

@@ -93,7 +93,6 @@ void main() {
         p.hat,
         const AgentHat(shape: 'crown', color: 'purple', auto: false),
       );
-      expect(petHatFor(p, const AgentHat(shape: 'cap', color: 'green')), p.hat);
     });
 
     test('odd values degrade, never throw', () {
@@ -119,24 +118,54 @@ void main() {
     const hat = AgentHat(shape: 'cap', color: 'green');
     int count(PetLook l, String k) => l.pix.values.where((v) => v == k).length;
 
-    test('egg cracks at 30k and wears no hat', () {
-      expect(PetLook.of(const AgentPet(ate: 1000), hat: hat).art, 'egg');
-      final cracked = PetLook.of(const AgentPet(ate: 30000), hat: hat);
+    test('egg cracks at 30k or when ready, and wears no hat', () {
+      expect(PetLook.of(const AgentPet(ate: 1000)).art, 'egg');
+      expect(PetLook.of(const AgentPet(ate: 1000, ready: true)).art, 'crack');
+      final cracked = PetLook.of(const AgentPet(ate: 30000, hat: hat));
       expect(cracked.art, 'crack');
       expect(count(cracked, 'h'), 0);
       expect(count(cracked, 's'), greaterThan(0));
     });
 
-    test('hat from kid on, the small cut for the kid', () {
+    test('its own hat from kid on, the small cut for the kid', () {
       expect(
-        count(PetLook.of(const AgentPet(stage: 'baby'), hat: hat), 'h'),
+        count(PetLook.of(const AgentPet(stage: 'baby', hat: hat)), 'h'),
         0,
       );
-      final kid = PetLook.of(const AgentPet(stage: 'kid'), hat: hat);
+      // No hat of its own yet: bare-headed (the agent's hat isn't worn).
+      expect(PetLook.of(const AgentPet(stage: 'kid')).hatCells, isEmpty);
+      final kid = PetLook.of(const AgentPet(stage: 'kid', hat: hat));
       expect(kid.pix[(6, 2)], 'h'); // the small cap's crown
-      final grown = PetLook.of(const AgentPet(stage: 'grown'), hat: hat);
+      final grown = PetLook.of(const AgentPet(stage: 'grown', hat: hat));
       expect(grown.art, 'builder');
       expect(count(grown, 'h'), greaterThan(count(kid, 'h')));
+      final horns = PetLook.of(
+        const AgentPet(
+          stage: 'grown',
+          hat: AgentHat(shape: 'devil horns', color: 'red'),
+        ),
+      );
+      expect(horns.hatCells, {
+        (2, 1),
+        (2, 2),
+        (3, 2),
+        (13, 1),
+        (13, 2),
+        (12, 2),
+      });
+    });
+
+    test('the mystery "?" until the hat shows', () {
+      final egg = PetLook.of(const AgentPet(), mystery: true);
+      expect(egg.pix[(14, -3)], 'q');
+      expect(egg.bottom, 14); // the "?" doesn't count
+      expect(
+        count(
+          PetLook.of(const AgentPet(stage: 'kid', hat: hat), mystery: true),
+          'q',
+        ),
+        0,
+      );
     });
 
     test('moods', () {
@@ -149,6 +178,14 @@ void main() {
       expect(count(idle, 'm'), 0);
       expect(idle.pix[(4, 8)], 'e'); // the eyes shut into a line
       expect(idle.pix[(5, 7)], 'b');
+      // A pose sets its own eyes.
+      expect(
+        PetLook.of(const AgentPet(stage: 'kid'), idle: true, posed: true).pix[(
+          5,
+          7,
+        )],
+        'e',
+      );
       final weak = PetLook.of(const AgentPet(stage: 'mighty', mood: 'weak'));
       expect(weak.art, 'weak');
       expect(weak.aura, '');
@@ -162,49 +199,202 @@ void main() {
     });
   });
 
-  group('hats in auras', () {
-    test('a hat of the aura\'s own colour family is drawn in its shade', () {
-      final blends = {
-        for (final a in ['strong', 'mighty', 'legend'])
-          a: [
-            for (final c in hatColors)
-              if (petHatBlendsIn(c, a)) c,
-          ],
-      };
-      expect(blends, {
-        'strong': ['yellow', 'ink'],
-        'mighty': ['teal', 'blue', 'sky'],
-        'legend': ['yellow'],
+  group('poses (docs/pet-poses.md)', () {
+    const builder = AgentPet(stage: 'grown');
+    const ink = Color(0xFF141412), body = Color(0xFFFF4D00);
+    const white = Color(0xFFFFFFFF), black = petStroke;
+    Map<(int, int), Color> at(
+      AgentPet pet,
+      CritterPose pose,
+      int ms, {
+      bool still = false,
+    }) => petCellsAt(pet, PetDraw(pose: pose), ms, still: still);
+    Set<(int, int)> of(Map<(int, int), Color> m, Color c) => {
+      for (final e in m.entries)
+        if (e.value == c) e.key,
+    };
+
+    test('the builder\'s X eyes', () {
+      final eyes = of(at(builder, CritterPose.error, 0), ink);
+      expect(eyes, {
+        (3, 5),
+        (5, 5),
+        (4, 6),
+        (3, 7),
+        (5, 7),
+        (9, 5),
+        (11, 5),
+        (10, 6),
+        (9, 7),
+        (11, 7),
       });
-      expect(petHatBlendsIn('yellow', ''), isFalse);
     });
 
-    test('no flame touches a hat, for every hat in every aura', () {
-      for (final stage in ['strong', 'mighty', 'legend']) {
-        for (final shape in hatShapes) {
-          for (final color in hatColors) {
-            final hat = AgentHat(shape: shape, color: color);
-            final pet = AgentPet(stage: stage);
-            final cells = PetLook.of(pet, hat: hat).hatCells;
-            final flames = petFlameCells(pet, hat);
-            final why = '$stage $shape $color';
-            expect(cells, isNotEmpty, reason: why);
-            expect(flames, isNotEmpty, reason: why);
-            for (final (x, y) in flames) {
-              for (var dx = -1; dx <= 1; dx++) {
-                for (var dy = -1; dy <= 1; dy++) {
-                  expect(
-                    cells.contains((x + dx, y + dy)),
-                    isFalse,
-                    reason: '$why: flame at ($x, $y)',
-                  );
-                }
+    test('arms: the rig table', () {
+      expect(petArmCells(PetLook.of(builder).pix, 2, false), [(0, 2), (0, 3)]);
+      expect(petArmCells(PetLook.of(builder).pix, 2, true), [(15, 2), (15, 3)]);
+      final kid = PetLook.of(const AgentPet(stage: 'kid')).pix;
+      expect(petArmCells(kid, 7, false), [(1, 7), (1, 8)]);
+      expect(petArmCells(kid, 4, true), [(13, 4), (13, 5)]);
+      final baby = PetLook.of(const AgentPet(stage: 'baby')).pix;
+      expect(petArmCells(baby, 3, false), [(4, 3), (4, 4)]);
+      final weak = PetLook.of(const AgentPet(stage: 'grown', mood: 'weak')).pix;
+      expect(petArmCells(weak, 4, true), [(14, 4), (14, 5)]);
+    });
+
+    test('bash: feet step fast, the body bobs, ">_" with its cursor', () {
+      final a = at(builder, CritterPose.bash, 0);
+      final b = at(builder, CritterPose.bash, 150);
+      // la: feet at 2 4 11 13; lb (from 100 ms): at 3 5 10 12.
+      expect(a[(2, 11)], body);
+      expect(a[(3, 11)], black);
+      expect(b[(3, 11)], body);
+      // The body bobs a cell up in the second half (fast: 0.2 s).
+      expect(a[(1, 3)], body);
+      expect(b[(1, 2)], body);
+      // The prompt glyph in the bubble box (16, -2), one row down, white.
+      expect(a[(16, -1)], white);
+      expect(a[(17, 0)], white);
+      expect(a[(19, 1)], white); // the cursor
+      // The cursor blinks off (from 0.5 s), its stroke with it.
+      expect(at(builder, CritterPose.bash, 600)[(19, 1)], isNull);
+    });
+
+    test(
+      'the stroke: every opaque cell grows by its 4 neighbours, in black',
+      () {
+        for (final pet in const [
+          AgentPet(),
+          AgentPet(stage: 'baby'),
+          AgentPet(
+            stage: 'kid',
+            hat: AgentHat(shape: 'wizard', color: 'purple'),
+          ),
+          AgentPet(
+            stage: 'legend',
+            hat: AgentHat(shape: 'crown', color: 'yellow'),
+          ),
+          AgentPet(stage: 'grown', mood: 'weak'),
+        ]) {
+          for (final pose in CritterPose.values) {
+            final m = at(pet, pose, 0);
+            final filled = {
+              for (final e in m.entries)
+                if (e.value != black) e.key,
+            };
+            for (final (x, y) in filled) {
+              for (final n in [
+                (x + 1, y),
+                (x - 1, y),
+                (x, y + 1),
+                (x, y - 1),
+              ]) {
+                expect(
+                  m.containsKey(n),
+                  isTrue,
+                  reason: '${pet.stage} $pose $n',
+                );
               }
+            }
+            // Nothing black that isn't next to the pet.
+            for (final (x, y) in of(m, black)) {
+              final next = [
+                (x, y),
+                (x + 1, y),
+                (x - 1, y),
+                (x, y + 1),
+                (x, y - 1),
+              ].any(filled.contains);
+              expect(next, isTrue, reason: '${pet.stage} $pose ($x, $y)');
             }
           }
         }
-      }
+      },
+    );
+
+    test('the stroke moves with its layer', () {
+      // Celebrate: the body hops 2 cells in the second half of 0.4 s.
+      final up = at(builder, CritterPose.celebrate, 250);
+      final down = at(builder, CritterPose.celebrate, 0);
+      expect(down[(1, 2)], black);
+      expect(up[(1, 0)], black);
+      expect(up[(1, 2)], isNot(black));
     });
+
+    test('an egg rocks while its agent works, and keeps its bubble', () {
+      const egg = AgentPet(ate: 1000);
+      expect(at(egg, CritterPose.read, 0)[(6, 0)], const Color(0xFFF4F0E6));
+      expect(at(egg, CritterPose.read, 300)[(5, 0)], const Color(0xFFF4F0E6));
+      // The magnifier at the bubble box (14, -4).
+      expect(at(egg, CritterPose.read, 0)[(15, -4)], white);
+    });
+
+    test('asleep: frozen, only "?" and "!" show', () {
+      const sleepy = AgentPet(stage: 'kid', mood: 'asleep');
+      final idle = at(sleepy, CritterPose.idle, 0);
+      expect(of(idle, white), isEmpty);
+      expect(of(at(sleepy, CritterPose.wait, 0), white), isNotEmpty);
+    });
+
+    test('hungry for food: awake while idle, mouth open, no "z z"', () {
+      const hungry = AgentPet(stage: 'kid', mood: 'hungry');
+      final m = at(hungry, CritterPose.idle, 0);
+      expect(of(m, white), isEmpty);
+      expect(m[(7, 9)], const Color(0xFFBDB8AD));
+    });
+
+    test('reduced motion: the first frame, everything up and in place', () {
+      final m = at(builder, CritterPose.bash, 150, still: true);
+      expect(m[(2, 11)], body); // la
+      expect(m[(3, 11)], black);
+      expect(m[(1, 3)], body); // no bob
+    });
+
+    test('timings', () {
+      expect(petMotion('pp blink', 500), (1.0, 0, 0));
+      expect(petMotion('pp blink', 700), (0.15, 0, 0));
+      expect(petMotion('glance', 100), (1.0, -1, 0));
+      expect(petMotion('glance', 700), (1.0, 1, 0));
+      expect(
+        [
+          for (final t in [0, 300, 600, 900]) petMotion('scan', t).$2,
+        ],
+        [0, -1, 0, 1],
+      );
+      expect(
+        [
+          for (final t in [0, 400, 800]) petMotion('psq', t).$3,
+        ],
+        [0, 1, 2],
+      );
+      expect(petMotion('pp zz', 0), (0.9, 0, 0));
+      expect(petMotion('pp zz zz2', 0), (0.45, 0, -1));
+      expect(petMotion('hf-4-120-2', 250).$1, 1);
+      expect(petMotion('hf-4-120-2', 130).$1, 0);
+      expect(petMotion('pp spark s1', 100).$1, 0.45);
+      expect(petMotion('pp spark s1', 250).$1, 1);
+      expect(
+        [
+          for (final t in [0, 1100, 1250, 1350, 1500]) petReadyWobble(t),
+        ],
+        [0, 0, -1, 1, -1],
+      );
+    });
+  });
+
+  group('auras', () {
+    test(
+      'flames start a cell out (the stroke fills it), never on the body',
+      () {
+        for (final stage in ['strong', 'mighty', 'legend']) {
+          final pet = AgentPet(stage: stage);
+          final body = PetLook.of(pet).pix.keys.toSet();
+          final flames = petFlameCells(pet);
+          expect(flames, isNotEmpty);
+          expect(flames.intersection(body), isEmpty);
+        }
+      },
+    );
   });
 
   group('pet sprite', () {

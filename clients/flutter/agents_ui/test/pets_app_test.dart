@@ -26,6 +26,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 190735,
     'hearts': 2,
     'mood': 'hungry',
+    'hat': {'shape': 'wizard', 'color': 'purple'},
   },
   'd0cs1t': {'stage': 'egg', 'ate': 42000, 'nextAt': 50000, 'ready': true},
   't3st5a': {
@@ -36,6 +37,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 3600000,
     'hearts': 3,
     'mood': 'fed',
+    'hat': {'shape': 'propeller', 'color': 'blue'},
   },
   '1nfr4t': {
     'name': 'Moss',
@@ -45,6 +47,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 800000,
     'hearts': 0,
     'mood': 'weak',
+    'hat': {'shape': 'hard hat', 'color': 'yellow'},
   },
   'k8sn0d': {
     'name': 'Bree',
@@ -54,6 +57,7 @@ const _pets = <String, Map<String, dynamic>>{
     'nextAt': 70000000,
     'hearts': 4,
     'mood': 'fed',
+    'hat': {'shape': 'top hat', 'color': 'sky'},
   },
   'h4ptic': {
     'name': 'Oat',
@@ -149,15 +153,16 @@ void main() {
         ),
       ),
     );
-    // Only the orange tile (infra-network needs you) gets the dark plate.
-    expect(tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).plate, isTrue);
-    for (final id in _pets.keys.where((id) => id != 'h0m3l4')) {
-      expect(
-        tester.widget<PetSprite>(inTile(id, PetSprite)).plate,
-        isFalse,
-        reason: id,
-      );
-    }
+    // Each pet does its agent's pose: infra-network needs you, in its own
+    // colours on the orange tile (no plate: the stroke keeps it apart).
+    expect(
+      tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).pose,
+      CritterPose.wait,
+    );
+    expect(
+      tester.widget<PetSprite>(inTile('k3f9a2', PetSprite)).pose,
+      isNot(CritterPose.wait),
+    );
     // No level or hearts on tiles.
     expect(find.byType(PetHearts), findsNothing);
     expect(tester.takeException(), isNull);
@@ -175,18 +180,6 @@ void main() {
     expect(find.text('50% to level 42'), findsOneWidget);
     expect(find.byType(PetHearts), findsOneWidget);
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 4);
-    // A dark card: no plate.
-    expect(
-      tester
-          .widget<PetSprite>(
-            find.descendant(
-              of: find.byKey(const Key('agent-pet')),
-              matching: find.byType(PetSprite),
-            ),
-          )
-          .plate,
-      isFalse,
-    );
     expect(tester.takeException(), isNull);
   });
 
@@ -205,12 +198,7 @@ void main() {
     expect(find.byKey(const Key('agent-pet')), findsOneWidget);
     expect(find.text('Kid · level 6'), findsOneWidget);
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).hearts, 2);
-    // Its permission card is solid orange: the pet sits on a dark plate.
-    Finder cardPet() => find.descendant(
-      of: find.byKey(const Key('agent-pet')),
-      matching: find.byType(PetSprite),
-    );
-    expect(tester.widget<PetSprite>(cardPet()).plate, isTrue);
+    // Its permission card is solid orange: near-black hearts.
     expect(tester.widget<PetHearts>(find.byType(PetHearts)).onOrange, isTrue);
     expect(tester.takeException(), isNull);
   });

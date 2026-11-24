@@ -17,5 +17,6 @@ export 'src/hats.dart';
 export 'src/live_picker.dart';
 export 'src/pet_art.dart';
 export 'src/pet_card.dart';
+export 'src/pet_poses.dart';
 export 'src/theme.dart';
 export 'src/widgets.dart';

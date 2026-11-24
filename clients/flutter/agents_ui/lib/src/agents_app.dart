@@ -15,7 +15,6 @@ import 'attention_screen.dart';
 import 'critter.dart';
 import 'live_picker.dart';
 import 'pet_art.dart';
-import 'pet_card.dart';
 
 /// Agents app: a Stream-Deck-style board of the Mac's coding agents
 /// (`agentctl serve`). Chrome-less 4×4 grid, one tile per agent by slot,
@@ -602,13 +601,22 @@ class _AgentTileState extends State<AgentTile> {
                             // With Agent pets on, its pet takes the
                             // critter's place, at the critter's size.
                             if (a.pet case final pet?)
+                              // It does its agent's pose, in its own
+                              // colours with its black stroke (on orange
+                              // too).
                               PetSprite(
                                 pet: pet,
                                 hat: a.hat,
-                                idle: petAgentIdle(a),
-                                // Needs you: a dark plate under it, or its
-                                // orange would vanish into the tile's.
-                                plate: fill == DeckHud.accent,
+                                pose: critterPoseOf(
+                                  a,
+                                  inStatus: widget.state.inStatus(a),
+                                ),
+                                celebrateUntil: DateTime.now().add(
+                                  critterCelebration - widget.state.inStatus(a),
+                                ),
+                                afterCelebrate: a.unseen
+                                    ? CritterPose.hungry
+                                    : CritterPose.idle,
                                 width: 92,
                               )
                             else

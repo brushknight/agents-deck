@@ -11,6 +11,7 @@ import 'package:flutter/widgets.dart';
 import 'agents_model.dart';
 import 'critter.dart';
 import 'hats.dart';
+import 'pet_poses.dart';
 
 /// The pets on a 16-cell grid, 14 rows. `.` empty, `b` body, `d` body shade,
 /// `e` eye, `w` shell, `v` shell shade, `s` spot (hat colour), `k` crack or
@@ -122,6 +123,22 @@ const _hatAt = <String, (int, double, bool)>{
   'weak': (5, 8, false),
 };
 
+/// The mystery hat before it shows: a "?" where the hat will be (the egg's
+/// floats beside it), from its top-left cell.
+const _mystery = ['.qq.', 'q..q', '..q.', '....', '..q.'];
+const _mysteryAt = <String, (int, int)>{
+  'egg': (13, -3),
+  'crack': (13, -3),
+  'baby': (6, -1),
+};
+
+/// Devil horns, the hat only pets find: two small horns on the head.
+const _horns = <String, List<(int, int)>>{
+  'kid': [(3, 3), (3, 4), (4, 4), (12, 3), (12, 4), (11, 4)],
+  'builder': [(2, 1), (2, 2), (3, 2), (13, 1), (13, 2), (12, 2)],
+  'weak': [(2, 3), (2, 4), (3, 4), (13, 3), (13, 4), (12, 4)],
+};
+
 /// Smaller cuts of the deck's hats, for the kid. a = hat colour, b = shade,
 /// c = highlight, d = near-black.
 const petSmallHats = <String, List<String>>{
@@ -152,44 +169,42 @@ const _colours = <String, Color>{
   // The open mouth of a hungry pet: light grey, so it reads on a dark tile.
   'm': Color(0xFFBDB8AD),
   'c': Color(0xFFF7F4EC),
+  // A hat's near-black.
+  'K': Color(0xFF0A0A0A),
+  // The mystery hat's "?".
+  'q': Color(0xFF8A867C),
+  // Props and bubbles: white, the stroke keeps them apart from anything.
+  'P': Color(0xFFFFFFFF),
 };
 const _weakBody = Color(0xFFB0673F);
+
+/// The stroke: a black outline one cell wide round every layer of the pet.
+const petStroke = Color(0xFF000000);
 
 /// A power-up aura: flame tongues around the body (one layer still, one
 /// glowing in and out), sparks drifting up.
 class _Aura {
-  const _Aura(this.outer, this.spark, this.heights, this.sparks, this.op);
+  const _Aura(this.outer, this.spark, this.heights, this.sparks);
   final Color outer, spark;
   final List<int> heights;
   final int sparks;
-  final double op;
 }
 
 const _auras = <String, _Aura>{
-  'strong': _Aura(
-    Color(0xFFFFE08A),
-    Color(0xFFFFFFFF),
-    [1, 3, 1, 2, 2],
+  'strong': _Aura(Color(0xFFFFE08A), Color(0xFFFFFFFF), [1, 3, 1, 2, 2], 5),
+  'mighty': _Aura(Color(0xFF3FA9F5), Color(0xFFFFFFFF), [2, 4, 2, 3, 5, 2], 7),
+  'legend': _Aura(Color(0xFFE8A317), Color(0xFFFFF6C8), [
+    3,
     5,
-    0.75,
-  ),
-  'mighty': _Aura(
-    Color(0xFF3FA9F5),
-    Color(0xFFFFFFFF),
-    [2, 4, 2, 3, 5, 2],
-    7,
-    0.7,
-  ),
-  'legend': _Aura(
-    Color(0xFFE8A317),
-    Color(0xFFFFF6C8),
-    [3, 5, 2, 6, 3, 4, 5],
-    10,
-    0.85,
-  ),
+    2,
+    6,
+    3,
+    4,
+    5,
+  ], 10),
 };
 
-/// An unhatched egg cracks from this many tokens eaten.
+/// An unhatched egg cracks from this many tokens eaten (or once it is ready).
 const _crackAt = 30000;
 
 /// The mouth's top-left cell on each art.
@@ -215,21 +230,29 @@ class PetLook {
   PetLook._(
     this.art,
     this.pix,
+    this.base,
     this.weak,
     this.asleep,
+    this.hungry,
     this.aura,
     this.egg,
     this.hatCells,
   );
 
-  /// [hat]: the hat it wears (its own, else its agent's); its colour also
-  /// spots the egg. [idle]: eyes shut.
-  factory PetLook.of(AgentPet pet, {AgentHat? hat, bool idle = false}) {
+  /// The pet wears its own hat ([AgentPet.hat], from kid on). [idle]: eyes
+  /// shut (only without a [posed] pose: a pose sets its own eyes).
+  /// [mystery]: a "?" where the hat will be, until it shows.
+  factory PetLook.of(
+    AgentPet pet, {
+    bool idle = false,
+    bool posed = false,
+    bool mystery = false,
+  }) {
     final stage = pet.stage;
     final mood = pet.mood;
     final egg = stage == 'egg';
     var art = switch (stage) {
-      'egg' => pet.ate >= _crackAt ? 'crack' : 'egg',
+      'egg' => pet.ate >= _crackAt || pet.ready ? 'crack' : 'egg',
       'baby' || 'kid' => stage,
       _ => 'builder',
     };
@@ -249,30 +272,54 @@ class PetLook {
         for (final (dx, dy) in const [(0, 0), (1, 0), (0, 1), (1, 1)]) {
           pix[(mx + dx, my + dy)] = 'm';
         }
-      } else if (asleep || weak || idle) {
+      } else if (asleep || (!posed && (weak || idle))) {
         _shutEyes(pix);
       }
     }
-    final hatCells = <_Cell>{};
-    if (art != 'baby' && !egg && hat != null) {
-      final before = Map.of(pix);
-      _putHat(pix, art, hat);
-      for (final e in pix.entries) {
-        if (before[e.key] != e.value) hatCells.add(e.key);
+    final base = Map.of(pix);
+    final hatPix = <_Cell, String>{};
+    if (art != 'baby' && !egg && pet.hat != null) {
+      _putHat(hatPix, art, pet.hat!);
+    }
+    pix.addAll(hatPix);
+    if (hatPix.isEmpty && mystery) {
+      if (_mysteryAt[art] case (final x0, final y0)) {
+        for (final (y, r) in _mystery.indexed) {
+          for (var x = 0; x < r.length; x++) {
+            if (r[x] == 'q') pix[(x0 + x, y0 + y)] = 'q';
+          }
+        }
       }
     }
     final aura = !weak && !asleep && _auras.containsKey(stage) ? stage : '';
-    return PetLook._(art, pix, weak, asleep, aura, egg, hatCells);
+    return PetLook._(
+      art,
+      pix,
+      base,
+      weak,
+      asleep,
+      mood == 'hungry' && !asleep && !egg,
+      aura,
+      egg,
+      hatPix.keys.toSet(),
+    );
   }
 
   /// egg, crack, baby, kid, builder or weak.
   final String art;
 
   /// Its cells: (x, y) on the 16-cell grid -> colour key (see [petArt]; h,
-  /// H are the hat's colour and shade, m the open mouth).
+  /// H are the hat's colour and shade, K its near-black, m the open mouth,
+  /// q the mystery hat's "?").
   final Map<(int, int), String> pix;
+
+  /// [pix] without the hat.
+  final Map<(int, int), String> base;
   final bool weak;
   final bool asleep;
+
+  /// Hungry for food (not asleep): it keeps its mouth open.
+  final bool hungry;
 
   /// The cells its hat takes.
   final Set<(int, int)> hatCells;
@@ -280,6 +327,15 @@ class PetLook {
   /// strong, mighty, legend, or "" for none.
   final String aura;
   final bool egg;
+
+  /// The row under its lowest cell (the "?" doesn't count): where it stands.
+  int get bottom {
+    var max = 0;
+    for (final MapEntry(key: (_, y), value: ch) in pix.entries) {
+      if (ch != 'q' && y > max) max = y;
+    }
+    return max + 1;
+  }
 
   /// Eyes shut: each eye becomes a short line at its lower row, turned out.
   static void _shutEyes(Map<_Cell, String> pix) {
@@ -299,11 +355,23 @@ class PetLook {
     }
   }
 
-  /// The deck's hat on an art: its still frame, moved from the critter's
-  /// spot to the pet's (the kid takes a smaller cut). a/b/c/d become h (hat
-  /// colour), H (shade), c (highlight), k (near-black).
-  static void _putHat(Map<_Cell, String> pix, String art, AgentHat hat) {
-    const keys = {'a': 'h', 'b': 'H', 'c': 'c', 'd': 'k'};
+  /// The deck's hat on an art: its still frame (or [frame], one of its
+  /// working ones), moved from the critter's spot to the pet's (the kid
+  /// takes a smaller cut). a/b/c/d become h (hat colour), H (shade), c
+  /// (highlight), K (near-black).
+  static void _putHat(
+    Map<_Cell, String> pix,
+    String art,
+    AgentHat hat, [
+    HatFrame? frame,
+  ]) {
+    const keys = {'a': 'h', 'b': 'H', 'c': 'c', 'd': 'K'};
+    if (hat.shape == 'devil horns' && _horns[art] != null) {
+      for (final (i, c) in _horns[art]!.indexed) {
+        pix[c] = i % 3 == 0 ? 'H' : 'h';
+      }
+      return;
+    }
     final hatArtFor = hatArt[hat.shape];
     final place = _hatAt[art];
     if (hatArtFor == null || place == null) return;
@@ -319,7 +387,7 @@ class PetLook {
       }
       return;
     }
-    final f = hatArtFor.critterStill;
+    final f = frame ?? hatArtFor.critterStill;
     final ox = 1 + _rnd(cx - 7.5);
     for (final (i, r) in f.rows.indexed) {
       for (var j = 0; j < r.length; j++) {
@@ -337,53 +405,299 @@ class PetLook {
       }
     }
   }
+
+  /// The hat's working frames on an art (each a cell map) and how long each
+  /// shows; null when it has none (the kid's small cuts and the devil horns
+  /// hold still).
+  static (List<Map<_Cell, String>>, int)? _hatFrames(
+    String art,
+    AgentHat? hat,
+  ) {
+    final a = hatArt[hat?.shape];
+    final place = _hatAt[art];
+    if (a == null || place == null) return null;
+    if (place.$3 && petSmallHats.containsKey(hat!.shape)) return null;
+    return (
+      [
+        for (final f in a.critter)
+          <_Cell, String>{}..also((m) => _putHat(m, art, hat!, f)),
+      ],
+      a.ms,
+    );
+  }
+}
+
+extension<T> on T {
+  T also(void Function(T) f) {
+    f(this);
+    return this;
+  }
 }
 
 /// One colour layer: every cell of one colour as one path, in grid cells.
+/// [cls] is its motion (see [petMotion]); [group] 1 moves with the body, 2
+/// also drops with the squeeze.
 class _Layer {
-  _Layer(this.color, Iterable<_Cell> cells)
+  _Layer(this.color, Iterable<_Cell> cells, {this.cls = '', this.group = 0})
     : path = (Path()..fillType = PathFillType.nonZero) {
-    for (final (x, y) in cells) {
-      path.addRect(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1));
+    for (final (x, y) in _rows(cells)) {
+      path.addRect(
+        Rect.fromLTWH(x.$1.toDouble(), y.toDouble(), x.$2.toDouble(), 1),
+      );
     }
   }
-  _Layer.rect(this.color, Rect r) : path = Path()..addRect(r);
+  _Layer.rect(this.color, Rect r)
+    : path = Path()..addRect(r),
+      cls = '',
+      group = 0;
 
   final Color color;
   final Path path;
+  final String cls;
+  final int group;
+
+  /// Cells joined into runs along each row: ((x, n), y).
+  static List<((int, int), int)> _rows(Iterable<_Cell> cells) {
+    final pts = cells.toSet().toList()
+      ..sort((p, q) => p.$2 != q.$2 ? p.$2 - q.$2 : p.$1 - q.$1);
+    final out = <((int, int), int)>[];
+    for (var i = 0; i < pts.length;) {
+      final (x, y) = pts[i];
+      var n = 1;
+      while (i + n < pts.length &&
+          pts[i + n].$2 == y &&
+          pts[i + n].$1 == x + n) {
+        n++;
+      }
+      out.add(((x, n), y));
+      i += n;
+    }
+    return out;
+  }
 }
 
-List<_Layer> _layers(Iterable<(int, int, Color)> cells) {
+List<_Layer> _layers(
+  Iterable<(int, int, Color)> cells, {
+  String cls = '',
+  int group = 0,
+}) {
   final by = <Color, List<_Cell>>{};
   for (final (x, y, c) in cells) {
     (by[c] ??= []).add((x, y));
   }
-  return [for (final e in by.entries) _Layer(e.key, e.value)];
+  return [
+    for (final e in by.entries) _Layer(e.key, e.value, cls: cls, group: group),
+  ];
 }
 
-/// Everything drawn for one look, built once and kept: the still layers,
-/// and the few moving ones (each moves as a whole, never a pixel at a time).
+/// How a pet is drawn beyond its look: the pose it does, without its bubble,
+/// with the mystery "?", as a silhouette, or with its "?" held still.
+class PetDraw {
+  const PetDraw({
+    this.pose,
+    this.bubble = true,
+    this.mystery = false,
+    this.sil,
+    this.idle = false,
+    this.calm = false,
+  });
+
+  /// The critter's pose ([critterPoseOf]); null: a drawing that holds still
+  /// (stage previews), no pose.
+  final CritterPose? pose;
+
+  /// False: the pose without its bubble.
+  final bool bubble;
+
+  /// A "?" where the hat will be, until it shows.
+  final bool mystery;
+
+  /// One colour, no aura, stroke or motion: a stage not reached yet.
+  final Color? sil;
+
+  /// Eyes shut, without a pose.
+  final bool idle;
+
+  /// The bubble holds still (a "?" that doesn't blink: where the page
+  /// already calls you).
+  final bool calm;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PetDraw &&
+      other.pose == pose &&
+      other.bubble == bubble &&
+      other.mystery == mystery &&
+      other.sil == sil &&
+      other.idle == idle &&
+      other.calm == calm;
+
+  @override
+  int get hashCode => Object.hash(pose, bubble, mystery, sil, idle, calm);
+}
+
+/// Everything drawn for one look, built once and kept: the layers back to
+/// front (flames, strokes, the pet, its bubble and props, sparks and stars,
+/// the ice), each with its motion class.
 class _PetScene {
-  _PetScene(PetLook look, AgentHat? hat) {
+  _PetScene(AgentPet pet, AgentHat? spots, PetDraw d) {
+    final pose = d.sil != null ? null : d.pose;
+    look = PetLook.of(
+      pet,
+      idle: d.idle,
+      posed: pose != null,
+      mystery: d.mystery,
+    );
+    final hat = pet.hat;
     final (main, shade) = hatColor(
       hatColors.contains(hat?.color) ? hat!.color : 'teal',
     );
-    // A hat of the aura's own colour family is drawn in its shade, so it
-    // stays readable in the glow.
-    final blends = petHatBlendsIn(hat?.color ?? 'teal', look.aura);
-    final col = {
-      ..._colours,
-      's': main,
-      'h': blends ? shade : main,
-      'H': shade,
-    };
+    final spot = hatColors.contains(spots?.color)
+        ? spots!.color
+        : hatColors.contains(hat?.color)
+        ? hat!.color
+        : 'teal';
+    final col = {..._colours, 's': hatColor(spot).$1, 'h': main, 'H': shade};
     if (look.weak) col['b'] = col['d'] = _weakBody;
-    final filled = look.pix.keys.toSet();
-    final cells = [
+    final glow =
+        look.aura.isNotEmpty && d.sil == null && pose != CritterPose.exited;
+    final keepOut = {
       for (final e in look.pix.entries)
-        (e.key.$1, e.key.$2, col[e.value] ?? col['b']!),
+        if (e.value == 'q') e.key,
+    };
+    final p = pose == null
+        ? null
+        : posePet(
+            PetPoseInput(
+              art: look.art,
+              pix: look.pix,
+              egg: look.egg,
+              asleep: look.asleep,
+              hungry: look.hungry,
+              hatCells: look.hatCells,
+            ),
+            pose,
+            bubble: d.bubble,
+            keepOut: keepOut,
+          );
+    final pix = p?.pix ?? Map.of(look.pix);
+    // A working hat cycles through its frames: what they share is drawn
+    // with the body, the rest one layer per frame.
+    final hatParts = <PetPart>[];
+    final hf = p != null && critterPoseWorking(pose!) && !look.asleep
+        ? PetLook._hatFrames(look.art, hat)
+        : null;
+    if (hf != null) {
+      final (frames, ms) = hf;
+      for (final c in look.hatCells) {
+        if (look.base[c] case final ch?) {
+          pix[c] = ch;
+        } else {
+          pix.remove(c);
+        }
+      }
+      final keys = {for (final m in frames) ...m.keys};
+      for (final c in keys) {
+        final ch = frames[0][c];
+        if (ch != null && frames.every((m) => m[c] == ch)) pix[c] = ch;
+      }
+      for (final (i, m) in frames.indexed) {
+        hatParts.add((
+          [
+            for (final MapEntry(key: (x, y), value: ch) in m.entries)
+              if (!frames.every((o) => o[(x, y)] == ch)) (x, y, ch),
+          ],
+          'hf-${frames.length}-$ms-$i${i > 0 ? ' hfo' : ''}',
+        ));
+      }
+    }
+    // The hat of a pet whose agent has exited dims to its shade.
+    if (p?.shade ?? false) {
+      col['h'] = col['H']!;
+      col['H'] = Color.from(
+        alpha: 1,
+        red: (col['H']!.r * 0.72 * 255).roundToDouble() / 255,
+        green: (col['H']!.g * 0.72 * 255).roundToDouble() / 255,
+        blue: (col['H']!.b * 0.72 * 255).roundToDouble() / 255,
+      );
+    }
+    if (d.sil case final sil?) {
+      for (final k in col.keys.toList()) {
+        col[k] = sil;
+      }
+    }
+    Color cell(String ch) => col[ch] ?? col['b']!;
+    grp = p?.grp ?? '';
+    calm = d.calm;
+    // The body and what moves with it; the cells that drop when it is
+    // squeezed form group 2.
+    final top = p?.top;
+    final bodyParts = <(List<(int, int, String)>, String, int)>[
+      (
+        [
+          for (final MapEntry(key: (x, y), value: ch) in pix.entries)
+            if (top != null && top.contains((x, y))) (x, y, ch),
+        ],
+        '',
+        2,
+      ),
+      for (final (cells, cls) in [...?p?.inner, ...hatParts])
+        (cells, cls, top != null ? 2 : 1),
+      (
+        [
+          for (final MapEntry(key: (x, y), value: ch) in pix.entries)
+            if (top == null || !top.contains((x, y))) (x, y, ch),
+        ],
+        '',
+        1,
+      ),
     ];
-    body = _layers(cells);
+    final outerParts = [
+      for (final (c, cls) in [...?p?.outer]) (c, cls, 0),
+    ];
+    filled = look.pix.keys.toSet();
+    if (d.sil == null) {
+      // The stroke: each layer's cells grown by one (4 neighbours), in
+      // black, one path per motion class, under the whole pet.
+      for (final parts in [bodyParts, outerParts]) {
+        final grown = <(String, int), Set<_Cell>>{};
+        for (final (cells, cls, g) in parts) {
+          final set = grown[(cls, g)] ??= {};
+          for (final (x, y, _) in cells) {
+            set
+              ..add((x, y))
+              ..add((x + 1, y))
+              ..add((x - 1, y))
+              ..add((x, y + 1))
+              ..add((x, y - 1));
+          }
+        }
+        for (final MapEntry(key: (cls, g), value: set) in grown.entries) {
+          if (set.isNotEmpty) {
+            strokes.add(_Layer(petStroke, set, cls: cls, group: g));
+          }
+        }
+      }
+    }
+    body = [
+      for (final (cells, cls, g) in bodyParts)
+        ..._layers(
+          [for (final (x, y, ch) in cells) (x, y, cell(ch))],
+          cls: cls,
+          group: g,
+        ),
+    ];
+    outer = [
+      for (final (cells, cls, _) in outerParts)
+        ..._layers([
+          for (final (x, y, ch) in cells) (x, y, cell(ch)),
+        ], cls: cls),
+    ];
+    classes = {
+      for (final l in [...body, ...outer, ...strokes]) l.cls,
+      grp,
+      if (top != null) 'psq',
+    }.toList();
     final xs = filled.map((c) => c.$1), ys = filled.map((c) => c.$2);
     bounds = Rect.fromLTRB(
       xs.reduce(math.min).toDouble(),
@@ -391,11 +705,13 @@ class _PetScene {
       xs.reduce(math.max) + 1.0,
       ys.reduce(math.max) + 1.0,
     );
-    if (look.asleep) _ice(filled);
-    if (_auras[look.aura] case final a?) {
-      _aura(filled, look.hatCells, a, look.aura == 'legend');
-    }
+    ready = pet.isEgg && pet.ready && d.sil == null;
+    if (look.asleep && d.sil == null) _ice(filled);
+    if (glow) _aura(filled, _auras[look.aura]!, look.aura == 'legend');
   }
+
+  late final PetLook look;
+  late final Set<_Cell> filled;
 
   /// The box the body (and its ice) takes, in cells.
   late Rect bounds;
@@ -403,10 +719,20 @@ class _PetScene {
   /// The flame cells, both layers (for tests).
   Set<_Cell> flames = {};
 
+  /// The body's motion, and the distinct motion classes of every layer.
+  late final String grp;
+  late final List<String> classes;
+  late final bool calm;
+
+  /// A ready egg: it wobbles.
+  late final bool ready;
+
   List<_Layer> behind = const [];
   List<_Layer> glow = const [];
   List<_Layer> under = const [];
+  final strokes = <_Layer>[];
   late final List<_Layer> body;
+  late final List<_Layer> outer;
   List<_Layer> over = const [];
   _Layer? glint;
   List<(int, int)> sparks = const [];
@@ -414,20 +740,26 @@ class _PetScene {
   List<_Layer> stars = const [];
   List<(int, int)> snow = const [];
 
-  /// Has parts that move (a ready egg's wobble is up to its pet).
-  bool get moves => glow.isNotEmpty || sparks.isNotEmpty || snow.isNotEmpty;
+  /// Has parts that move on the 150 ms aura and ice steps.
+  bool get glows => glow.isNotEmpty || sparks.isNotEmpty || snow.isNotEmpty;
 
-  void _aura(Set<_Cell> filled, Set<_Cell> hat, _Aura a, bool legend) {
-    // No flame touches the hat: a cell of background all round it.
-    bool nearHat(_Cell c) {
-      for (var dx = -1; dx <= 1; dx++) {
-        for (var dy = -1; dy <= 1; dy++) {
-          if (hat.contains((c.$1 + dx, c.$2 + dy))) return true;
-        }
-      }
-      return false;
-    }
+  /// Has parts that move at all.
+  bool get moves => glows || ready || classes.any((c) => c.isNotEmpty);
 
+  /// The motion of [cls] at [ms].
+  (double, int, int) motion(String cls, int ms, bool still) {
+    if (calm && cls.contains('blink')) return (1, 0, 0);
+    return petMotion(cls, ms, still: still);
+  }
+
+  /// A number that changes whenever what is drawn at [ms] changes.
+  int signature(int ms, bool still) => Object.hashAll([
+    for (final c in classes) motion(c, ms, still),
+    if (ready && !still) petReadyWobble(ms),
+    if (glows && !still) ms ~/ 150,
+  ]);
+
+  void _aura(Set<_Cell> filled, _Aura a, bool legend) {
     final xs = {for (final (x, _) in filled) x}.toList()..sort();
     final ys = {for (final (_, y) in filled) y}.toList()..sort();
     final topOf = <int, int>{};
@@ -438,8 +770,8 @@ class _PetScene {
       span[y] = s == null ? (x, x) : (x < s.$1 ? x : s.$1, x > s.$2 ? x : s.$2);
     }
     final mid = (ys.first + ys.last) / 2;
-    // The cells hugging the body stay empty: the flames start a cell out
-    // (no light edge round the body, which read as a grey border).
+    // The flames start a cell out: the stroke fills the cell next to the
+    // body.
     final inner = <_Cell>{};
     for (final MapEntry(key: y, value: (l, r)) in span.entries) {
       inner
@@ -470,11 +802,10 @@ class _PetScene {
           fl.add((x, t - k));
         }
       }
-      fl.removeWhere(
-        (c) => filled.contains(c) || inner.contains(c) || nearHat(c),
-      );
+      fl.removeWhere((c) => filled.contains(c) || inner.contains(c));
       flames.addAll(fl);
-      frames.add([_Layer(a.outer.withValues(alpha: f == 0 ? a.op : 1), fl)]);
+      // Opaque cells only: nothing see-through next to the body.
+      frames.add([_Layer(a.outer, fl)]);
     }
     behind = frames[0];
     glow = frames[1];
@@ -562,86 +893,150 @@ class _PetScene {
     ];
   }
 
-  static final _cache = <String, _PetScene>{};
+  static final _cache = <Object, _PetScene>{};
 
-  static _PetScene of(AgentPet pet, AgentHat? hat, bool idle) {
-    final key = [
+  static _PetScene of(AgentPet pet, AgentHat? spots, PetDraw d) {
+    final key = (
       pet.stage,
       pet.mood,
-      pet.isEgg && pet.ate >= _crackAt,
-      hat?.shape,
-      hat?.color,
-      idle,
-    ].join('|');
+      pet.isEgg && (pet.ate >= _crackAt || pet.ready),
+      pet.ready,
+      pet.hat?.shape,
+      pet.hat?.color,
+      pet.isEgg ? spots?.color : null,
+      d,
+    );
     final hit = _cache[key];
     if (hit != null) return hit;
-    if (_cache.length > 64) _cache.clear();
-    return _cache[key] = _PetScene(PetLook.of(pet, hat: hat, idle: idle), hat);
+    if (_cache.length > 96) _cache.clear();
+    return _cache[key] = _PetScene(pet, spots, d);
   }
 }
 
-/// A hat colour reads as the aura's own family (WCAG contrast under 1.6
-/// against its flames, hue within 40 degrees): drawn in its shade instead.
-bool petHatBlendsIn(String hatColorName, String aura) {
-  final a = _auras[aura];
-  if (a == null) return false;
-  final hat = hatColor(hatColorName).$1;
-  final l1 = hat.computeLuminance(), l2 = a.outer.computeLuminance();
-  final contrast = (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
-  final d = (HSVColor.fromColor(hat).hue - HSVColor.fromColor(a.outer).hue)
-      .abs();
-  return contrast < 1.6 && math.min(d, 360 - d) <= 40;
+/// The flame cells of [pet]'s aura (empty without an aura).
+@visibleForTesting
+Set<(int, int)> petFlameCells(AgentPet pet) =>
+    _PetScene.of(pet, null, const PetDraw()).flames;
+
+/// The cells drawn for [pet] doing [pose] at [ms] on the shared clock, by
+/// colour: what a frame of the web's SVG shows (for tests). The stroke is
+/// [petStroke]; see-through layers (the ice) are left out.
+@visibleForTesting
+Map<(int, int), Color> petCellsAt(
+  AgentPet pet,
+  PetDraw draw,
+  int ms, {
+  AgentHat? spots,
+  bool still = false,
+}) {
+  final s = _PetScene.of(pet, spots, draw);
+  final out = <(int, int), Color>{};
+  final (_, gx, gy) = s.motion(s.grp, ms, still);
+  final (_, qx, qy) = s.motion('psq', ms, still);
+  for (final l in [...s.strokes, ...s.body, ...s.outer]) {
+    final (a, dx, dy) = s.motion(l.cls, ms, still);
+    if (a <= 0) continue;
+    final ox =
+        dx +
+        (l.group > 0 ? gx : 0) +
+        (l.group == 2 && s.classes.contains('psq') ? qx : 0);
+    final oy =
+        dy +
+        (l.group > 0 ? gy : 0) +
+        (l.group == 2 && s.classes.contains('psq') ? qy : 0);
+    final b = l.path.getBounds();
+    for (var y = b.top.round(); y < b.bottom.round(); y++) {
+      for (var x = b.left.round(); x < b.right.round(); x++) {
+        if (l.path.contains(Offset(x + 0.5, y + 0.5))) {
+          out[(x + ox, y + oy)] = l.color;
+        }
+      }
+    }
+  }
+  return out;
 }
 
-/// The flame cells of [pet]'s aura with [hat] on (empty without an aura).
-@visibleForTesting
-Set<(int, int)> petFlameCells(AgentPet pet, AgentHat? hat) =>
-    _PetScene.of(pet, hat, false).flames;
+/// One motion step, in [CritterClock] ticks (50 ms): the pose classes are
+/// checked every tick, but a pet repaints only when what it shows changes.
+const _msPerTick = 50;
 
-/// The hat a pet wears: its own, or its agent's (an older service sends
-/// none); [hat] also colours the egg's spots.
-AgentHat? petHatFor(AgentPet pet, AgentHat? agentHat) => pet.hat ?? agentHat;
-
-/// One motion step, in [CritterClock] ticks: every moving part changes at
-/// most this often (150 ms), so a tile repaints a few times a second.
-const _stepTicks = 3;
-
-/// An agent's pet [width] wide, in the critter's box (height = width ×
-/// 13/18) and at the critter's scale: the body is drawn in whole pixels,
-/// centred where the critter's would be. Auras, the ice and hats reach
-/// past the box. Moves (glow, sparks, snow, a ready egg wobbling) when a
-/// [CritterScope] is above it and the platform allows motion.
+/// An agent's pet. In the critter's box by default ([width] wide, height =
+/// width × 13/18, at the critter's scale: centred where the critter's body
+/// would be); with [cell], standing on the bottom edge of a [width] ×
+/// [height] box, centred, at [cell] logical pixels per pet pixel. Either way
+/// the cells snap to whole device pixels, and auras, the stroke, bubbles,
+/// props and the ice reach past the box. Moves when a [CritterScope] is
+/// above it and the platform allows motion.
 class PetSprite extends StatefulWidget {
   const PetSprite({
     super.key,
     required this.pet,
     required this.width,
+    this.height,
+    this.cell,
     this.hat,
+    this.pose,
+    this.bubble = true,
+    this.mystery = false,
+    this.sil,
     this.idle = false,
-    this.plate = false,
+    this.calm = false,
+    this.celebrateUntil,
+    this.afterCelebrate = CritterPose.idle,
   });
 
   final AgentPet pet;
   final double width;
 
-  /// Its agent's hat: worn from kid on when the pet has none of its own.
+  /// With [cell]: the box's height (the ground line is its bottom edge).
+  final double? height;
+
+  /// Logical pixels per pet pixel; null: fit the critter's box.
+  final double? cell;
+
+  /// Its agent's hat: only an egg's spots take its colour (the pet wears
+  /// its own, [AgentPet.hat]).
   final AgentHat? hat;
 
-  /// Its agent is idle: eyes shut.
+  /// The critter's pose for its agent ([critterPoseOf]); null holds still.
+  final CritterPose? pose;
+
+  /// False: the pose without its bubble.
+  final bool bubble;
+
+  /// A "?" where its hat will show, until it does.
+  final bool mystery;
+
+  /// One colour, no aura, stroke or motion: a stage not reached yet.
+  final Color? sil;
+
+  /// Without a pose: eyes shut.
   final bool idle;
 
-  /// On a dark square plate, a cell wider than its body all round: for the
-  /// solid orange tiles, where its own orange would vanish.
-  final bool plate;
+  /// The "?" holds still.
+  final bool calm;
+
+  /// For [CritterPose.celebrate]: when the hop ends and [afterCelebrate]
+  /// takes over (checked on every clock tick).
+  final DateTime? celebrateUntil;
+  final CritterPose afterCelebrate;
 
   @override
   State<PetSprite> createState() => _PetSpriteState();
 }
 
 class _PetSpriteState extends State<PetSprite> {
-  final _step = ValueNotifier<int>(0);
+  final _ms = ValueNotifier<int>(0);
   CritterClock? _clock;
   bool _still = false;
+  int _sig = 0;
+  CritterPose? _pose;
+
+  @override
+  void initState() {
+    super.initState();
+    _pose = widget.pose;
+  }
 
   @override
   void didChangeDependencies() {
@@ -655,32 +1050,68 @@ class _PetSpriteState extends State<PetSprite> {
     _onTick();
   }
 
+  @override
+  void didUpdateWidget(PetSprite old) {
+    super.didUpdateWidget(old);
+    _pose = widget.pose;
+    _onTick();
+  }
+
+  PetDraw get _draw => PetDraw(
+    pose: _pose,
+    bubble: widget.bubble,
+    mystery: widget.mystery,
+    sil: widget.sil,
+    idle: widget.idle,
+    calm: widget.calm,
+  );
+
   void _onTick() {
-    _step.value = (_clock?.value ?? 0) ~/ _stepTicks;
+    var pose = widget.pose;
+    final until = widget.celebrateUntil;
+    if (pose == CritterPose.celebrate &&
+        until != null &&
+        DateTime.now().isAfter(until)) {
+      pose = widget.afterCelebrate;
+    }
+    if (pose != _pose) {
+      _pose = pose;
+      if (mounted) setState(() {});
+    }
+    final ms = (_clock?.value ?? 0) * _msPerTick;
+    final sig = _PetScene.of(
+      widget.pet,
+      widget.hat,
+      _draw,
+    ).signature(ms, _still);
+    if (sig != _sig) {
+      _sig = sig;
+      _ms.value = ms;
+    }
   }
 
   @override
   void dispose() {
     _clock?.removeListener(_onTick);
-    _step.dispose();
+    _ms.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.pet;
-    final hat = petHatFor(p, widget.hat);
-    final scene = _PetScene.of(p, hat, widget.idle);
-    final wobbles = p.isEgg && p.ready;
+    final scene = _PetScene.of(widget.pet, widget.hat, _draw);
+    final cell = widget.cell;
     return RepaintBoundary(
       child: CustomPaint(
-        size: Size(widget.width, widget.width * 13 / 18),
+        size: Size(
+          widget.width,
+          cell == null ? widget.width * 13 / 18 : widget.height ?? widget.width,
+        ),
         painter: _PetPainter(
           scene: scene,
           still: _still,
-          rocks: wobbles,
-          plate: widget.plate,
-          step: _still || !(scene.moves || wobbles) ? null : _step,
+          cell: cell,
+          ms: _still || !scene.moves ? null : _ms,
         ),
       ),
     );
@@ -692,45 +1123,57 @@ class _PetPainter extends CustomPainter {
   _PetPainter({
     required _PetScene scene,
     required this.still,
-    this.plate = false,
-    required this.rocks,
-    this.step,
+    this.cell,
+    this.ms,
   }) : _scene = scene,
-       super(repaint: step);
+       super(repaint: ms);
 
   final _PetScene _scene;
 
-  /// Reduce motion: no glow, sparks, snow or glint; stars stay lit.
+  /// Reduce motion: the first frame of each pair; no glow, sparks, snow or
+  /// glint; stars stay lit.
   final bool still;
-  final bool plate;
-
-  /// A ready egg wobbles.
-  final bool rocks;
-  final ValueListenable<int>? step;
+  final double? cell;
+  final ValueListenable<int>? ms;
 
   static final _paint = Paint()..isAntiAlias = false;
 
   @override
   void paint(Canvas canvas, Size size) {
     final s = _scene;
-    final n = step?.value ?? 0;
-    // Whole device pixels per cell, as many as fit the critter's 18 cells.
+    final t = ms?.value ?? 0;
+    final n = t ~/ 150;
     final m = canvas.getTransform();
     final scale = m[0] > 0 ? m[0] : 1.0;
-    final ud = (size.width * scale / 18).floorToDouble().clamp(
-      1.0,
-      double.infinity,
-    );
-    final u = ud / scale;
-    // The 16-cell grid sits one cell in from the critter box's left, and a
-    // row higher (the pets' feet end where the critter's do).
-    double snap(double v, double t) =>
-        ((v + t) * scale).roundToDouble() / scale - t;
-    final ox = snap((size.width - u * 18) / 2 + u, m[12] / scale);
-    final oy = snap((size.height - u * 13) / 2 - u, m[13] / scale);
+    double snap(double v, double tr) =>
+        ((v + tr) * scale).roundToDouble() / scale - tr;
+    final double u, ox, oy;
+    if (cell case final c?) {
+      // On a ground line: the art's lowest row on the box's bottom edge,
+      // its middle column on the box's centre.
+      u = math.max(1.0, (c * scale).roundToDouble()) / scale;
+      ox = snap(size.width / 2 - 8 * u, m[12] / scale);
+      oy = snap(size.height - s.look.bottom * u, m[13] / scale);
+    } else {
+      // Whole device pixels per cell, as many as fit the critter's 18
+      // cells; the 16-cell grid sits one cell in from the critter box's
+      // left, and a row higher (the pets' feet end where the critter's do).
+      final ud = (size.width * scale / 18).floorToDouble().clamp(
+        1.0,
+        double.infinity,
+      );
+      u = ud / scale;
+      ox = snap((size.width - u * 18) / 2 + u, m[12] / scale);
+      oy = snap((size.height - u * 13) / 2 - u, m[13] / scale);
+    }
     canvas.save();
     canvas.translate(ox, oy);
     canvas.scale(u);
+    // A ready egg wobbles, all of it.
+    if (s.ready && !still) canvas.translate(petReadyWobble(t).toDouble(), 0);
+    final (_, gx, gy) = s.motion(s.grp, t, still);
+    final (_, qx, qy) = s.motion('psq', t, still);
+    final squeezed = s.classes.contains('psq');
 
     void draw(
       List<_Layer> layers, [
@@ -749,10 +1192,18 @@ class _PetPainter extends CustomPainter {
       }
     }
 
-    if (plate) {
-      _paint.color = const Color(0xFF0A0A0A);
-      canvas.drawRect(s.bounds.inflate(1), _paint);
+    void posed(List<_Layer> layers) {
+      for (final l in layers) {
+        final (a, dx, dy) = s.motion(l.cls, t, still);
+        if (a <= 0) continue;
+        final x =
+            dx + (l.group > 0 ? gx : 0) + (l.group == 2 && squeezed ? qx : 0);
+        final y =
+            dy + (l.group > 0 ? gy : 0) + (l.group == 2 && squeezed ? qy : 0);
+        draw([l], a, x.toDouble(), y.toDouble());
+      }
     }
+
     draw(s.behind);
     if (!still) {
       // The glow layer fades in and out over 1.8 s (12 steps).
@@ -761,33 +1212,18 @@ class _PetPainter extends CustomPainter {
       draw(s.glow, 0.75 * _wave(g));
     }
     draw(s.under);
-    // A ready egg wobbles a cell left and right, then rests (2.4 s).
-    const wobble = [0, -1, 0, 1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
-    draw(s.body, 1, rocks && !still ? wobble[n % wobble.length].toDouble() : 0);
-    draw(s.over);
-    if (!still && s.glint != null && n % 32 >= 28 && n % 32 <= 30) {
-      draw([s.glint!]);
-    }
+    posed(s.strokes);
+    posed(s.body);
+    posed(s.outer);
     if (!still) {
       // Sparks rise 9 cells over 2.4 s (16 steps), each a little later.
       for (final (i, (x, y)) in s.sparks.indexed) {
         final k = (n + (i * 7) ~/ 2) % 16;
-        final t = (k + 0.5) / 16;
-        final a = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+        final f = (k + 0.5) / 16;
+        final a = f < 0.15 ? f / 0.15 : 1 - (f - 0.15) / 0.85;
         _paint.color = s.spark.withValues(alpha: a);
         canvas.drawRect(
           Rect.fromLTWH(x.toDouble(), y - (9 * k ~/ 16).toDouble(), 1, 1),
-          _paint,
-        );
-      }
-      // Snow falls 12 cells over 2.7 s (18 steps).
-      for (final (i, (x, y)) in s.snow.indexed) {
-        final k = (n + i * 4) % 18;
-        final t = (k + 0.5) / 18;
-        final a = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
-        _paint.color = const Color(0xFFE8F6FF).withValues(alpha: a);
-        canvas.drawRect(
-          Rect.fromLTWH(x.toDouble(), y - 3 + (12 * k ~/ 18).toDouble(), 1, 1),
           _paint,
         );
       }
@@ -796,6 +1232,24 @@ class _PetPainter extends CustomPainter {
     for (final (i, star) in s.stars.indexed) {
       final k = (n + i * 2) % 8;
       draw([star], still ? 1 : 0.15 + 0.85 * _wave(k / 8));
+    }
+    // The ice over everything.
+    draw(s.over);
+    if (!still && s.glint != null && n % 32 >= 28 && n % 32 <= 30) {
+      draw([s.glint!]);
+    }
+    if (!still) {
+      // Snow falls 12 cells over 2.7 s (18 steps).
+      for (final (i, (x, y)) in s.snow.indexed) {
+        final k = (n + i * 4) % 18;
+        final f = (k + 0.5) / 18;
+        final a = f < 0.2 ? f / 0.2 : 1 - (f - 0.2) / 0.8;
+        _paint.color = const Color(0xFFE8F6FF).withValues(alpha: a);
+        canvas.drawRect(
+          Rect.fromLTWH(x.toDouble(), y - 3 + (12 * k ~/ 18).toDouble(), 1, 1),
+          _paint,
+        );
+      }
     }
     canvas.restore();
   }
@@ -807,7 +1261,6 @@ class _PetPainter extends CustomPainter {
   bool shouldRepaint(_PetPainter old) =>
       old._scene != _scene ||
       old.still != still ||
-      old.rocks != rocks ||
-      old.plate != plate ||
-      old.step != step;
+      old.cell != cell ||
+      old.ms != ms;
 }
