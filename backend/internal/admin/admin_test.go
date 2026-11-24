@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -908,5 +910,37 @@ func TestPortBorrow(t *testing.T) {
 	r.do(t, "POST", "/admin/v1/ports/cu.usbmodem9001/return", "")
 	if open() {
 		t.Error("return handed back the service's own hold")
+	}
+}
+
+// "Report usage from every Claude session": off by default, kept in
+// config.json, and each change goes to the daemon; a service without it says so.
+func TestSettingsUsageEverySession(t *testing.T) {
+	r := newRig(t)
+	_, got := r.do(t, "GET", "/admin/v1/settings", "")
+	if got["usageEverySession"] != false {
+		t.Errorf("default: %v", got["usageEverySession"])
+	}
+	if code, _ := r.do(t, "PATCH", "/admin/v1/settings", `{"usageEverySession":true}`); code != 501 {
+		t.Errorf("without the hook: %d, want 501", code)
+	}
+	var calls []bool
+	r.a.UsageEverySession = func(on bool) error { calls = append(calls, on); return nil }
+	if code, out := r.do(t, "PATCH", "/admin/v1/settings", `{"usageEverySession":true}`); code != 200 {
+		t.Fatalf("on: %d %v", code, out)
+	}
+	if _, got = r.do(t, "GET", "/admin/v1/settings", ""); got["usageEverySession"] != true {
+		t.Errorf("after on: %v", got["usageEverySession"])
+	}
+	r.a.UsageEverySession = func(on bool) error {
+		calls = append(calls, on)
+		return errors.New("settings.json: not a JSON object; left alone")
+	}
+	code, out := r.do(t, "PATCH", "/admin/v1/settings", `{"usageEverySession":false}`)
+	if code != 200 || !strings.Contains(fmt.Sprint(out["message"]), "left alone") {
+		t.Errorf("off with an error: %d %v", code, out)
+	}
+	if len(calls) != 2 || !calls[0] || calls[1] {
+		t.Errorf("calls %v", calls)
 	}
 }

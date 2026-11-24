@@ -185,8 +185,11 @@ type Settings struct {
 	Sound         bool   `json:"sound"`
 	Restore       string `json:"restore"`  // ask | auto
 	Sessions      string `json:"sessions"` // pick | auto: Claude sessions started outside the deck
-	Updates       string `json:"updates"`  // notify | auto | off
-	Pets          bool   `json:"pets"`     // Agent pets: every agent gets a pet that eats its tokens
+	// UsageEverySession: every Claude session reports its usage limits,
+	// through the deck's status line in each account's settings.json.
+	UsageEverySession bool   `json:"usageEverySession"`
+	Updates           string `json:"updates"` // notify | auto | off
+	Pets              bool   `json:"pets"`    // Agent pets: every agent gets a pet that eats its tokens
 	// The pets' levels (config.json "pets": {"firstLevel", "step"}): the
 	// tokens for level 1, and how many times that each level after needs
 	// of the one before.
@@ -243,6 +246,7 @@ func (a *Admin) SettingsNow() Settings {
 		s.Sessions = SessionsPick
 	}
 	s.Updates = str(cfg, "updates", UpdatesNotify)
+	s.UsageEverySession = boolean(cfg, "usageEverySession", false)
 	pc := pets.ConfigOf(cfg["pets"])
 	s.Pets, s.PetFirstLevel, s.PetStep = pc.On, pc.FirstLevel, pc.Step
 	s.CPUGuard = cpuguard.FromConfig(cfg["cpuGuard"])
@@ -264,17 +268,18 @@ func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 
 // SettingsPatch is PATCH /admin/v1/settings: only the keys given change.
 type SettingsPatch struct {
-	StartAtLogin  *bool          `json:"startAtLogin"`
-	Notifications *string        `json:"notifications"`
-	Sound         *bool          `json:"sound"`
-	Restore       *string        `json:"restore"`
-	Sessions      *string        `json:"sessions"`
-	Updates       *string        `json:"updates"`
-	Pets          *bool          `json:"pets"`
-	PetFirstLevel *int64         `json:"petFirstLevel"`
-	PetStep       *float64       `json:"petStep"`
-	Network       *bool          `json:"network"`
-	Magic         *devices.Magic `json:"magic"` // the whole setting
+	StartAtLogin      *bool          `json:"startAtLogin"`
+	Notifications     *string        `json:"notifications"`
+	Sound             *bool          `json:"sound"`
+	Restore           *string        `json:"restore"`
+	Sessions          *string        `json:"sessions"`
+	UsageEverySession *bool          `json:"usageEverySession"`
+	Updates           *string        `json:"updates"`
+	Pets              *bool          `json:"pets"`
+	PetFirstLevel     *int64         `json:"petFirstLevel"`
+	PetStep           *float64       `json:"petStep"`
+	Network           *bool          `json:"network"`
+	Magic             *devices.Magic `json:"magic"` // the whole setting
 	// CPUGuard: the keys given change ({"hold": false}), the others stay.
 	CPUGuard json.RawMessage `json:"cpuGuard"`
 	Wifi     *struct {
@@ -314,6 +319,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	case p.Updates != nil && !oneOf(*p.Updates, UpdatesNotify, UpdatesAuto, UpdatesOff):
 		writeErr(w, http.StatusBadRequest, `updates must be "notify", "auto" or "off"`)
+		return
+	case p.UsageEverySession != nil && a.UsageEverySession == nil:
+		writeErr(w, http.StatusNotImplemented, "reporting usage from every session is not available here")
 		return
 	case p.StartAtLogin != nil && a.Login == nil:
 		writeErr(w, http.StatusNotImplemented, "starting at login is not available on this platform")
@@ -380,6 +388,9 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		if p.Updates != nil {
 			cfg["updates"] = *p.Updates
 		}
+		if p.UsageEverySession != nil {
+			cfg["usageEverySession"] = *p.UsageEverySession
+		}
 		if p.Pets != nil || petLevels {
 			// Written as {"on", "firstLevel", "step"}; an older "pets": true reads the same.
 			c := pets.Stored(cfg["pets"]) // keeps a stored "off" while pets are always on
@@ -414,6 +425,11 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 		a.Guard.Set(*guard) // applies at once
 	}
 	res := map[string]any{}
+	if p.UsageEverySession != nil {
+		if err := a.UsageEverySession(*p.UsageEverySession); err != nil {
+			res["message"] = "Some Claude settings couldn't be changed: " + err.Error()
+		}
+	}
 	if p.Wifi != nil {
 		if a.WifiDefault == nil {
 			writeErr(w, http.StatusServiceUnavailable, "Deck Link is off, so boards can't be given Wi-Fi here")
