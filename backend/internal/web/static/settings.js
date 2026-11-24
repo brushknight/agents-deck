@@ -3,7 +3,7 @@
 // innerHTML: names and messages from the service are always text.
 
 import {
-  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
+  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, lastShown, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
 import { petSVG, heartSVG, petKind, levelAt, STAGES, STAGE_NAMES, STAGE_LEVEL, MOOD_NAMES, MAX_HEARTS } from './pets.js';
@@ -1817,6 +1817,7 @@ function buildAgent(a, body, view = agentView) {
   sCtx.append(h('div', { class: 'prog' }, prog));
   const doingBar = h('div', { class: 'bar' });
   const doing = h('div', { class: 'body' });
+  const lastLbl = h('span', { class: 'kl' });
   const last = h('p', { class: 'txt' });
   const lastWhen = h('span', { class: 'sub' });
   const foot = h('p', { class: 'sub' });
@@ -1846,7 +1847,7 @@ function buildAgent(a, body, view = agentView) {
   }
   put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
-    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
+    h('div', { class: 'grow' }, lastLbl, last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
@@ -1870,8 +1871,10 @@ function buildAgent(a, body, view = agentView) {
       doingBar.replaceChildren(h('i', {}), 'status');
       doing.replaceChildren(h('div', { class: 'd' }, x.status === 'idle' ? `finished ${rel(x.statusSince)} ago${x.unseen ? ' · nobody has looked yet' : ''}` : x.status === 'starting' ? 'starting…' : `ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`));
     }
-    last.textContent = x.lastPrompt || '–';
-    lastWhen.textContent = lastActive(x);
+    const ls = lastShown(x);
+    lastLbl.textContent = ls.label;
+    last.textContent = ls.text;
+    lastWhen.textContent = ls.label === 'Last answer' ? (ls.at ? `answered ${ageMin(ls.at) < 1 ? 'just now' : `${rel(ls.at)} ago`}` : '') : lastActive(x);
     foot.textContent = [tilde(x.cwd), S.state?.server?.name].filter(Boolean).join(' · ');
   };
 }
@@ -2049,7 +2052,8 @@ window.addEventListener('resize', () => { fitDeck(document.documentElement.class
 
 // buildBar fills the sidebar as the design draws it: the critter, tool and
 // ×; the name in serif with its state; then the question and its answers, or
-// what it does now and the last prompt; the prompt box and the queue; and at
+// what it does now and the last prompt (its last answer once it has
+// finished); the prompt box and the queue; and at
 // the bottom the numbers, Focus / Interrupt and Full page ↗.
 function buildBar(a, body, view) {
   const label = (text, more) => h('span', { class: 'ablbl' }, text, more ? h('span', { class: 'dimx' }, ` · ${more}`) : null);
@@ -2159,7 +2163,7 @@ function buildBar(a, body, view) {
     const plain = h('p', { class: 'abplain' });
     const lastLbl = h('span', { class: 'ablbl' });
     const last = h('p', { class: 'ablast' });
-    // A long prompt shows 20 lines; "Show all" opens the rest.
+    // A long prompt or answer shows 20 lines; "Show all" opens the rest.
     const more = h('button', { type: 'button', class: 'abu abmore', hidden: true, onclick: () => {
       const open = last.classList.toggle('open');
       more.textContent = open ? 'Show less' : 'Show all';
@@ -2193,10 +2197,12 @@ function buildBar(a, body, view) {
             : x.status === 'starting' ? 'Starting…' : `Ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`;
         doing.hidden = true; plain.hidden = false;
       }
-      const when = x.lastActive ? rel(x.lastActive) : '';
-      lastLbl.replaceChildren('Last prompt', when ? h('span', { class: 'dimx' }, ` · ${ageMin(x.lastActive) < 1 ? 'just now' : `${when} ago`}`) : '');
-      if (last.textContent !== (x.lastPrompt || '–')) {
-        last.textContent = x.lastPrompt || '–';
+      // Finished or ended: what it answered; else what it was asked.
+      const ls = lastShown(x);
+      const when = ls.at ? rel(ls.at) : '';
+      lastLbl.replaceChildren(ls.label, when ? h('span', { class: 'dimx' }, ` · ${ageMin(ls.at) < 1 ? 'just now' : `${when} ago`}`) : '');
+      if (last.textContent !== ls.text) {
+        last.textContent = ls.text;
         requestAnimationFrame(() => { more.hidden = !last.classList.contains('open') && last.scrollHeight <= last.clientHeight + 2; });
       }
     };

@@ -38,6 +38,12 @@ export const lastActive = (a) => {
   if (!r) return '';
   return ageMin(a.lastActive) < 1 ? 'last active just now' : `last active ${r} ago`;
 };
+// The last block of an agent's page: once it has finished (idle) or ended
+// (exited), its last answer, when it has one; else (and while it works) its
+// last prompt. at is when, for "· 3m ago".
+export const lastShown = (a) => (a.status === 'idle' || a.status === 'exited') && a.lastAnswer
+  ? { label: 'Last answer', text: a.lastAnswer, at: a.lastAnswerAt || '' }
+  : { label: 'Last prompt', text: a.lastPrompt || '–', at: a.lastActive || '' };
 export const ageMin = (iso) => (now() - Date.parse(iso)) / 60000;
 export const tilde = (p) => (p || '').replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
 export const ctxPct = (a) => {
