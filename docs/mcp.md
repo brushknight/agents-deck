@@ -69,7 +69,7 @@ interrupt to stop it first".
 | `answer` | act | `agent_id`, `prompt_id`, `key` | picks an option of the question the agent waits on |
 | `interrupt` | act | `agent_id` | presses Esc: stops the current turn |
 | `start_agent` | admin | `folder`, `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent in the folder, on the deck; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
-| `list_sessions` | admin | – | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
+| `list_sessions` | admin | `project` (a project's name, any case, or its id: only sessions working in its folders) | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
 | `add_session` | admin | `session_id` | puts one of them on the deck, watched (read-only) |
 
 ## What can take a prompt
