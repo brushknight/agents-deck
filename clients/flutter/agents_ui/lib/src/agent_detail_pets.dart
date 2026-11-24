@@ -1648,10 +1648,11 @@ extension _PetsPage on _AgentDetailState {
     );
   }
 
-  /// The whole path it grows along, egg to legend, each stage in its real
-  /// look: its own hat from kid on (a "?" only on the stage it is at, before
-  /// the hat shows), the strong, mighty and legend auras, the stroke. The
-  /// stage it is at is named in orange.
+  /// The whole path it grows along, egg to legend: the stages it has
+  /// reached in their real look (its own hat from kid on, a "?" only on the
+  /// stage it is at before the hat shows, the strong, mighty and legend
+  /// auras, the stroke), the ones ahead as still dark shapes. The stage it
+  /// is at is named in orange.
   Widget _petPath(AgentPet pet, AgentHat? spots) {
     final at = petStages.indexOf(pet.stage);
     return Row(
@@ -1669,10 +1670,13 @@ extension _PetsPage on _AgentDetailState {
                       : AgentPet(
                           stage: stage,
                           level: petStageLevel[stage]!,
-                          hat: i >= 2 ? pet.hat : null,
+                          hat: i >= 2 && i < at ? pet.hat : null,
                         ),
                   hat: spots,
                   mystery: i == at && pet.hat == null && pet.level < 5,
+                  // Ahead: only a still dark shape of that form, as the
+                  // next unlock's (no hat, glow or "?").
+                  sil: i > at ? const Color(0xFF55524B) : null,
                   fit: true,
                   // One scale for every stage (the legend's glow fits at 2).
                   cell: 2,
