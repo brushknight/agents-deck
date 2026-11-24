@@ -1336,9 +1336,10 @@ extension _PetsPage on _AgentDetailState {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            // The menu bar's bigger text takes some of the gaps.
+            SizedBox(height: _menuBar ? 12 : 18),
             _petTiles(pet),
-            const SizedBox(height: 18),
+            SizedBox(height: _menuBar ? 12 : 18),
             ?_petNext(pet),
             const Spacer(),
             _petPath(pet, a.hat),
@@ -1695,7 +1696,7 @@ extension _PetsPage on _AgentDetailState {
                   cell: 2,
                   width: 86,
                   // The menu bar's bigger text leaves it less room.
-                  height: _menuBar ? 38 : 52,
+                  height: _menuBar ? 44 : 52,
                 ),
                 const SizedBox(height: 6),
                 Text(
