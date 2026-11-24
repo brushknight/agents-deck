@@ -178,7 +178,15 @@ While the Mac is busy:
   sessions, are not slowed for now.
 
 Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
-long (1, 2 or 5 minutes), whether to hold and whether to slow. It is stored in `config.json` as
+long (1, 2 or 5 minutes), whether to hold and whether to slow.
+
+**A schedule for the limit.** Turn on Follow a schedule to give parts of the week their own limit:
+say 60% on weekdays from 09:00 to 18:00, when you work next to the agents, and the plain limit (80%)
+the rest of the week. Blocks go in half hours, on the Mac's own clock, and a block that ends before
+it starts runs past midnight; two blocks can't cover the same time. The deck looks every minute and
+logs each change ("limit 60% from the schedule (Mon 09:00-18:00)"). A limit you pick by hand while
+the schedule is on lasts until the schedule's next change, then the schedule takes over again;
+Back to schedule ends it sooner. It is stored in `config.json` as
 `"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
 can't read the CPU, it says so and holds nothing.
 
