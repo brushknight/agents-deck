@@ -378,6 +378,8 @@ static void test_sizes(void)
 	memset(a->ai_title, 'c', sizeof a->ai_title - 1);
 	memset(a->cwd, 'd', sizeof a->cwd - 1);
 	memset(a->last_prompt, 'e', sizeof a->last_prompt - 1);
+	memset(a->last_answer, 'z', sizeof a->last_answer - 1);
+	a->last_answer_at_ms = -1;
 	memset(a->error, 'f', sizeof a->error - 1);
 #define FILL(field, ch) memset((field), (ch), sizeof(field) - 1)
 	FILL(a->folder, 'j');
@@ -421,12 +423,14 @@ static void test_sizes(void)
 
 	static uint8_t w[8192];
 	size_t m = encode_frame(&f, w, sizeof w);
-	CHECK(m > 3300); /* agentsdeck_link_v1_Frame_size + 5 + COBS */
+	CHECK(m > 3470); /* agentsdeck_link_v1_Frame_size + 5 + COBS */
 
 	reset_fake();
 	deck_link_feed(&link, w, m);
 	CHECK(got_n == 1 && ev_agents == 1);
 	CHECK(strlen(link.frame.body.agent_changed.agent.waiting.detail) == 511);
+	CHECK(strlen(link.frame.body.agent_changed.agent.last_answer) == 159);
+	CHECK(link.frame.body.agent_changed.agent.last_answer_at_ms == -1);
 
 	/* A 5000-byte frame (beyond DECK_LINK_MAX_FRAME) is dropped. */
 	static uint8_t raw[6000], big[6100];

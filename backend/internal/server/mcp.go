@@ -482,6 +482,7 @@ type mcpAgentRow struct {
 	For            string     `json:"for"`
 	Doing          string     `json:"doing,omitempty"`
 	LastPrompt     string     `json:"lastPrompt,omitempty"`
+	LastAnswer     string     `json:"lastAnswer,omitempty"` // its reply that ended its latest finished turn
 	Waiting        *mcpPrompt `json:"waiting,omitempty"`
 	Error          string     `json:"error,omitempty"`
 	ContextPct     int        `json:"contextPct"`
@@ -494,7 +495,7 @@ type mcpAgentRow struct {
 
 func rowOf(a model.Agent) mcpAgentRow {
 	r := mcpAgentRow{ID: a.ID, Title: a.Title, Folder: a.Folder, Tool: a.Tool, RunsIn: runsIn(a), Status: string(a.Status),
-		LastPrompt: clip(a.LastPrompt, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents), Queued: a.Queued,
+		LastPrompt: clip(a.LastPrompt, 160), LastAnswer: clip(a.LastAnswer, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents), Queued: a.Queued,
 		Unseen: a.Unseen, AcceptsPrompts: acceptsPrompts(a)}
 	if a.AITitle != "" {
 		r.Title = a.Title + " (" + a.AITitle + ")"
@@ -588,7 +589,7 @@ func toolGetAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	}
 	f := full{mcpAgentRow: rowOf(ag), Cwd: ag.Cwd, Branch: ag.Branch, Model: ag.Model, Effort: ag.Effort, Context: ag.Context,
 		Tokens: ag.Tokens, CostUSD: ag.CostUSD, Turns: ag.Turns, Subagents: ag.Subagents, Started: ag.StartedAt, Resumable: ag.Resumable}
-	f.LastPrompt = ag.LastPrompt
+	f.LastPrompt, f.LastAnswer = ag.LastPrompt, ag.LastAnswer
 	f.Waiting = promptOf(ag.Waiting, true)
 	if ag.Account != nil {
 		f.Account = ag.Account.Name

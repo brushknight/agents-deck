@@ -208,6 +208,12 @@ func Apply(e *store.Entry, ev Event) (changed, scanPane bool) {
 		e.A.Activity = nil
 	case "Stop":
 		e.A.Unseen = true // finished: hungry until you look at it (the daemon clears it if you are)
+		// Its reply is the last answer: read it now, so it shows with the idle
+		// status, and keep it even when the transcript marks no end of turn.
+		Tail(e)
+		if e.Answer != "" {
+			CommitAnswer(e)
+		}
 		// Its background subagents may still work: then it goes on running
 		// for them, without showing idle in between.
 		e.A.Subagents = Subagents(e.Transcript, e.RunSince(), Now())

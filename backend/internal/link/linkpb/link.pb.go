@@ -147,7 +147,7 @@ type FieldGroup int32
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
 	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project, pet
-	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
+	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, last_answer, last_answer_at, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
 	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns, cpu
 )
@@ -2221,52 +2221,54 @@ func (x *AgentRemoved) GetId() string {
 // Agent mirrors the JSON Agent of docs/protocol.md field for field (times as
 // Unix milliseconds); a CI test keeps them in step.
 type Agent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Slot          uint32                 `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
-	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
-	AiTitle       string                 `protobuf:"bytes,4,opt,name=ai_title,json=aiTitle,proto3" json:"ai_title,omitempty"`
-	Tool          Tool                   `protobuf:"varint,5,opt,name=tool,proto3,enum=agentsdeck.link.v1.Tool" json:"tool,omitempty"`
-	Status        Status                 `protobuf:"varint,6,opt,name=status,proto3,enum=agentsdeck.link.v1.Status" json:"status,omitempty"`
-	StatusSinceMs int64                  `protobuf:"varint,7,opt,name=status_since_ms,json=statusSinceMs,proto3" json:"status_since_ms,omitempty"`
-	Cwd           string                 `protobuf:"bytes,8,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	Folder        string                 `protobuf:"bytes,9,opt,name=folder,proto3" json:"folder,omitempty"`
-	Branch        string                 `protobuf:"bytes,10,opt,name=branch,proto3" json:"branch,omitempty"`
-	Model         string                 `protobuf:"bytes,11,opt,name=model,proto3" json:"model,omitempty"`
-	ModelLabel    string                 `protobuf:"bytes,12,opt,name=model_label,json=modelLabel,proto3" json:"model_label,omitempty"`
-	Effort        string                 `protobuf:"bytes,13,opt,name=effort,proto3" json:"effort,omitempty"`
-	Activity      *Activity              `protobuf:"bytes,14,opt,name=activity,proto3" json:"activity,omitempty"`
-	LastPrompt    string                 `protobuf:"bytes,15,opt,name=last_prompt,json=lastPrompt,proto3" json:"last_prompt,omitempty"`
-	Waiting       *Prompt                `protobuf:"bytes,16,opt,name=waiting,proto3" json:"waiting,omitempty"`
-	Error         string                 `protobuf:"bytes,17,opt,name=error,proto3" json:"error,omitempty"` // the error message, when status is ERROR
-	Tokens        *Tokens                `protobuf:"bytes,18,opt,name=tokens,proto3" json:"tokens,omitempty"`
-	Context       *Context               `protobuf:"bytes,19,opt,name=context,proto3" json:"context,omitempty"`
-	CostUsd       float64                `protobuf:"fixed64,20,opt,name=cost_usd,json=costUsd,proto3" json:"cost_usd,omitempty"`
-	Turns         uint32                 `protobuf:"varint,21,opt,name=turns,proto3" json:"turns,omitempty"`
-	Focused       bool                   `protobuf:"varint,22,opt,name=focused,proto3" json:"focused,omitempty"`
-	Attached      bool                   `protobuf:"varint,23,opt,name=attached,proto3" json:"attached,omitempty"`
-	Resumable     bool                   `protobuf:"varint,24,opt,name=resumable,proto3" json:"resumable,omitempty"`
-	Lost          bool                   `protobuf:"varint,25,opt,name=lost,proto3" json:"lost,omitempty"`
-	Unseen        bool                   `protobuf:"varint,26,opt,name=unseen,proto3" json:"unseen,omitempty"`
-	External      bool                   `protobuf:"varint,27,opt,name=external,proto3" json:"external,omitempty"`
-	Hat           *Hat                   `protobuf:"bytes,28,opt,name=hat,proto3" json:"hat,omitempty"`
-	Subagents     []*Subagent            `protobuf:"bytes,29,rep,name=subagents,proto3" json:"subagents,omitempty"`
-	SubagentCount uint32                 `protobuf:"varint,30,opt,name=subagent_count,json=subagentCount,proto3" json:"subagent_count,omitempty"` // len(subagents), sent with TILE so a small board can show it
-	StartedAtMs   int64                  `protobuf:"varint,31,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
-	UpdatedAtMs   int64                  `protobuf:"varint,32,opt,name=updated_at_ms,json=updatedAtMs,proto3" json:"updated_at_ms,omitempty"`
-	App           string                 `protobuf:"bytes,33,opt,name=app,proto3" json:"app,omitempty"`                                           // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
-	Account       *Account               `protobuf:"bytes,34,opt,name=account,proto3" json:"account,omitempty"`                                   // the Claude account it runs in; unset while only one is set up
-	LastActiveMs  int64                  `protobuf:"varint,35,opt,name=last_active_ms,json=lastActiveMs,proto3" json:"last_active_ms,omitempty"`  // its latest message sent or received; 0 = not known yet
-	AttentionSlot uint32                 `protobuf:"varint,36,opt,name=attention_slot,json=attentionSlot,proto3" json:"attention_slot,omitempty"` // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
-	Queued        uint32                 `protobuf:"varint,37,opt,name=queued,proto3" json:"queued,omitempty"`                                    // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
-	Slowed        bool                   `protobuf:"varint,38,opt,name=slowed,proto3" json:"slowed,omitempty"`                                    // in background mode while the computer is busy (the CPU guard; macOS)
-	Cpu           float32                `protobuf:"fixed32,39,opt,name=cpu,proto3" json:"cpu,omitempty"`                                         // percent of the whole computer, only while it is busy; 0 otherwise
-	SlowedByYou   bool                   `protobuf:"varint,40,opt,name=slowed_by_you,json=slowedByYou,proto3" json:"slowed_by_you,omitempty"`     // slowed with Slow it, not by the guard's own pick
-	Project       *Project               `protobuf:"bytes,41,opt,name=project,proto3" json:"project,omitempty"`                                   // the project its working folder is in; unset for none
-	ProjectFolder string                 `protobuf:"bytes,42,opt,name=project_folder,json=projectFolder,proto3" json:"project_folder,omitempty"`  // the project folder it matched, in full; "" for none
-	Pet           *Pet                   `protobuf:"bytes,43,opt,name=pet,proto3" json:"pet,omitempty"`                                           // its pet; unset while Agent pets is off
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Slot           uint32                 `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
+	Title          string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	AiTitle        string                 `protobuf:"bytes,4,opt,name=ai_title,json=aiTitle,proto3" json:"ai_title,omitempty"`
+	Tool           Tool                   `protobuf:"varint,5,opt,name=tool,proto3,enum=agentsdeck.link.v1.Tool" json:"tool,omitempty"`
+	Status         Status                 `protobuf:"varint,6,opt,name=status,proto3,enum=agentsdeck.link.v1.Status" json:"status,omitempty"`
+	StatusSinceMs  int64                  `protobuf:"varint,7,opt,name=status_since_ms,json=statusSinceMs,proto3" json:"status_since_ms,omitempty"`
+	Cwd            string                 `protobuf:"bytes,8,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	Folder         string                 `protobuf:"bytes,9,opt,name=folder,proto3" json:"folder,omitempty"`
+	Branch         string                 `protobuf:"bytes,10,opt,name=branch,proto3" json:"branch,omitempty"`
+	Model          string                 `protobuf:"bytes,11,opt,name=model,proto3" json:"model,omitempty"`
+	ModelLabel     string                 `protobuf:"bytes,12,opt,name=model_label,json=modelLabel,proto3" json:"model_label,omitempty"`
+	Effort         string                 `protobuf:"bytes,13,opt,name=effort,proto3" json:"effort,omitempty"`
+	Activity       *Activity              `protobuf:"bytes,14,opt,name=activity,proto3" json:"activity,omitempty"`
+	LastPrompt     string                 `protobuf:"bytes,15,opt,name=last_prompt,json=lastPrompt,proto3" json:"last_prompt,omitempty"`
+	Waiting        *Prompt                `protobuf:"bytes,16,opt,name=waiting,proto3" json:"waiting,omitempty"`
+	Error          string                 `protobuf:"bytes,17,opt,name=error,proto3" json:"error,omitempty"` // the error message, when status is ERROR
+	Tokens         *Tokens                `protobuf:"bytes,18,opt,name=tokens,proto3" json:"tokens,omitempty"`
+	Context        *Context               `protobuf:"bytes,19,opt,name=context,proto3" json:"context,omitempty"`
+	CostUsd        float64                `protobuf:"fixed64,20,opt,name=cost_usd,json=costUsd,proto3" json:"cost_usd,omitempty"`
+	Turns          uint32                 `protobuf:"varint,21,opt,name=turns,proto3" json:"turns,omitempty"`
+	Focused        bool                   `protobuf:"varint,22,opt,name=focused,proto3" json:"focused,omitempty"`
+	Attached       bool                   `protobuf:"varint,23,opt,name=attached,proto3" json:"attached,omitempty"`
+	Resumable      bool                   `protobuf:"varint,24,opt,name=resumable,proto3" json:"resumable,omitempty"`
+	Lost           bool                   `protobuf:"varint,25,opt,name=lost,proto3" json:"lost,omitempty"`
+	Unseen         bool                   `protobuf:"varint,26,opt,name=unseen,proto3" json:"unseen,omitempty"`
+	External       bool                   `protobuf:"varint,27,opt,name=external,proto3" json:"external,omitempty"`
+	Hat            *Hat                   `protobuf:"bytes,28,opt,name=hat,proto3" json:"hat,omitempty"`
+	Subagents      []*Subagent            `protobuf:"bytes,29,rep,name=subagents,proto3" json:"subagents,omitempty"`
+	SubagentCount  uint32                 `protobuf:"varint,30,opt,name=subagent_count,json=subagentCount,proto3" json:"subagent_count,omitempty"` // len(subagents), sent with TILE so a small board can show it
+	StartedAtMs    int64                  `protobuf:"varint,31,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
+	UpdatedAtMs    int64                  `protobuf:"varint,32,opt,name=updated_at_ms,json=updatedAtMs,proto3" json:"updated_at_ms,omitempty"`
+	App            string                 `protobuf:"bytes,33,opt,name=app,proto3" json:"app,omitempty"`                                                  // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
+	Account        *Account               `protobuf:"bytes,34,opt,name=account,proto3" json:"account,omitempty"`                                          // the Claude account it runs in; unset while only one is set up
+	LastActiveMs   int64                  `protobuf:"varint,35,opt,name=last_active_ms,json=lastActiveMs,proto3" json:"last_active_ms,omitempty"`         // its latest message sent or received; 0 = not known yet
+	AttentionSlot  uint32                 `protobuf:"varint,36,opt,name=attention_slot,json=attentionSlot,proto3" json:"attention_slot,omitempty"`        // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
+	Queued         uint32                 `protobuf:"varint,37,opt,name=queued,proto3" json:"queued,omitempty"`                                           // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+	Slowed         bool                   `protobuf:"varint,38,opt,name=slowed,proto3" json:"slowed,omitempty"`                                           // in background mode while the computer is busy (the CPU guard; macOS)
+	Cpu            float32                `protobuf:"fixed32,39,opt,name=cpu,proto3" json:"cpu,omitempty"`                                                // percent of the whole computer, only while it is busy; 0 otherwise
+	SlowedByYou    bool                   `protobuf:"varint,40,opt,name=slowed_by_you,json=slowedByYou,proto3" json:"slowed_by_you,omitempty"`            // slowed with Slow it, not by the guard's own pick
+	Project        *Project               `protobuf:"bytes,41,opt,name=project,proto3" json:"project,omitempty"`                                          // the project its working folder is in; unset for none
+	ProjectFolder  string                 `protobuf:"bytes,42,opt,name=project_folder,json=projectFolder,proto3" json:"project_folder,omitempty"`         // the project folder it matched, in full; "" for none
+	Pet            *Pet                   `protobuf:"bytes,43,opt,name=pet,proto3" json:"pet,omitempty"`                                                  // its pet; unset while Agent pets is off
+	LastAnswer     string                 `protobuf:"bytes,45,opt,name=last_answer,json=lastAnswer,proto3" json:"last_answer,omitempty"`                  // its reply that ended its latest finished turn, as plain text
+	LastAnswerAtMs int64                  `protobuf:"varint,46,opt,name=last_answer_at_ms,json=lastAnswerAtMs,proto3" json:"last_answer_at_ms,omitempty"` // when it gave that reply; 0 = no answer yet
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -2598,6 +2600,20 @@ func (x *Agent) GetPet() *Pet {
 		return x.Pet
 	}
 	return nil
+}
+
+func (x *Agent) GetLastAnswer() string {
+	if x != nil {
+		return x.LastAnswer
+	}
+	return ""
+}
+
+func (x *Agent) GetLastAnswerAtMs() int64 {
+	if x != nil {
+		return x.LastAnswerAtMs
+	}
+	return 0
 }
 
 type Activity struct {
@@ -5648,7 +5664,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xb1\v\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xfd\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -5695,7 +5711,10 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\rslowed_by_you\x18( \x01(\bR\vslowedByYou\x125\n" +
 	"\aproject\x18) \x01(\v2\x1b.agentsdeck.link.v1.ProjectR\aproject\x12%\n" +
 	"\x0eproject_folder\x18* \x01(\tR\rprojectFolder\x12)\n" +
-	"\x03pet\x18+ \x01(\v2\x17.agentsdeck.link.v1.PetR\x03pet\"6\n" +
+	"\x03pet\x18+ \x01(\v2\x17.agentsdeck.link.v1.PetR\x03pet\x12\x1f\n" +
+	"\vlast_answer\x18- \x01(\tR\n" +
+	"lastAnswer\x12)\n" +
+	"\x11last_answer_at_ms\x18. \x01(\x03R\x0elastAnswerAtMs\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +

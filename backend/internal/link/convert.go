@@ -78,6 +78,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 			p.Activity.Detail = a.Activity.Detail
 		}
 		p.LastPrompt = a.LastPrompt
+		p.LastAnswer, p.LastAnswerAtMs = a.LastAnswer, ms(a.LastAnswerAt)
 		if a.Error != nil {
 			p.Error = a.Error.Message
 		}

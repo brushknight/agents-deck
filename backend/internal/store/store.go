@@ -52,9 +52,14 @@ type Entry struct {
 	Offset  int64               `json:"-"`
 	Usage   map[string]msgUsage `json:"-"` // message id -> last usage seen
 	Pending string              `json:"-"` // partial trailing line
-	PromptN int                 `json:"promptN"`
-	Menu    bool                `json:"-"`              // current prompt is an arrow-key menu, not numbered
-	Form    *Form               `json:"form,omitempty"` // the open question form, walked one step at a time
+	// The reply so far of the turn in progress: becomes the agent's
+	// LastAnswer when the turn ends (claude.Tail).
+	Answer   string    `json:"-"`
+	AnswerID string    `json:"-"` // …the API message it comes from
+	AnswerAt time.Time `json:"-"` // …and when it was written
+	PromptN  int       `json:"promptN"`
+	Menu     bool      `json:"-"`              // current prompt is an arrow-key menu, not numbered
+	Form     *Form     `json:"form,omitempty"` // the open question form, walked one step at a time
 
 	// How long it ran on WorkDay (YYYY-MM-DD, this computer's clock), up to
 	// its last status change (worked.go).

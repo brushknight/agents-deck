@@ -44,6 +44,10 @@ type Server struct {
 // characters (link.options).
 const LastPromptMax = 1000
 
+// LastAnswerMax is how much of an agent's last answer the deck keeps, the
+// same as a prompt. Boards get the first 160 characters (link.options).
+const LastAnswerMax = 1000
+
 type Agent struct {
 	ID   string `json:"id"`
 	Slot int    `json:"slot"`
@@ -62,7 +66,9 @@ type Agent struct {
 	ModelLabel    string     `json:"modelLabel"`
 	Effort        string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
 	Activity      *Activity  `json:"activity"`
-	LastPrompt    string     `json:"lastPrompt"` // up to LastPromptMax characters; boards get the first 160
+	LastPrompt    string     `json:"lastPrompt"`            // up to LastPromptMax characters; boards get the first 160
+	LastAnswer    string     `json:"lastAnswer"`            // its reply that ended its latest finished turn, as plain text; up to LastAnswerMax characters, boards get the first 160
+	LastAnswerAt  time.Time  `json:"lastAnswerAt,omitzero"` // when it gave that reply (zero: no answer yet)
 	Waiting       *Prompt    `json:"waiting"`
 	Error         *ErrInfo   `json:"error"`
 	Tokens        Tokens     `json:"tokens"`
