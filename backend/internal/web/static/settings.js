@@ -707,14 +707,15 @@ function tileFor(a) {
   }
   const cls = tileClass(a);
   const ready = !!a.pet?.ready && cls !== 'wait' && cls !== 'err';
-  const meta = ready ? 'ready to hatch' : tileMeta(a);
-  const pct = a.status === 'running' ? ctxPct(a) : 0;
+  const out = outUntil(a) && cls !== 'wait' ? outUntil(a) : '';
+  const meta = ready ? 'ready to hatch' : out ? `out · ${whenText(out)}` : tileMeta(a);
+  const pct = a.status === 'running' && !out ? ctxPct(a) : 0;
   const queued = a.queued || 0;
-  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
+  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}|${out}`;
   if (t.sig !== sig) {
     t.sig = sig;
     const cur = a.id === S.arg && S.page === 'home';
-    t.el.className = `tile ${cls}${ready ? ' hatchy' : ''}${cur ? ' cur' : ''}`;
+    t.el.className = `tile ${cls}${ready ? ' hatchy' : ''}${out ? ' uout' : ''}${cur ? ' cur' : ''}`;
     t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
     if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
@@ -824,6 +825,69 @@ function readyRows() {
   return rows;
 }
 
+// ---- Usage limits -----------------------------------------------------------------------------
+// How much of each account's usage is gone, as Claude Code and Codex report
+// it themselves (state.limits; docs/protocol.md, "Usage limits"): the week,
+// a model's week once it is hit, Codex's buckets. Direct use only, and only
+// as fresh as the last agent that ran in that account.
+
+const limitsList = () => (S.state?.limits || []).filter((l) => (l.windows || []).some((w) => !w.hidden));
+function limitLabel(l, w) {
+  if (w.model) return `${cap(w.model)} · week`;
+  if (l.tool === 'claude' && w.id === 'seven_day') return 'all models · week';
+  return w.label;
+}
+const DAY3 = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+// whenText: "16:40" today, "thu 09:00" within the week, "26 nov" later.
+function whenText(iso) {
+  const d = new Date(iso);
+  if (!+d) return '';
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (d.toDateString() === new Date().toDateString()) return hm;
+  if (d - Date.now() < 6.5 * 86400000) return `${DAY3[d.getDay()]} ${hm}`;
+  return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toLowerCase()}`;
+}
+// outUntil: when an agent whose account (or model) is out can run again.
+const outUntil = (a) => (a.outUntil && new Date(a.outUntil) > Date.now() ? a.outUntil : '');
+// limitsOf: the limits of an agent's account in its tool.
+const limitsOf = (a) => limitsList().find((l) => l.tool === a.tool && (l.account || '') === (a.account?.name || ''));
+function limitColor(l) {
+  if (l.tool !== 'claude' || !l.account) return TOOL_COLORS[l.tool] || '#E8E4DC';
+  const acc = (S.accounts || []).find((x) => x.name === l.account) || agentsList().find((a) => a.account?.name === l.account)?.account;
+  return acc ? acctColor(acc) : TOOL_COLORS.claude;
+}
+function meterEl(used, level, n) {
+  const m = h('span', { class: `umeter ${level}`, 'aria-hidden': 'true' });
+  const lit = Math.round((Math.min(used, 100) / 100) * n);
+  for (let i = 0; i < n; i++) m.append(h('i', { class: i < lit ? 'on' : null }));
+  return m;
+}
+function limitRow(l, w, n = 10) {
+  const out = w.level === 'out' && !w.reset;
+  return h('div', { class: `urow ${w.reset ? 'reset' : w.level}` },
+    h('span', { class: 'k' }, limitLabel(l, w)),
+    meterEl(w.reset ? 0 : w.used, w.level, n),
+    h('span', { class: 'p' }, w.reset ? '–' : out ? 'out' : `${w.used}%`),
+    h('span', { class: 't' }, w.resetsAt ? `${w.reset ? 'reset ' : ''}${whenText(w.resetsAt)}` : ''));
+}
+const staleLimits = (l) => Date.now() - new Date(l.asOf).getTime() > 30 * 60000;
+function limitHead(l) {
+  const sq = h('span', { class: 'sq', 'aria-hidden': 'true' });
+  sq.style.background = limitColor(l);
+  const name = l.tool === 'codex' ? 'Codex' : `${l.account ? `${l.account} · ` : ''}Claude`;
+  return h('div', { class: 'uh' }, sq, h('span', { class: 'nm' }, name), h('span', { class: 'm' }, staleLimits(l) ? `as of ${ago(l.asOf)}` : (l.plan || '')));
+}
+// usageSec: every account's limits, in the deck's side column.
+function usageSec() {
+  const ls = limitsList();
+  if (!ls.length) return null;
+  const hot = ls.filter((l) => l.level !== 'ok').length;
+  return h('section', { class: 'sec usage', id: 'usage' },
+    h('div', { class: 'rule' }, h('h2', {}, 'Usage'), h('span', { class: `m${hot ? ' hot' : ''}` }, hot ? `${say(hot).toLowerCase()} running low` : 'plenty left')),
+    ls.map((l) => h('div', { class: `uacct ${l.level}` }, limitHead(l), (l.windows || []).filter((w) => !w.hidden).map((w) => limitRow(l, w)))),
+    h('p', { class: 'unote' }, 'As Claude Code and Codex report it, for direct use only. It moves while an agent in that account works.'));
+}
+
 function summaryStrip() {
   const sys = S.system || {};
   const need = agentsList().filter(needsYou).length;
@@ -890,7 +954,7 @@ function fillDeck() {
     ready.length ? h('div', { class: 'qlist' }, ready) : null);
   const title = need.length ? h('p', { class: 'serif big' }, `${say(need.length)} need`, need.length === 1 ? 's ' : ' ', h('em', {}, 'you.'))
     : h('p', { class: 'serif big' }, 'Nothing needs ', h('em', {}, 'you.'));
-  deck.side.replaceChildren(title, needsSec, readySec);
+  put(deck.side, title, needsSec, readySec, usageSec());
 }
 
 // Turning the deck's pages: the numbers, ‹ ›, and ← → all come here; the
@@ -1729,12 +1793,22 @@ function barNumbers() {
   const cell = (k, extra) => { const v = h('dd', {}); return [h('div', {}, h('dt', {}, k), v), v, extra]; };
   const [cIn, vIn] = cell('Tokens in'), [cOut, vOut] = cell('Tokens out'), [cRd, vRd] = cell('Cache read'),
     [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost'), [cTurns, vTurns] = cell('Turns');
-  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' },
+  const usage = h('div', { class: 'abusage', hidden: true });
+  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' }, usage,
     h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Context'), used), pctEl), ticks,
     h('dl', {}, cIn, cOut, cRd, cWr, cCost, cTurns));
   return {
     el,
     update: (x) => {
+      // Its account's usage, over the context: the week, and a model's week once hit.
+      const l = limitsOf(x);
+      usage.hidden = !l;
+      if (l) {
+        const out = outUntil(x);
+        put(usage, h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Usage'), h('small', {}, l.tool === 'codex' ? 'codex' : (l.account || 'claude'))), h('small', {}, ago(l.asOf))),
+          (l.windows || []).filter((w) => !w.hidden).map((w) => limitRow(l, w, 16)),
+          out ? h('p', { class: 'uhint' }, `Out of usage until ${whenText(out)}. ${x.tool === 'claude' && (S.accounts || []).length > 1 ? 'Continue on another account, or let it wait.' : 'It waits until then.'}`) : null);
+      }
       const pct = ctxPct(x);
       const c = x.context || {};
       used.textContent = c.window ? `${fmtN(c.used)} / ${fmtN(c.window)}` : '';
