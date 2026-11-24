@@ -55,6 +55,11 @@ type Entry struct {
 	PromptN int                 `json:"promptN"`
 	Menu    bool                `json:"-"`              // current prompt is an arrow-key menu, not numbered
 	Form    *Form               `json:"form,omitempty"` // the open question form, walked one step at a time
+
+	// How long it ran on WorkDay (YYYY-MM-DD, this computer's clock), up to
+	// its last status change (worked.go).
+	WorkDay string        `json:"workDay,omitempty"`
+	Worked  time.Duration `json:"worked,omitempty"`
 }
 
 type msgUsage struct {
@@ -110,8 +115,10 @@ func (e *Entry) DisplayTitle() string {
 // SetStatus changes status, stamping statusSince only on a real change.
 func (e *Entry) SetStatus(s model.Status) {
 	if e.A.Status != s {
+		now := time.Now()
+		e.endStretch(now)
 		e.A.Status = s
-		e.A.StatusSince = time.Now().UTC()
+		e.A.StatusSince = now.UTC()
 	}
 	if s != model.Waiting {
 		e.A.Waiting = nil
@@ -179,6 +186,9 @@ type Store struct {
 	// Account gives each agent its Claude account, from the account it was
 	// started in or its transcript's folder (nil: accounts aren't shown).
 	Account func(name, transcript string) *model.Account
+	// Project gives each agent its project and the project folder it
+	// matched, by working folder, from memory (nil: no projects).
+	Project func(cwd string) (*model.Project, string)
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
 	// Slow says which agents are in background mode and by whom
@@ -193,6 +203,8 @@ type Store struct {
 	randn     func(n int) int
 	linger    time.Duration
 	attnTimer *time.Timer
+
+	gone goneWork // time worked today by agents removed today (worked.go)
 }
 
 func New(path, name, version string) *Store {
@@ -385,9 +397,12 @@ func (s *Store) Place(id string, slot int) bool {
 func (s *Store) Remove(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.entries[id]; !ok {
+	e, ok := s.entries[id]
+	if !ok {
 		return false
 	}
+	now := s.now()
+	s.gone.add(now, e.A.Cwd, e.WorkedToday(now))
 	delete(s.entries, id)
 	s.changed()
 	return true
@@ -468,7 +483,7 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued, slow := s.Hat, s.Account, s.Queued, s.Slow
+	hat, account, project, queued, slow := s.Hat, s.Account, s.Project, s.Queued, s.Slow
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
@@ -488,6 +503,9 @@ func (s *Store) Snapshot() model.State {
 		}
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
+		}
+		if project != nil {
+			agents[i].Project, agents[i].ProjectFolder = project(agents[i].Cwd)
 		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })

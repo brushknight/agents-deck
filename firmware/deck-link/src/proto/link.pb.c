@@ -186,6 +186,9 @@ PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO
 PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Project, agentsdeck_link_v1_Project, AUTO)
+
+
 
 
 

@@ -71,18 +71,20 @@ type Agent struct {
 	Turns         int        `json:"turns"`
 	Focused       bool       `json:"focused"`
 	Attached      bool       `json:"attached"`
-	Resumable     bool       `json:"resumable"`           // exited Claude agent that POST /resume can bring back
-	Lost          bool       `json:"lost,omitempty"`      // ended with the tmux server, not by itself: POST /v1/restore brings it back
-	Unseen        bool       `json:"unseen"`              // finished a turn you haven't looked at yet ("hungry")
-	External      bool       `json:"external"`            // owned by another app (Codex): view and focus only
-	App           string     `json:"app,omitempty"`       // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
-	Subagents     []Subagent `json:"subagents,omitempty"` // subagents still working, oldest first
-	Queued        int        `json:"queued"`              // prompts waiting to be typed in once its turn ends ("mode": "queue")
-	Slowed        bool       `json:"slowed"`              // in background mode while the computer is busy (the CPU guard; macOS)
-	SlowedByYou   bool       `json:"slowedByYou"`         // slowed with Slow it, not by the guard's own pick
-	CPU           float64    `json:"cpu,omitempty"`       // percent of the whole computer, only while it is busy
-	Hat           *Hat       `json:"hat,omitempty"`       // the pixel hat for its working folder (nil: none)
-	Account       *Account   `json:"account,omitempty"`   // the Claude account it runs in (nil: only one account is set up)
+	Resumable     bool       `json:"resumable"`               // exited Claude agent that POST /resume can bring back
+	Lost          bool       `json:"lost,omitempty"`          // ended with the tmux server, not by itself: POST /v1/restore brings it back
+	Unseen        bool       `json:"unseen"`                  // finished a turn you haven't looked at yet ("hungry")
+	External      bool       `json:"external"`                // owned by another app (Codex): view and focus only
+	App           string     `json:"app,omitempty"`           // the app it runs in when not agentctl's: "orca", "herdr", "cmux" (answer, interrupt and focus work there)
+	Subagents     []Subagent `json:"subagents,omitempty"`     // subagents still working, oldest first
+	Queued        int        `json:"queued"`                  // prompts waiting to be typed in once its turn ends ("mode": "queue")
+	Slowed        bool       `json:"slowed"`                  // in background mode while the computer is busy (the CPU guard; macOS)
+	SlowedByYou   bool       `json:"slowedByYou"`             // slowed with Slow it, not by the guard's own pick
+	CPU           float64    `json:"cpu,omitempty"`           // percent of the whole computer, only while it is busy
+	Hat           *Hat       `json:"hat,omitempty"`           // the pixel hat for its working folder (nil: none)
+	Account       *Account   `json:"account,omitempty"`       // the Claude account it runs in (nil: only one account is set up)
+	Project       *Project   `json:"project,omitempty"`       // the project its working folder is in (nil: none)
+	ProjectFolder string     `json:"projectFolder,omitempty"` // the project folder it matched, in full ("" = no project)
 	StartedAt     time.Time  `json:"startedAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastActive    time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
@@ -100,6 +102,14 @@ type Hat struct {
 type Account struct {
 	Name  string `json:"name"`
 	Color string `json:"color"` // teal, blue, yellow, green, purple, pink, sky, ink (the hat colours)
+}
+
+// Project is the project an agent works in: the one whose folder holds its
+// working folder, the deepest such folder winning. The service decides it
+// (admin/projectmatch.go).
+type Project struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Subagent is one of an agent's subagents that is still working.

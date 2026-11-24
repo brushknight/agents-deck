@@ -143,8 +143,8 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
   FIELDS_PROMPT = 4;     // waiting
   FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns, cpu
 }
@@ -235,6 +235,8 @@ message Agent {
   bool slowed = 38;            // in background mode while the computer is busy (the CPU guard; macOS)
   float cpu = 39;              // percent of the whole computer, only while it is busy; 0 otherwise
   bool slowed_by_you = 40;     // slowed with Slow it, not by the guard's own pick
+  Project project = 41;        // the project its working folder is in; unset for none
+  string project_folder = 42;  // the project folder it matched, in full; "" for none
 }
 
 message Activity {
@@ -616,4 +618,11 @@ message FirmwareStatus {
   FirmwareState state = 1;
   uint32 percent = 2;  // 0..100
   string error = 3;    // for FAILED and REFUSED
+}
+
+// An agent's project (Agent.project): the one whose folder holds its working
+// folder, the deepest such folder winning.
+message Project {
+  string id = 1;
+  string name = 2;
 }

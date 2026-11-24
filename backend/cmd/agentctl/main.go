@@ -1218,6 +1218,10 @@ func serve(args []string) error {
 	}
 	wifiDefault := &link.WifiDefault{Store: wifiStore}
 	adm := newAdmin(st, srv, self, *logFile)
+	// Each agent's project, by its folder.
+	st.Project = adm.ProjectOf
+	// MCP's project tools change the same list, through the same checks.
+	srv.Projects = adm.MCPProjects()
 	meter := proc.NewCPUMeter()
 	go meter.Run()
 	// The whole machine's CPU: one reader for the service's life, stopped

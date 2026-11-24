@@ -146,8 +146,8 @@ type FieldGroup int32
 
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
-	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you
-	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
+	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project
+	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
 	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns, cpu
 )
@@ -2244,6 +2244,8 @@ type Agent struct {
 	Slowed        bool                   `protobuf:"varint,38,opt,name=slowed,proto3" json:"slowed,omitempty"`                                    // in background mode while the computer is busy (the CPU guard; macOS)
 	Cpu           float32                `protobuf:"fixed32,39,opt,name=cpu,proto3" json:"cpu,omitempty"`                                         // percent of the whole computer, only while it is busy; 0 otherwise
 	SlowedByYou   bool                   `protobuf:"varint,40,opt,name=slowed_by_you,json=slowedByYou,proto3" json:"slowed_by_you,omitempty"`     // slowed with Slow it, not by the guard's own pick
+	Project       *Project               `protobuf:"bytes,41,opt,name=project,proto3" json:"project,omitempty"`                                   // the project its working folder is in; unset for none
+	ProjectFolder string                 `protobuf:"bytes,42,opt,name=project_folder,json=projectFolder,proto3" json:"project_folder,omitempty"`  // the project folder it matched, in full; "" for none
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2556,6 +2558,20 @@ func (x *Agent) GetSlowedByYou() bool {
 		return x.SlowedByYou
 	}
 	return false
+}
+
+func (x *Agent) GetProject() *Project {
+	if x != nil {
+		return x.Project
+	}
+	return nil
+}
+
+func (x *Agent) GetProjectFolder() string {
+	if x != nil {
+		return x.ProjectFolder
+	}
+	return ""
 }
 
 type Activity struct {
@@ -5278,6 +5294,60 @@ func (x *FirmwareStatus) GetError() string {
 	return ""
 }
 
+// An agent's project (Agent.project): the one whose folder holds its working
+// folder, the deepest such folder winning.
+type Project struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Project) Reset() {
+	*x = Project{}
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Project) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Project) ProtoMessage() {}
+
+func (x *Project) ProtoReflect() protoreflect.Message {
+	mi := &file_agentsdeck_link_v1_link_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Project.ProtoReflect.Descriptor instead.
+func (*Project) Descriptor() ([]byte, []int) {
+	return file_agentsdeck_link_v1_link_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *Project) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Project) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 var File_agentsdeck_link_v1_link_proto protoreflect.FileDescriptor
 
 const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
@@ -5382,8 +5452,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xa8\n" +
-	"\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x86\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -5427,7 +5496,9 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x06queued\x18% \x01(\rR\x06queued\x12\x16\n" +
 	"\x06slowed\x18& \x01(\bR\x06slowed\x12\x10\n" +
 	"\x03cpu\x18' \x01(\x02R\x03cpu\x12\"\n" +
-	"\rslowed_by_you\x18( \x01(\bR\vslowedByYou\"6\n" +
+	"\rslowed_by_you\x18( \x01(\bR\vslowedByYou\x125\n" +
+	"\aproject\x18) \x01(\v2\x1b.agentsdeck.link.v1.ProjectR\aproject\x12%\n" +
+	"\x0eproject_folder\x18* \x01(\tR\rprojectFolder\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +
@@ -5614,7 +5685,10 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x0eFirmwareStatus\x127\n" +
 	"\x05state\x18\x01 \x01(\x0e2!.agentsdeck.link.v1.FirmwareStateR\x05state\x12\x18\n" +
 	"\apercent\x18\x02 \x01(\rR\apercent\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error*v\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"-\n" +
+	"\aProject\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name*v\n" +
 	"\x05Input\x12\x15\n" +
 	"\x11INPUT_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fINPUT_BUTTON\x10\x01\x12\x11\n" +
@@ -5727,7 +5801,7 @@ func file_agentsdeck_link_v1_link_proto_rawDescGZIP() []byte {
 }
 
 var file_agentsdeck_link_v1_link_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
-var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
+var file_agentsdeck_link_v1_link_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(Input)(0),             // 0: agentsdeck.link.v1.Input
 	(Scope)(0),             // 1: agentsdeck.link.v1.Scope
@@ -5803,6 +5877,7 @@ var file_agentsdeck_link_v1_link_proto_goTypes = []any{
 	(*LinkConfig)(nil),     // 71: agentsdeck.link.v1.LinkConfig
 	(*FirmwareOffer)(nil),  // 72: agentsdeck.link.v1.FirmwareOffer
 	(*FirmwareStatus)(nil), // 73: agentsdeck.link.v1.FirmwareStatus
+	(*Project)(nil),        // 74: agentsdeck.link.v1.Project
 }
 var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
 	15, // 0: agentsdeck.link.v1.Frame.hello:type_name -> agentsdeck.link.v1.Hello
@@ -5862,28 +5937,29 @@ var file_agentsdeck_link_v1_link_proto_depIdxs = []int32{
 	32, // 54: agentsdeck.link.v1.Agent.hat:type_name -> agentsdeck.link.v1.Hat
 	34, // 55: agentsdeck.link.v1.Agent.subagents:type_name -> agentsdeck.link.v1.Subagent
 	33, // 56: agentsdeck.link.v1.Agent.account:type_name -> agentsdeck.link.v1.Account
-	5,  // 57: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
-	29, // 58: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
-	6,  // 59: agentsdeck.link.v1.SendPrompt.mode:type_name -> agentsdeck.link.v1.SendMode
-	7,  // 60: agentsdeck.link.v1.Magic.role:type_name -> agentsdeck.link.v1.MagicRole
-	8,  // 61: agentsdeck.link.v1.Magic.arrive:type_name -> agentsdeck.link.v1.Corner
-	8,  // 62: agentsdeck.link.v1.Magic.leave:type_name -> agentsdeck.link.v1.Corner
-	58, // 63: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
-	60, // 64: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
-	62, // 65: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
-	64, // 66: agentsdeck.link.v1.QueueList.prompts:type_name -> agentsdeck.link.v1.QueuedPrompt
-	66, // 67: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
-	9,  // 68: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
-	10, // 69: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
-	11, // 70: agentsdeck.link.v1.NetStatus.ble:type_name -> agentsdeck.link.v1.BleState
-	12, // 71: agentsdeck.link.v1.NetStatus.uplink:type_name -> agentsdeck.link.v1.Uplink
-	12, // 72: agentsdeck.link.v1.LinkConfig.uplink:type_name -> agentsdeck.link.v1.Uplink
-	13, // 73: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
-	74, // [74:74] is the sub-list for method output_type
-	74, // [74:74] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	74, // 57: agentsdeck.link.v1.Agent.project:type_name -> agentsdeck.link.v1.Project
+	5,  // 58: agentsdeck.link.v1.Prompt.kind:type_name -> agentsdeck.link.v1.PromptKind
+	29, // 59: agentsdeck.link.v1.Prompt.options:type_name -> agentsdeck.link.v1.Option
+	6,  // 60: agentsdeck.link.v1.SendPrompt.mode:type_name -> agentsdeck.link.v1.SendMode
+	7,  // 61: agentsdeck.link.v1.Magic.role:type_name -> agentsdeck.link.v1.MagicRole
+	8,  // 62: agentsdeck.link.v1.Magic.arrive:type_name -> agentsdeck.link.v1.Corner
+	8,  // 63: agentsdeck.link.v1.Magic.leave:type_name -> agentsdeck.link.v1.Corner
+	58, // 64: agentsdeck.link.v1.HatList.overrides:type_name -> agentsdeck.link.v1.HatOverride
+	60, // 65: agentsdeck.link.v1.LiveSessions.sessions:type_name -> agentsdeck.link.v1.LiveSession
+	62, // 66: agentsdeck.link.v1.AccountList.accounts:type_name -> agentsdeck.link.v1.AccountInfo
+	64, // 67: agentsdeck.link.v1.QueueList.prompts:type_name -> agentsdeck.link.v1.QueuedPrompt
+	66, // 68: agentsdeck.link.v1.RestoreResult.results:type_name -> agentsdeck.link.v1.Restored
+	9,  // 69: agentsdeck.link.v1.NetStatus.transport:type_name -> agentsdeck.link.v1.Transport
+	10, // 70: agentsdeck.link.v1.NetStatus.wifi:type_name -> agentsdeck.link.v1.WifiState
+	11, // 71: agentsdeck.link.v1.NetStatus.ble:type_name -> agentsdeck.link.v1.BleState
+	12, // 72: agentsdeck.link.v1.NetStatus.uplink:type_name -> agentsdeck.link.v1.Uplink
+	12, // 73: agentsdeck.link.v1.LinkConfig.uplink:type_name -> agentsdeck.link.v1.Uplink
+	13, // 74: agentsdeck.link.v1.FirmwareStatus.state:type_name -> agentsdeck.link.v1.FirmwareState
+	75, // [75:75] is the sub-list for method output_type
+	75, // [75:75] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	75, // [75:75] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() { file_agentsdeck_link_v1_link_proto_init() }
@@ -5942,7 +6018,7 @@ func file_agentsdeck_link_v1_link_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentsdeck_link_v1_link_proto_rawDesc), len(file_agentsdeck_link_v1_link_proto_rawDesc)),
 			NumEnums:      14,
-			NumMessages:   60,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

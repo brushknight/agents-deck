@@ -326,7 +326,7 @@ to icons (the browser remembers which). Everything on it is also a command.
 
 | page | what you can do | in a terminal |
 |---|---|---|
-| Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
+| Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); once you have projects, **All** or **By project** over the tiles: By project puts them under a header per project (its name, how many agents, and which of its folders they work in, with a count each), then **No project**, and a chip per project shows only its agents. There a tile moves only by dragging it onto another tile of the same project. This browser remembers the choice; All is the default; **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
 | Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token`, `agentctl cpu limit` |
 | Boards | tabs: **Your boards** (what waits for your approval, then each board with its screen and how it is connected), **Add a board** (over USB, or Look for Bluetooth boards nearby and add one with the code on its screen), **Magic trick**, **USB ports** (forget a port, or say a port is a board). A board's own page: rename, how it is connected and its uplink, its Wi-Fi, Bluetooth, what it may do, its part in the magic trick, update its firmware or install a firmware file of your own, cut off, remove. A new ESP32 on USB appears under Waiting for you; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone or desk panel and the ones paired | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
@@ -336,14 +336,30 @@ to icons (the browser remembers which). Everything on it is also a command.
 | About | version, how it was installed, links | `agentctl version` |
 
 **Projects** are what you start agents in: a name and one or more folders (an app, its website and its
-server can be one project; new agents start in the first folder, or pick another when you start one;
-an agent working in a project folder, or a folder inside one such as a worktree, counts as the
-project's), each with, if you like, the tool it runs
+server can be one project; new agents start in the first folder, or pick another when you start one),
+each with, if you like, the tool it runs
 (Claude Code, Codex or a shell), the Claude account and a hat. Add, change and remove them in Agents,
 Projects; folders your agents already work in are offered there too (**Keep it** as a project of their own, or **Add to…** an existing one). Agents in a project
 wear its hat, since a hat belongs to the folder. Home starts an agent in a project from a free spot:
 pick the project, the tool and account (the project's by default) and a first prompt. They are kept in
 `projects.json` in the data folder.
+
+Every agent knows its project: an agent working in a project folder, or in a folder inside one such as
+a worktree, is that project's, wherever you see it (the browser, the API, boards over Deck Link and
+`list_agents` over MCP, which can also list one project's agents, as `list_sessions` can for sessions
+started elsewhere). When folders of two projects hold
+an agent's folder, the deeper one wins, so a project for `~/dev/app/ios` gets the agents there and a
+project for `~/dev/app` the rest. A folder belongs to one project: saving a project with a folder
+another one has already is refused, and says which. If an older `projects.json` lists a folder in
+two projects, both are kept, the first in the list gets its agents, and saving either asks you to
+take the folder out of one.
+
+**Today** on a project (Agents, Projects) shows its day so far, since midnight: a line per folder with
+the agents working in it now (a worktree inside the folder is named), their status, and how long the
+folder's agents worked today, with a bar to compare the folders. Worked means running: on a turn, or
+with subagents at work; waiting for you and idle don't count. The time comes from the status changes
+the deck sees, so it starts when the deck does (an update or restart keeps it), and agents removed
+today still count until the service stops. A folder nobody worked in today says so.
 
 **New boards.** A port is listed from its USB id alone and never opened until you say it's yours.
 Then the service asks the board: a board running agents deck says what it is; anything else is asked
