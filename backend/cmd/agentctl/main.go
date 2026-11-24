@@ -125,8 +125,13 @@ const usage = `agentctl: runs and controls agents deck
   agentctl bluetooth [scan | ls | add <name>]
                                  boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
-  agentctl cpu [--top]           how much CPU the service and its helpers use, and the whole
-                                 machine; --top: who uses it (each agent, the deck, other programs)
+  agentctl cpu [--top]           how much CPU the service and its helpers use, the whole machine
+                                 and the CPU guard's limit; --top: who uses it (each agent with its
+                                 biggest programs, the deck, other programs)
+  agentctl cpu limit <60-95> [--for 3h] | schedule
+                                 the CPU guard's limit for now: until the schedule's next change
+                                 (or for the time given); schedule: back to the schedule
+  agentctl cpu schedule          the week's schedule for the CPU guard's limit
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
@@ -1238,7 +1243,6 @@ func serve(args []string) error {
 	// The CPU guard: while the computer is busy it warns, and holds queued
 	// prompts and start_agent over MCP.
 	guard := cpuguard.New(machine)
-	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
 	guard.Queued = func() (n int) {
 		for _, c := range srv.Queue.Agents() {
 			n += c
@@ -1247,6 +1251,8 @@ func serve(args []string) error {
 	}
 	guard.Top = func() []proc.CPUUser { return adm.CPUTop(5).Users }
 	guard.Changed, guard.Logf = st.Touch, log.Printf
+	guard.Ended = adm.DropCPUOverride // a limit picked by hand is over: out of config.json
+	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
 	srv.Guard, adm.Guard = guard, guard
 	go guard.Run(machineCtx)
 	// While busy, the heaviest agent runs in background mode (macOS). Undone

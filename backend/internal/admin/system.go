@@ -126,6 +126,22 @@ func writeSlow(w http.ResponseWriter, guard *cpuguard.Guard, err error) {
 	}
 }
 
+// DropCPUOverride takes an override that is over out of config.json
+// (cpuguard.Guard.Ended), unless another one replaced it since.
+func (a *Admin) DropCPUOverride(o cpuguard.Override) {
+	err := a.editConfig(func(cfg map[string]any) error {
+		g := cpuguard.FromConfig(cfg["cpuGuard"])
+		if g.Override != nil && g.Override.Until.Equal(o.Until) && g.Override.Limit == o.Limit {
+			g.Override = nil
+			cfg["cpuGuard"] = g
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("cpu guard: can't drop the limit that is over from config.json: %v", err)
+	}
+}
+
 func (a *Admin) updaterState() update.State {
 	if a.Updater == nil {
 		return update.State{State: update.StateDisabled, Current: a.Version, Install: a.Install,
@@ -270,7 +286,7 @@ func oneOf(v string, allowed ...string) bool {
 
 func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	var p SettingsPatch
-	if err := readBody(r, 8192, &p); err != nil {
+	if err := readBody(r, 16384, &p); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -312,12 +328,8 @@ func (a *Admin) patchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	var guard *cpuguard.Setting
 	if len(p.CPUGuard) > 0 && string(p.CPUGuard) != "null" {
-		g := cpuguard.FromConfig(a.readConfig()["cpuGuard"])
-		if err := json.Unmarshal(p.CPUGuard, &g); err != nil {
-			writeErr(w, http.StatusBadRequest, "cpuGuard: "+err.Error())
-			return
-		}
-		if err := g.Check(); err != nil {
+		g, err := cpuguard.Patch(cpuguard.FromConfig(a.readConfig()["cpuGuard"]), p.CPUGuard, time.Now())
+		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}

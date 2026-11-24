@@ -9,6 +9,7 @@ package main
 //	agentctl flash --board <board> [--version v] [--local] <port>
 //	agentctl devices rename <id> <name> | update <id> [--version v] [--local]
 //	agentctl diagnostics
+//	agentctl cpu [--top] | cpu limit <n> [--for 3h] | cpu limit schedule | cpu schedule
 //	agentctl update (through the service when it runs)
 
 import (
@@ -22,11 +23,15 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/admin"
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/update"
 )
@@ -409,6 +414,14 @@ func diagnosticsCmd(args []string) error {
 // helpers use (the budget: under 2% of one core, idle), how busy the whole
 // machine is, and with --top who uses it.
 func cpuCmd(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "limit":
+			return cpuLimitCmd(args[1:])
+		case "schedule":
+			return cpuScheduleCmd(args[1:])
+		}
+	}
 	fs := flag.NewFlagSet("cpu", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "print it as JSON")
 	withTop := fs.Bool("top", false, "also list the biggest users of the machine's CPU (runs ps once)")
@@ -448,6 +461,10 @@ func cpuCmd(args []string) error {
 	}
 	if m := r.Machine; m != nil {
 		fmt.Println()
+		var s admin.System
+		if err := adminCall("GET", "/admin/v1/system", nil, &s); err == nil && s.CPU != nil {
+			fmt.Printf("limit:   %s\n", limitLine(s.CPU))
+		}
 		if !m.Available {
 			fmt.Printf("machine: not measured (%s)\n", m.Why)
 		} else {
@@ -472,9 +489,150 @@ func cpuCmd(args []string) error {
 		fmt.Println("biggest users, in % of the whole machine:")
 		for _, u := range t.Users {
 			fmt.Printf("  %5.1f%%  %-8s %s (%d processes)\n", u.Percent, u.Kind, clip(oneLine(u.Name), 40), u.Processes)
+			if len(u.Commands) > 0 {
+				var cmds []string
+				for _, c := range u.Commands {
+					cmds = append(cmds, fmt.Sprintf("%s %.0f%%", clip(oneLine(c.Name), 24), c.Percent))
+				}
+				fmt.Printf("  %6s  %-8s %s\n", "", "", strings.Join(cmds, ", "))
+			}
 		}
 	}
 	return nil
+}
+
+// limitLine is the CPU guard's limit now and where it comes from: "60% from
+// the schedule (Mon 09:00-18:00), until 18:00, then 80%".
+func limitLine(c *cpuguard.State) string {
+	line := fmt.Sprintf("%d%%", c.Limit)
+	switch c.LimitFrom {
+	case cpuguard.FromSchedule:
+		line += fmt.Sprintf(" from the schedule (%s)", c.Block)
+	case cpuguard.FromOverride:
+		line += " picked by hand"
+		if c.By != "" {
+			line += " in " + c.By
+		}
+		if c.SetAt != nil {
+			line += " at " + when(*c.SetAt)
+		}
+	default:
+		if c.Scheduled {
+			line += ", your limit outside the schedule"
+		}
+	}
+	if c.Until != nil {
+		line += fmt.Sprintf(", until %s, then %d%%", when(*c.Until), c.Next)
+	}
+	if c.LimitFrom == cpuguard.FromOverride {
+		line += " (agentctl cpu limit schedule: back to the schedule)"
+	}
+	return line
+}
+
+// when is a time soon in words: "18:00" today, else "Tue 09:00".
+func when(t time.Time) string {
+	t = t.Local()
+	if y, m, d := t.Date(); y == time.Now().Year() && m == time.Now().Month() && d == time.Now().Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("Mon 15:04")
+}
+
+// cpuLimitCmd: agentctl cpu limit <60..95> [--for 3h] picks the CPU guard's
+// limit by hand: with the schedule on, until its next change (or for the
+// time given); with it off, as the plain limit (or for the time given).
+// agentctl cpu limit schedule goes back to the schedule.
+func cpuLimitCmd(args []string) error {
+	const usage = "usage: agentctl cpu limit <60 to 95, in fives> [--for 3h] | agentctl cpu limit schedule"
+	if len(args) == 0 {
+		return errors.New(usage)
+	}
+	var body map[string]any
+	if args[0] == "schedule" {
+		if len(args) != 1 {
+			return errors.New(usage)
+		}
+		body = map[string]any{"override": nil}
+	} else {
+		n, err := strconv.Atoi(strings.TrimSuffix(args[0], "%"))
+		if err != nil {
+			return errors.New(usage)
+		}
+		if err := cpuguard.CheckLimit(n); err != nil {
+			return fmt.Errorf("the limit %v", err)
+		}
+		fs := flag.NewFlagSet("cpu limit", flag.ExitOnError)
+		dur := fs.Duration("for", 0, "how long, such as 90m or 3h (at most a week); without it, until the schedule's next change")
+		_ = fs.Parse(args[1:])
+		if fs.NArg() > 0 {
+			return errors.New(usage)
+		}
+		o := map[string]any{"limit": n, "by": "agentctl"}
+		if *dur > 0 {
+			if *dur > cpuguard.MaxOverride {
+				return errors.New("--for: at most a week (168h)")
+			}
+			o["until"] = time.Now().Add(*dur).Truncate(time.Minute).Format(time.RFC3339)
+		}
+		body = map[string]any{"override": o}
+	}
+	if err := adminCall("PATCH", "/admin/v1/settings", map[string]any{"cpuGuard": body}, nil); err != nil {
+		return err
+	}
+	var s admin.System
+	if err := adminCall("GET", "/admin/v1/system", nil, &s); err != nil {
+		return err
+	}
+	if s.CPU == nil {
+		fmt.Println("limit set; the CPU guard is off (Settings, Agents, When the Mac is busy)")
+		return nil
+	}
+	fmt.Printf("limit: %s\n", limitLine(s.CPU))
+	return nil
+}
+
+// cpuScheduleCmd: agentctl cpu schedule prints the week's schedule.
+func cpuScheduleCmd(args []string) error {
+	if len(args) > 0 {
+		return errors.New("usage: agentctl cpu schedule (change it in Settings, Agents, When the Mac is busy)")
+	}
+	var set admin.Settings
+	if err := adminCall("GET", "/admin/v1/settings", nil, &set); err != nil {
+		return err
+	}
+	fmt.Print(scheduleText(set.CPUGuard))
+	var s admin.System
+	if err := adminCall("GET", "/admin/v1/system", nil, &s); err == nil && s.CPU != nil {
+		fmt.Printf("\nnow: %s\n", limitLine(s.CPU))
+	}
+	return nil
+}
+
+// scheduleText is the schedule, a block a line, in the order of the week.
+func scheduleText(g cpuguard.Setting) string {
+	var b strings.Builder
+	switch {
+	case !g.On:
+		b.WriteString("the CPU guard is off\n")
+	case !g.Schedule.On:
+		fmt.Fprintf(&b, "no schedule: the limit is %d%% all week\n", g.Limit)
+	default:
+		b.WriteString("schedule (every week, on this computer's clock):\n")
+	}
+	blocks := slices.Clone(g.Schedule.Blocks)
+	sort.SliceStable(blocks, func(i, j int) bool { return blocks[i].Start() < blocks[j].Start() })
+	tw := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
+	for _, bl := range blocks {
+		fmt.Fprintf(tw, "  %s\t%s-%s\t%d%%\n", bl.DaysLabel(), bl.From, bl.To, bl.Limit)
+	}
+	if g.Schedule.On {
+		fmt.Fprintf(tw, "  the rest of the week\t\t%d%%\n", g.Limit)
+	} else if len(blocks) > 0 {
+		fmt.Fprintf(tw, "  (kept, not followed: Follow a schedule is off)\n")
+	}
+	_ = tw.Flush()
+	return b.String()
 }
 
 // updateViaService runs agentctl update through the running service, so the

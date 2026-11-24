@@ -65,6 +65,57 @@ func TestCPUGuard(t *testing.T) {
 	}
 }
 
+// The schedule through /admin/v1/settings: a limit picked by hand while it
+// is on is an override (limitFrom "override" in /admin/v1/system), null is
+// Back to schedule, overlapping blocks are refused with a message naming
+// both, and an override that is over leaves config.json.
+func TestCPUSchedule(t *testing.T) {
+	r := newRig(t)
+	g := cpuguard.New(steadyMeter(50))
+	r.a.Guard = g
+	g.Ended = r.a.DropCPUOverride
+	week := `{"cpuGuard": {"schedule": {"on": true, "blocks": [{"days": ["mon","tue","wed","thu","fri","sat","sun"], "from": "00:00", "to": "24:00", "limit": 65}]}}}`
+	if code, out := r.do(t, "PATCH", "/admin/v1/settings", week); code != 200 {
+		t.Fatalf("schedule: %d %v", code, out)
+	}
+	_, out := r.do(t, "GET", "/admin/v1/system", "")
+	if cpu, _ := out["cpu"].(map[string]any); cpu["limit"] != 65.0 || cpu["limitFrom"] != "schedule" || cpu["scheduled"] != true {
+		t.Fatalf("scheduled: %v", cpu)
+	}
+	if code, out := r.do(t, "PATCH", "/admin/v1/settings", `{"cpuGuard": {"limit": 75}}`); code != 200 {
+		t.Fatalf("limit: %d %v", code, out)
+	}
+	_, out = r.do(t, "GET", "/admin/v1/system", "")
+	if cpu, _ := out["cpu"].(map[string]any); cpu["limit"] != 75.0 || cpu["limitFrom"] != "override" || cpu["by"] != "Settings" || cpu["until"] == nil || cpu["next"] != 65.0 {
+		t.Fatalf("override: %v", cpu)
+	}
+	_, got := r.do(t, "GET", "/admin/v1/settings", "")
+	if s, _ := got["cpuGuard"].(map[string]any); s["limit"] != 80.0 || s["override"] == nil {
+		t.Fatalf("setting %v", got["cpuGuard"])
+	}
+	code, out := r.do(t, "PATCH", "/admin/v1/settings", `{"cpuGuard": {"schedule": {"blocks": [
+		{"days": ["mon"], "from": "09:00", "to": "18:00", "limit": 60}, {"days": ["mon", "tue"], "from": "17:30", "to": "20:00", "limit": 70}]}}}`)
+	if msg, _ := out["error"].(string); code != 400 || msg != "block 2 (Mon, Tue 17:30-20:00) overlaps block 1 (Mon 09:00-18:00)" {
+		t.Fatalf("overlap: %d %v", code, out)
+	}
+	r.do(t, "PATCH", "/admin/v1/settings", `{"cpuGuard": {"override": null}}`)
+	if _, out = r.do(t, "GET", "/admin/v1/system", ""); out["cpu"].(map[string]any)["limitFrom"] != "schedule" {
+		t.Fatalf("back to schedule: %v", out["cpu"])
+	}
+
+	// An override that is over (here: one written in the past) is dropped.
+	r.do(t, "PATCH", "/admin/v1/settings", `{"cpuGuard": {"limit": 90}}`)
+	s := g.Setting()
+	s.Override.Until = time.Now().Add(-time.Minute)
+	if err := r.a.editConfig(func(cfg map[string]any) error { cfg["cpuGuard"] = s; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	g.Set(s)
+	if cfg, _ := os.ReadFile(r.a.Config); strings.Contains(string(cfg), "override") || g.Setting().Override != nil {
+		t.Errorf("config.json still has it:\n%s", cfg)
+	}
+}
+
 // bgPrio keeps which processes are in background mode.
 type bgPrio map[int]bool
 

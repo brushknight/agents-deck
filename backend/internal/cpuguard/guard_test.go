@@ -3,6 +3,7 @@ package cpuguard
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func newTest(t *testing.T) (*Guard, *fakeMeter, *[]string) {
 	g.Now = func() time.Time { return m.now }
 	g.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
 	g.Top = func() []proc.CPUUser {
-		return []proc.CPUUser{{Name: "fix-tests", Percent: 61}, {Name: "agents deck", Percent: 1}}
+		return []proc.CPUUser{{Name: "fix-tests", Percent: 61, Commands: []proc.Command{{Name: "xcodebuild", Percent: 30}, {Name: "claude", Percent: 4}}}, {Name: "agents deck", Percent: 1}}
 	}
 	return g, m, &logs
 }
@@ -78,7 +79,7 @@ func TestBusyAndCalm(t *testing.T) {
 	if !s.Busy || s.Since == nil || !s.Since.Equal(m.now.Add(-2*time.Minute).UTC()) || !s.Hold || s.Limit != 80 {
 		t.Fatalf("after 2 minutes at 95%%: %+v", s)
 	}
-	if len(*logs) != 1 || !strings.Contains((*logs)[0], "95% of the CPU for 2m, over your limit of 80%") || !strings.Contains((*logs)[0], "fix-tests 61%") {
+	if len(*logs) != 1 || !strings.Contains((*logs)[0], "95% of the CPU for 2m, over your limit of 80%") || !strings.Contains((*logs)[0], "fix-tests 61% (xcodebuild 30%, claude 4%), agents deck 1%") {
 		t.Fatalf("log %q", *logs)
 	}
 	if held, why := g.Holding(); !held || !strings.Contains(why, "busy (95% CPU for 2 minutes); try again in a few minutes") {
@@ -228,19 +229,30 @@ func TestPeak(t *testing.T) {
 // config.json: defaults for what's left out, bad values back to defaults,
 // and a setting written and read back is the same.
 func TestSettingConfig(t *testing.T) {
-	if s := FromConfig(nil); s != Default() || s != (Setting{On: true, Limit: 80, For: "2m", Hold: true, Slow: true}) {
+	none := Schedule{Blocks: []Block{}}
+	if s := FromConfig(nil); !reflect.DeepEqual(s, Default()) || !reflect.DeepEqual(s, Setting{On: true, Limit: 80, For: "2m", Hold: true, Slow: true, Schedule: none}) {
 		t.Fatalf("default %+v", s)
 	}
 	var cfg map[string]any
 	_ = json.Unmarshal([]byte(`{"cpuGuard": {"hold": false, "limit": 200, "for": "7m"}}`), &cfg)
-	if s := FromConfig(cfg["cpuGuard"]); s != (Setting{On: true, Limit: 80, For: "2m", Hold: false, Slow: true}) {
+	if s := FromConfig(cfg["cpuGuard"]); !reflect.DeepEqual(s, Setting{On: true, Limit: 80, For: "2m", Hold: false, Slow: true, Schedule: none}) {
 		t.Fatalf("partial %+v", s)
 	}
-	want := Setting{On: false, Limit: 65, For: "5m", Hold: true, Slow: false}
+	until := time.Date(2026, 3, 4, 18, 0, 0, 0, time.UTC)
+	want := Setting{On: false, Limit: 65, For: "5m", Hold: true, Slow: false,
+		Schedule: Schedule{On: true, Blocks: []Block{{Days: []string{"mon", "tue"}, From: "09:00", To: "18:00", Limit: 60}}},
+		Override: &Override{Limit: 70, Until: until, By: "agentctl", At: until.Add(-time.Hour)}}
 	b, _ := json.Marshal(map[string]any{"cpuGuard": want})
 	_ = json.Unmarshal(b, &cfg)
-	if s := FromConfig(cfg["cpuGuard"]); s != want {
+	if s := FromConfig(cfg["cpuGuard"]); !reflect.DeepEqual(s, want) {
 		t.Fatalf("round trip %+v", s)
+	}
+	// A schedule edited by hand into something wrong is turned off; a
+	// broken override is dropped.
+	_ = json.Unmarshal([]byte(`{"cpuGuard": {"schedule": {"on": true, "blocks": [{"days": ["mon"], "from": "09:15", "to": "10:00", "limit": 60}]},
+		"override": {"limit": 61, "until": "2026-03-04T18:00:00Z"}}}`), &cfg)
+	if s := FromConfig(cfg["cpuGuard"]); s.Schedule.On || len(s.Schedule.Blocks) != 1 || s.Override != nil {
+		t.Fatalf("broken %+v", s)
 	}
 	if want.Window() != 5*time.Minute {
 		t.Error("window")
