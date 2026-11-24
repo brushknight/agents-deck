@@ -98,13 +98,14 @@ have it: their home is a ring with no first page to sit left of.
 While Agent pets is on (the deck's Settings, General), every agent comes with its pet
 (`Agent::pet`, the kit's [`deck_pet.h`](../deck-link/README.md#agent-pets)), and every board draws the
 pet where the critter would be: `drawCritter()` in `sprites.h` draws the pet when there is one and
-the critter otherwise, so with pets off every screen is as before. The pet has its black stroke and,
-when it is strong, mighty or legend, its flames; on orange it keeps its own colours. One pet cell is
-one sprite unit at the critter's scale; the pet's middle is the body's, and a grown-up's feet are where
-the critter's are. Its hat rises a unit higher than a critter's (the 1.47" hero stands it a unit
-lower), and its flames reach further (the kit's `DECK_PET_REACH_*`): the spring carousel's critter box
-grows to match (`critterBox()`), so the partial redraw and the strips still cover it. An egg waiting to
-be seen rocks. The kit keeps its scratch and `drawPet()` its look in static memory, so pets are drawn from one
+the critter otherwise, so with pets off every screen is as before. The pet does the critter's pose
+(`poseOf()`), with its bubble where the critter has one, its black stroke, and its flames when it is
+strong, mighty or legend; on orange it keeps its own colours. One pet cell is one sprite unit at the
+critter's scale; the pet's middle is the body's, and a grown-up's feet are where the critter's are. Its
+hat rises a unit higher than a critter's (the 1.47" hero stands it a unit lower), and its bubbles, flag
+and flames reach further (the kit's `DECK_PET_REACH_*`): the spring carousel's critter box grows to
+match (`critterBox()`), so the partial redraw and the strips still cover it. An egg waiting to be seen
+rocks. The kit keeps its scratch and `drawPet()` its look in static memory, so pets are drawn from one
 task.
 
 The screens that show one agent in detail show the pet's name, stage and level (`petLine()`: "Pip
@@ -118,7 +119,7 @@ The screens that show one agent in detail show the pet's name, stage and level (
 | `round_ui.h` (detail) | the third line, in place of model, effort and context (the ring still shows context) |
 
 `tests/test_pets.cpp` checks it; `sim/render.cpp` draws every screen with pets when its last
-argument is `pets`, and `pets.ppm`, the kit's pets on dark and on orange.
+argument is `pets`, and `pets.ppm`, the kit's pets on dark and on orange in a few poses.
 
 ## Wi-Fi
 

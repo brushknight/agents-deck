@@ -378,30 +378,32 @@ static void givePets(Fleet& f) {
   }
 }
 
-// pets.ppm: the kit's pets with their stroke at scale 4: each look (rows),
-// on the dark background and on orange (columns).
+// pets.ppm: the kit's pets with their stroke at scale 4: each look (rows), on
+// the dark background and on orange, still and in a few poses (columns).
 static void petSheet(const std::string& dir, uint32_t ms) {
   struct Row { int stage, mood; bool ready; uint8_t hat; };
   static const Row kRows[] = {{0, 0, false, 0}, {0, 0, true, 0}, {1, 0, false, 0}, {2, 0, false, 5},
                               {3, 0, false, 3}, {4, 0, false, 11}, {5, 0, false, 9}, {6, 0, false, 8},
                               {3, 2, false, 2}, {3, 3, false, 14}, {3, 1, false, 4}};
-  const int s = 4, cw = 26 * s, rh = 27 * s, cols = 2, rows = (int)(sizeof kRows / sizeof kRows[0]);
+  static const Pose kCols[] = {Pose::Idle, Pose::Run, Pose::Bash, Pose::Wait, Pose::Celebrate, Pose::Delegate};
+  const int s = 4, cw = 31 * s, rh = 27 * s, cols = 2 * (int)(sizeof kCols / sizeof kCols[0]);
+  const int rows = (int)(sizeof kRows / sizeof kRows[0]);
   std::vector<uint16_t> buf((size_t)cols * cw * rows * rh);
   Canvas c{buf.data(), cols * cw, rows * rh};
   const uint16_t kOrange = rgb565(0xFF, 0x4D, 0x00);
   for (int r = 0; r < rows; r++)
     for (int k = 0; k < cols; k++) {
-      c.rect(k * cw, r * rh, cw, rh, k ? kOrange : col::bg);
+      const bool orange = k % 2;
+      c.rect(k * cw, r * rh, cw, rh, orange ? kOrange : col::bg);
       Agent a{};
-      a.status = Status::Running;
       a.pet.has = true;
       a.pet.stage = (uint8_t)kRows[r].stage;
       a.pet.mood = (uint8_t)kRows[r].mood;
       a.pet.ready = a.pet.cracked = kRows[r].ready;
       a.pet.hat = kRows[r].hat;
       a.pet.hat_color = (uint8_t)(r % DECK_PET_HAT_COLOR_COUNT);
-      // the sprite box's top-left: the pet's cells -5..19 x -10..15 fit the cell
-      drawPet(c, k * cw + 6 * s, r * rh + 11 * s, s, a, ms);
+      // the sprite box's top-left: the pet's cells -5..24 x -10..15 fit the cell
+      drawPet(c, k * cw + 6 * s, r * rh + 11 * s, s, a, kCols[k / 2], ms, true);
     }
   writePpm(dir + "/pets.ppm", c);
 }

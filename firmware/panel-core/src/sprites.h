@@ -522,11 +522,11 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
 
 // ---------------------------------------------------------------- agent pets
 // While Agent pets is on, each agent's pet (Agent::pet, the kit's deck_pet.h)
-// stands where its critter would, at the same scale: one pet cell is one
-// sprite unit. Cell (0, 0) sits at unit (-1, -5), so the pet's middle is the
-// body's and a grown-up's feet land on the critter's. With its hat, flames
-// and stroke it reaches cells DECK_PET_REACH_* (units -6..18 across, -15..10
-// down). It keeps its own colours on orange: the stroke keeps it apart.
+// stands where its critter would, at the same scale, and does the critter's
+// pose with its bubble: one pet cell is one sprite unit. Cell (0, 0) sits at
+// unit (-1, -5), so the pet's middle is the body's and a grown-up's feet land
+// on the critter's. With its bubbles, flag, flames and stroke it reaches
+// cells DECK_PET_REACH_* (units -6..23 across, -17..10 down).
 
 namespace sprite_detail {
 
@@ -548,15 +548,20 @@ static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb,
 
 }  // namespace sprite_detail
 
+// The pet's pose for the critter's (the kit's poses follow Pose, after NONE).
+static inline uint8_t petPose(Pose pose) { return (uint8_t)((int)pose + 1); }
+
 // Draws the agent's pet with the sprite box's top-left at (x, y), as
-// drawSprite would its critter; an egg waiting to be seen rocks on `ms`.
+// drawSprite would its critter, in `pose` at `ms`, with its bubble or not.
 // The look is kept in static memory: pets are drawn from one task.
-static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, uint32_t ms) {
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
   using namespace sprite_detail;
   // nothing of it in these rows (a strip of the frame)
   if (y + (DECK_PET_REACH_Y1 + 1) * scale <= c.top || y + (DECK_PET_REACH_Y0 - 1) * scale >= c.h) return;
   deck_pet_opts_t o{};
-  o.idle = a.status == Status::Idle || a.status == Status::Exited;
+  o.pose = petPose(pose);
+  o.ms = ms;
+  o.bubble = bubble;
   o.hat = a.hat;
   o.hat_color = a.hatColor;
   static deck_pet_look_t look;
@@ -567,10 +572,10 @@ static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, u
 }
 
 // The agent as the deck shows it: its pet while it has one, else its critter
-// in `pose` (drawSprite, with its hat).
+// (drawSprite, with its hat); both in `pose`.
 static inline void drawCritter(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint16_t body, uint16_t cut,
                                uint32_t ms, bool bubble) {
-  if (a.pet.has) drawPet(c, x, y, scale, a, ms);
+  if (a.pet.has) drawPet(c, x, y, scale, a, pose, ms, bubble);
   else drawSprite(c, x, y, scale, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
 }
 

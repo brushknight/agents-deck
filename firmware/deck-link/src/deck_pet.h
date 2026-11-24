@@ -5,8 +5,10 @@
  * The art is the web deck's (backend/internal/web/static/pets.js): a 16 x 14
  * grid per look (egg, cracked egg, baby, kid, grown-up, weak grown-up), the
  * pet's own hat, an open mouth when it is hungry, an ice cube while it
- * hibernates and flames round strong, mighty and legend pets, and a black
- * stroke one pet pixel wide round all of it (docs/pet-poses.md, "Stroke"). Colours are 0xRRGGBB, with an alpha for the see-through ice,
+ * hibernates and flames round strong, mighty and legend pets. It does the
+ * critter's poses (docs/pet-poses.md: eyes, arms, feet, bubbles, the flag,
+ * the mini pet, the squeeze), and every part has a black stroke one pet
+ * pixel wide. Colours are 0xRRGGBB, with an alpha for the see-through ice,
  * so a board draws them at its own colour depth.
  *
  *   deck_pet_t pet;
@@ -14,7 +16,9 @@
  *   ...
  *   deck_pet_look_t look;                                // build it, draw it, drop it
  *   deck_pet_opts_t o = {0};
- *   o.idle = idle;
+ *   o.pose = DECK_PET_POSE_RUN;                          // what its agent does
+ *   o.ms = millis();                                     // where its motion is
+ *   o.bubble = true;
  *   deck_pet_look(&look, &pet, &o);
  *   deck_pet_draw(&look, x, y, scale, my_fill, my_ctx);  // cell (0, 0) at pixel (x, y)
  *
@@ -85,12 +89,12 @@ const char *deck_pet_stage_name(uint8_t stage);
 
 /* The grid a look is drawn on, in cells: x DECK_PET_GRID_X0 ..
  * DECK_PET_GRID_X0 + W - 1, likewise y. The art itself is cells (0, 0) ..
- * (15, 13); a hat rises to y -2,
+ * (15, 13); a hat rises to y -2, bubbles and the flag reach right and up,
  * flames above the hat, the stroke a cell round all of it. */
 #define DECK_PET_GRID_X0 (-6)
-#define DECK_PET_GRID_Y0 (-11)
+#define DECK_PET_GRID_Y0 (-14)
 #define DECK_PET_GRID_W 32
-#define DECK_PET_GRID_H 28
+#define DECK_PET_GRID_H 31
 
 /* Which picture. */
 typedef enum {
@@ -104,10 +108,35 @@ typedef enum {
 
 typedef enum { DECK_PET_AURA_NONE, DECK_PET_AURA_STRONG, DECK_PET_AURA_MIGHTY, DECK_PET_AURA_LEGEND } deck_pet_aura_t;
 
+/* The critter's poses, in the order of panel-core's Pose, after NONE (a pet
+ * that holds still: previews, lists). docs/pet-poses.md says what each does. */
+typedef enum {
+	DECK_PET_POSE_NONE,
+	DECK_PET_POSE_THINK,
+	DECK_PET_POSE_READ,
+	DECK_PET_POSE_WRITE,
+	DECK_PET_POSE_BASH,
+	DECK_PET_POSE_WEB,
+	DECK_PET_POSE_PLAN,
+	DECK_PET_POSE_DELEGATE,
+	DECK_PET_POSE_COMPACT,
+	DECK_PET_POSE_RUN,
+	DECK_PET_POSE_WAIT,
+	DECK_PET_POSE_ERR,
+	DECK_PET_POSE_IDLE,
+	DECK_PET_POSE_START,
+	DECK_PET_POSE_EXIT,
+	DECK_PET_POSE_CELEBRATE,
+	DECK_PET_POSE_HUNGRY,
+} deck_pet_pose_t;
+
 typedef struct {
+	uint8_t pose;      /* deck_pet_pose_t */
+	uint32_t ms;       /* any clock: where the pose's motion is */
+	bool bubble;       /* the pose's bubble (what it does); false where there is no room */
 	uint8_t hat;       /* the agent's hat (1 + shape, 0 none): only an egg's spots take its colour */
 	uint8_t hat_color; /* the agent's hat colour */
-	bool idle;         /* its agent is idle or exited: eyes shut */
+	bool idle;         /* without a pose: eyes shut */
 } deck_pet_opts_t;
 
 /* The deck's hats, in the protocol's order (docs/protocol.md); pets also
@@ -126,13 +155,14 @@ uint8_t deck_pet_hat_color_of(const char *color);
  * each cell, 0 where it is empty:
  *   b body · d body shade · e eye · w shell, flag light · v shell shade · s spot
  *   k dark line · g ground · p pencil · m mouth · c highlight · h hat · H hat shade
- *   K a hat's near-black
+ *   K a hat's near-black · P props and bubbles · B a plan's tick
  * The stroke, the flames and the legend's stars are bits per row (bit x - X0). */
 typedef struct {
 	char cell[DECK_PET_GRID_H][DECK_PET_GRID_W];
 	uint32_t stroke[DECK_PET_GRID_H];
 	uint32_t flame[DECK_PET_GRID_H];
 	uint32_t star[DECK_PET_GRID_H];
+	uint32_t spark[DECK_PET_GRID_H];
 	uint32_t hat_cells[DECK_PET_GRID_H];
 	uint8_t art;  /* deck_pet_art_t */
 	uint8_t aura; /* deck_pet_aura_t */
@@ -156,6 +186,7 @@ bool deck_pet_flame_at(const deck_pet_look_t *look, int x, int y);
 /* A key's colour (0xRRGGBB) in this look. */
 uint32_t deck_pet_rgb(const deck_pet_look_t *look, char key);
 #define DECK_PET_STROKE_RGB 0x000000u
+#define DECK_PET_PROP_RGB 0xFFFFFFu
 
 /* ---- drawing --------------------------------------------------------------- */
 
@@ -165,8 +196,8 @@ uint32_t deck_pet_rgb(const deck_pet_look_t *look, char key);
 typedef void (*deck_pet_fill_fn)(void *user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha);
 
 /* Draws the look with cell (0, 0) at pixel (x, y), each cell scale x scale
- * pixels, in layers: the flames, the ice's frost, the stroke, the pet, the
- * ice, the stars. Runs of one colour along a row
+ * pixels, in layers: the flames, the stroke, the ice's frost, the pet with
+ * its props and bubbles, the ice, the stars. Runs of one colour along a row
  * are one rectangle. */
 void deck_pet_draw(const deck_pet_look_t *look, int x, int y, int scale, deck_pet_fill_fn fill, void *user);
 
@@ -175,11 +206,11 @@ void deck_pet_bounds(const deck_pet_look_t *look, int scale, int *bx, int *by, i
 
 /* The furthest any look reaches, in cells (inclusive): for a board's fixed box round a pet. */
 #define DECK_PET_REACH_X0 (-5)
-#define DECK_PET_REACH_Y0 (-10)
-#define DECK_PET_REACH_X1 19
+#define DECK_PET_REACH_Y0 (-12)
+#define DECK_PET_REACH_X1 24
 #define DECK_PET_REACH_Y1 15
 
-/* An egg waiting to be seen rocks a cell from side to side (pixels, added to x). */
+/* An egg waiting to be seen wobbles a whole cell from side to side (pixels, added to x). */
 void deck_pet_motion(const deck_pet_look_t *look, uint32_t ms, int scale, int *dx, int *dy);
 
 #ifdef __cplusplus

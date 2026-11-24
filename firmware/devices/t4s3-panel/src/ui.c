@@ -296,14 +296,12 @@ static void critter_of(critter_t *c, const agentsdeck_link_v1_Agent *a, uint32_t
 		c->hat = a->hat.shape;
 		critter_hat_color(a->hat.color, &c->hat_color, &shade);
 	}
-	// Agent pets: the pet in the critter's place; the agent's hat colours an egg's spots.
+	// Agent pets: the pet in the critter's place, in its pose (critter.c); the agent's hat colours an egg's spots.
 	deck_pet_from_proto(&c->pet, a->has_pet, &a->pet);
 	if (a->has_hat) {
 		c->pet_opts.hat = deck_pet_hat_of(a->hat.shape);
 		c->pet_opts.hat_color = deck_pet_hat_color_of(a->hat.color);
 	}
-	c->pet_opts.idle = a->status == agentsdeck_link_v1_Status_STATUS_IDLE ||
-			   a->status == agentsdeck_link_v1_Status_STATUS_EXITED;
 }
 
 // A pet reaches past the critter's box: the box is redrawn that far round it.
