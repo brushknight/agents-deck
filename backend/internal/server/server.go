@@ -127,6 +127,10 @@ type Server struct {
 	// Projects is the project list MCP's project tools change (the admin
 	// service; nil: no project tools).
 	Projects ProjectBook
+
+	// Guard holds what can wait while the computer is busy (cpuguard):
+	// queued prompts and start_agent over MCP. nil: nothing is held.
+	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.

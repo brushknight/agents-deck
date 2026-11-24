@@ -409,3 +409,62 @@ func TestTypeAhead(t *testing.T) {
 		t.Errorf("a view token typed: %s", got)
 	}
 }
+
+// fakeHold is the CPU guard: on while the computer is busy.
+type fakeHold struct{ on bool }
+
+func (f *fakeHold) Holding() (bool, string) {
+	if !f.on {
+		return false, ""
+	}
+	return true, "The Mac is busy (92% CPU for 4 minutes); try again in a few minutes"
+}
+
+// While the CPU guard holds, queued prompts wait; when it lets go (calm, or
+// Send them now), they go on. What you send to an idle agent goes in at
+// once, with mode queue or now. start_agent over MCP is refused.
+func TestQueueHeldWhileBusy(t *testing.T) {
+	s, ctl, tok := newQueueServer(t, "")
+	hold := &fakeHold{on: true}
+	s.Guard = hold
+	h := s.UnixHandler(nil)
+	queuePrompt(t, h, "busy", "one", "")
+	finish(s.Store, "busy")
+	now := time.Now()
+	s.deliver(now)
+	s.deliver(now.Add(time.Minute))
+	if len(ctl.prompted) != 0 || s.Queue.Count("busy") != 1 {
+		t.Fatalf("delivered while held: %v", ctl.prompted)
+	}
+	// Typed by hand: an idle agent with nothing queued takes it now.
+	s.Store.Add(&store.Entry{A: model.Agent{ID: "free", Title: "free", Status: model.Idle, Tool: "claude"}})
+	if code, out := queuePrompt(t, h, "free", "by hand", ""); code != http.StatusOK || out["status"] != "sent" {
+		t.Fatalf("queue mode to an idle agent: %d %v", code, out)
+	}
+	finish(s.Store, "free")
+	if w := do(h, "POST", "/v1/agents/free/prompt", `{"text": "right now", "mode": "now"}`, nil); w.Code != http.StatusNoContent {
+		t.Fatalf("mode now: %d %s", w.Code, w.Body)
+	}
+	if got := sentTexts(ctl); len(got) != 2 || got[0] != `free "by hand" false` || got[1] != `free "right now" false` {
+		t.Fatalf("by hand: %v", got)
+	}
+	_, out := rpc(s.LocalHandler(), "/mcp", tok["chief"], call("start_agent", map[string]any{"folder": "/work/app"}))
+	if text, isErr := toolText(t, out); !isErr || text != "The Mac is busy (92% CPU for 4 minutes); try again in a few minutes" || len(ctl.started) != 0 {
+		t.Fatalf("start_agent while busy: %s %v", text, ctl.started)
+	}
+	// An MCP client's prompt waits, even for an idle agent.
+	finish(s.Store, "free")
+	_, out = rpc(s.LocalHandler(), "/mcp", tok["doer"], call("send_prompt", map[string]any{"agent_id": "free", "text": "from a script"}))
+	if text, isErr := toolText(t, out); isErr || !strings.Contains(text, `"queued"`) || s.Queue.Count("free") != 1 {
+		t.Fatalf("MCP prompt while busy: %s", text)
+	}
+	hold.on = false
+	s.deliver(now.Add(2 * time.Minute))
+	if got := sentTexts(ctl); len(got) != 4 || !strings.Contains(strings.Join(got[2:], " "), `busy "one" false`) ||
+		!strings.Contains(strings.Join(got[2:], " "), `free "from a script" false`) || s.Queue.Count("busy")+s.Queue.Count("free") != 0 {
+		t.Fatalf("after the hold: %v", got)
+	}
+	if _, out = rpc(s.LocalHandler(), "/mcp", tok["chief"], call("start_agent", map[string]any{"folder": "/work/app"})); len(ctl.started) != 1 {
+		t.Fatalf("start_agent after the hold: %v", out)
+	}
+}

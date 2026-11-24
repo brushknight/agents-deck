@@ -58,6 +58,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
+		p.Slowed, p.SlowedByYou = a.Slowed, a.SlowedByYou
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
 		p.AiTitle, p.Cwd, p.Branch, p.ProjectFolder = a.AITitle, a.Cwd, a.Branch, a.ProjectFolder
@@ -88,7 +89,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 	}
 	if has(linkpb.FieldGroup_FIELDS_NUMBERS) {
 		p.Tokens = &linkpb.Tokens{Input: a.Tokens.Input, Output: a.Tokens.Output, CacheRead: a.Tokens.CacheRead, CacheWrite: a.Tokens.CacheWrite}
-		p.CostUsd, p.Turns = a.CostUSD, uint32(a.Turns)
+		p.CostUsd, p.Turns, p.Cpu = a.CostUSD, uint32(a.Turns), float32(a.CPU)
 	}
 	clipMessage(p.ProtoReflect())
 	return p

@@ -122,7 +122,7 @@ daemon uses the socket methods `surface.read_text`, `surface.send_text`, `surfac
 
 Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (in the browser, a free spot's **Or add a Claude session**, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell.
 
-The list comes from Claude Code itself (`claude agents --json`), so it covers every active session on the Mac: ones in your terminals and **background** sessions (`claude --bg`, and the ones the Claude desktop app runs). Older Claude Code versions fall back to scanning for `claude` processes in terminals.
+The list comes from Claude Code itself (`claude agents --json`), so it covers every active session on the Mac: ones in your terminals and **background** sessions (`claude --bg`, and the ones the Claude desktop app runs). Older Claude Code versions fall back to scanning for `claude` processes in terminals. The deck asks again only when Claude Code's own session files change (a session starts, ends, is renamed, starts or ends a turn, or a background session needs you), at most every 10 seconds per account, and every 5 minutes while nothing changes, so it costs next to no CPU while your sessions sit idle. A new or changed session still shows within about 10 seconds.
 
 Added sessions are **watched**: status (working, idle, hungry when a turn finishes while watched), activity, context, cost and subagents come from the session's transcript, and **focus** jumps to its terminal tab. Claude Code reports when one is blocked on you, so the tile turns "needs you"; answer it in that session (the deck can't type into it). Focus on a background session opens it in a new iTerm tab with `claude attach`. **remove from deck** takes the session off the deck; the session itself keeps running. Added sessions come back whenever they run again.
 
@@ -139,6 +139,70 @@ Agents, MCP (or `agentctl mcp token create <name>`), then add it over HTTP (`POS
 cmux and Orca; sessions started by hand in another terminal stay read-only. Every call is checked
 against the token's scope and audited under its name. [mcp.md](mcp.md) has the tools and the
 security model.
+
+## When the Mac is busy
+
+The deck watches how busy the whole computer is (100% means every core busy). When the CPU stays
+over your limit (80% by default) for a while (2 minutes by default), the deck calls the Mac busy. It
+is calm again once the CPU has been under the limit minus 10 (70%) for a minute; the gap stops it
+going back and forth.
+
+While the Mac is busy:
+
+- **It warns you.** The log says so, with who uses the CPU, when it gets busy and when it calms
+  down. The bar at the top of the app starts with "92% CPU" in orange. Home shows a warning with how
+  busy it is, for how long, your limit and where it comes from ("Your limit is 60% until 18:00, from
+  the schedule."), what is held, and a Who uses it link to Using the most, in Settings, Agents, When
+  the Mac is busy: the biggest users, agents, other programs and the deck itself, each with a bar.
+  While a schedule is on, the CPU cell on Home says the limit ("limit 60%", or "70% till 18:00" for
+  a limit you picked) instead of "calm".
+- **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
+  agent's queue marks each one Held. Prompts from an MCP client wait in the queue too, even for an
+  idle agent, and its `start_agent` is refused with "The Mac is busy (92% CPU for 4 minutes); try
+  again in a few minutes". What you type or press on the deck, a board or in the browser still goes
+  in at once. **Send them now** on Home, or Send now over an agent's queue, lets the queued prompts
+  go for this busy spell; the next one holds them again.
+- **It slows down the heaviest agent** (Slow down the heaviest agent, on by default, macOS only).
+  The agent using the most CPU (at least 5%) runs in the background: every process on its terminal
+  moves to the efficiency cores and its disk use is throttled, the way `taskpolicy -b` does it. It
+  keeps working, only slower, and so do the processes it starts later (the deck looks again every 30
+  seconds). If the Mac stays busy for another window (2 minutes by default), the next heaviest agent
+  is slowed too, 3 at most. In Using the most, an agent the deck slowed shows **Slowed**, and
+  one you slowed shows **Slowed by you**, each with **Full speed**, which puts it back for the rest
+  of this busy spell; any other agent shows **Slow it**, to slow it by hand. Agents you slow don't
+  count toward the 3, and turning Slow down the heaviest agent off puts back only the deck's picks.
+  It is all undone when the Mac is calm, when the agent ends and when the deck stops; after a
+  crash, the deck undoes it when it starts again (it keeps the slowed processes in `slowed.json`).
+  The deck never changes a nice value, never pauses or stops a process, and never touches other
+  programs or its own processes.
+
+  Only agents whose terminal the deck knows can be slowed: the ones it started, and Claude sessions
+  started by hand in a terminal. Agents in the Codex app, Orca, herdr and cmux, and background Claude
+  sessions, are not slowed for now.
+
+Change it in Settings, Agents, When the Mac is busy: watch the CPU or not, the limit (60 to 95%), how
+long (1, 2 or 5 minutes), whether to hold and whether to slow. It is stored in `config.json` as
+`"cpuGuard"`. On Linux and Windows it warns and holds the same way, but slows nothing; where the deck
+can't read the CPU, it says so and holds nothing.
+
+**What an agent runs.** The load usually comes from what an agent starts (a build, the tests, a
+simulator), not from the agent itself, so each agent in Using the most lists its biggest programs,
+such as `xcodebuild 30%, swift-frontend 12%`. They are the programs on the agent's terminal; an app
+the build opens on its own (the iOS Simulator) shows as a program of its own. The log line on
+getting busy names them too.
+
+**A schedule for the limit.** Turn on Follow a schedule to give parts of the week their own limit:
+say 60% on weekdays from 09:00 to 18:00, when you work next to the agents, and the plain limit (80%)
+the rest of the week. Blocks go in half hours, on the Mac's own clock, and a block that ends before
+it starts runs past midnight; two blocks can't cover the same time. The deck looks every minute and
+logs each change ("limit 60% from the schedule (Mon 09:00-18:00)"). A limit you pick by hand while
+the schedule is on lasts until the schedule's next change, then the schedule takes over again;
+Back to schedule ends it sooner.
+
+From a terminal: `agentctl cpu` prints the limit and where it comes from, `agentctl cpu schedule`
+the week, `agentctl cpu limit 70` picks a limit until the schedule's next change (`--for 3h` for a
+set time; with no schedule, without `--for`, it is the plain limit), and `agentctl cpu limit
+schedule` goes back to the schedule.
 
 ## Agent terminals
 
@@ -263,7 +327,7 @@ to icons (the browser remembers which). Everything on it is also a command.
 | page | what you can do | in a terminal |
 |---|---|---|
 | Home | the deck: a strip with how many agents need you, updates ready and boards waiting; the agents as tiles in pages of 16 (drag one onto another spot to move it); once you have projects, **All** or **By project** over the tiles: By project puts them under a header per project (its name, how many agents, and which of its folders they work in, with a count each), then **No project**, and a chip per project shows only its agents. There a tile moves only by dragging it onto another tile of the same project. This browser remembers the choice; All is the default; **Needs you** and **Ready for you** beside them. A tile opens the agent's page: its question with the answers (keys 1 to 9 answer it), or what it is doing, its context, tokens, cost and turns, a box to send it a prompt (or queue one while it works, listed with **Cancel**), **Interrupt**, **Focus**, **Continue on** another account, **Stop**; a click on the critter picks the folder's hat. A free spot starts an agent in one of your projects, with a first prompt if you like. **Panel** shows the page as the wall panel draws it (Esc leaves) | `agentctl ls`, `agentctl new`, `agentctl move` |
-| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token` |
+| Agents | which tools were found and how many agents each has; your projects; whether Claude sessions started elsewhere join the deck by themselves, and the ones running outside the deck (Add to deck); accounts, their colours and the one new agents start in; MCP tokens; what to do [when the Mac is busy](#when-the-mac-is-busy) | `agentctl live`, `agentctl set sessions`, `agentctl accounts`, `agentctl mcp token`, `agentctl cpu limit` |
 | Boards | tabs: **Your boards** (what waits for your approval, then each board with its screen and how it is connected), **Add a board** (over USB, or Look for Bluetooth boards nearby and add one with the code on its screen), **Magic trick**, **USB ports** (forget a port, or say a port is a board). A board's own page: rename, how it is connected and its uplink, its Wi-Fi, Bluetooth, what it may do, its part in the magic trick, update its firmware or install a firmware file of your own, cut off, remove. A new ESP32 on USB appears under Waiting for you; Set it up asks whether it's yours, looks at it, lets you pick the board and installs the firmware with a progress bar | `agentctl devices`, `agentctl ports`, `agentctl flash --board`, `agentctl firmware add`, `agentctl bluetooth` |
 | Network | whether paired devices may connect over the network, the Wi-Fi network boards get on USB or Bluetooth, each board's network, whether Bluetooth is on and allowed, pairing a phone or desk panel and the ones paired | `agentctl settings network`, `agentctl link wifi`, `agentctl pair` |
 | General | start when you log in (the service; on Linux the tray app too, when it's installed; on macOS add the app in System Settings > Login Items), bring agents back after a restart, notifications and their sound, install the `agentctl` command | `agentctl settings`, `agentctl install` |

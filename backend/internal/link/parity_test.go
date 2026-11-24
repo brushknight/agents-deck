@@ -156,7 +156,7 @@ func TestAgentParity(t *testing.T) {
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
 		Project: &model.Project{ID: "p0a1b2c3d", Name: "harbor"}, ProjectFolder: "/x",
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, SlowedByYou: true, CPU: 12.5, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
@@ -176,7 +176,8 @@ func TestAgentParity(t *testing.T) {
 	}
 	// A tile-only subscription leaves the card fields out.
 	tile := toPB(full, uint32(linkpb.FieldGroup_FIELDS_TILE))
-	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 {
+	if tile.Cwd != "" || tile.Waiting != nil || tile.Tokens != nil || tile.Title != "t" || tile.SubagentCount != 1 || tile.AttentionSlot != 2 ||
+		!tile.Slowed || !tile.SlowedByYou || tile.Cpu != 0 {
 		t.Errorf("tile fields: %+v", tile)
 	}
 	// The project goes with the tile, the folder it matched with the card;
@@ -194,6 +195,9 @@ func TestAgentParity(t *testing.T) {
 	long.Project = &model.Project{ID: "p0a1b2c3d", Name: strings.Repeat("n", 60)}
 	if n := toPB(long, 1).GetProject().GetName(); len(n) > 47 || !strings.HasSuffix(n, "…") {
 		t.Errorf("a long project name isn't clipped to Project.name: %q", n)
+	}
+	if n := toPB(full, uint32(linkpb.FieldGroup_FIELDS_NUMBERS)); n.Cpu != 12.5 || n.Slowed {
+		t.Errorf("numbers: cpu %v, slowed %v", n.Cpu, n.Slowed)
 	}
 }
 

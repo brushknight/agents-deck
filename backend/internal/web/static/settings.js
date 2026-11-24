@@ -251,6 +251,7 @@ const ICONS = {
   reply: [['path', { d: 'M10 7L4.5 12l5.5 5M5 12h9a5.5 5.5 0 0 1 5.5 5.5V19' }]],
   auto: [['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17.5 3v3.6h-3.6M6.5 21v-3.6h3.6' }]],
   power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
+  gauge: [['path', { d: 'M5.6 18.4a9 9 0 1 1 12.8 0' }], ['path', { d: 'M12 14l4.5-5' }], ['circle', { cx: 12, cy: 14, r: 1.6 }]],
 };
 function icon(name, size = 14, width = 2) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -313,7 +314,7 @@ function toggle(label, on, onChange, opts = {}) {
 
 // seg: a group of choices, one picked (a radio group: arrow keys move).
 function seg(label, options, current, onChange, opts = {}) {
-  const group = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label });
+  const group = h('div', { class: `seg ${opts.cls || ''}`.trim(), role: 'radiogroup', 'aria-label': label });
   options.forEach((o) => {
     const on = o.value === current;
     group.append(h('button', {
@@ -464,7 +465,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
+    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs', cpu: '/admin/v1/cpu',
   };
   try {
     const r = await api('GET', paths[what]);
@@ -491,7 +492,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state'] }[page] || [];
+  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
 }
 
 function firstError(page) {
@@ -536,8 +537,12 @@ function drawTop() {
   if (!show) return;
   const sys = S.system || {};
   const need = agentsList().filter(needsYou).length;
-  const cell = (n, words, href, hot) => h('a', { class: hot ? 'hotc' : '', href }, h('b', {}, String(n)), h('span', {}, words));
-  bar.replaceChildren(
+  const cell = (n, words, href, hot, title) => h('a', { class: hot ? 'hotc' : '', href, title }, h('b', {}, String(n)), h('span', {}, words));
+  const c = cpuOf();
+  // The CPU cell stays short ("92% CPU"), so the status fits at 1024 px;
+  // orange says busy.
+  put(bar,
+    c ? cell(pct(c.percent), 'CPU', c.busy ? '#home' : '#agents/cpu', c.busy, c.busy ? `The ${machine()} is busy` : null) : null,
     cell(need, 'need you', '#home', need > 0),
     cell(updatesReady(sys), updatesReady(sys) === 1 ? 'update' : 'updates', '#updates'),
     cell(boardsWaiting(sys), 'boards waiting', '#boards'),
@@ -545,6 +550,315 @@ function drawTop() {
       h('span', {}, h('span', { class: 'p' }, '$'), ' agentctl status'),
       connOK ? h('span', { class: 'okc' }, 'running') : h('span', { class: 'badc' }, 'not answering'),
       h('span', {}, sys.version || '')));
+}
+
+// ---- the CPU guard: when the computer is busy ------------------------------------------------
+// S.system.cpu (absent while the guard is off): how busy the whole computer
+// is, and whether queued prompts are held.
+
+const machine = () => ((S.system?.platform || '').startsWith('darwin') ? 'Mac' : 'computer');
+const cpuOf = () => (S.system?.cpu?.available ? S.system.cpu : null);
+const pct = (n) => `${Math.round(n)}%`;
+const minutesSince = (iso) => plural(Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60000)), 'minute');
+// What Using the most measures over: it comes from ps, whose %cpu is a
+// decaying average of about the last minute on macOS, and each process's
+// average since it started on Linux.
+const topWindow = () => ((S.system?.platform || '').startsWith('darwin') ? 'about the last minute' : 'since each program started');
+
+// cpuRelease is Send them now: queued prompts go in although the computer
+// is busy, until it is calm again.
+const cpuRelease = (el) => busy(el, async () => {
+  S.system.cpu = await api('POST', '/admin/v1/cpu/release');
+  showSystem(S.system);
+  updateDeck();
+}, 'Sending the queued prompts');
+
+// cpuFace: who uses the CPU, in a 40 px box: an agent's critter with its
+// hat (as its tile draws it), the deck's own critter, or a program's first
+// letter.
+function cpuFace(u, a) {
+  if (u.kind === 'deck') return h('span', { class: 'face' }, critter({ hat: { shape: 'propeller', color: 'blue' }, cut: '#141412', centre: true }));
+  if (u.kind !== 'agent') return h('span', { class: 'face lt', 'aria-hidden': 'true' }, [...(u.name || '?').trim()][0]?.toUpperCase() || '?');
+  const face = h('span', { class: 'face dk' });
+  face.style.setProperty('--body', '#FF4D00');
+  face.style.setProperty('--cut', '#141412');
+  const spr = h('span', { class: 'spr c' });
+  setSprite(spr, a ? poseOf(a) : 'idle', a?.tool || 'claude', a?.hat || null, { bubble: false });
+  face.append(spr);
+  return face;
+}
+
+// cpuUserRow: one user of the CPU, a whole line: face, name (an agent's
+// biggest programs under it), a bar and its share of every core. more: what goes at the end of the line.
+function cpuUserRow(u, more = []) {
+  const a = u.kind === 'agent' ? agentsList().find((x) => x.id === u.agent) : null;
+  const name = u.kind === 'deck' ? 'agents deck' : u.name;
+  const kind = u.kind === 'deck' ? 'agentctl and its helpers'
+    : u.kind === 'agent' ? (a && TOOL_NAMES[a.tool]) || 'agent'
+      : 'not an agent · the deck only shows it';
+  const cmds = (u.commands || []).map((x) => `${x.name} ${x.percent < 1 ? x.percent.toFixed(1) : Math.round(x.percent)}%`).join(' · ');
+  const fill = h('div');
+  fill.style.width = `${Math.max(0, Math.min(100, u.percent))}%`;
+  return h('div', { class: 'cpuu' }, cpuFace(u, a),
+    h('span', { class: 'grow' }, h('span', { class: 'nm', title: name }, name), h('span', { class: 'sub' }, kind),
+      cmds ? h('span', { class: 'sub cmds', title: 'What uses the most on its terminal' }, cmds) : null),
+    h('span', { class: 'bar', 'aria-hidden': 'true' }, fill),
+    h('b', { class: 'mono pc' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
+    ...more);
+}
+
+// The limit in use (S.system.cpu): where it comes from and until when.
+const hhmm = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+// whenAt: "18:00" today, "Tue 09:00" another day.
+function whenAt(iso) {
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? hhmm(d) : `${d.toLocaleDateString([], { weekday: 'short' })} ${hhmm(d)}`;
+}
+// whenShort: "18:00" today, "Tue" another day (the strip's CPU cell is narrow).
+function whenShort(iso) {
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? hhmm(d) : d.toLocaleDateString([], { weekday: 'short' });
+}
+// limitSays: the banner's words for the limit.
+function limitSays(c) {
+  const until = c.until ? ` until ${whenAt(c.until)}` : '';
+  if (c.limitFrom === 'schedule') return `Your limit is ${c.limit}%${until}, from the schedule.`;
+  if (c.limitFrom === 'override') return `Your limit is ${c.limit}%${until}, set by ${c.by || 'hand'}.`;
+  return `Your limit is ${c.limit}%${c.scheduled ? until : ''}.`;
+}
+// cpuSecond: the strip's CPU cell, its second line.
+function cpuSecond(c) {
+  if (c.busy) return machine() === 'Mac' ? 'Mac busy' : 'busy';
+  if (c.limitFrom === 'override') return c.until ? `${c.limit}% till ${whenShort(c.until)}` : `limit ${c.limit}%`;
+  return c.scheduled ? `limit ${c.limit}%` : 'calm';
+}
+
+// cpuBlock: on Home while the computer is busy: a warning (how busy, for
+// how long, where the limit comes from, what waits, Send them now) and a
+// link to who uses the CPU, in Settings.
+function cpuBlock() {
+  const c = cpuOf();
+  if (!c || !c.busy) return null;
+  const under = `under ${c.limit - 10}% for a minute`;
+  let what = `Nothing is held: Hold queued prompts is off in Settings, Agents.`;
+  if (c.released) what = `Queued prompts go in anyway until it is ${under}.`;
+  else if (c.hold && c.held) what = `${plural(c.held, 'queued prompt')} wait${c.held === 1 ? 's' : ''} until it is ${under}.`;
+  else if (c.hold) what = `Queued prompts wait until it is ${under}.`;
+  const byYou = (id) => (c.slowedByYou ? c.slowedByYou.includes(id) : !!agentsList().find((x) => x.id === id)?.slowedByYou);
+  const picked = (c.slowed || []).filter((id) => !byYou(id)).length; // the guard's picks, not yours
+  if (picked) {
+    what += ` ${picked === 1 ? 'The heaviest agent runs' : `The ${say(picked).toLowerCase()} heaviest agents run`} in the background until ${what.endsWith('for a minute.') ? 'then' : `the ${machine()} is calm`}.`;
+  }
+  return h('div', { class: 'ask cpuask', role: 'status' },
+    h('span', { class: 'af', 'aria-hidden': 'true' }, icon('gauge', 30, 2.2)),
+    h('span', { class: 'grow' },
+      h('b', {}, h('span', { class: 'sr' }, `${machine() === 'Mac' ? 'The Mac' : 'This computer'} is busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. ${limitSays(c)}`),
+      h('span', {}, what, ' ', h('a', { href: '#agents/cpu-top', 'data-k': 'cpu-who' }, 'Who uses it'))),
+    c.hold && c.held ? btn('Send them now', (e) => cpuRelease(e.currentTarget), 'dark fix', { 'data-k': 'cpu-release' }) : null);
+}
+
+// usingTheMost: in Settings, under When the Mac is busy: who uses the CPU,
+// each agent with its biggest programs; while busy, Slow it and Full speed.
+// One ps every 30 s while the page is open.
+function usingTheMost() {
+  const c = cpuOf();
+  if (!c) return null;
+  if (!S.cpuTopAt || Date.now() - S.cpuTopAt > 30000) {
+    S.cpuTopAt = Date.now();
+    api('GET', '/admin/v1/cpu?top=6').then((r) => { S.cpuTop = r?.top; if (S.page === 'agents') draw(false); }).catch(() => {});
+  }
+  const top = S.cpuTop;
+  const rule = h('div', { class: 'rule' }, h('h2', {}, 'Using the most'), h('span', { class: 'm' }, `${topWindow()} · 100% = every core`));
+  if (top && !top.available) return [rule, blk(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, `Not listed here: ${top.why}.`)))];
+  const users = (top?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
+  const slowed = c.slowed || [];
+  for (const id of slowed) { // a slowed agent stays listed, so Full speed is at hand
+    const a = agentsList().find((x) => x.id === id);
+    if (a && !users.some((u) => u.agent === id)) users.push({ kind: 'agent', agent: id, name: a.title || a.aiTitle || id, percent: a.cpu || 0 });
+  }
+  if (!users.length) return [rule, blk(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, top ? 'Nothing uses the CPU right now.' : 'Looking…')))];
+  const byYou = (id) => (c.slowedByYou ? c.slowedByYou.includes(id) : !!agentsList().find((x) => x.id === id)?.slowedByYou);
+  const act = (path, id, text, done) => btn(text, (e) => busy(e.currentTarget, async () => {
+    S.system.cpu = await api('POST', `/admin/v1/cpu/${path}/${encodeURIComponent(id)}`);
+    showSystem(S.system);
+    draw(true);
+  }, done), '', { 'data-k': `cpu-${path}:${id}` });
+  // The last two slots of a line: Slowed (by the guard) or Slowed by you,
+  // then Full speed; or, while busy, Slow it (macOS only). Programs and the
+  // deck leave them empty.
+  const slots = (u) => {
+    let c1 = null, c2 = null;
+    if (u.kind === 'agent' && slowed.includes(u.agent)) {
+      c1 = byYou(u.agent)
+        ? chip('Slowed by you', 'acc', null, { title: `You slowed this agent. It goes back to full speed when the ${machine()} is calm, or with Full speed` })
+        : chip('Slowed', 'acc', null, { title: 'Slowed by the CPU guard: it was using the most CPU' });
+      c2 = act('full-speed', u.agent, 'Full speed', 'Back to full speed');
+    } else if (c.busy && u.kind === 'agent' && machine() === 'Mac') c2 = act('slow', u.agent, 'Slow it', 'Running it in the background until the Mac is calm');
+    return [h('span', { class: 'act' }, h('span', { class: 'cs' }, c1), h('span', { class: 'bs' }, c2))];
+  };
+  return [rule, h('div', { class: 'blk cputop' }, users.map((u) => cpuUserRow(u, slots(u))))];
+}
+
+// ---- the schedule for the limit ------------------------------------------------------------
+
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const LIMITS = [60, 65, 70, 75, 80, 85, 90, 95];
+const HALF_HOURS = Array.from({ length: 49 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`); // 00:00 to 24:00
+const minsOf = (t) => { const m = /^(\d\d):(\d\d)$/.exec(t || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+// schedDraft: the blocks being edited, from the saved ones until you change one.
+function schedDraft(g) {
+  if (!S.sched?.dirty) S.sched = { blocks: (g.schedule?.blocks || []).map((b) => ({ ...b, days: [...b.days] })), dirty: false, err: '' };
+  return S.sched;
+}
+const editSched = (fn) => { fn(S.sched.blocks); S.sched.dirty = true; S.sched.err = ''; draw(true); };
+
+// timeSel, limitSel: a block's pickers (styled selects).
+function smallSel(label, options, current, onChange, key) {
+  return h('select', { class: 'pick sm', 'aria-label': label, 'data-k': key, onchange: (e) => onChange(e.target.value) },
+    ...options.map((o) => h('option', { value: o.value, selected: o.value === current }, o.text)));
+}
+
+// blockRow: one block, edited in place: days, from, to, limit, remove.
+function blockRow(b, i) {
+  const n = `Block ${i + 1}`;
+  const days = h('div', { class: 'days', role: 'group', 'aria-label': `${n}: days` }, DAYS.map((d, j) => h('button', {
+    type: 'button', class: 'day', 'aria-pressed': b.days.includes(d) ? 'true' : 'false', 'aria-label': DAY_NAMES[j], title: DAY_NAMES[j], 'data-k': `sched-day:${i}:${d}`,
+    onclick: () => editSched((bl) => { const on = new Set(bl[i].days); if (on.has(d)) on.delete(d); else on.add(d); bl[i].days = DAYS.filter((x) => on.has(x)); }),
+  }, 'MTWTFSS'[j])));
+  const f = minsOf(b.from), t = minsOf(b.to);
+  const field = (label, el) => h('div', { class: 'field' }, h('span', { class: 'kl' }, label), el);
+  return h('div', { class: 'sblk', 'data-row': `block-${i}` },
+    field('Days', days),
+    field('From', smallSel(`${n}: from`, HALF_HOURS.slice(0, 48).map((v) => ({ value: v, text: v })), b.from, (v) => editSched((bl) => { bl[i].from = v; }), `sched-from:${i}`)),
+    field('To', smallSel(`${n}: to`, HALF_HOURS.slice(1).map((v) => ({ value: v, text: v })), b.to, (v) => editSched((bl) => { bl[i].to = v; }), `sched-to:${i}`)),
+    field('Limit', smallSel(`${n}: limit`, LIMITS.map((v) => ({ value: String(v), text: `${v}%` })), String(b.limit), (v) => editSched((bl) => { bl[i].limit = Number(v); }), `sched-limit:${i}`)),
+    h('button', { type: 'button', class: 'btn sm rm', 'aria-label': `Remove ${n.toLowerCase()}`, title: 'Remove', 'data-k': `sched-rm:${i}`, onclick: () => editSched((bl) => { bl.splice(i, 1); }) }, icon('x', 14)),
+    h('span', { class: 'sub nx' }, f !== null && t !== null && t < f ? 'ends the next day' : ''));
+}
+
+// weekPreview: the week as seven tracks, the blocks on them (an unsaved
+// edit too), today marked and a line for now. Read only.
+function weekPreview(blocks, base) {
+  const now = new Date();
+  const today = (now.getDay() + 6) % 7;
+  const segs = DAYS.map(() => []);
+  for (const b of blocks) {
+    const f = minsOf(b.from), t = minsOf(b.to);
+    if (f === null || t === null || f === t) continue;
+    for (const d of b.days) {
+      const j = DAYS.indexOf(d);
+      if (j < 0) continue;
+      if (t > f) segs[j].push([f, t, b]);
+      else { segs[j].push([f, 1440, b]); if (t > 0) segs[(j + 1) % 7].push([0, t, b]); }
+    }
+  }
+  const at = (el, from, to) => { el.style.left = `${(from / 1440) * 100}%`; el.style.width = `${((to - from) / 1440) * 100}%`; return el; };
+  const tracks = DAYS.map((d, j) => {
+    const trk = h('div', { class: 'trk' }, segs[j].map(([f, t, b]) => {
+      const el = at(h('span', { class: 'wb', title: `${b.from}-${b.to} · ${b.limit}%` }, t - f >= 150 ? `${b.limit}%` : ''), f, t);
+      el.style.setProperty('--a', String(Math.max(0.15, (100 - b.limit) / 40)));
+      return el;
+    }));
+    if (j === today) {
+      const line = h('i', { class: 'now' });
+      line.style.left = `${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%`;
+      trk.append(line);
+    }
+    return h('div', { class: `wk${j === today ? ' today' : ''}` }, h('span', { class: 'wd' }, DAY_NAMES[j].slice(0, 3)), trk);
+  });
+  const scale = h('div', { class: 'wk scale' }, h('span', { class: 'wd' }),
+    h('div', { class: 'trk' }, ['00', '06', '12', '18', '24'].map((x, k) => { const el = h('span', {}, x); el.style.left = `${k * 25}%`; return el; })));
+  return h('div', { class: 'week', role: 'img', 'aria-label': `The week: ${blocks.length ? plural(blocks.length, 'block') : 'no blocks'}, ${base}% the rest of the time` },
+    scale, ...tracks, h('span', { class: 'sub' }, `The rest of the week: ${base}%.`));
+}
+
+// limitNow: the limit in use, in one line, with Back to schedule while a
+// limit picked by hand is on.
+function limitNow(c) {
+  if (!c) return null;
+  if (c.limitFrom === 'override') {
+    const back = btn('Back to schedule', async (e) => { await patchSettings({ cpuGuard: { override: null } }, e.currentTarget); await load('system'); draw(true); }, '', { 'data-k': 'cpu-back' });
+    return h('div', { class: 'row thin' }, h('span', { class: 'ttl' }, `Now ${c.limit}%, set by ${c.by || 'hand'}${c.setAt ? ` at ${whenAt(c.setAt)}` : ''}${c.until ? ` · until ${whenAt(c.until)}` : ''}`), h('div', { class: 'r' }, back));
+  }
+  return h('div', { class: 'row thin' }, h('span', { class: 'ttl' }, `Now ${c.limit}%${c.until ? `, until ${whenAt(c.until)} · then ${c.next}%` : ''}`));
+}
+
+async function saveSched(el) {
+  const s = S.sched;
+  el.disabled = true;
+  el.setAttribute('aria-busy', 'true');
+  try {
+    const r = await api('PATCH', '/admin/v1/settings', { cpuGuard: { schedule: { on: true, blocks: s.blocks } } });
+    S.settings = r.settings;
+    S.sched = null;
+    toast('Saved');
+    await load('system');
+  } catch (e) {
+    if (e.status === 401) return;
+    s.err = e.message;
+  }
+  draw(true);
+}
+
+// scheduleRows: the blocks, one row each, Add a block, Save, the week, and
+// the limit now.
+function scheduleRows(g) {
+  const s = schedDraft(g);
+  const out = [];
+  const list = h('div', { class: 'sblks' }, s.blocks.length ? s.blocks.map(blockRow)
+    : h('span', { class: 'sub' }, `No blocks yet: the limit is ${g.limit}% all week.`));
+  const add = btn([icon('plus', 13), 'Add a block'], () => editSched((bl) => { bl.push({ days: DAYS.slice(0, 5), from: '09:00', to: '18:00', limit: 60 }); }), '', { 'data-k': 'sched-add', disabled: s.blocks.length >= 50 });
+  const save = btn('Save', (e) => saveSched(e.currentTarget), 'p', { 'data-k': 'sched-save', disabled: !s.dirty });
+  const discard = s.dirty ? btn('Discard changes', () => { S.sched = null; draw(true); }, 'link small', { 'data-k': 'sched-discard' }) : null;
+  out.push(h('div', { class: 'row top sched' }, h('div', { class: 'grow' },
+    list,
+    s.err ? h('p', { class: 'note err', role: 'alert' }, s.err) : null,
+    h('div', { class: 'actions' }, add, h('div', { class: 'r' }, discard, save)),
+    weekPreview(s.blocks, g.limit))));
+  return out;
+}
+
+// cpuSection: Settings, Agents: what the deck does when the computer is
+// busy, the schedule for the limit, and who uses the CPU.
+function cpuSection() {
+  const g = S.settings?.cpuGuard;
+  if (!g) return null; // an older service
+  const set = (patch, el) => patchSettings({ cpuGuard: patch }, el);
+  const m = machine();
+  const sched = !!g.schedule?.on;
+  const c = S.system?.cpu;
+  const rows = [row('Watch the CPU', `How busy the whole ${m} is, every 5 seconds.`, [toggle('Watch the CPU', g.on, (on, el) => set({ on }, el), { key: 'cpu-on' })])];
+  if (g.on) {
+    // With the schedule on, the Limit row is the limit for the rest of the
+    // week ("schedule" in the same patch says so).
+    rows.push(h('div', { class: 'row top' }, h('div', { class: 'grow' },
+      h('div', { class: 'actions' },
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Limit'), seg('Limit', LIMITS.map((v) => ({ value: v, text: `${v}%` })), g.limit, (v) => set(sched ? { limit: v, schedule: { on: true } } : { limit: v }), { key: 'cpu-limit', cls: 'even' })),
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'For'), seg('For', [{ value: '1m', text: '1 min' }, { value: '2m', text: '2 min' }, { value: '5m', text: '5 min' }], g.for, (v) => set({ for: v }), { key: 'cpu-for', cls: 'even' }))),
+      h('span', { class: 'sub' }, `${sched ? 'Your limit for the rest of the week, outside the blocks below. ' : ''}Over it, then under ${g.limit - 10}% for a minute to clear. 100% is every core.`))));
+    rows.push(row('Follow a schedule', `Other limits for parts of the week, on this ${m}'s clock. It repeats every week.`,
+      [toggle('Follow a schedule', sched, (on, el) => { S.sched = null; return set({ schedule: { on } }, el); }, { key: 'cpu-sched' })]));
+    if (sched) rows.push(...scheduleRows(g));
+    if (sched && c?.available) rows.push(limitNow(c));
+    rows.push(row('Show a warning', `In the log, the bar on top and Home, with who uses the CPU.`, [chip('Always')]));
+    rows.push(row('Hold queued prompts', 'And agents started over MCP. What you type or press still goes at once.', [toggle('Hold queued prompts', g.hold, (on, el) => set({ hold: on }, el), { key: 'cpu-hold' })]));
+    const mac = m === 'Mac';
+    rows.push(row('Slow down the heaviest agent', mac ? 'Runs it in the background (efficiency cores, slower disk) until the Mac is calm. macOS only.' : 'macOS only.',
+      [toggle('Slow down the heaviest agent', mac && g.slow, (on, el) => set({ slow: on }, el), { key: 'cpu-slow', disabled: !mac })]));
+  }
+  const mc = S.cpu?.machine;
+  const parts = [];
+  if (c && !c.available) parts.push(`The CPU can't be read here (${c.why}), so nothing is held.`);
+  else if (c || mc?.available) parts.push(`Now ${pct(c ? c.percent : (mc.last1 ?? mc.now))}`);
+  if (c?.peak) parts.push(`busiest today ${pct(c.peak.percent)} at ${hhmm(new Date(c.peak.at))}`);
+  const self = S.cpu?.last1 || S.cpu?.sinceStart;
+  if (self && mc?.cores) parts.push(`agents deck ${(self.percent / mc.cores).toFixed(1)}%`);
+  if (parts.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, parts.join(' · '))));
+  const top = g.on ? usingTheMost() : null;
+  return h('section', { class: 'sec', id: 'cpu', 'data-sec': 'cpu' }, h('div', { class: 'rule' }, h('h2', {}, `When the ${m} is busy`)), blk(...rows),
+    top ? h('div', { class: 'sec', id: 'cpu-top', 'data-sec': 'cpu-top' }, ...top) : null);
 }
 
 // The sidebar folds to an icon rail; the choice is remembered here only.
@@ -861,7 +1175,9 @@ function summaryStrip() {
   const nUpd = (appUpdate(u) && S.laterUpdate !== u.version ? 1 : 0) + (sys.firmware_updates || 0);
   const nBoards = boardsWaiting(sys);
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
-  return h('nav', { class: 'strip', 'aria-label': 'Summary' },
+  const c = cpuOf();
+  return h('nav', { class: `strip${c ? ' cpu' : ''}`, 'aria-label': 'Summary' },
+    c ? h('a', { href: '#agents/cpu', class: c.busy ? 'hotc' : '' }, h('span', { class: 'n' }, pct(c.percent)), h('span', { class: 'l' }, 'CPU', h('br'), cpuSecond(c))) : null,
     h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
@@ -925,7 +1241,7 @@ function fillDeck() {
       h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }), viewSeg);
   }
   const lost = agentsList().filter((a) => a.lost);
-  put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+  put(deck.strip, summaryStrip(), cpuBlock(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
     btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
@@ -1194,15 +1510,22 @@ function queuedBy(by) {
 
 // queueBlock: the prompts queued for an agent, each with Cancel. They go in
 // one at a time, as each turn ends; it reads them again when the count or
-// the status changes.
+// the status changes. While the CPU guard holds the queue, they say Held, and
+// Send now sends them anyway.
 function queueBlock(a, note) {
   const list = h('div', { class: 'blk qlist2' });
-  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true },
-    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), h('span', { class: 'm' }, 'each goes in when a turn ends')), list);
+  const rule = h('div', { class: 'rule' });
+  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true }, rule, list);
   let sig = null;
   const show = (items) => {
     el.hidden = !items.length;
-    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`,
+    const held = !!S.system?.cpu?.hold && items.length > 0;
+    put(rule, h('h2', {}, 'Queued'), held
+      ? [h('span', { class: 'm acc2' }, `Held: the ${machine()} is busy`),
+        h('button', { type: 'button', class: 'go', 'data-k': 'cpu-release-queue', onclick: (e) => cpuRelease(e.currentTarget) }, 'Send now →')]
+      : h('span', { class: 'm' }, 'each goes in when a turn ends'));
+    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`, [
+      held ? chip('Held', 'acc held', null, { title: `Held until the ${machine()} is calm` }) : null,
       btn('Cancel', (e) => busy(e.currentTarget, async () => {
         let gone = false;
         try {
@@ -1215,11 +1538,12 @@ function queueBlock(a, note) {
         await load('state');
         updateDeck();
         return gone;
-      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` }),
+      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` })],
       { cls: 'qitem' })));
   };
   const update = async (x) => {
-    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    // Read again when the CPU guard starts or stops holding, too.
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}|${S.system?.cpu?.hold ? 'held' : ''}`;
     if (want === sig) return;
     sig = want;
     if (!x.queued) { show([]); return; }
@@ -1937,6 +2261,7 @@ function drawAgents() {
     h('span', { class: 'mono w' }, h('span', { class: 'p' }, '$'), ' agentctl accounts add')));
   out.push(sec('Accounts', a.accounts.length ? plural(a.accounts.length, 'Claude account') : null, null, blk(...acc)));
   out.push(...mcpSection());
+  out.push(cpuSection());
   return out;
 }
 
@@ -3666,7 +3991,7 @@ async function route(initial) {
   if (page === 'agents') await loadToday();
   draw();
   syncBar();
-  if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
+  if (page === 'agents' && ['projects', 'cpu', 'cpu-top'].includes(arg)) document.getElementById(arg)?.scrollIntoView({ block: 'start' });
   if (changed && !initial) {
     const hd = document.querySelector(`.page > section[data-page="${section}"] h1`);
     if (hd) { hd.tabIndex = -1; hd.focus({ preventScroll: true }); }
