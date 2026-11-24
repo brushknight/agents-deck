@@ -280,7 +280,10 @@ void main() {
     expect(find.text('please tidy the export tables'), findsOneWidget);
     // With two accounts: which one it runs in, beside the status; moving
     // it to the other is for the browser.
-    expect(find.byKey(const Key('agent-account')), findsOneWidget);
+    // A working agent: at the end of the last prompt's row, the square and
+    // the name only.
+    expect(find.byKey(const Key('agent-account')), findsNothing);
+    expect(find.byKey(const Key('agent-account-name')), findsOneWidget);
     expect(find.text('personal'), findsOneWidget);
     expect(find.text('CONTINUE ON WORK'), findsNothing);
     // No clock on this page.
