@@ -219,7 +219,8 @@ agent in that account runs.
 - **Claude Code:** the agents the deck starts run `agentctl statusline` as their status line. It hands
   Claude Code's `rate_limits` to the service, then runs the status line the project or the account has
   (`.claude/settings.local.json`, `.claude/settings.json`, then the account's `settings.json`) with the
-  same input and passes its output on. Claude Code reports the week (`seven_day`), a 5-hour window
+  same input and passes its output on. Claude Code runs it often; the service hears from it only when
+  the account's numbers changed, or every 5 minutes while they don't. Claude Code reports the week (`seven_day`), a 5-hour window
   (`five_hour`, kept but `hidden`) and, behind a Claude apps gateway, `spend`. Per-model weekly limits
   are not in that report: the service learns of one when Claude Code writes "You've hit your Fable
   limit · resets …" into a transcript, and keeps it until that time.

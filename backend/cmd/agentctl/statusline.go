@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/paths"
 )
 
 // statusline is Claude Code's status line command in the agents the deck
@@ -26,11 +30,16 @@ func statusline() int {
 	if os.Getenv("AGENTSTERM_STATUSLINE") != "" {
 		return 0 // run by itself through a chain: stop here
 	}
-	if bytes.Contains(in, []byte(`"rate_limits"`)) {
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if sum, ok := rateLimitsSum(in); ok && reportDue(paths.Data(), dir, sum, time.Now()) {
 		c := unixClient(300 * time.Millisecond)
-		resp, err := c.Post("http://agentd/statusline?dir="+url.QueryEscape(os.Getenv("CLAUDE_CONFIG_DIR")), "application/json", bytes.NewReader(in))
+		resp, err := c.Post("http://agentd/statusline?dir="+url.QueryEscape(dir), "application/json", bytes.NewReader(in))
 		if err == nil {
+			ok := resp.StatusCode/100 == 2
 			resp.Body.Close()
+			if ok {
+				reported(paths.Data(), dir, sum, time.Now())
+			}
 		}
 	}
 	next := nextStatusLine(in)
@@ -109,4 +118,59 @@ func statusLineIn(path string) string {
 // isDeckStatusLine: a command that runs agentctl statusline (the deck's own).
 func isDeckStatusLine(c string) bool {
 	return strings.Contains(c, "agentctl") && strings.Contains(c, " statusline")
+}
+
+// Claude Code runs the status line often (several times a second while an
+// agent works), but the limits in it change far less: the deck is told only
+// when they changed for that account, or when the last report is older than
+// reportEvery (so "as of" stays fresh while agents work).
+const reportEvery = 5 * time.Minute
+
+// rateLimitsSum is a hash of the rate_limits in the status line input (false
+// when there are none).
+func rateLimitsSum(in []byte) (string, bool) {
+	var p struct {
+		RateLimits json.RawMessage `json:"rate_limits"`
+	}
+	if json.Unmarshal(in, &p) != nil || len(p.RateLimits) == 0 || string(p.RateLimits) == "null" {
+		return "", false
+	}
+	var buf bytes.Buffer
+	if json.Compact(&buf, p.RateLimits) != nil {
+		return "", false
+	}
+	h := sha256.Sum256(buf.Bytes())
+	return hex.EncodeToString(h[:8]), true
+}
+
+// reportFile keeps the last report sent for one account's config folder.
+func reportFile(data, dir string) string {
+	h := sha256.Sum256([]byte(filepath.Clean(dir)))
+	return filepath.Join(data, "statusline", hex.EncodeToString(h[:6]))
+}
+
+// reportDue: these limits weren't sent for this account yet, or not lately.
+func reportDue(data, dir, sum string, now time.Time) bool {
+	b, err := os.ReadFile(reportFile(data, dir))
+	if err != nil {
+		return true
+	}
+	var last string
+	var at int64
+	if n, _ := fmt.Sscanf(string(b), "%s %d", &last, &at); n != 2 {
+		return true
+	}
+	return last != sum || now.Sub(time.Unix(at, 0)) >= reportEvery
+}
+
+// reported notes a report the deck took.
+func reported(data, dir, sum string, now time.Time) {
+	f := reportFile(data, dir)
+	if os.MkdirAll(filepath.Dir(f), 0o700) != nil {
+		return
+	}
+	tmp := fmt.Sprintf("%s.%d", f, os.Getpid())
+	if os.WriteFile(tmp, []byte(fmt.Sprintf("%s %d\n", sum, now.Unix())), 0o600) == nil {
+		_ = os.Rename(tmp, f)
+	}
 }

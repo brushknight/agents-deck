@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNextStatusLine(t *testing.T) {
@@ -30,5 +31,48 @@ func TestNextStatusLine(t *testing.T) {
 	write(filepath.Join(proj, ".claude", "settings.local.json"), `"\"/Applications/x/agentctl\" statusline"`)
 	if got := nextStatusLine(in); got != "echo project" {
 		t.Errorf("the deck's own is skipped: got %q", got)
+	}
+}
+
+// The deck hears of the limits only when they change for that account, or
+// after reportEvery; other input (the time, the cost) doesn't count.
+func TestStatusLineReportsOnChange(t *testing.T) {
+	data := t.TempDir()
+	at := func(used string) []byte {
+		return []byte(`{"cost":{"total_cost_usd":` + used + `},"rate_limits":{"seven_day": {"used_percentage":` + used + `,"resets_at":1790000000}}}`)
+	}
+	if _, ok := rateLimitsSum([]byte(`{"model":{"id":"x"}}`)); ok {
+		t.Error("input without rate_limits has a sum")
+	}
+	if _, ok := rateLimitsSum([]byte(`{"rate_limits":null}`)); ok {
+		t.Error("rate_limits null has a sum")
+	}
+	a, _ := rateLimitsSum(at("12"))
+	a2, _ := rateLimitsSum([]byte(`{"rate_limits":{"seven_day":{"used_percentage":12,"resets_at":1790000000}},"cost":{"total_cost_usd":3}}`))
+	if a != a2 {
+		t.Error("spacing or other fields changed the sum")
+	}
+	b, _ := rateLimitsSum(at("13"))
+	if a == b {
+		t.Error("a new percentage has the same sum")
+	}
+
+	now := time.Unix(1790000000, 0)
+	work, personal := "/home/u/.claude-work", ""
+	if !reportDue(data, work, a, now) {
+		t.Error("the first report isn't due")
+	}
+	reported(data, work, a, now)
+	if reportDue(data, work, a, now.Add(time.Minute)) {
+		t.Error("the same limits a minute later are due")
+	}
+	if !reportDue(data, work, b, now.Add(time.Minute)) {
+		t.Error("changed limits aren't due")
+	}
+	if !reportDue(data, personal, a, now.Add(time.Minute)) {
+		t.Error("another account's first report isn't due")
+	}
+	if !reportDue(data, work, a, now.Add(reportEvery)) {
+		t.Error("the same limits after reportEvery aren't due")
 	}
 }
