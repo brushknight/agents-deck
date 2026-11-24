@@ -822,7 +822,7 @@ extension _PetsPage on _AgentDetailState {
             ],
           ),
           key: const Key('agent-status'),
-          maxLines: 2,
+          maxLines: account == null ? 2 : 1,
           overflow: TextOverflow.ellipsis,
           style: DeckHud.rm(22, color, weight: 500).copyWith(height: 30 / 22),
         ),
