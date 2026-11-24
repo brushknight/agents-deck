@@ -1032,7 +1032,6 @@ class PetSprite extends StatefulWidget {
     this.celebrateUntil,
     this.afterCelebrate = CritterPose.idle,
     this.fit = false,
-    this.ground,
   });
 
   final AgentPet pet;
@@ -1042,9 +1041,6 @@ class PetSprite extends StatefulWidget {
   /// pet pixel, smaller (whole device pixels) when its glow, hat or bubble
   /// would leave the box, standing on the box's bottom edge.
   final bool fit;
-
-  /// With [fit]: a ground line under its feet, in this colour.
-  final Color? ground;
 
   /// With [cell]: the box's height (the ground line is its bottom edge).
   final double? height;
@@ -1170,7 +1166,6 @@ class _PetSpriteState extends State<PetSprite> {
           still: _still,
           cell: cell,
           fit: widget.fit,
-          ground: widget.ground,
           ms: _still || !scene.moves ? null : _ms,
         ),
       ),
@@ -1185,7 +1180,6 @@ class _PetPainter extends CustomPainter {
     required this.still,
     this.cell,
     this.fit = false,
-    this.ground,
     this.ms,
   }) : _scene = scene,
        super(repaint: ms);
@@ -1197,7 +1191,6 @@ class _PetPainter extends CustomPainter {
   final bool still;
   final double? cell;
   final bool fit;
-  final Color? ground;
   final ValueListenable<int>? ms;
 
   static final _paint = Paint()..isAntiAlias = false;
@@ -1234,20 +1227,6 @@ class _PetPainter extends CustomPainter {
       if (x + e.right * u > size.width) x = size.width - e.right * u;
       ox = snap(x, m[12] / scale);
       oy = snap(size.height - e.bottom * u, m[13] / scale);
-      if (ground case final g?) {
-        // The ground line, under the feet across what it reaches.
-        _paint.color = g;
-        final y = oy + s.look.bottom * u;
-        canvas.drawRect(
-          Rect.fromLTRB(
-            ox + e.left * u,
-            y,
-            ox + e.right * u,
-            y + math.max(1 / scale, (2 * scale).roundToDouble() / scale),
-          ),
-          _paint,
-        );
-      }
     } else if (cell case final c?) {
       // On a ground line: the art's lowest row on the box's bottom edge,
       // its middle column on the box's centre.
@@ -1363,6 +1342,5 @@ class _PetPainter extends CustomPainter {
       old.still != still ||
       old.cell != cell ||
       old.fit != fit ||
-      old.ground != ground ||
       old.ms != ms;
 }
