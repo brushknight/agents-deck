@@ -278,9 +278,13 @@ void main() {
     expect(name.data, a['title']);
     expect(name.style!.fontSize, lessThan(56));
     expect(find.text('please tidy the export tables'), findsOneWidget);
-    // One quiet line and a square button for the other account.
-    expect(find.byKey(const Key('agent-handoff')), findsOneWidget);
-    expect(find.text('CONTINUE ON WORK'), findsOneWidget);
+    // With two accounts: which one it runs in, beside the status; moving
+    // it to the other is for the browser.
+    expect(find.byKey(const Key('agent-account')), findsOneWidget);
+    expect(find.text('personal'), findsOneWidget);
+    expect(find.text('CONTINUE ON WORK'), findsNothing);
+    // No clock on this page.
+    expect(find.byType(HudClock), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
