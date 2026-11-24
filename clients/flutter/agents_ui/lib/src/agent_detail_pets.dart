@@ -9,7 +9,6 @@ part of 'agent_detail.dart';
 // page. Only the card is rounded; buttons, chips and boxes are square.
 
 const _pRule = Color(0xFF3B3A36);
-const _pLine = Color(0xFF262622);
 const _pText = Color(0xFFC9C5BC);
 const _pMuted = Color(0xFF9A968C);
 const _pOrange2 = Color(0xFFFF6A2E);
@@ -1276,13 +1275,6 @@ extension _PetsPage on _AgentDetailState {
                             ),
                           ),
                         ),
-                        const Positioned(
-                          left: 10,
-                          right: 10,
-                          top: 262,
-                          height: 2,
-                          child: ColoredBox(color: _pRule),
-                        ),
                       ],
                     ),
                   ),
@@ -1616,13 +1608,6 @@ extension _PetsPage on _AgentDetailState {
                   width: 88,
                   height: 62,
                 ),
-              ),
-              const Positioned(
-                left: 8,
-                right: 8,
-                bottom: 8,
-                height: 2,
-                child: ColoredBox(color: _pLine),
               ),
             ],
           ),
