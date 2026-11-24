@@ -368,15 +368,20 @@ static void givePets(Fleet& f) {
     deck_pet_t& p = f.agents[i].pet;
     p = deck_pet_t{};
     p.has = true;
-    p.stage = (uint8_t)(i % 7);
-    p.cracked = i % 14 == 7;
+    p.stage = (uint8_t)((i + 3) % 7);       // the first agent a grown-up
+    p.cracked = i % 14 == 11;
     p.mood = i % 9 == 4 ? DECK_PET_ASLEEP : i % 11 == 5 ? DECK_PET_WEAK : i % 3 == 2 ? DECK_PET_HUNGRY : DECK_PET_FED;
     static const uint16_t kLevel[] = {0, 2, 6, 12, 23, 34, 41};
     p.level = kLevel[p.stage];
     p.hearts = p.mood == DECK_PET_HUNGRY ? 2 : p.mood == DECK_PET_FED ? 4 : 0;
     if (p.stage) snprintf(p.name, sizeof p.name, "%s", kNames[i % 8]);
     p.progress = (uint8_t)(40 + i * 37);
-    p.ready = i == 7;                       // an egg waiting to be seen hatching
+    if (i == 7) {                           // an egg waiting to be seen hatching
+      p.stage = DECK_PET_EGG;
+      p.mood = DECK_PET_FED;
+      p.ready = p.cracked = true;
+      p.name[0] = '\0';
+    }
     if (p.stage >= DECK_PET_KID) {          // its own hat, from a kid on (Pet.hat)
       p.hat = (uint8_t)(1 + (i * 5) % DECK_PET_HAT_SHAPE_COUNT);
       p.hat_color = (uint8_t)(i % DECK_PET_HAT_COLOR_COUNT);
