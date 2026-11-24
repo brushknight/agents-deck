@@ -197,6 +197,8 @@ uint32_t deck_focus(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_interrupt(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_dismiss(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_resume(deck_link_t *ctx, const char *agent_id);
+/* Hatches the agent's pet egg once it is ready (Pet.ready): POST /v1/agents/{id}/pet/hatch. */
+uint32_t deck_hatch_pet(deck_link_t *ctx, const char *agent_id);
 uint32_t deck_move(deck_link_t *ctx, const char *agent_id, uint32_t slot);
 /* Moves an agent on the deck's "Needs you" grid to spot 1..16 (Agent.attention_slot). */
 uint32_t deck_move_attention(deck_link_t *ctx, const char *agent_id, uint32_t slot);

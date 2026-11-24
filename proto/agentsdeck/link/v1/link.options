@@ -42,6 +42,9 @@ agentsdeck.link.v1.Account.name          max_size:16
 agentsdeck.link.v1.Account.color         max_size:12
 agentsdeck.link.v1.Project.id            max_size:12
 agentsdeck.link.v1.Project.name          max_size:48
+agentsdeck.link.v1.Pet.name             max_size:16
+agentsdeck.link.v1.Pet.stage            max_size:8
+agentsdeck.link.v1.Pet.mood             max_size:8
 agentsdeck.link.v1.Subagent.id           max_size:12
 agentsdeck.link.v1.Subagent.title        max_size:64
 agentsdeck.link.v1.Subagent.type         max_size:24
@@ -57,6 +60,7 @@ agentsdeck.link.v1.Queue.agent_id        max_size:12
 agentsdeck.link.v1.Queue.cancel_id       max_size:8
 agentsdeck.link.v1.Dismiss.agent_id      max_size:12
 agentsdeck.link.v1.Resume.agent_id       max_size:12
+agentsdeck.link.v1.HatchPet.agent_id     max_size:12
 agentsdeck.link.v1.Move.agent_id         max_size:12
 agentsdeck.link.v1.MoveAttention.agent_id max_size:12
 agentsdeck.link.v1.Order.agent_ids       max_count:32 max_size:12

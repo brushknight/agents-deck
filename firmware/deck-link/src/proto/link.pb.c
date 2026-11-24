@@ -66,6 +66,9 @@ PB_BIND(agentsdeck_link_v1_Hat, agentsdeck_link_v1_Hat, AUTO)
 PB_BIND(agentsdeck_link_v1_Account, agentsdeck_link_v1_Account, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Pet, agentsdeck_link_v1_Pet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Subagent, agentsdeck_link_v1_Subagent, AUTO)
 
 
@@ -88,6 +91,9 @@ PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Resume, agentsdeck_link_v1_Resume, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_HatchPet, agentsdeck_link_v1_HatchPet, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)

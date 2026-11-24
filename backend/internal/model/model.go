@@ -85,6 +85,7 @@ type Agent struct {
 	Account       *Account   `json:"account,omitempty"`       // the Claude account it runs in (nil: only one account is set up)
 	Project       *Project   `json:"project,omitempty"`       // the project its working folder is in (nil: none)
 	ProjectFolder string     `json:"projectFolder,omitempty"` // the project folder it matched, in full ("" = no project)
+	Pet           *Pet       `json:"pet,omitempty"`           // its pet (nil: Agent pets is off)
 	StartedAt     time.Time  `json:"startedAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 	LastActive    time.Time  `json:"lastActive,omitzero"` // its latest message sent or received (zero: not known yet)
@@ -96,6 +97,29 @@ type Hat struct {
 	Shape string `json:"shape"` // hard hat, cap, beanie, helmet, wizard, beret, chef, crown, headphones, propeller, top hat, cowboy, bandana
 	Color string `json:"color"` // teal, blue, yellow, green, purple, pink, sky, ink
 	Auto  bool   `json:"auto"`  // picked by the hash, not by hand
+}
+
+// Pet is an agent's pet (Settings > General > Agent pets): it eats the
+// agent's input and output tokens and grows a level at a time.
+type Pet struct {
+	Name      string    `json:"name"`               // "" until it hatches
+	Stage     string    `json:"stage"`              // egg | baby | kid | grown | strong | mighty | legend
+	Level     int       `json:"level"`              // 0 while an egg; never goes down
+	Ate       int64     `json:"ate"`                // tokens eaten, all time (input + output)
+	LevelFrom int64     `json:"levelFrom"`          // Ate where the current level started (0 for an egg), for progress bars
+	NextAt    int64     `json:"nextAt"`             // Ate that reaches the next level (for an egg: that makes it ready)
+	Hearts    int       `json:"hearts"`             // 0..4
+	Mood      string    `json:"mood"`               // fed | hungry | weak | asleep (hibernating)
+	Ready     bool      `json:"ready"`              // an egg that has eaten enough and waits to be seen hatching (POST /v1/agents/{id}/pet/hatch)
+	Hat       *PetHat   `json:"hat,omitempty"`      // its mystery hat, rolled when it hatched; omitted until it is a kid (level 5)
+	HatchedAt time.Time `json:"hatchedAt,omitzero"` // omitted while an egg
+}
+
+// PetHat is a pet's mystery hat: one of the deck's hat shapes or "devil
+// horns", in a hat colour.
+type PetHat struct {
+	Shape string `json:"shape"`
+	Color string `json:"color"`
 }
 
 // Account is the Claude Code account (config folder) a session runs in.

@@ -6,6 +6,7 @@ import {
   setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
+import { petSVG, heartSVG, petKind, levelAt, STAGES, STAGE_NAMES, STAGE_LEVEL, MOOD_NAMES, MAX_HEARTS } from './pets.js';
 
 const PAGES = ['home', 'agents', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
 const SCOPES = [
@@ -904,6 +905,69 @@ function setSprite(el, pose, tool, hat, opts = {}) {
   el.replaceChildren(spriteNode(pose, tool, hat, opts));
 }
 
+// Agent pets can't be turned off for now: Settings hides the switch (the
+// service treats them as on). true brings the switch back.
+const PETS_SWITCH = false;
+
+// Agent pets (pets.js): an agent's pet in place of its critter, while
+// Agent pets is on (the service then sends each agent's "pet"). It does the
+// critter's poses (pet-poses.js), bubble and all.
+const petCache = new Map();
+function petNode(pet, opts) {
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false, !!opts.glow,
+    !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
+  let node = petCache.get(k);
+  if (!node) {
+    const doc = new DOMParser().parseFromString(petSVG(pet, opts).replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
+    node = document.importNode(doc.documentElement, true);
+    petCache.set(k, node);
+  }
+  return { k, node: node.cloneNode(true) };
+}
+// setPet fills el with an agent's pet doing its agent's pose, the ice
+// cracking off when it wakes, the egg bursting while it hatches and the new
+// pet popping in. more: waking, mystery ("?" where its hat will be),
+// bubble (false: the pose without its bubble).
+function setPet(el, a, more = {}) {
+  const { k, node } = petNode(a.pet, { hat: a.hat, pose: poseOf(a), ...more,
+    hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
+  if (el.dataset.pose === `pet${k}`) return;
+  el.dataset.pose = `pet${k}`;
+  el.className = `spr pet dk${el.classList.contains('off') ? ' off' : ''}`;
+  el.replaceChildren(node);
+  watchPet(el);
+}
+// Pets off screen hold still: their motion pauses until they scroll back.
+const petSeen = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
+const petWatched = new WeakSet();
+function watchPet(el) {
+  if (!petSeen || petWatched.has(el)) return;
+  petWatched.add(el);
+  petSeen.observe(el);
+}
+
+// Hatching you witness: an egg that has eaten enough waits, ready, until you
+// open its agent or its pet. Then it bursts (1.4 s) and the service hatches
+// it; every screen sees the new pet. hatching: id → when the burst ends (0
+// once asked, until the state shows it hatched); bornUntil: the pop-in.
+const hatching = new Map();
+const bornUntil = new Map();
+const HATCH_MS = 1400;
+function seeHatch(a) {
+  if (!a?.pet?.ready || hatching.has(a.id) || document.visibilityState !== 'visible') return;
+  hatching.set(a.id, Date.now() + HATCH_MS);
+  setTimeout(async () => {
+    hatching.set(a.id, 0);
+    try {
+      await post(a, 'pet/hatch');
+      bornUntil.set(a.id, Date.now() + 1500);
+    } catch (ex) { if (ex.status !== 409 && ex.status !== 401) toast(ex.message, true); }
+    await load('state');
+    updateDeck();
+  }, HATCH_MS);
+}
+
 const bySlot = () => [...agentsList()].sort((x, y) => (x.slot ?? 999) - (y.slot ?? 999));
 const pageCount = () => {
   const list = agentsList();
@@ -959,15 +1023,16 @@ function tileFor(a) {
     t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
   }
-  const meta = tileMeta(a);
   const cls = tileClass(a);
+  const ready = !!a.pet?.ready && cls !== 'wait' && cls !== 'err';
+  const meta = ready ? 'ready to hatch' : tileMeta(a);
   const pct = a.status === 'running' ? ctxPct(a) : 0;
   const queued = a.queued || 0;
   const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
   if (t.sig !== sig) {
     t.sig = sig;
     const cur = a.id === S.arg && S.page === 'home';
-    t.el.className = `tile ${cls}${cur ? ' cur' : ''}`;
+    t.el.className = `tile ${cls}${ready ? ' hatchy' : ''}${cur ? ' cur' : ''}`;
     t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
     if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
@@ -981,7 +1046,15 @@ function tileFor(a) {
     t.qb.title = queued ? `${plural(queued, 'prompt')} queued: ${queued === 1 ? 'it goes' : 'they go'} in when this turn ends` : '';
     t.el.setAttribute('aria-label', `${agentName(a)}, ${a.status === 'waiting' ? 'needs you' : meta}${queued ? `, ${queued} queued` : ''}`);
   }
-  setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  if (a.pet) {
+    // Woken from hibernation (it ate): the ice cracks off, once.
+    if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
+    t.mood = a.pet.mood;
+    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0) });
+  } else {
+    t.spr.className = 'spr c dk';
+    setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  }
   return t.el;
 }
 
@@ -1165,6 +1238,12 @@ function readyRows() {
   for (const d of (S.devices?.devices || []).filter((x) => x.state === 'waiting')) rows.push(rrow(devScreen(d, 'xs'), 'Wants to join', d.name, `#board/${encodeURIComponent(d.id)}`));
   for (const p of (S.ports?.ports || []).filter((x) => x.state === 'new')) rows.push(rrow(icon('usb', 18, 1.8), 'New USB port', p.likely === 'esp32-usb' || p.likelyName ? 'ESP32 board' : p.id, `#new-board/${encodeURIComponent(p.id)}`));
   if (sys.firmware_updates) rows.push(rrow(icon('board', 18, 1.8), 'Board firmware', sys.firmware_updates === 1 ? 'One board can update' : `${say(sys.firmware_updates)} boards can update`, '#updates'));
+  // An egg ready to hatch: opening its agent hatches it.
+  for (const a of agentsList().filter((x) => x.pet?.ready)) {
+    const egg = h('span', { class: 'spr pet' });
+    egg.append(petNode(a.pet, { hat: a.hat, still: true }).node);
+    rows.push(rrow(egg, 'An egg is ready', `${agentName(a)}: open it to see it hatch`, `#home/${encodeURIComponent(a.id)}`));
+  }
   return rows;
 }
 
@@ -1213,7 +1292,7 @@ function updateDeck() {
 
 function fillDeck() {
   const pages = pageCount();
-  S.deckPage = Math.min(S.deckPage || 0, pages - 1);
+  S.deckPage = Math.max(0, Math.min(S.deckPage || 0, pages - 1)); // the Needs you screen is Panel view's
   const grouped = byProject();
   const bar = homeBar();
   deck.bar.hidden = !bar;
@@ -1259,7 +1338,7 @@ function fillDeck() {
 // tiles slide in from the side you turned to.
 function goPage(p) {
   const cur = S.deckPage || 0;
-  if (p === cur || p < 0 || p >= Math.max(pageCount(), 1) + 1) return;
+  if (p === cur || p < (S.panel ? NEEDS : 0) || p >= Math.max(pageCount(), 1) + 1) return;
   S.slide = p > cur ? 1 : -1;
   S.deckPage = p;
   if (S.panel) updatePanel(); else updateDeck();
@@ -1271,36 +1350,102 @@ function slideIn(el) {
   el.classList.add(S.slide > 0 ? 'slide-next' : 'slide-prev');
   S.slide = 0;
 }
-function pageArrows(btns, count) {
+function pageArrows(btns, count, min = 0) {
   const cur = S.deckPage || 0;
-  const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < 0 || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
+  const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < min || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
   return [arr(-1, 'Previous page (←)', '‹'), ...btns, arr(1, 'Next page (→)', '›')];
+}
+// The "Needs you" screen, one step left of the first page in Panel view, as
+// on the wall panel and in the menu bar app: the agents at work, asking or
+// hungry, each in the spot the service gave it (attentionSlot), or in deck
+// order from a service that gives none.
+const NEEDS = -1;
+const onNeedsYou = (a) => ['starting', 'running', 'waiting'].includes(a.status) || hungry(a);
+function needsYouSpots() {
+  const spots = Array(SPOTS).fill(null);
+  let placed = 0;
+  for (const a of agentsList()) {
+    const s = a.attentionSlot || 0;
+    if (s >= 1 && s <= SPOTS && !spots[s - 1]) { spots[s - 1] = a; placed++; }
+  }
+  const wanting = bySlot().filter(onNeedsYou);
+  if (!placed && wanting.length) {
+    wanting.slice(0, SPOTS).forEach((a, i) => { spots[i] = a; });
+    return { spots, count: wanting.length };
+  }
+  return { spots, count: placed + wanting.filter((a) => !a.attentionSlot).length };
+}
+function panelCells(page) {
+  if (page !== NEEDS) return cells(page);
+  return needsYouSpots().spots.map((a) => (a ? tileFor(a) : h('div', { class: 'tile free nyfree', 'aria-hidden': 'true' })));
 }
 function panelPager() {
   const pages = pageCount();
-  const btns = [];
+  const cur = S.deckPage || 0;
+  const { count } = needsYouSpots();
+  // its mark, at the left of the page buttons: how many are there, solid
+  // orange while you are on it
+  const btns = [h('button', { type: 'button', class: 'pg ny', 'aria-current': cur === NEEDS ? 'page' : null, 'aria-label': `Needs you: ${count} ${count === 1 ? 'agent' : 'agents'} (←)`,
+    title: 'Needs you: the agents at work, asking you or hungry', onclick: () => goPage(NEEDS) }, cur === NEEDS ? '' : String(count))];
   for (let p = 0; p < pages; p++) {
     const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
-    btns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === (S.deckPage || 0) ? 'page' : null, 'aria-label': `Page ${p + 1}`, onclick: () => goPage(p) }, String(p + 1)));
+    btns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === cur ? 'page' : null, 'aria-label': `Page ${p + 1}`, onclick: () => goPage(p) }, String(p + 1)));
   }
-  return pageArrows(btns, pages);
+  return pageArrows(btns, pages, NEEDS);
 }
 // panelHead: the line over the panel's grid, as the panel draws it: how
 // many agents, how many wait for you and how many run.
 function panelHead() {
   const all = agentsList();
   const wait = all.filter(needsYou).length, run = all.filter((a) => a.status === 'running').length;
-  return h('div', { class: 'pvhead mono' }, h('span', { class: 'pvface' }, critter({ pose: 'hi', body: '#FF4D00', cut: '#000' })), h('span', {}, `×${all.length}`), h('span', { class: 'sp' }),
+  return h('div', { class: 'pvhead mono' }, h('span', { class: 'pvface' }, critter({ pose: 'hi', body: '#FF4D00', cut: '#000' })), h('span', {}, `×${all.length}`),
+    (S.deckPage || 0) === NEEDS ? h('span', { class: 'acc' }, ' · needs you') : null, h('span', { class: 'sp' }),
     wait ? h('span', { class: 'acc' }, `${wait} wait`) : null, wait && run ? ' · ' : null, run ? h('span', { class: 'acc' }, `${run} run`) : null);
 }
 function updatePanel() {
   syncBar();
   const g = $('.pgrid');
   if (!g) return draw(true);
-  reconcile(g, cells(S.deckPage || 0));
+  reconcile(g, panelCells(S.deckPage || 0));
   slideIn(g);
   $('.pvhead')?.replaceWith(panelHead());
   $('.pvpager')?.replaceChildren(...panelPager());
+  fitPanel();
+}
+
+// fitPanel sizes Panel view's screen in whole pixels: 4 x 4 tiles of a
+// whole, even width (so a pet centres on whole pixels), rows a little
+// shorter than wide so the head line fits the square (as the wall panel
+// does), even 6 px gaps; the screen lands on whole pixels, and so does
+// every pet. Tiles never overlap or touch.
+const PANEL = { max: 636, pad: 14, gap: 6, head: 26 };
+function fitPanel() {
+  const scr = $('.pvscreen'), g = $('.pgrid');
+  if (!scr || !g) return;
+  const barred = document.documentElement.classList.contains('barred');
+  const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480;
+  const side = window.innerWidth <= 900 ? 28 : barred ? bar + 60 : 380;
+  const avail = Math.floor(Math.min(PANEL.max, window.innerHeight - 150, window.innerWidth - side));
+  const inner = avail - 2 * PANEL.pad - 3 * PANEL.gap;
+  const cell = Math.max(48, Math.floor(inner / 4) & ~1);
+  const row = Math.max(48, Math.floor((inner - PANEL.head) / 4));
+  scr.style.setProperty('--pc', `${cell}px`);
+  scr.style.setProperty('--pr', `${row}px`);
+  scr.style.width = `${4 * cell + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  scr.style.height = `${PANEL.head + 4 * row + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  // centred in its column: move it back onto whole pixels
+  scr.style.transform = '';
+  const r = scr.getBoundingClientRect();
+  const dx = Math.round(r.left) - r.left, dy = Math.round(r.top) - r.top;
+  if (dx || dy) scr.style.transform = `translate(${dx}px, ${dy}px)`;
+  for (const el of g.querySelectorAll('.spr.pet')) {
+    el.style.transform = '';
+    // against its tile: the page may be sliding in (a transform on the grid)
+    const p = el.getBoundingClientRect(), t = el.closest('.tile')?.getBoundingClientRect() || { left: 0, top: 0 };
+    const ox = p.left - t.left, oy = p.top - t.top;
+    const px = Math.round(ox) - ox, py = Math.round(oy) - oy;
+    if (px || py) el.style.transform = `translate(${px}px, ${py}px)`;
+  }
 }
 
 // Nothing on the deck yet: start one in a project, or add a session.
@@ -1325,8 +1470,9 @@ function drawEmptyDeck() {
 // Panel view: the page as the wall panel draws it, for a spare screen.
 function drawPanel() {
   deck = null;
-  const grid = h('div', { class: 'grid4 pgrid' }, cells(S.deckPage || 0));
-  const leave = () => { S.panel = false; history.replaceState(null, '', location.pathname + location.hash); draw(true); };
+  const grid = h('div', { class: 'grid4 pgrid' }, panelCells(S.deckPage || 0));
+  requestAnimationFrame(fitPanel);
+  const leave = () => { S.panel = false; S.deckPage = Math.max(0, S.deckPage || 0); history.replaceState(null, '', location.pathname + location.hash); draw(true); };
   const legend = (cls, text) => h('div', { class: 'lg' }, h('span', { class: `sw4 ${cls}`, 'aria-hidden': 'true' }), h('span', { class: 'kl' }, text));
   return h('div', { class: 'panelview', role: 'dialog', 'aria-label': 'Panel view' },
     h('div', { class: 'pvbar' }, h('h1', { class: 'eyebrow acc' }, 'Panel view'), h('span', { class: 'sub' }, 'as the wall panel shows it'), h('span', { class: 'sp' }),
@@ -1334,7 +1480,7 @@ function drawPanel() {
       h('button', { type: 'button', class: 'btn sm', 'data-k': 'pv-leave', onclick: leave }, icon('back', 14), 'Leave · Esc')),
     h('div', { class: 'pvbody' }, h('div', { class: 'pvside' }),
       h('div', { class: 'pvscreen' }, panelHead(), grid),
-      h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
+      h('div', { class: 'pvid' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
     h('div', { class: 'pager pvpager' }, ...panelPager()));
 }
 
@@ -1472,6 +1618,10 @@ function agentHead(a) {
   const mascot = h('button', { type: 'button', class: `tile ${tileClass(a)} mascot`, 'aria-label': `Change the hat of ${agentName(a)}`, 'aria-expanded': 'false', disabled: !a.cwd });
   const spr = h('span', { class: 'spr c dk' });
   mascot.append(spr);
+  // With Agent pets on, the pet stands here doing its pose, and the hat
+  // can't be changed (the pet wears its own): no button.
+  const petSpr = h('span', { class: 'spr pet' });
+  const petBox = h('div', { class: `tile ${tileClass(a)} mascot`, hidden: true }, petSpr);
   const holder = h('div', {});
   mascot.addEventListener('click', () => {
     const open = mascot.getAttribute('aria-expanded') === 'true';
@@ -1482,11 +1632,17 @@ function agentHead(a) {
   const eyebrow = h('span', { class: 'eyebrow dim' });
   const status = h('span', { class: 'chip st2' });
   const chips = h('div', { class: 'chips' });
-  const el = h('div', { class: 'ahead' }, mascot, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
+  const el = h('div', { class: 'ahead' }, mascot, petBox, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
   return {
     el: h('div', {}, el, holder),
     update: (x) => {
-      setSprite(spr, poseOf(x), x.tool, x.hat);
+      mascot.hidden = !!x.pet;
+      petBox.hidden = !x.pet;
+      if (x.pet) {
+        if (mascot.getAttribute('aria-expanded') === 'true') { mascot.setAttribute('aria-expanded', 'false'); holder.replaceChildren(); }
+        setPet(petSpr, x);
+        petBox.className = `tile ${tileClass(x)} mascot`;
+      } else setSprite(spr, poseOf(x), x.tool, x.hat);
       mascot.className = `tile ${tileClass(x)} mascot`;
       eyebrow.replaceChildren(...[TOOL_NAMES[x.tool] || x.tool || '', x.account ? ' · ' : '', x.account ? sw : '', x.account ? x.account.name : ''].filter((v) => v !== ''));
       if (x.account) sw.style.background = acctColor(x.account);
@@ -1732,13 +1888,110 @@ let bar = null; // { el, body, id, key, update, answer }
 function barEl() {
   if (bar) return bar;
   const body = h('div', { class: 'abbody' });
-  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body));
+  const pane = h('section', { class: 'abpane', 'aria-label': 'Its pet' });
+  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body, pane));
   document.body.append(el);
-  bar = { el, body, id: '', key: '', update: null, answer: null };
+  bar = { el, body, pane, id: '', key: '', update: null, answer: null, pet: '', petSig: '' };
   return bar;
 }
 
 function closeBar() { if (S.page === 'home' && S.arg) location.hash = '#home'; }
+
+// openPet shows the agent's pet in the sidebar, widened over the deck, or
+// goes back to the chat. Nothing opens it but you.
+function openPet(on) {
+  const b = barEl();
+  b.pet = on ? b.id : '';
+  b.petSig = '';
+  syncBar();
+  (on ? b.pane.querySelector('[data-k="pet-back"]') : b.body.querySelector('[data-k="bar-pet"]'))?.focus({ preventScroll: true });
+}
+const petOpen = () => !!bar?.pet && bar.pet === bar.id && bar.el.classList.contains('petv');
+
+// fillPet draws the pet's view across the widened sidebar: the pet big on a
+// square stage, beside it its name, what it is and its level bar with the
+// numbers; then its numbers in a row, the stages it grows through and what
+// comes next.
+function fillPet(pane, a) {
+  const p = a.pet;
+  const hatch = Date.now() < (hatching.get(a.id) || 0), born = Date.now() < (bornUntil.get(a.id) || 0);
+  const sig = JSON.stringify([p, a.hat, poseOf(a), a.id, hatch, born, !!S.panel]);
+  if (bar.petSig === sig) return;
+  bar.petSig = sig;
+  const mystery = !p.hat && (p.level || 0) < 5;
+  const big = h('span', { class: 'spr pet' });
+  setPet(big, a, { mystery });
+  const lv = p.level || 0;
+  const egg = p.stage === 'egg';
+  const from = egg ? 0 : (p.levelFrom ?? levelAt(lv, p)), to = p.nextAt || levelAt(lv + 1, p);
+  const pct = Math.max(0, Math.min(100, Math.round(((p.ate - from) / Math.max(1, to - from)) * 100)));
+  const left = Math.max(0, to - p.ate);
+  const N = (n) => Math.round(n).toLocaleString();
+  const hatched = p.hatchedAt ? new Date(p.hatchedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const stat = (name, cls, value, sub, extra) => h('div', { class: `pvstat ${cls}` }, h('span', { class: 'pvk' }, name), h('b', { class: 'pvv' }, value), extra || null, h('span', { class: 'pvs' }, sub));
+  const hearts = h('span', { class: 'pvhearts' });
+  for (let i = 0; i < MAX_HEARTS; i++) hearts.append(svgNode(heartSVG(i < (p.hearts || 0))));
+  // The level bar: where this level started, the tokens now, the next level.
+  const level = h('div', { class: 'pvlevel' },
+    h('div', { class: 'pvlh' },
+      h('span', { class: 'pvk' }, egg ? (p.ready ? 'Ready to hatch' : 'Until it hatches') : `Level ${lv} → ${lv + 1}`),
+      h('b', { class: 'pvpct' }, `${pct}%`)),
+    h('span', { class: 'petbar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct),
+      'aria-label': egg ? 'Food until it hatches' : `Food to level ${lv + 1}` }, barFill(pct)),
+    h('div', { class: 'pvnums' },
+      h('span', {}, h('b', {}, N(p.ate)), ' tokens now'),
+      h('span', { class: 'r' }, h('b', {}, N(to)), egg ? ' to hatch' : ` for level ${lv + 1}`)),
+    h('span', { class: 'pvleft' }, egg && p.ready ? (hatch ? 'Hatching…' : 'It hatches now that you are here.') : `${N(left)} tokens to go${egg ? '' : `, from ${N(from)} where level ${lv} began`}`));
+  const at = STAGES.indexOf(p.stage);
+  // Each stage as this pet looks there: its own hat from a kid on, its aura
+  // from strong on; the "?" of a hat not found yet only on the stage it is
+  // at. Stages not reached are dark shapes.
+  const small = (stage, sil, here) => {
+    const s2 = h('span', { class: 'spr pet' });
+    s2.append(petNode({ stage, mood: 'fed', ate: stage === 'egg' ? p.ate : 0, ready: stage === 'egg' && p.ready, hat: sil ? null : p.hat },
+      { hat: a.hat, still: true, glow: !sil, sil, mystery: here && !p.hat && lv < 5 }).node);
+    return s2;
+  };
+  const growth = h('ol', { class: 'pvgrow' }, STAGES.map((st, i) =>
+    h('li', { class: i === at ? 'on' : i > at ? 'off' : '', 'aria-current': i === at ? 'step' : null },
+      h('span', { class: 'pvst' }, small(st, i > at ? '#3B3A36' : '', i === at)),
+      h('span', { class: 'pvsn' }, STAGE_NAMES[st]), h('span', { class: 'pvsl' }, i > at ? `level ${STAGE_LEVEL[st]}` : i === at ? 'now' : 'done'))));
+  const next = STAGES[at + 1];
+  const nextAt = next ? levelAt(STAGE_LEVEL[next], p) : 0;
+  const nextEl = next
+    ? h('div', { class: 'pvnext' }, h('span', { class: 'pvst' }, small(next, '#55524B')), h('div', {},
+      h('span', { class: 'pvk' }, `Next · level ${STAGE_LEVEL[next]}`), h('b', {}, next === 'baby' ? 'It hatches' : `${STAGE_NAMES[next]}${next === 'kid' ? ': its hat shows' : STAGE_LEVEL[next] >= 20 ? ': a new glow' : ''}`),
+      h('span', { class: 'pvs' }, `at ${N(nextAt)} tokens eaten, ${N(Math.max(0, nextAt - p.ate))} to go`)))
+    : h('div', { class: 'pvnext' }, h('div', {}, h('span', { class: 'pvk' }, 'Next'), h('b', {}, 'Every stage reached'), h('span', { class: 'pvs' }, 'Levels go on: there is no top.')));
+  const hatName = p.hat ? `${p.hat.color} ${p.hat.shape}` : '?';
+  put(pane,
+    h('div', { class: 'pvhd' },
+      h('button', { type: 'button', class: 'pvback', 'data-k': 'pet-back', onclick: () => openPet(false) }, icon('back', 14, 2.2), 'Back to the chat'),
+      h('span', { class: 'pvt' }, `${agentName(a)} · its pet`),
+      h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc closes the pet)', title: 'Close', onclick: closeBar }, icon('x', 16, 2.2))),
+    h('div', { class: 'pvbd' },
+      S.panel ? h('div', { class: 'pvacts' }, h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'pet-back-sq', 'aria-label': 'Back to the agent', title: 'Back to the agent', onclick: () => openPet(false) }, icon('back', 14, 2.2))) : null,
+      h('div', { class: 'pvtop' },
+        h('div', { class: 'pvbox' }, big),
+        h('div', { class: 'petid' },
+          h('div', { class: 'pvinfo' },
+            h('h2', { class: 'serif pvname' }, agentName(a)), // its agent's name: pets' own names aren't shown for now
+            h('span', { class: 'pvkind' }, `${petKind(p)} · level ${lv}`),
+            h('span', { class: 'pvline dim' }, hatched ? `Hatched ${hatched}` : p.ready ? 'Ready to hatch' : `Hatches at ${N(to)} tokens`)),
+          level)),
+      h('div', { class: 'pvstats' },
+        stat('Strength', 'hp', `${p.hearts || 0} of ${MAX_HEARTS}`, MOOD_NAMES[p.mood] || p.mood || '', hearts),
+        stat('Ate', 'ate', N(p.ate), 'tokens, input and output, all time'),
+        stat('Hat', 'hat', hatName, p.hat ? 'found when it hatched' : 'a surprise: it shows at level 5'),
+        stat('Hatched', 'age', hatched || 'not yet', hatched ? `on ${agentName(a)}` : p.ready ? 'open its agent to see it' : `at ${N(to)} tokens`)),
+      h('div', { class: 'pvsec' }, h('span', { class: 'pvk' }, 'Growth'), growth),
+      nextEl));
+}
+const barFill = (pct) => { const i = h('i', {}); i.style.width = `${pct}%`; return i; };
+function svgNode(str) {
+  const doc = new DOMParser().parseFromString(str.replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
+  return document.importNode(doc.documentElement, true);
+}
 
 // syncBar opens, fills or closes the sidebar for the page and the state.
 function syncBar() {
@@ -1751,7 +2004,8 @@ function syncBar() {
   b.el.setAttribute('aria-hidden', open ? 'false' : 'true');
   b.el.inert = !open;
   fitDeck(open);
-  if (!a) { b.key = ''; b.answer = null; return; } // the last agent stays while it slides out
+  if (!a) { b.key = ''; b.answer = null; b.pet = ''; b.el.classList.remove('petv'); return; } // the last agent stays while it slides out
+  if (b.pet && b.pet !== a.id) b.pet = ''; // another agent: its chat
   const key = agentKey(a);
   if (b.id !== a.id || b.key !== key) {
     const hadFocus = b.body.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT';
@@ -1761,22 +2015,37 @@ function syncBar() {
     if (swapped) b.el.querySelector('.abin').scrollTop = 0;
     if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
   }
+  if (!a.pet?.ready && hatching.get(a.id) === 0) hatching.delete(a.id); // it hatched
+  seeHatch(a); // you see its sidebar: a ready egg hatches
   b.update(a);
+  const pet = !!b.pet && !!a.pet; // pets turned off: back to the chat
+  b.el.classList.toggle('petv', pet);
+  b.body.hidden = pet;
+  b.pane.hidden = !pet;
+  if (pet) fillPet(b.pane, a);
+  fitPanel();
+  fitDeck(open); // again, now that it is the chat or the pet: back to the chat scales the deck back at once
 }
 
-// fitDeck scales the deck down (never up) so it keeps clear of the
-// sidebar: a true scale, so names and critters shrink together.
+// fitDeck narrows the deck (never widens it) so it keeps clear of the
+// sidebar: the tiles get narrower and pets switch to their smaller whole-
+// pixel size, never a fractional scale (that blurs the pixels).
 function fitDeck(open) {
   const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
   if (!m) return;
-  let z = 1;
+  const b = barEl();
+  if (open && b.el.classList.contains('petv')) return; // the pet covers the deck: it keeps its size for the way back
+  let max = '';
   if (open && window.innerWidth > 900) {
-    const room = window.innerWidth - barEl().el.offsetWidth - m.getBoundingClientRect().left - 24;
-    z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
+    // The sidebar's width as it will be, not as it is mid-slide: reading
+    // offsetWidth while the pet view shrinks back gave the old, wide one.
+    const w = Math.min(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480, window.innerWidth);
+    const room = window.innerWidth - w - m.getBoundingClientRect().left - 24;
+    max = `${Math.max(280, Math.floor(room))}px`;
   }
-  m.style.setProperty('--dz', z.toFixed(3));
+  m.style.maxWidth = max;
 }
-window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
+window.addEventListener('resize', () => { fitDeck(document.documentElement.classList.contains('barred')); fitPanel(); });
 
 // buildBar fills the sidebar as the design draws it: the critter, tool and
 // ×; the name in serif with its state; then the question and its answers, or
@@ -1790,11 +2059,21 @@ function buildBar(a, body, view) {
 
   // head
   const spr = h('span', { class: 'spr c dk' });
+  // With pets on, its pet takes the corner, on a black square: a click opens
+  // the pet's view. Beside it two lines (tool · branch; the pet's name, stage
+  // and level), and under them a slim bar to its next level.
+  const petSpr = h('span', { class: 'spr pet' });
+  const petBtn = h('button', { type: 'button', class: 'abpet', hidden: true, 'aria-label': 'Its pet', title: 'Its pet', 'data-k': 'bar-pet', onclick: () => openPet(true) }, petSpr);
   const meta = h('span', { class: 'abmeta' });
+  const petLine = h('span', { class: 'abpetln', hidden: true });
+  const petHearts = h('span', { class: 'abhearts', hidden: true }); // its hearts, as on the menu bar app's agent page
+  const progFill = h('i', {});
+  const progTxt = h('span', { class: 'abptx' });
+  const prog = h('div', { class: 'abprog', hidden: true }, h('span', { class: 'abpbar', 'aria-hidden': 'true' }, progFill), progTxt);
   const tag = h('span', { class: 'abtag' });
   const sum = h('span', { class: 'absum' });
   const head = [
-    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr), meta,
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn), h('div', { class: 'abhd' }, meta, h('div', { class: 'abpetrow' }, petLine, petHearts), prog),
       h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
     h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
     sum,
@@ -1926,6 +2205,9 @@ function buildBar(a, body, view) {
   // bottom: numbers, actions, keys
   const nums = barNumbers();
   const acts = h('div', { class: 'abacts' });
+  // Panel view: a square Back first, as on the menu bar app's agent page
+  const back = h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'bar-back', 'aria-label': 'Back to the grid', title: 'Back to the grid · Esc', hidden: !S.panel, onclick: closeBar }, icon('back', 14, 2.2));
+  acts.append(back);
   if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
@@ -1935,7 +2217,30 @@ function buildBar(a, body, view) {
 
   put(body, head, mid, h('div', { class: 'abbottom' }, qEl, low, nums.el, acts, note, hint));
   return (x) => {
-    setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+    spr.hidden = !!x.pet;
+    petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
+    if (!x.pet) petHearts.hidden = true;
+    back.hidden = !S.panel;
+    if (x.pet) {
+      const p = x.pet;
+      setPet(petSpr, x, { bubble: false });
+      petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
+      const hs = `${p.hearts || 0}`;
+      petHearts.hidden = p.stage === 'egg';
+      if (petHearts.dataset.n !== hs) {
+        petHearts.dataset.n = hs;
+        petHearts.replaceChildren(...Array.from({ length: MAX_HEARTS }, (_, i) => svgNode(heartSVG(i < (p.hearts || 0), true))));
+        petHearts.title = `${p.hearts || 0} of ${MAX_HEARTS} hearts`;
+        petHearts.setAttribute('aria-label', petHearts.title);
+      }
+      const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
+      const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));
+      progFill.style.width = `${pct.toFixed(1)}%`;
+      const left = fmtN(Math.max(0, p.nextAt - p.ate));
+      progTxt.textContent = p.stage !== 'egg' ? `${left} to Lv ${p.level + 1}` : p.ready ? 'hatching' : `${left} tokens to hatch`;
+      petBtn.title = p.stage !== 'egg' ? `${agentName(x)}'s pet: open` : `${agentName(x)}'s egg: open`;
+      petBtn.setAttribute('aria-label', petBtn.title);
+    } else setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
     put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,
       x.branch ? h('span', { class: 'dimx' }, ` · ${x.branch}`) : null);
     const since = rel(x.statusSince);
@@ -2176,9 +2481,17 @@ function drawGeneral() {
     row('The deck in your browser', 'The same app, on this computer only.', [
       APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : h('a', { class: 'btn sm', href: '/', target: '_blank', rel: 'noreferrer' }, 'Open in a new tab'),
     ], { name: true, pic: termChip('127.0.0.1') }));
+  const pets = [];
+  if (s.pets !== undefined && PETS_SWITCH) { // an older service has no pets
+    const sampleHat = agentsList().find((a) => a.hat)?.hat || { shape: 'top hat', color: 'yellow' };
+    const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000, hat: sampleHat }, { hat: sampleHat, still: true }).node));
+    pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again. Pets never use tokens of their own: it is all counted from the agent\'s numbers.',
+      [toggle('Agent pets', s.pets, (on, el) => patchSettings({ pets: on }, el))], { name: true, pic }));
+  }
   return [
     head('General', 'How the deck', 'starts.'),
     sec('Starting', null, null, blk(...start)),
+    pets.length ? sec('Agent pets', 'on by default', null, blk(...pets)) : null,
     sec('Notifications', 'a click opens the agent', null, notify),
     sec('For the terminal and the browser', null, null, term),
   ];
@@ -3924,6 +4237,8 @@ const DRAW = {
 // alone while you type in it; a redraw after your own action doesn't.
 function draw(force = true) {
   const page = S.page;
+  // Panel view has no menu on the left: the pet's view takes the full width
+  document.documentElement.classList.toggle('panelmode', !!S.panel && page === 'home');
   const [id, fn] = DRAW[page];
   const err = firstError(page);
   if (err) {
@@ -4056,6 +4371,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   if (e.key === 'Escape') {
+    if (S.page === 'home' && S.arg && petOpen()) { openPet(false); return; } // the pet: back to the chat
     if (S.page === 'home' && S.arg && (!typing || bar?.el.contains(document.activeElement))) { document.activeElement?.blur(); closeBar(); return; }
     if (S.page === 'home' && S.panel) { S.panel = false; draw(true); return; }
     if ((S.page === 'agent' || S.page === 'start') && !typing) location.hash = '#home';
@@ -4068,7 +4384,7 @@ document.addEventListener('keydown', (e) => {
   if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch && !byProject()) {
     e.preventDefault();
     const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
-    if (next >= 0 && next < pageCount()) goPage(next);
+    if (next >= (S.panel ? NEEDS : 0) && next < pageCount()) goPage(next);
   }
 });
 

@@ -116,11 +116,11 @@ func TestEndpointParity(t *testing.T) {
 			t.Errorf("Deck Link route %s is not in docs/protocol.md", e)
 		}
 	}
-	// Commands are Frame fields 30..49; each needs a route.
+	// Commands are Frame fields 30..49 and 70..89; each needs a route.
 	fields := (&linkpb.Frame{}).ProtoReflect().Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if n := fd.Number(); n >= 30 && n < 50 {
+		if n := fd.Number(); n >= 30 && n < 50 || n >= 70 && n < 90 {
 			if _, ok := Routes[string(fd.Name())]; !ok {
 				t.Errorf("command %s has no route", fd.Name())
 			}
@@ -156,7 +156,10 @@ func TestAgentParity(t *testing.T) {
 		Context: model.Context{Used: 5, Window: 10}, CostUSD: 1.5, Turns: 2, Focused: true, Attached: true, Resumable: true,
 		Lost: true, Unseen: true, External: true, App: "orca", Hat: &model.Hat{Shape: "cap", Color: "teal", Auto: true}, Account: &model.Account{Name: "work", Color: "yellow"},
 		Project: &model.Project{ID: "p0a1b2c3d", Name: "harbor"}, ProjectFolder: "/x",
-		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, SlowedByYou: true, CPU: 12.5, StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
+		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, SlowedByYou: true, CPU: 12.5,
+		Pet: &model.Pet{Name: "Nib", Stage: "kid", Level: 6, Ate: 160000, LevelFrom: 152588, NextAt: 190735, Hearts: 3, Mood: "fed",
+			Ready: true, Hat: &model.PetHat{Shape: "devil horns", Color: "teal"}, HatchedAt: now},
+		StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour)}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
@@ -257,8 +260,8 @@ func TestPairingAndWifiDocumented(t *testing.T) {
 	n := 0
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if fd.Number() < 60 {
-			continue
+		if fd.Number() < 60 || fd.Number() >= 70 {
+			continue // 70..89 are commands again
 		}
 		n++
 		if msg := string(fd.Message().Name()); !strings.Contains(string(linkDoc), "`"+msg) {

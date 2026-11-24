@@ -191,6 +191,9 @@ type Store struct {
 	Project func(cwd string) (*model.Project, string)
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
+	// Pet gives each agent its pet (nil, or a nil answer: pets are off).
+	Pet func(a model.Agent) *model.Pet
+
 	// Slow says which agents are in background mode and by whom
 	// (cpuguard.ByGuard or ByYou), and each agent's CPU use while the
 	// computer is busy (cpuguard.Slower.Use). nil: neither.
@@ -483,7 +486,7 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, project, queued, slow := s.Hat, s.Account, s.Project, s.Queued, s.Slow
+	hat, account, project, queued, slow, pet := s.Hat, s.Account, s.Project, s.Queued, s.Slow, s.Pet
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
@@ -503,6 +506,9 @@ func (s *Store) Snapshot() model.State {
 		}
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
+		}
+		if pet != nil {
+			agents[i].Pet = pet(agents[i])
 		}
 		if project != nil {
 			agents[i].Project, agents[i].ProjectFolder = project(agents[i].Cwd)
