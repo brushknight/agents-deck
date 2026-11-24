@@ -494,6 +494,7 @@ class Agent {
     this.startedAt,
     this.updatedAt,
     this.lastActive,
+    this.outUntil,
   });
 
   final String id;
@@ -593,6 +594,10 @@ class Agent {
   /// Its latest message sent or received; null while the deck doesn't know.
   final DateTime? lastActive;
 
+  /// Its account (or, for a per-model limit, its model) is out of usage
+  /// until then; null when it isn't.
+  final DateTime? outUntil;
+
   static Agent fromJson(Map<String, dynamic> j) {
     final act = _map(j['activity']);
     final wait = _map(j['waiting']);
@@ -646,6 +651,7 @@ class Agent {
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
       lastActive: _time(j['lastActive']),
+      outUntil: _time(j['outUntil']),
     );
   }
 
@@ -688,16 +694,184 @@ class AgentsMagic {
   bool get giver => role == 'giver';
 }
 
+/// One limit of an account's usage: the week, one model's week (known
+/// once it is hit), a spend limit or a Codex bucket (docs/protocol.md,
+/// "Usage limits").
+class LimitWindow {
+  const LimitWindow({
+    required this.id,
+    required this.label,
+    this.model = '',
+    required this.used,
+    this.resetsAt,
+    this.level = 'ok',
+    this.hit = false,
+    this.reset = false,
+    this.hidden = false,
+  });
+
+  final String id, label, model;
+
+  /// Percent used (a spend limit can pass 100).
+  final int used;
+  final DateTime? resetsAt;
+
+  /// ok (under 80) | near (from 80) | low (from 95) | out (100, or hit).
+  final String level;
+  final bool hit;
+
+  /// Reset since the tool's last report: [used] is not known now.
+  final bool reset;
+
+  /// Kept for the record, not shown (the 5-hour window).
+  final bool hidden;
+
+  bool get out => level == 'out' && !reset;
+  bool get hot => !reset && level != 'ok';
+
+  static LimitWindow fromJson(Map<String, dynamic> j) => LimitWindow(
+    id: _str(j['id']),
+    label: _str(j['label']),
+    model: _str(j['model']),
+    used: _int(j['used']),
+    resetsAt: _time(j['resetsAt']),
+    level: j['level'] is String ? j['level'] as String : 'ok',
+    hit: j['hit'] == true,
+    reset: j['reset'] == true,
+    hidden: j['hidden'] == true,
+  );
+}
+
+/// One account's usage limits in one tool, as Claude Code or Codex last
+/// reported them (direct use only).
+class AgentLimits {
+  const AgentLimits({
+    required this.tool,
+    this.account = '',
+    this.plan = '',
+    this.level = 'ok',
+    this.asOf,
+    this.windows = const [],
+  });
+
+  final String tool; // claude | codex
+  final String account; // "" with one account, and for Codex
+  final String plan;
+  final String level;
+  final DateTime? asOf;
+  final List<LimitWindow> windows;
+
+  /// The windows to show: the week first, a model's week once hit.
+  List<LimitWindow> get shown => [
+    for (final w in windows)
+      if (!w.hidden) w,
+  ];
+
+  /// "work", "claude" (one account) or "codex".
+  String get name =>
+      tool == 'codex' ? 'codex' : (account.isEmpty ? 'claude' : account);
+
+  /// "all models · week", "fable · week", "week".
+  String labelOf(LimitWindow w) {
+    if (w.model.isNotEmpty) return '${w.model} · week';
+    if (tool == 'claude' && w.id == 'seven_day') return 'all models · week';
+    return w.label;
+  }
+
+  static AgentLimits fromJson(Map<String, dynamic> j) => AgentLimits(
+    tool: _str(j['tool']),
+    account: _str(j['account']),
+    plan: _str(j['plan']),
+    level: j['level'] is String ? j['level'] as String : 'ok',
+    asOf: _time(j['asOf']),
+    windows: [
+      if (j['windows'] case final List l)
+        for (final w in l)
+          if (_map(w) case final m?) LimitWindow.fromJson(m),
+    ],
+  );
+}
+
+/// When a limit comes back, short: "16:40" today, "thu 09:00" within the
+/// week, "26 nov" later (local time).
+String resetText(DateTime t, [DateTime? now]) {
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const months = [
+    'jan',
+    'feb',
+    'mar',
+    'apr',
+    'may',
+    'jun',
+    'jul',
+    'aug',
+    'sep',
+    'oct',
+    'nov',
+    'dec',
+  ];
+  final l = t.toLocal();
+  final n = (now ?? DateTime.now()).toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final hm = '${two(l.hour)}:${two(l.minute)}';
+  if (l.year == n.year && l.month == n.month && l.day == n.day) return hm;
+  if (l.difference(n) < const Duration(hours: 156)) {
+    return '${days[l.weekday - 1]} $hm';
+  }
+  return '${l.day} ${months[l.month - 1]}';
+}
+
 class AgentsState {
   AgentsState({
     required this.server,
     required List<Agent> agents,
     this.magic,
+    this.limits = const [],
     DateTime? receivedAt,
   }) : agents = List.unmodifiable(
          [...agents]..sort((a, b) => a.slot.compareTo(b.slot)),
        ),
        receivedAt = receivedAt ?? DateTime.now();
+
+  /// Each account's usage limits (empty: nothing reported yet, or an older
+  /// service). Only the sets with something to show.
+  final List<AgentLimits> limits;
+
+  /// The limits of [a]'s account in its tool, if any were reported.
+  AgentLimits? limitsOf(Agent a) {
+    final name = a.account?.name ?? '';
+    for (final l in limits) {
+      if (l.tool == a.tool && l.account == name) return l;
+    }
+    return null;
+  }
+
+  /// The account and window closest to running out (its week; a model's
+  /// week counts less, the other models still work); null without limits.
+  (AgentLimits, LimitWindow)? get worstLimit {
+    const rank = {'ok': 0, 'near': 1, 'low': 2, 'out': 3};
+    (AgentLimits, LimitWindow)? best;
+    for (final l in limits) {
+      for (final w in l.shown) {
+        if (w.model.isNotEmpty) continue;
+        final r = w.reset ? 0 : rank[w.level] ?? 0;
+        final b = best == null
+            ? -1
+            : (best.$2.reset ? 0 : rank[best.$2.level] ?? 0);
+        if (best == null || r > b || (r == b && w.used > best.$2.used)) {
+          best = (l, w);
+        }
+      }
+    }
+    return best;
+  }
+
+  /// When [a] can run again, while its account or model is out of usage.
+  DateTime? outUntil(Agent a, [DateTime? localNow]) {
+    final t = a.outUntil;
+    if (t == null || !t.isAfter(serverNow(localNow))) return null;
+    return t;
+  }
 
   final AgentsServer server;
 
@@ -720,6 +894,14 @@ class AgentsState {
     final s = _map(j['server']) ?? const {};
     final m = _map(j['magic']);
     return AgentsState(
+      limits: [
+        if (j['limits'] case final List l)
+          for (final x in l)
+            if (_map(x) case final lm?)
+              if (AgentLimits.fromJson(lm) case final lim
+                  when lim.shown.isNotEmpty)
+                lim,
+      ],
       magic: m == null
           ? null
           : AgentsMagic(

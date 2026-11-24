@@ -184,7 +184,14 @@ extension _PetsPage on _AgentDetailState {
     final pet = a.pet!;
     final ink = orange ? _pInkOnOrange : DeckHud.ink;
     final t = shortDuration(state.inStatus(a));
+    final out = a.needsYou ? null : state.outUntil(a);
     final chip = switch (a.status) {
+      _ when out != null => _pChip(
+        'out · back ${resetText(out)}',
+        fill: DeckHud.accent,
+        ink: _pInkOnOrange,
+        size: _fs(15),
+      ),
       AgentStatus.running => _pChip(
         'working · $t',
         fill: DeckHud.ink,
@@ -554,6 +561,20 @@ extension _PetsPage on _AgentDetailState {
               },
             ),
           ),
+          // Its account's usage over the context: the week, and a
+          // model's week once hit.
+          if (state.limitsOf(a) case final l?) ...[
+            const SizedBox(height: 14),
+            // Out: the chip says until when; the line under the rows only
+            // when there is no "continue on" row to say what to do.
+            UsageRows(
+              limits: l,
+              outUntil: a.needsYou || others.isNotEmpty
+                  ? null
+                  : state.outUntil(a),
+              size: _fs(16),
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             key: const Key('agent-context'),

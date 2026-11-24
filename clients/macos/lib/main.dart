@@ -165,13 +165,18 @@ class MenuBarDeck extends StatelessWidget {
                       Expanded(child: _deck(status)),
                       ValueListenableBuilder<bool>(
                         valueListenable: pinned ?? const _Unpinned(),
-                        builder: (context, on, _) => StatusLine(
-                          status: status,
-                          onOpen: (page) => onSettings?.call(page),
-                          pinned: on,
-                          onPin: onPin,
-                          onDrag: onDrag,
-                        ),
+                        builder: (context, on, _) =>
+                            ValueListenableBuilder<AgentsSnapshot>(
+                              valueListenable: source.snapshot,
+                              builder: (context, snap, _) => StatusLine(
+                                status: status,
+                                onOpen: (page) => onSettings?.call(page),
+                                pinned: on,
+                                onPin: onPin,
+                                onDrag: onDrag,
+                                usage: usageStatus(snap.state),
+                              ),
+                            ),
                       ),
                     ],
                   ),

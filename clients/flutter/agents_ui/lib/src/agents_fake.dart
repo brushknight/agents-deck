@@ -68,6 +68,84 @@ class FakeAgentsSource implements AgentsSource {
     attention: attention,
   );
 
+  /// The demo fleet with made-up usage limits, for tests and demos:
+  /// "calm" (every week under 80%), "near" (work at 86% of its week) or
+  /// "out" (work out until its reset, and Fable out on personal). Two
+  /// Claude accounts: work (checkout-api, infra-network, api-tests,
+  /// billing-jobs) and personal (the other Claude agents; k8s-nodes runs
+  /// Fable), and Codex.
+  static Map<String, dynamic> withLimits(
+    Map<String, dynamic> json,
+    String scenario, {
+    DateTime? now,
+  }) {
+    final t = (now ?? DateTime.now()).toUtc();
+    String at(int hours) => t.add(Duration(hours: hours)).toIso8601String();
+    const work = {'k3f9a2', 'h0m3l4', 't3st5a', 'fw0t4x'};
+    final out = scenario == 'out';
+    for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['tool'] != 'claude') continue;
+      final w = work.contains(a['id']);
+      a['account'] = w
+          ? {'name': 'work', 'color': 'yellow'}
+          : {'name': 'personal', 'color': 'sky'};
+      if (a['id'] == 'k8sn0d') a['model'] = 'claude-fable-5';
+      if (out && a['status'] != 'waiting') {
+        if (w) a['outUntil'] = at(43);
+        if (a['id'] == 'k8sn0d') a['outUntil'] = at(57);
+      }
+    }
+    final used = switch (scenario) {
+      'near' => 86,
+      'out' => 100,
+      _ => 41,
+    };
+    String lv(int u) => u >= 100
+        ? 'out'
+        : u >= 95
+        ? 'low'
+        : u >= 80
+        ? 'near'
+        : 'ok';
+    Map<String, dynamic> week(int u, int h) => {
+      'id': 'seven_day', 'label': 'week', 'minutes': 10080, 'used': u, //
+      'resetsAt': at(h), 'level': lv(u), if (u >= 100) 'hit': true,
+    };
+    json['limits'] = [
+      {
+        'tool': 'claude', 'account': 'personal', 'asOf': at(0), //
+        'source': 'statusline', 'level': out ? 'near' : 'ok',
+        'windows': [
+          week(22, 117),
+          if (out)
+            {
+              'id': 'model_week:fable', 'label': 'Fable week', //
+              'model': 'fable', 'used': 100, 'hit': true,
+              'resetsAt': at(57), 'level': 'out',
+            },
+          {
+            'id': 'five_hour', 'label': '5 hours', 'used': 4, //
+            'level': 'ok', 'hidden': true,
+          },
+        ],
+      },
+      {
+        'tool': 'claude', 'account': 'work', 'asOf': at(0), //
+        'source': 'statusline', 'level': lv(used),
+        'windows': [week(used, 43)],
+      },
+      {
+        'tool': 'codex',
+        'plan': 'pro',
+        'asOf': at(-3),
+        'source': 'rollout',
+        'level': 'ok',
+        'windows': [week(7, 96)],
+      },
+    ];
+    return json;
+  }
+
   /// Made-up pets for the demo fleet, by agent id ("" for any other).
   static const demoPets = <String, Map<String, dynamic>>{
     'k3f9a2': {

@@ -15,6 +15,7 @@ import 'attention_screen.dart';
 import 'critter.dart';
 import 'live_picker.dart';
 import 'pet_art.dart';
+import 'usage_limits.dart';
 
 /// Agents app: a Stream-Deck-style board of the Mac's coding agents
 /// (`agentctl serve`). Chrome-less 4×4 grid, one tile per agent by slot,
@@ -362,6 +363,16 @@ class _AgentsAppState extends State<AgentsApp> {
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
         child: Column(
           children: [
+            // Each account's week, on the panel (the menu bar says it in
+            // its status line).
+            if (!widget.menuBar && state.limits.isNotEmpty)
+              SizedBox(
+                height: 26,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                  child: UsageLine(state: state),
+                ),
+              ),
             Expanded(
               child: PageView.builder(
                 key: const Key('agents-pages'),
@@ -512,6 +523,8 @@ class _AgentTileState extends State<AgentTile> {
   Widget build(BuildContext context) {
     final a = widget.agent;
     final look = AgentLook.of(a);
+    // Out of usage: an orange edge, the pet dimmed, until when it is back.
+    final out = a.needsYou ? null : widget.state.outUntil(a);
     return Pressable(
       key: _tileKey,
       onTap: () => widget.onOpen(context, _tileKey, a),
@@ -524,6 +537,8 @@ class _AgentTileState extends State<AgentTile> {
             // Over the content so the ring never shifts the layout.
             foregroundPainter: pressed
                 ? null
+                : out != null
+                ? const _OutEdgePainter()
                 : ContextRingPainter(
                     fraction: a.contextFraction,
                     color: look.ring,
@@ -610,20 +625,24 @@ class _AgentTileState extends State<AgentTile> {
                               // It does its agent's pose, in its own
                               // colours with its black stroke (on orange
                               // too).
-                              PetSprite(
-                                pet: pet,
-                                hat: a.hat,
-                                pose: critterPoseOf(
-                                  a,
-                                  inStatus: widget.state.inStatus(a),
+                              Opacity(
+                                opacity: out == null ? 1 : 0.55,
+                                child: PetSprite(
+                                  pet: pet,
+                                  hat: a.hat,
+                                  pose: critterPoseOf(
+                                    a,
+                                    inStatus: widget.state.inStatus(a),
+                                  ),
+                                  celebrateUntil: DateTime.now().add(
+                                    critterCelebration -
+                                        widget.state.inStatus(a),
+                                  ),
+                                  afterCelebrate: a.unseen
+                                      ? CritterPose.hungry
+                                      : CritterPose.idle,
+                                  width: 92,
                                 ),
-                                celebrateUntil: DateTime.now().add(
-                                  critterCelebration - widget.state.inStatus(a),
-                                ),
-                                afterCelebrate: a.unseen
-                                    ? CritterPose.hungry
-                                    : CritterPose.idle,
-                                width: 92,
                               )
                             else
                               CritterSprite(
@@ -654,10 +673,14 @@ class _AgentTileState extends State<AgentTile> {
                             ),
                             const SizedBox(height: 5),
                             _line(
-                              agentMetaLine(a, widget.state),
+                              out != null
+                                  ? 'out · ${resetText(out)}'
+                                  : agentMetaLine(a, widget.state),
                               DeckHud.mono(
                                 size: 12.5,
-                                color: c(look.meta),
+                                color: c(
+                                  out != null ? DeckHud.accent : look.meta,
+                                ),
                               ).copyWith(letterSpacing: 0.4),
                             ),
                           ],
@@ -684,6 +707,25 @@ class _AgentTileState extends State<AgentTile> {
       style: style,
     ),
   );
+}
+
+/// A tile out of usage: a solid orange edge, inside it.
+class _OutEdgePainter extends CustomPainter {
+  const _OutEdgePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      (Offset.zero & size).deflate(1.5),
+      Paint()
+        ..color = DeckHud.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OutEdgePainter old) => false;
 }
 
 /// Diagonal accent stripes sliding across a hungry tile (a finished agent
