@@ -23,7 +23,10 @@ var Events = []string{
 const CompactTool = "Compact"
 
 // HooksSettings is the JSON passed to `claude --settings`: every event runs
-// `<agentctl> hook`, which forwards the payload to the daemon and prints nothing.
+// `<agentctl> hook`, which forwards the payload to the daemon and prints
+// nothing, and the status line runs `<agentctl> statusline`, which hands the
+// usage limits to the daemon and then runs the status line the account or
+// project has, unchanged.
 func HooksSettings(agentctl string) ([]byte, error) {
 	cmd := fmt.Sprintf("%q hook", agentctl)
 	hooks := map[string]any{}
@@ -34,7 +37,8 @@ func HooksSettings(agentctl string) ([]byte, error) {
 		}
 		hooks[ev] = []any{group}
 	}
-	return json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
+	status := map[string]any{"type": "command", "command": fmt.Sprintf("%q statusline", agentctl)}
+	return json.MarshalIndent(map[string]any{"hooks": hooks, "statusLine": status}, "", "  ")
 }
 
 // activeEvents are the hooks that mean a message went to the agent or came

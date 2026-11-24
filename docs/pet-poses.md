@@ -25,7 +25,7 @@ Where each pose anchors, per art. Eyes are `[x, y, w, h]`, left then right.
 | art | eyes | mouth | arm rows (down, mid, up) | feet rows | feet x (still) | feet x (mid-step) | bubble box | mini in tow |
 |---|---|---|---|---|---|---|---|---|
 | egg, crack | none | none | none | none | none | none | 14, -4 | 16, 11 |
-| baby | [5,7,1,2] [10,7,1,2] | 7, 9 | 9, 7, 3 | 12 | 4 6 9 11 | 3 5 10 12 | 13, -1 | 14, 10 |
+| baby | [5,7,1,2] [10,7,1,2] | 7, 9 | 9, 7, 3 | 12 | 4 6 9 11 | 5 7 9 11 | 13, -1 | 14, 10 |
 | kid | [5,7,1,2] [10,7,1,2] | 7, 9 | 9, 7, 4 | 11, 12 | 4 6 9 11 | 3 5 10 12 | 14, 0 | 14, 10 |
 | builder | [4,5,1,2] [10,5,1,2] | 7, 7 | 7, 5, 2 | 10, 11 | 2 4 11 13 | 3 5 10 12 | 16, -2 | 16, 9 |
 | weak | [3,7,2,1] [9,7,2,1] | 6, 10 | 9, 7, 4 | 11 | 2 4 11 13 | 3 5 10 12 | 15, 0 | 17, 9 |
@@ -79,7 +79,7 @@ Glyphs sit in the bubble box at an offset (dx, dy) from its top-left; `#` is a c
 | cookie (hungry) | `.###.` `##.##` `#####` `#.###` `.###.` | 0, 0 | bobc |
 | "?" (waiting) | `###` `..#` `.#.` `...` `.#.` | 1, 0 | blink |
 | "!" (error) | `#` `#` `#` `.` `#` | 2, 0 | still |
-| "z z" (idle) | `####` `..#.` `.#..` `####` at (0,1); `###` `.#.` `###` at (4,-2) | | zz, zz (half a cycle later) |
+| "z z" (idle) | `####` `..#.` `.#..` `####` at (0,1); `###` `.#.` `###` at (4,-2) | | zz z0, zz z1 (half a cycle later) |
 | sparks (an egg's celebration) | plus `.#.` `###` `.#.` at (0,2) and (2,0) | | spark s0, spark s1 |
 
 The bubble is left out where the pet is drawn without one (the sidebar's corner), and where it would come
@@ -91,8 +91,8 @@ within a cell of the mystery hat's "?" (the egg's, in the pet's view).
   x + 1, rows up-4 to up+1 (builder: x 16, rows -2 to 3). The checker is 3 x 2 at x pole+1 to pole+3, rows
   up-4 to up-3: cell (cx, cy) is dark when (cx + cy + phase) is odd, light otherwise; phase 0 is `la`, 1 is
   `lb`. Two sparks (the plus above) sit at (pole+5, up-4) and (pole+3, up-8), top-left, as `spark s0` and
-  `spark s1`.
-- Mini pet in tow (delegate): 5 x 3 in the body colour from its top-left: `#####` `#.#.#` (moves with `bob`),
+  `spark s1`; they hop with the pet and its flag.
+- Mini pet in tow (delegate): 5 x 3 in the body colour from its top-left: `#####` `#.#.#` (it doesn't bob),
   then a feet row `#...#` (`la`) / `.#.#.` (`lb`).
 - Chomping mouth (hungry): the open mouth is 2 x 2 in `m` at the mouth cell (`la slow`); the shut mouth is
   2 x 1 in `m` on its lower row (`lb slow`). The weak art opens a 3 x 1 line in `k` at (6,10) under its own
@@ -104,11 +104,11 @@ within a cell of the mystery hat's "?" (the egg's, in the pet's view).
 |---|---|---|---|---|---|---|
 | think | running, no tool | glance | down / mid | | | think |
 | read | Read, Grep, Glob, LS | scan | | | | read |
-| bash, write | Bash, Edit, Write and friends | open | | bob fast | step fast | bash |
+| bash, write | Bash, Edit, Write and friends | open | | jog, 0.4 s | step fast | bash |
 | web | WebFetch, WebSearch | up | | | | web |
 | plan | TodoWrite | open | | | | plan |
-| delegate | Task, Agent | open | swing | bob | step | mini in tow |
-| run | any other tool | open | swing | bob | step | "…" |
+| delegate | Task, Agent | open | swing | jog | step | mini in tow |
+| run | any other tool | open | swing | jog | step | "…" |
 | compact | compacting | strain | | squeeze | | compact |
 | celebrate | idle for under 6 s after a turn | happy | up / up | hop | with the body | flag and sparks |
 | hungry | idle with an unseen result | up | | | | cookie, chomping mouth |
@@ -120,9 +120,14 @@ within a cell of the mystery hat's "?" (the egg's, in the pet's view).
 
 - swing: down / mid on `la`, mid / down on `lb`.
 - step: the feet cells leave the body and are drawn twice: still x on `la`, mid-step x on `lb` (with `fast`
-  for bash). Stepping feet stay put while the body bobs, as the critter's do.
-- squeeze: every body cell above row (first feet row - 2) drops 1 cell, then 2 cells, covering the two rows
-  above the feet; the eyes and hat drop with it. An egg keeps its bottom two rows (12 and 13).
+  for bash). The feet move with the body: a jog lifts the whole pet, feet and all, so they never come
+  apart from it.
+- jog: the whole pet (body, hat, arms, feet, its aura) lifts 1 cell for the second half of each beat:
+  `pjog` 0.5 s, `pjog pjf` 0.4 s for bash and write.
+- squeeze: every body cell above row (first feet row - 2) drops 1 cell, then 2 cells, drawn over the two rows
+  above the feet; the eyes and hat drop with it and stay on top (a mouth on the rows below is squeezed shut). The kid drops only 1 cell (its face
+  reaches row 9, so it keeps one row, row 10, to drop over): every body cell above row 10 drops 1 cell
+  (class `psq1`). An egg keeps its bottom two rows (12 and 13).
 - hollow: every body cell whose four neighbours are all body cells is removed (the hat stays), the eyes become
   dots, the hat takes its shade, and there is no aura.
 - A working hat (any pose from think to compact in the table, the builder and weak arts) runs through the
@@ -140,7 +145,9 @@ An egg has no eyes, arms or feet. It shows the same bubbles at its bubble box, a
   has exited;
 - a mini pet trots beside it while it delegates.
 
-A ready egg still wobbles and glows (`prdy`); the pose plays on top of it.
+A ready egg still wobbles a whole cell and glows (`prdy`); the pose plays on top of it. Hatching shakes
+1 then 2 cells, flashes white (the egg's cells in #FFFFFF) and is gone; the new pet rises from 2 cells
+below (`pborn`). These move the whole pet, aura and all.
 
 ## Which wins
 
@@ -159,14 +166,17 @@ From the top, the first rule that applies decides:
 ## Timings
 
 The classes are the critter's (`settings.css`, the deck's critters), except where it moves by part of a cell:
-those have whole-cell versions for pets (`hop`, `bobc`, `zz`). Each runs forever unless noted.
+those have whole-cell versions for pets (`pjog`, `hop`, `bobc`, `zz`); the critter's own keyframes stay as
+they were. Nothing on a pet moves by part of a cell, scales or glides: things that travel step one cell at
+a time. Each runs forever unless noted.
 
 | class | period | what |
 |---|---|---|
 | la / lb | 0.5 s | la shows for the first half, lb for the second |
-| fast | 0.2 s | la, lb and bob at this speed |
+| fast | 0.2 s | la and lb at this speed (bash's feet) |
 | slow | 0.8 s | la and lb at this speed |
-| bob | 0.5 s | 0, then -1 cell in y for the second half |
+| pjog | 0.5 s | 0, then -1 cell in y for the second half (the whole pet) |
+| pjf | 0.4 s | pjog at this speed (bash, write) |
 | hop | 0.4 s | 0, then -2 cells in y for the second half |
 | glance | 1.2 s | -1 cell in x, then +1 |
 | scan | 1.2 s | 0, -1, 0, +1 cell in x, a quarter each |
@@ -177,10 +187,19 @@ those have whole-cell versions for pets (`hop`, `bobc`, `zz`). Each runs forever
 | blink | 1 s | opacity 1 for 60 %, then 0.15 |
 | spark | 0.6 s | opacity 1 for the first third, then 0.45; s1 starts 0.2 s later |
 | bobc | 0.6 s | 0, then +1 cell in y |
-| zz | 2.4 s | 0 at opacity 0.9, then -1 cell at 0.45; the second z half a cycle later |
+| zz | 2.4 s | 0 at opacity 0.9, then -1 cell at 0.45; z1 half a cycle later |
 | prock | 1.2 s | 0, -1, 0, +1 cell in x, a quarter each |
 | prk2 | 0.6 s | prock at this speed |
+| prdy | 1.6 s | ready egg: 0 until 60 %, then -1, +1, -1 cell in x, a tenth each |
+| phx | 1.4 s, once | hatch: -1, +1, -1, +1, -2, +2 cells in x, a tenth each; white from 70 %; gone at 85 % |
+| pborn | 0.6 s, once | +2 cells in y hidden, +2 shown, -1, then in place, a quarter each |
+| pfc | 1.8 s | the second flame layer: off, then on, half each |
+| prs | 2.4 s | sparks: up 1 cell per step, 9 steps; shown from step 1 to 7 |
+| ptw | 1.1 s | a legend's star: a dot, then the dot and its 4 arms, half each |
+| pfall | 2.6 s | snow: from 3 cells above down 1 cell a step, 12 steps; shown from 17 % to 85 % |
+| ps0 to ps4 | 1.6 s, once | ice shards: from 56 %, 2 cells a step at 70, 85 and 100 % (out to 6 cells), gone at the end |
 | psq | 1.2 s | 0, +1, +2 cells in y, a third each (springs back at the loop) |
+| psq1 | 1.2 s | 0 for a third, then +1 cell in y (the kid's squeeze) |
 | press2 / press1 | 1.2 s | press2 shows for the first third, press1 for two thirds, the last bar always |
 | hf-N-ms-i | N x ms | hat frame i shows for its ms slot |
 
@@ -191,15 +210,19 @@ hat frame, arms, eyes, mouth, props, bubbles, the mini pet) also paints its 4 ne
 right) in black, underneath the pet. So every extent in this spec grows by 1 cell on each side: an egg
 spanning x 1 to 14 is drawn from x 0 to 15, a bubble box 5 x 5 becomes 7 x 7, and so on.
 
-- Each outline belongs to its layer and moves with that layer's motion (bob, hop, rock, squeeze, glance, a
+- Each outline belongs to its layer and moves with that layer's motion (jog, hop, rock, squeeze, glance, a
   hat frame, la / lb, the bubble's own class). A layer that is hidden (an lb frame, a hat frame not in its
   slot) hides its outline too.
 - Inside the pet the outline is covered by the pet itself; it shows only at the outer edges and in the
   gaps (between the feet, between a raised arm and the head, inside a hollow outline).
 - Nothing see-through gets a stroke (the ice), and neither do auras, sparks or stars. A silhouette (a stage
   not reached yet) has none.
+- Within the pet, the body cells are painted first and every layer that moves on its own (the glancing and
+  scanning eyes, the chomping mouth, arms, the flag, hat frames) after them, so nothing of the body covers
+  the face; when squeezed, the rows it drops over are painted first and the dropping part after them.
 - Layers back to front: aura flames, the strokes, the pet (body, hat, eyes, arms, flag), its bubble and props
-  in white, the aura's sparks and the legend's stars, and when it hibernates the ice over everything.
+  in white, the aura's sparks and the legend's stars, and when it hibernates the ice over everything. The
+  aura (flames, sparks, stars) moves with the pet's motion, so the pet never slides over its flames.
 
 The stroke replaces the old aura rules: hats keep their own colours inside any aura, props are always white,
 and flames no longer keep a gap from the hat or the props (the black outline separates them).
@@ -212,7 +235,8 @@ stroke is what keeps it apart from the orange. There is no plate behind it and n
 ## Motion budget
 
 - All motion is CSS on a handful of paths: each colour of each moving layer is one path, rows of cells
-  joined into rectangles, and the stroke is one path per motion class. A posed pet stays under 96 shapes.
+  joined into rectangles, and the stroke is one path per motion class; every moving instance has its own class (the two zs are z0
+  and z1), so each outline follows its own layer. A posed pet stays under 96 shapes.
 - A pet off screen holds still: its animations pause until it scrolls back into view.
 - With reduced motion nothing moves: the first frame of each pair shows (`la`, hat frame 0), every bubble
   stays up.

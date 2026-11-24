@@ -698,8 +698,7 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   const int s = S.tileScale;
   const float unit = 92.f / 18.f;                    // the deck's critter: px per sprite unit
   const int feet = oy + d(30 + 12 * unit);
-  drawSprite(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a.species, poseOf(a, now), cc(k.body), fill, ms, true, a.hat,
-             a.hatColor);
+  drawCritter(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a, poseOf(a, now), cc(k.body), fill, ms, true);
   SQ_ADD(sprite, tp);
   SQ_T0(tt);
   // Title (mono 16) at 30 + 92 x 13/18 + 14; the status line (12.5) 5 px under it.
@@ -811,9 +810,11 @@ static inline void topBar(Canvas& c, const BigSpec& S, const Theme& T, const Pan
                           uint16_t pillFill, uint16_t pillInk, uint16_t body, uint16_t cut) {
   const Rect r = bigCardInner(S);
   const int cs = S.cardScale;
-  drawSprite(c, r.x, r.y, cs, a.species, poseOf(a, in.nowEpoch), body, cut, in.ms, true, a.hat, a.hatColor);
+  drawCritter(c, r.x, r.y, cs, a, poseOf(a, in.nowEpoch), body, cut, in.ms, true);
+  int lineX = r.x + 18 * cs + bk(S, 16);             // where the pet's line goes: after the crew
+  const int lineY = r.y + 13 * cs - S.label->cellH + 2;
   if (a.subagents) {                                 // SubagentCrew: up to six small critters and a count
-    int x = r.x + 18 * cs + bk(S, 16);
+    int x = lineX;
     const int n = a.subagents > 6 ? 6 : a.subagents;
     const int ss = S.crewScale;
     for (int i = 0; i < n; i++) {
@@ -825,7 +826,12 @@ static inline void topBar(Canvas& c, const BigSpec& S, const Theme& T, const Pan
     }
     char buf[32];
     snprintf(buf, sizeof buf, "%u subagent%s", (unsigned)a.subagents, a.subagents == 1 ? "" : "s");
-    c.text(*S.label, x + bk(S, 4), r.y + 13 * cs - S.label->cellH + 2, buf, body);
+    lineX = x + bk(S, 4) + c.text(*S.label, x + bk(S, 4), lineY, buf, body) + bk(S, 16);
+  }
+  if (a.pet.has && lineX < r.x + r.w) {              // its pet's name, stage and level
+    char buf[48];
+    petLine(a, buf, sizeof buf);
+    c.text(*S.label, lineX, lineY, buf, body, r.x + r.w - lineX);
   }
   const int titleTop = r.y + 13 * cs + bk(S, 10), titleH = bk(S, 30);
   // The pill (mono 15, 12 x 4 padding, radius 8) and the chip, right-aligned.

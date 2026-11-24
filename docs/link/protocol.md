@@ -38,7 +38,7 @@ COBS( 0xDE 0xC1 | 0x01 | <Frame, protobuf> | CRC16 hi | CRC16 lo ) 0x00
   removes every zero byte, so `0x00` ends a frame. After any noise or a corrupt frame, a reader
   resynchronises at the next `0x00`.
 - A frame is at most **4096 bytes** before COBS, unless the board asks for less in `Hello.max_frame`
-  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3413 bytes.
+  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3425 bytes.
 
 Anything that isn't a valid frame is ignored, including the ESP32's boot log. Since `0xDE 0xC1` never
 occurs in UTF-8 text, printing text on the same port is harmless.
@@ -100,10 +100,11 @@ board                                   deck
 
   | bit | group | fields |
   |---|---|---|
-  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot queued pet` |
-  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms` |
+  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot queued slowed slowed_by_you project pet out_until_ms` |
+  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms project_folder` |
   | 4 | `FIELDS_PROMPT` | `waiting` |
-  | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns` |
+  | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns cpu` |
+  | 16 | `FIELDS_LIMITS` | not an agent field: the board also gets `Limits` |
 
   `id` and `slot` are always set. `fields: 0` means `FIELDS_TILE`.
 - **The "Needs you" grid.** `attention_slot` is the agent's spot on the "Needs you" screen, 1 to 16 (a
@@ -113,6 +114,12 @@ board                                   deck
   fewer cells shows the agents in order of their spot, lowest first, in the cells it has; the rest
   aren't shown, but the count on its mark includes them. To see every agent on it, subscribe to every
   agent (`slot_count: 0`).
+- **Usage limits.** With `FIELDS_LIMITS` the deck sends `Limits` after the snapshot's `SnapshotEnd`
+  (when there are any) and again whenever they change: one `LimitSet` per account and tool, its shown
+  windows (the week first, at most 4) with percent used, reset time and level (`LIMIT_OK` under 80%,
+  `LIMIT_NEAR` from 80, `LIMIT_LOW` from 95, `LIMIT_OUT` at 100 or hit). `stale` means the window reset
+  since the tool's last report. An agent whose account or model is out has `out_until_ms` set (rules in
+  [protocol.md](../protocol.md#usage-limits)).
 - **Updates.** When an agent changes in a way the board can see (a subscribed field), the deck resends
   that whole agent in `AgentChanged`. An agent that leaves the subscribed slots, or the deck, gets
   `AgentRemoved`.

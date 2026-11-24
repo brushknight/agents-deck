@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|orbit|dial|spring|spring28|selftest28|selftest21] [pets]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -14,12 +14,14 @@
 // With orbit or dial it draws the round boards (sim/round_shots.h): home
 // with 3, 8 and 22 agents, a new waiter, the detail, the prompt and the
 // full-screen states. Build with -DPANEL_MAX_AGENTS=64 for those.
+// With "pets" last, every agent has a pet (Agent pets on): each stage and mood in turn.
 // tools/ppm2png.py turns them into PNGs.
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "deck_pet.c"   // the kit's pets: this renderer links no kit objects (deck_pet.c builds as C++ too)
 #include "layout_147.h"
 #include "layout_big.h"
 #include "layout_square.h"
@@ -352,6 +354,24 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   return 0;
 }
 
+// Agent pets on: a pet for every agent, through the stages, with a few
+// hungry, one weak and one asleep among them.
+static void givePets(Fleet& f) {
+  static const char* const kNames[] = {"Pip", "Biscuit", "Momo", "Taro", "Juniper", "Waffles", "Nori", "Pebble"};
+  for (int i = 0; i < f.count; i++) {
+    deck_pet_t& p = f.agents[i].pet;
+    p = deck_pet_t{};
+    p.has = true;
+    p.stage = (uint8_t)(i % 7);
+    p.cracked = i % 14 == 7;
+    p.mood = i % 9 == 4 ? DECK_PET_ASLEEP : i % 11 == 5 ? DECK_PET_WEAK : i % 3 == 2 ? DECK_PET_HUNGRY : DECK_PET_FED;
+    static const uint16_t kLevel[] = {0, 2, 6, 12, 23, 34, 41};
+    p.level = kLevel[p.stage];
+    p.hearts = p.mood == DECK_PET_HUNGRY ? 2 : p.mood == DECK_PET_FED ? 4 : 0;
+    if (p.stage) snprintf(p.name, sizeof p.name, "%s", kNames[i % 8]);
+  }
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "usage: render <state.json> <outdir> [ms]\n");
@@ -365,6 +385,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "cannot read %s\n", argv[1]);
     return 1;
   }
+  if (argc > 5 && !strcmp(argv[5], "pets")) givePets(deck.fleet);
   const Fleet& fleet = deck.fleet;
   // The sample fleet has every statusSince equal to server.time. Move the clock
   // on so the ages are not all "0s" and nobody is still celebrating.

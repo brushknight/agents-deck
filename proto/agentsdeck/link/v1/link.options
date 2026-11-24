@@ -26,6 +26,7 @@ agentsdeck.link.v1.Agent.last_prompt     max_size:160
 agentsdeck.link.v1.Agent.error           max_size:128
 agentsdeck.link.v1.Agent.subagents       max_count:6
 agentsdeck.link.v1.Agent.app             max_size:12
+agentsdeck.link.v1.Agent.project_folder  max_size:128
 agentsdeck.link.v1.Activity.tool         max_size:24
 agentsdeck.link.v1.Activity.detail       max_size:128
 agentsdeck.link.v1.Prompt.id             max_size:16
@@ -39,6 +40,8 @@ agentsdeck.link.v1.Hat.shape             max_size:16
 agentsdeck.link.v1.Hat.color             max_size:12
 agentsdeck.link.v1.Account.name          max_size:16
 agentsdeck.link.v1.Account.color         max_size:12
+agentsdeck.link.v1.Project.id            max_size:12
+agentsdeck.link.v1.Project.name          max_size:48
 agentsdeck.link.v1.Pet.name             max_size:16
 agentsdeck.link.v1.Pet.stage            max_size:8
 agentsdeck.link.v1.Pet.mood             max_size:8
@@ -111,3 +114,7 @@ agentsdeck.link.v1.FirmwareOffer.version max_size:24
 agentsdeck.link.v1.FirmwareOffer.sha256 max_size:32
 agentsdeck.link.v1.FirmwareOffer.path   max_size:96
 agentsdeck.link.v1.FirmwareStatus.error max_size:96
+agentsdeck.link.v1.Limits.sets            max_count:4
+agentsdeck.link.v1.LimitSet.account       max_size:16
+agentsdeck.link.v1.LimitSet.windows       max_count:4
+agentsdeck.link.v1.LimitWindow.label      max_size:16

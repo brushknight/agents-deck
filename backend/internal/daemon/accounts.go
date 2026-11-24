@@ -62,27 +62,6 @@ func accountForSession(sessionID, cwd string) accounts.Account {
 	return accounts.Default()
 }
 
-// activeSessions asks every account's Claude Code for its sessions.
-func activeSessions(bin string, skip map[string]bool) ([]claude.Live, bool) {
-	var all []claude.Live
-	seen := map[string]bool{}
-	ok := false
-	for _, a := range accounts.List() {
-		got, answered := claude.ActiveSessions(bin, a.ConfigDir(), projectsDirs(a), skip)
-		if !answered {
-			continue
-		}
-		ok = true
-		for _, l := range got {
-			if !seen[l.SessionID] {
-				seen[l.SessionID] = true
-				all = append(all, l)
-			}
-		}
-	}
-	return all, ok
-}
-
 // accountsKey changes whenever the account setup does, so the deck can
 // redraw the agents' account dots.
 func accountsKey() string {

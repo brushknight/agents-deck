@@ -254,6 +254,156 @@ class AgentAccount {
   int get hashCode => Object.hash(name, color, isDefault);
 }
 
+/// The stages a pet grows through, from its level.
+const petStages = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legend'];
+
+/// What a stage is called on screen.
+const petStageNames = {
+  'egg': 'Egg',
+  'baby': 'Baby',
+  'kid': 'Kid',
+  'grown': 'Grown-up',
+  'strong': 'Strong',
+  'mighty': 'Mighty',
+  'legend': 'Legend',
+};
+
+/// A pet's full hearts.
+const petMaxHearts = 4;
+
+/// The tokens eaten that reach level [n], as the service counts them: level
+/// 1 at 50k, each next one at 1.25 times the one before.
+int petLevelAt(int n) => n < 1 ? 0 : (50000 * _pow(1.25, n - 1)).round();
+
+double _pow(double b, int e) {
+  var r = 1.0;
+  for (var i = 0; i < e; i++) {
+    r *= b;
+  }
+  return r;
+}
+
+/// An agent's pet (`"pet"`, sent only while Agent pets is on): it hatches
+/// from an egg and grows on the agent's tokens.
+class AgentPet {
+  const AgentPet({
+    this.name = '',
+    this.stage = 'egg',
+    this.level = 0,
+    this.ate = 0,
+    this.nextAt = 0,
+    this.hearts = 0,
+    this.mood = 'fed',
+    this.hatchedAt,
+    this.ready = false,
+    this.levelFrom,
+    this.hat,
+  });
+
+  /// Made up when it hatches; "" while an egg.
+  final String name;
+
+  /// One of [petStages].
+  final String stage;
+  final int level;
+
+  /// Tokens eaten, all time (input and output).
+  final int ate;
+
+  /// [ate] that reaches the next level.
+  final int nextAt;
+
+  /// 0..[petMaxHearts].
+  final int hearts;
+
+  /// fed | hungry | weak | asleep.
+  final String mood;
+  final DateTime? hatchedAt;
+
+  /// An egg waiting to be seen: it wobbles.
+  final bool ready;
+
+  /// [ate] where the current level started; null from an older service.
+  final int? levelFrom;
+
+  /// Its own hat, from kid on; null before (or from an older service).
+  final AgentHat? hat;
+
+  bool get isEgg => stage == 'egg';
+
+  /// What it is called: "Egg", "Kid", "Builder", "Strong Builder" (the
+  /// builder is the only grown-up shape so far).
+  String get kind => switch (stage) {
+    'egg' || 'baby' || 'kid' => petStageNames[stage]!,
+    'grown' => 'Builder',
+    _ => '${petStageNames[stage] ?? stage} Builder',
+  };
+
+  /// Where the current level started and where the next one is, in tokens.
+  (int, int) get levelSpan {
+    final from = levelFrom ?? petLevelAt(level);
+    final to = nextAt > 0 ? nextAt : petLevelAt(level + 1);
+    return (from, to);
+  }
+
+  /// How far it is to the next level, 0..1.
+  double get progress {
+    final (from, to) = levelSpan;
+    if (to <= from) return 0;
+    return ((ate - from) / (to - from)).clamp(0.0, 1.0);
+  }
+
+  static AgentPet? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final m = j.cast<String, dynamic>();
+    final stage = _str(m['stage']);
+    final mood = _str(m['mood']);
+    return AgentPet(
+      name: _str(m['name']),
+      stage: stage.isEmpty ? 'egg' : stage,
+      level: _int(m['level']),
+      ate: _int(m['ate']),
+      nextAt: _int(m['nextAt']),
+      hearts: _int(m['hearts']).clamp(0, petMaxHearts),
+      mood: mood.isEmpty ? 'fed' : mood,
+      hatchedAt: _time(m['hatchedAt']),
+      ready: m['ready'] == true,
+      levelFrom: m['levelFrom'] is num ? _int(m['levelFrom']) : null,
+      hat: AgentHat.fromJson(_map(m['hat'])),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AgentPet &&
+      other.name == name &&
+      other.stage == stage &&
+      other.level == level &&
+      other.ate == ate &&
+      other.nextAt == nextAt &&
+      other.hearts == hearts &&
+      other.mood == mood &&
+      other.hatchedAt == hatchedAt &&
+      other.ready == ready &&
+      other.levelFrom == levelFrom &&
+      other.hat == hat;
+
+  @override
+  int get hashCode => Object.hash(
+    name,
+    stage,
+    level,
+    ate,
+    nextAt,
+    hearts,
+    mood,
+    hatchedAt,
+    ready,
+    levelFrom,
+    hat,
+  );
+}
+
 /// Every hat colour (never the status orange).
 const hatColors = [
   'teal',
@@ -304,6 +454,7 @@ class Agent {
     this.queued = 0,
     this.hat,
     this.account,
+    this.pet,
     this.startedAt,
     this.updatedAt,
     this.lastActive,
@@ -374,6 +525,9 @@ class Agent {
 
   /// The Claude account it runs in; null while only one is set up.
   final AgentAccount? account;
+
+  /// Its pet; null while Agent pets is off (or from an older service).
+  final AgentPet? pet;
 
   /// The app an external agent runs in ("orca", "herdr"), or "" for
   /// agentctl's own and plain mirrors.
@@ -446,6 +600,7 @@ class Agent {
       app: j['app'] is String ? j['app'] as String : '',
       hat: AgentHat.fromJson(j['hat']),
       account: AgentAccount.fromJson(j['account']),
+      pet: AgentPet.fromJson(j['pet']),
       subagents: [
         if (j['subagents'] case final List l)
           for (final x in l)

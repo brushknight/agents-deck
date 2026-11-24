@@ -87,6 +87,12 @@ type LocalController interface {
 	HistoryJSON() any
 }
 
+// StatusLiner takes Claude Code's status line reports (agentctl
+// statusline): the account's config folder and the status line input.
+type StatusLiner interface {
+	StatusLine(dir string, body []byte) error
+}
+
 // CreateOpts is the body of POST /local/agents.
 type CreateOpts struct {
 	Dir      string  `json:"dir"`
@@ -134,6 +140,13 @@ type Server struct {
 	// Queue holds prompts sent with "mode": "queue" until their agent is
 	// idle (queue.go; RunQueue types them in). nil: queueing is off.
 	Queue *queue.Queue
+	// Projects is the project list MCP's project tools change (the admin
+	// service; nil: no project tools).
+	Projects ProjectBook
+
+	// Guard holds what can wait while the computer is busy (cpuguard):
+	// queued prompts and start_agent over MCP. nil: nothing is held.
+	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -699,6 +712,19 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err := lc.Hook(r.URL.Query().Get("agent"), body); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /statusline", func(w http.ResponseWriter, r *http.Request) {
+		sl, ok := lc.(StatusLiner)
+		if !ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err := sl.StatusLine(r.URL.Query().Get("dir"), body); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}

@@ -5,7 +5,7 @@
   "keywords": ["serial", "protobuf", "nanopb", "esp32", "agents"],
   "frameworks": ["arduino", "espidf"],
   "platforms": "*",
-  "headers": ["DeckLink.h", "deck_link.h", "deck_tiles.h"],
+  "headers": ["DeckLink.h", "deck_link.h", "deck_tiles.h", "deck_pet.h"],
   "build": {
     "srcDir": "src",
     "includeDir": "src"

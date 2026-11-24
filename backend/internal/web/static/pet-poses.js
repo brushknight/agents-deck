@@ -11,28 +11,31 @@ import { GLYPH } from './deck-core.js';
 // arms: the top row of a 1 x 2 arm hanging, half up and up (its column is
 // one left of the body's left edge on those two rows, one right of the
 // right edge); feet: their rows, columns, and columns mid-step; bubble: the top-left of the
-// 5 x 5 bubble box; tow: the top-left of the 5 x 3 mini pet in tow.
+// 5 x 5 bubble box; tow: the top-left of the 5 x 3 mini pet in tow;
+// squeeze: how far it drops while compacting (2 unless its face sits too
+// low to drop 2 without covering the eyes: the kid's).
 export const RIG = {
-  egg: { bubble: [14, -4], tow: [16, 11], bottom: 2 },
-  crack: { bubble: [14, -4], tow: [16, 11], bottom: 2 },
-  baby: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 3], feet: [[12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [13, -1], tow: [14, 10] },
-  kid: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 4], feet: [[11, 12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [14, 0], tow: [14, 10] },
+  egg: { bubble: [14, -4], tow: [16, 11] },
+  crack: { bubble: [14, -4], tow: [16, 11] },
+  baby: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 3], feet: [[12], [4, 6, 9, 11], [5, 7, 9, 11]], bubble: [13, -1], tow: [14, 10] },
+  kid: { eyes: [[5, 7, 1, 2], [10, 7, 1, 2]], mouth: [7, 9], arms: [9, 7, 4], feet: [[11, 12], [4, 6, 9, 11], [3, 5, 10, 12]], bubble: [14, 0], tow: [14, 10], squeeze: 1 },
   builder: { eyes: [[4, 5, 1, 2], [10, 5, 1, 2]], mouth: [7, 7], arms: [7, 5, 2], feet: [[10, 11], [2, 4, 11, 13], [3, 5, 10, 12]], bubble: [16, -2], tow: [16, 9] },
   weak: { eyes: [[3, 7, 2, 1], [9, 7, 2, 1]], mouth: [6, 10], arms: [9, 7, 4], feet: [[11], [2, 4, 11, 13], [3, 5, 10, 12]], bubble: [15, 0], tow: [17, 9] },
 };
 
 // Each pose: eyes (how they change), arms (left, right: down, mid, up;
 // "swing" alternates them), walk (legs step; "fast" for bash), grp (the
-// motion of the whole body), bubble, and its extras.
+// motion of the whole pet: pjog lifts it a whole cell, feet and all, pjf
+// at the slower beat of bash), bubble, and its extras.
 export const POSES = {
   think: { eyes: 'glance', arms: ['down', 'mid'], bubble: 'think' },
   read: { eyes: 'scan', bubble: 'read' },
-  bash: { walk: 'fast', grp: 'bob fast', bubble: 'bash' },
-  write: { walk: 'fast', grp: 'bob fast', bubble: 'bash' },
+  bash: { walk: 'fast', grp: 'pjog pjf', bubble: 'bash' },
+  write: { walk: 'fast', grp: 'pjog pjf', bubble: 'bash' },
   web: { eyes: 'up', bubble: 'web' },
   plan: { bubble: 'plan' },
-  delegate: { walk: 'yes', grp: 'bob', arms: 'swing', tow: true },
-  run: { walk: 'yes', grp: 'bob', arms: 'swing', bubble: 'dots' },
+  delegate: { walk: 'yes', grp: 'pjog', arms: 'swing', tow: true },
+  run: { walk: 'yes', grp: 'pjog', arms: 'swing', bubble: 'dots' },
   compact: { eyes: 'strain', squash: true, bubble: 'press' },
   celebrate: { eyes: 'happy', grp: 'hop', arms: ['up', 'up'], flag: true, bubble: 'sparks' },
   hungry: { eyes: 'up', chomp: true, bubble: 'cookie' },
@@ -62,7 +65,7 @@ const BUBBLES = {
   cookie: [[GLYPH.cookie, 0, 0, 'bobc']],
   ask: [[GLYPH.ask, 1, 0, 'blink']],
   bang: [[GLYPH.bang, 2, 0, 'bang']],
-  zz: [[Z4, 0, 1, 'zz'], [Z3, 4, -2, 'zz']],
+  zz: [[Z4, 0, 1, 'zz z0'], [Z3, 4, -2, 'zz z1']], // each z its own class, so each has its own outline
   sparks: [[PLUS, 0, 2, 'spark s0'], [PLUS, 2, 0, 'spark s1']],
 };
 
@@ -153,8 +156,9 @@ export function posePet(look, pose, opts = {}) {
       const [rows, xs, stepped] = rig.feet;
       for (const y of rows) for (const x of xs) pix.delete(key(x, y));
       const fast = spec.walk === 'fast' ? ' fast' : '';
-      layer(rows.flatMap((y) => xs.map((x) => [x, y, body])), `la${fast}`, out.outer);
-      layer(rows.flatMap((y) => stepped.map((x) => [x, y, body])), `lb${fast}`, out.outer);
+      // inside the body's motion: the feet never come apart from the body
+      layer(rows.flatMap((y) => xs.map((x) => [x, y, body])), `la${fast}`);
+      layer(rows.flatMap((y) => stepped.map((x) => [x, y, body])), `lb${fast}`);
     }
     // the mouth chomps (the hungry mouth's grey, or the weak pet's line)
     if (spec.chomp) {
@@ -198,17 +202,20 @@ export function posePet(look, pose, opts = {}) {
     // the whole body moves: an egg rocks while it works
     if (egg) out.grp = ROCK.has(pose) ? `prock${spec.walk === 'fast' ? ' prk2' : ''}` : pose === 'celebrate' ? 'hop' : '';
     else out.grp = spec.grp || '';
-    // squeezed: all but its bottom two rows (above the feet) drop
+    // squeezed: all but the rows it drops over (above the feet) drop, and
+    // are drawn over them, face and all
     if (spec.squash) {
       const feetTop = rig.feet ? rig.feet[0][0] : Math.max(...[...pix.keys()].map((k) => at(k)[1])) + 1;
-      const split = feetTop - (rig.bottom || 2);
+      out.squeeze = rig.squeeze || 2;
+      const split = feetTop - out.squeeze;
       out.top = new Set([...pix.keys()].filter((k) => at(k)[1] < split));
     }
   }
-  // the mini pet in tow, bobbing along on stepping feet
+  // the mini pet in tow, on stepping feet (it doesn't bob: its feet would
+  // come apart from it)
   if (spec.tow && !bubbleOnly) {
     const [tx, ty] = rig.tow;
-    layer(glyph(['#####', '#.#.#'], tx, ty, body), 'pp bob', out.outer);
+    layer(glyph(['#####', '#.#.#'], tx, ty, body), 'pp', out.outer);
     layer(glyph(['#...#'], tx, ty + 2, body), 'pp la', out.outer);
     layer(glyph(['.#.#.'], tx, ty + 2, body), 'pp lb', out.outer);
   }
@@ -222,7 +229,8 @@ export function posePet(look, pose, opts = {}) {
     const cells = list.map(([rows, x, y, cls, ch = 'P']) => [glyph(rows, bx + x, by + y, ch), cls]);
     const keep = opts.keepOut || new Set();
     const clash = cells.some(([cs]) => cs.some(([x, y]) => [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => keep.has(key(x + dx, y + dy))))));
-    if (!clash) for (const [cs, cls] of cells) layer(cs, `pp${cls ? ` ${cls}` : ''}`, out.outer);
+    // the sparks by the flag hop with it
+    if (!clash) for (const [cs, cls] of cells) layer(cs, `pp${cls ? ` ${cls}` : ''}`, out.flagAt && name === 'sparks' ? out.inner : out.outer);
   }
   return out;
 }

@@ -1,0 +1,110 @@
+package daemon
+
+import (
+	"encoding/json"
+	"path/filepath"
+	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/claude"
+	"github.com/brushknight/agents-deck/backend/internal/codex"
+	"github.com/brushknight/agents-deck/backend/internal/limits"
+	"github.com/brushknight/agents-deck/backend/internal/model"
+)
+
+// Usage limits, from what Claude Code and Codex report themselves (see
+// package limits): the status line command, limit hits in Claude
+// transcripts, and Codex rollouts.
+
+func (d *Daemon) startLimits() {
+	d.limits = &limits.Book{}
+	d.Store.Limits = d.LimitsState
+	claude.LimitHit = d.limitHit
+}
+
+// LimitsState is every account's limits, named as the deck names accounts.
+func (d *Daemon) LimitsState() []model.Limits {
+	if d.limits == nil {
+		return nil
+	}
+	inUse := accounts.InUse()
+	return d.limits.State(func(tool, place string) string {
+		if tool != "claude" || !inUse {
+			return ""
+		}
+		for _, a := range accounts.List() {
+			if a.Path() == place {
+				return a.Name
+			}
+		}
+		return ""
+	})
+}
+
+// claudePlace is the config folder of a Claude account: CLAUDE_CONFIG_DIR,
+// or ~/.claude when it is unset.
+func claudePlace(dir string) string {
+	if dir == "" {
+		return accounts.Home()
+	}
+	return filepath.Clean(dir)
+}
+
+// StatusLine takes one status line report (agentctl statusline): the
+// account's config folder and Claude Code's status line input.
+func (d *Daemon) StatusLine(dir string, body []byte) error {
+	var sl limits.StatusLine
+	if err := json.Unmarshal(body, &sl); err != nil {
+		return err
+	}
+	if d.limits != nil && d.limits.Claude(claudePlace(dir), sl, time.Now()) {
+		d.Store.Touch()
+	}
+	return nil
+}
+
+// limitHit is claude.LimitHit: a transcript recorded a limit hit. It runs
+// while the store is locked, so the redraw is asked for on the side.
+func (d *Daemon) limitHit(transcript, text string, at time.Time) {
+	h, ok := limits.ParseHit(text, at)
+	if !ok || d.limits == nil {
+		return
+	}
+	place := ""
+	if a, ok := accounts.ForTranscript(transcript); ok {
+		place = a.Path()
+	} else { // <config folder>/projects/<project>/<session>.jsonl
+		place = filepath.Dir(filepath.Dir(filepath.Dir(transcript)))
+	}
+	if d.limits.Hit("claude", place, h, at) {
+		go d.Store.Touch()
+	}
+}
+
+// WatchLimits reads Codex's newest rollout for its rate limits, and redraws
+// when a window passes its reset, every 15 seconds.
+func (d *Daemon) WatchLimits() {
+	if d.limits == nil {
+		return
+	}
+	var seenPath string
+	var seenMod time.Time
+	last := ""
+	for {
+		if d.Cfg.Codex == nil || *d.Cfg.Codex {
+			home := codex.Home()
+			if f, mod := codex.Newest(filepath.Join(home, "sessions"), 8, time.Now()); f != "" && (f != seenPath || !mod.Equal(seenMod)) {
+				seenPath, seenMod = f, mod
+				for _, r := range codex.RateLimits(f) {
+					d.limits.Codex(home, r.Limits, r.At)
+				}
+			}
+		}
+		b, _ := json.Marshal(d.LimitsState())
+		if s := string(b); s != last {
+			last = s
+			d.Store.Touch()
+		}
+		time.Sleep(15 * time.Second)
+	}
+}

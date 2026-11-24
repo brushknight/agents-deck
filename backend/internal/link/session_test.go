@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -250,6 +251,55 @@ func TestSessionAttentionSlot(t *testing.T) {
 	b.send(&linkpb.Frame{Seq: 4, Body: &linkpb.Frame_MoveAttention{MoveAttention: &linkpb.MoveAttention{AgentId: "c3", Slot: 2}}})
 	if r := b.next().GetResult(); r.GetCode() != 409 {
 		t.Fatalf("move of an agent not on the grid: %+v", r)
+	}
+}
+
+// A board that subscribes with FIELDS_LIMITS gets the usage limits after
+// the snapshot and when they change; agents out of usage carry until when.
+func TestSessionLimits(t *testing.T) {
+	srv, _ := testDeck(t)
+	var mu sync.Mutex
+	used := 86
+	srv.Store.Limits = func() []model.Limits {
+		mu.Lock()
+		defer mu.Unlock()
+		lv := map[bool]string{false: "near", true: "out"}[used >= 100]
+		return []model.Limits{{Tool: "codex", Level: lv, Windows: []model.LimitWindow{
+			{ID: "seven_day", Label: "week", Used: used, Level: lv, ResetsAt: time.Now().Add(time.Hour)}}}}
+	}
+	b := start(t, srv, Binary)
+	b.send(hi("board-4"))
+	b.next() // welcome (pending)
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Subscribe{Subscribe: &linkpb.Subscribe{Fields: uint32(linkpb.FieldGroup_FIELDS_TILE | linkpb.FieldGroup_FIELDS_LIMITS)}}})
+	_ = srv.Devices.Approve("oled-tile-board4")
+	b.next() // welcome (approved)
+	b.next() // snapshot begin
+	for {
+		f := b.next()
+		if f.GetSnapshotEnd() != nil {
+			break
+		}
+		if a := f.GetAgentChanged().GetAgent(); a.GetId() == "b2" && a.OutUntilMs != 0 {
+			t.Fatalf("b2 isn't out: %+v", a)
+		}
+	}
+	l := b.next().GetLimits()
+	if len(l.GetSets()) != 1 || l.Sets[0].Level != linkpb.LimitLevel_LIMIT_NEAR || l.Sets[0].Windows[0].Used != 86 {
+		t.Fatalf("limits after the snapshot: %+v", l)
+	}
+	mu.Lock()
+	used = 100
+	mu.Unlock()
+	srv.Store.Touch()
+	var out, sent bool
+	for !out || !sent {
+		f := b.next()
+		if a := f.GetAgentChanged().GetAgent(); a.GetId() == "b2" && a.OutUntilMs > 0 {
+			out = true
+		}
+		if l := f.GetLimits(); l != nil && l.Sets[0].Level == linkpb.LimitLevel_LIMIT_OUT {
+			sent = true
+		}
 	}
 }
 

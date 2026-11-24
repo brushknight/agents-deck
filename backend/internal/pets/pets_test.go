@@ -319,6 +319,9 @@ func TestSettings(t *testing.T) {
 		{`{"pets":{"on":true,"firstLevel":5,"step":9}}`, Config{true, 50_000, 1.25}},
 	} {
 		os.WriteFile(cfg, []byte(x.json), 0o600)
+		if AlwaysOn { // pets can't be turned off for now: "off" reads as on
+			x.want.On = true
+		}
 		if c := get(); c != x.want {
 			t.Errorf("%s: %+v, want %+v", x.json, c, x.want)
 		}

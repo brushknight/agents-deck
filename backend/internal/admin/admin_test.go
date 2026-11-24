@@ -21,6 +21,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/flash"
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/serial"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -353,10 +354,12 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("pet levels: %d %v", code, out)
 	}
 	_, got = r.do(t, "GET", "/admin/v1/settings", "")
-	if got["pets"] != false || got["petFirstLevel"] != 20000.0 || got["petStep"] != 1.5 {
+	// Agent pets can't be turned off for now: "off" is kept in config.json,
+	// but the effective value is on (pets.AlwaysOn).
+	if got["pets"] != pets.AlwaysOn || got["petFirstLevel"] != 20000.0 || got["petStep"] != 1.5 {
 		t.Errorf("pets after the patch: %v %v %v", got["pets"], got["petFirstLevel"], got["petStep"])
 	}
-	if cfg, _ := os.ReadFile(r.a.Config); !strings.Contains(string(cfg), `"firstLevel": 20000`) {
+	if cfg, _ := os.ReadFile(r.a.Config); !strings.Contains(string(cfg), `"firstLevel": 20000`) || !strings.Contains(string(cfg), `"on": false`) {
 		t.Errorf("config.json pets:\n%s", cfg)
 	}
 	os.WriteFile(r.a.Config, []byte(`{"term":"tmux"}`), 0o600)

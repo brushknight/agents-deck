@@ -186,15 +186,15 @@ h1.sm { font-size: 40px; }
 
 /* Home's summary strip: who needs you, what is ready, the service */
 .strip { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1.25fr; border: 2px solid var(--term); box-shadow: 6px 6px 0 var(--term); margin: 0 6px 6px 0; }
-.strip a { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--block); color: var(--ink); border-left: 1px solid var(--term); min-width: 0; }
+.strip a { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 14px 16px; background: var(--block); color: var(--ink); border-left: 1px solid var(--term); min-width: 0; }
 .strip a:first-child { border-left: 0; }
 .strip a:hover { background: var(--raised); }
 .strip a.hotc { background: var(--orange); color: var(--term); }
 .strip a.hotc:hover { background: var(--orange2); }
 .strip .n { font-family: var(--f-mono); font-size: 34px; line-height: 40px; font-weight: 700; }
-.strip .l { font-family: var(--f-mono); font-size: 12px; line-height: 15px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--muted); }
+.strip .l { font-family: var(--f-mono); font-size: 12px; line-height: 15px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .strip a.hotc .l { color: var(--term); }
-.strip a.st { background: var(--term); flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; font-family: var(--f-mono); font-size: 12px; line-height: 18px; color: var(--text); white-space: nowrap; overflow: hidden; }
+.strip a.st { background: var(--term); flex-direction: column; flex-wrap: nowrap; align-items: flex-start; justify-content: center; gap: 2px; font-family: var(--f-mono); font-size: 12px; line-height: 18px; color: var(--text); overflow-wrap: anywhere; }
 .strip a.st:hover { background: var(--term); }
 
 /* section head: name, meta, a link, a line under it */
@@ -466,6 +466,82 @@ select.pick:disabled { opacity: 0.45; }
 .stripwrap .strip { margin: 0; }
 .stripwrap { display: flex; flex-direction: column; gap: 14px; }
 .lostbar { border-color: var(--orange); }
+/* the CPU guard: a CPU cell first in the strip, and a block while the computer is busy */
+.strip.cpu { grid-template-columns: 1.35fr 1.25fr 1fr 1fr 1.25fr; }
+.strip.cpu a:first-child .l { white-space: nowrap; }
+@media (max-width: 900px) { .strip.cpu { grid-template-columns: repeat(3, minmax(0, 1fr)); } .strip.cpu a:nth-child(4) { border-left: 0; } }
+/* the warning: a thing that needs you (.ask), a gauge in its black square */
+.cpuask { margin-right: 6px; }
+.cpuask .af { width: 56px; height: 56px; color: var(--orange); }
+.cpuask .grow { gap: 4px; font-size: 14px; line-height: 20px; }
+.cpuask .grow b { font-weight: 700; }
+/* narrow: the button goes under the text, the whole width */
+@media (max-width: 600px) { .cpuask { flex-wrap: wrap; } .cpuask .grow { flex-basis: calc(100% - 70px); } .cpuask .btn.fix { width: 100%; } }
+/* who uses the CPU: a line each, every column a fixed width so they line up */
+.cpuu { display: grid; grid-template-columns: 40px minmax(0, 1fr) 120px 48px 120px 120px; align-items: center; column-gap: 10px; padding: 10px 16px; border-top: 1px solid var(--rule); }
+.cpuu:first-child { border-top: 0; }
+.cpuu .bar { width: 120px; }
+.cpuu .pc { font-size: 16px; text-align: right; }
+/* the last two columns: Slowed or Slowed by you, then Full speed or Slow it;
+   a slot stays empty when there is nothing, so every button lines up */
+.cpuu .act { display: contents; }
+.cpuu .act > span { display: flex; }
+.cpuu .act .chip, .cpuu .act .btn { width: 100%; padding: 0 6px; }
+.face.lt { font-family: var(--f-mono); font-size: 16px; font-weight: 700; color: var(--soft); }
+@media (max-width: 600px) {
+  .cpuu { grid-template-columns: 40px minmax(0, 1fr) 56px; row-gap: 8px; }
+  .cpuu .bar { grid-row: 2; grid-column: 2 / -1; width: 100%; }
+  .cpuu .face { grid-row: span 2; align-self: start; }
+  .cpuu .act { display: flex; gap: 8px; grid-row: 3; grid-column: 2 / -1; }
+  .cpuu .act > span { width: 120px; }
+  .cpuu .act > span:empty, .cpuu .act:not(:has(.chip, .btn)) { display: none; }
+}
+.cpuu .cmds { color: var(--soft); }
+.cpuask a { color: var(--term); font-weight: 700; text-decoration: underline; }
+/* the schedule for the limit: a block a line, edited in place, and the week under it */
+.sched .grow { gap: 12px; }
+.sblks { display: flex; flex-direction: column; border: 1px solid var(--rule); background: var(--panel); }
+.sblks > .sub { padding: 12px 14px; }
+.sblk { display: grid; grid-template-columns: auto 92px 92px 84px 34px minmax(0, 1fr); align-items: end; gap: 10px 12px; padding: 10px 12px; border-top: 1px solid var(--rule); }
+.sblk:first-child { border-top: 0; }
+.sblk .field { flex: none; }
+.sblk .rm { width: 34px; padding: 0; }
+.sblk .nx { align-self: center; padding-top: 20px; }
+.sblk .nx:empty { display: none; }
+select.pick.sm { min-width: 0; width: 100%; padding: 0 26px 0 10px; }
+.days { display: inline-flex; border: 1px solid var(--rule); background: var(--ground); }
+.day { width: 30px; height: 32px; border: 0; border-left: 1px solid var(--rule); background: transparent; color: var(--muted); font: 700 12px/1 var(--f-mono); cursor: pointer; border-radius: 0; padding: 0; }
+.day:first-child { border-left: 0; }
+.day:hover { color: var(--ink); }
+.day[aria-pressed="true"] { background: var(--ink); color: var(--term); }
+.day:focus-visible { outline-offset: -3px; }
+@media (max-width: 700px) {
+  .sblk { grid-template-columns: repeat(3, minmax(0, 1fr)) 34px; }
+  .sblk .field:first-child, .sblk .nx { grid-column: 1 / -1; }
+  .sblk .nx { padding-top: 0; }
+}
+.week { display: flex; flex-direction: column; gap: 4px; }
+.wk { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 8px; }
+.wk .wd { font-family: var(--f-mono); font-size: 11px; line-height: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.wk.today .wd { color: var(--orange2); font-weight: 700; }
+.wk .trk { position: relative; height: 20px; background: var(--ground); border: 1px solid var(--rule); }
+.wk.today .trk { border-color: var(--edge); }
+.wk.scale .trk { height: 14px; background: none; border: 0; }
+.wk.scale .trk span { position: absolute; top: 0; transform: translateX(-50%); font-family: var(--f-mono); font-size: 10px; line-height: 14px; color: var(--dim); }
+.wk.scale .trk span:first-child { transform: none; }
+.wk.scale .trk span:last-child { transform: translateX(-100%); }
+.wb { position: absolute; top: 0; bottom: 0; background: rgba(255, 77, 0, var(--a, 0.5)); border-left: 1px solid var(--term); color: var(--ink); font: 700 10px/18px var(--f-mono); text-align: center; overflow: hidden; white-space: nowrap; }
+.wk .now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); }
+.week > .sub { margin-top: 2px; }
+.rule .m.acc2 { color: var(--orange2); }
+.rule .go { font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--orange2); background: none; border: 0; padding: 0; cursor: pointer; }
+.rule .go:hover:not(:disabled) { color: var(--ink); }
+.rule .go:disabled { opacity: 0.45; cursor: default; }
+/* a small Held chip beside Cancel (not the buttons' height) */
+.row.qitem > .r:has(> .btn.sm:not(.link)) > .chip.held { height: 24px; }
+/* one size for every button in a row (the CPU guard's) */
+.btn.fix { width: 172px; }
+.seg.even button { width: 62px; padding: 0; justify-content: center; text-align: center; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .grid4.small { gap: 8px; }
 .tile {
@@ -507,7 +583,43 @@ a.tile:hover { border-color: var(--edge); }
 .pg.arr { color: var(--ink); }
 .pg.arr:hover:not(:disabled), .pg:hover:not([aria-current]):not(:disabled) { border-color: var(--edge); color: var(--ink); background: var(--hover); }
 .pg:disabled { opacity: 0.3; cursor: default; }
+/* Panel view's "Needs you" mark, left of the pages: outlined in orange with
+   its count, solid orange while you are on it */
+.pg.ny { border-color: var(--orange); color: var(--orange2); }
+.pg.ny[aria-current="page"] { background: var(--orange); border-color: var(--orange); }
+.tile.nyfree { border: 1px solid var(--rule); background: var(--term); }
 .pager kbd { font: 500 11px/1 var(--f-mono); color: var(--muted); border: 1px solid var(--rule); padding: 3px 5px; }
+/* Home: All or By project, a chip per project, and a section per project */
+.homebar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.homebar[hidden], .pgroups[hidden], .grid4[hidden], .pgf[hidden] { display: none; }
+.homebar .chips { gap: 6px; }
+button.chip.fchip { height: 30px; cursor: pointer; text-transform: none; letter-spacing: 0.02em; font-size: 12px; }
+button.chip.fchip:hover:not(.fill) { border-color: var(--edge); color: var(--ink); }
+.pgroups { display: flex; flex-direction: column; gap: 22px; padding-top: 6px; }
+.pgroup { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pgroup .rule h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgf { margin-top: -4px; }
+.pgf span { cursor: default; }
+/* Agents, Projects: a project's buttons are one size; Today opens its day under it */
+.btn.pjb { width: 116px; }
+.row.proj > .grow { flex: 1 1 160px; min-width: 160px; }
+.btn.pjb.on { border-color: var(--orange); color: var(--orange2); }
+.pday { display: flex; flex-direction: column; gap: 0; padding: 4px 0 2px; border-top: 1px solid var(--line); min-width: 0; }
+.pday > .sub { padding: 8px 0; }
+.pdrow { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr) 220px; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.pdf { font-family: var(--f-mono); font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pda { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pdag { display: flex; align-items: center; gap: 10px; min-width: 0; color: inherit; text-decoration: none; }
+.pdn { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.pdag .nm { font-family: var(--f-mono); font-size: 13px; color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+.pdag:hover .nm { color: var(--ink); text-decoration: underline; }
+.pdag .chip { margin-left: auto; flex: none; }
+.pdt { display: flex; align-items: center; gap: 10px; }
+.pdt .bar { height: 6px; flex: 1 1 auto; min-width: 60px; }
+.pdt .sub { width: 76px; flex: none; text-align: right; }
+@media (max-width: 719px) {
+  .pdrow { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
 @keyframes deckFromR { from { transform: translateX(12%); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes deckFromL { from { transform: translateX(-12%); opacity: 0; } to { transform: none; opacity: 1; } }
 .slide-next { animation: deckFromR 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
@@ -700,9 +812,11 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 }
 @media (max-width: 900px) {
   .pair { grid-template-columns: minmax(0, 1fr); }
-  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .strip a:nth-child(3) { border-left: 0; }
-  .strip a:nth-child(n+3) { border-top: 1px solid var(--term); }
+  /* cells flow into rows that fill the width, however many there are; the
+     1px gaps over the strip's dark background draw the lines between them */
+  nav.strip { display: flex; flex-wrap: wrap; gap: 1px; background: var(--term); }
+  .strip a { flex: 1 1 150px; border-left: 0; }
+  .strip a.st { flex-basis: 100%; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar a:not(.st) b + span { display: none; }
   .bhead .rcard { width: 100%; }
@@ -740,7 +854,7 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
 
 @keyframes la { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
 @keyframes lb { 0%, 49% { opacity: 0 } 50%, 100% { opacity: 1 } }
-@keyframes bob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-1px) } }
+@keyframes bob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-0.5px) } }
 @keyframes blink { 0%, 59% { opacity: 1 } 60%, 100% { opacity: 0.15 } }
 @keyframes dots { 0% { opacity: .2 } 50% { opacity: 1 } 100% { opacity: .2 } }
 @keyframes zz { 0%, 100% { transform: translateY(0); opacity: .9 } 50% { transform: translateY(-0.6px); opacity: .4 } }
@@ -829,65 +943,82 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
    in ink, as the critter is there (pets.js, ink): no plate behind it. */
 .rrow > .vis .spr.pet { width: 40px; }
 .rrow > .vis:has(.spr.pet) { overflow: hidden; }
-/* A ready egg wobbles and glows a little; hatching it shakes, flashes and
-   bursts; the new pet pops in. Whole-pixel steps keep it crisp. */
-@keyframes prdy { 0%, 60%, 100% { transform: translateX(0) } 70% { transform: translateX(-1px) } 80% { transform: translateX(1px) } 90% { transform: translateX(-1px) } }
+/* Every pet animation moves whole pet pixels: transforms sit on groups
+   inside the svg (one CSS px there is one pet pixel) and step, never glide
+   or scale. A ready egg wobbles a cell and glows a little; hatching shakes,
+   flashes white and is gone; the new pet pops up from 2 cells below. */
+@keyframes prdy { 0%, 60%, 100% { transform: none } 70% { transform: translateX(-1px) } 80% { transform: translateX(1px) } 90% { transform: translateX(-1px) } }
 @keyframes pglow { 0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 224, 138, 0)) } 50% { filter: drop-shadow(0 0 6px rgba(255, 224, 138, .55)) } }
-@keyframes phx { 0% { transform: translateX(0) } 10% { transform: translateX(-2px) } 20% { transform: translateX(2px) } 30% { transform: translateX(-2px) } 40% { transform: translateX(2px) }
-  50% { transform: translateX(-3px) } 60% { transform: translateX(3px) } 70% { transform: none; filter: brightness(1) } 85% { transform: scale(1.15); filter: brightness(4); opacity: 1 } 100% { transform: scale(1.3); filter: brightness(4); opacity: 0 } }
-@keyframes pborn { 0% { transform: scale(.5); opacity: 0 } 25% { transform: scale(.75); opacity: 1 } 50% { transform: scale(1.1) } 75%, 100% { transform: scale(1) } }
-svg.pet.prdy { animation: prdy 1.6s steps(1) infinite, pglow 1.6s ease-in-out infinite; }
-svg.pet.phx { animation: phx 1.4s linear forwards; transform-origin: 50% 80%; }
-svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
-@keyframes pfc { 0%, 100% { opacity: 0 } 50% { opacity: .75 } }
-@keyframes prs { 0% { transform: translateY(0); opacity: 0 } 15% { opacity: 1 } 100% { transform: translateY(-9px); opacity: 0 } }
-@keyframes ptw { 0%, 100% { opacity: .15; transform: scale(.6) } 50% { opacity: 1; transform: scale(1.2) } }
-@keyframes pfall { 0% { transform: translateY(-3px); opacity: 0 } 20% { opacity: 1 } 100% { transform: translateY(9px); opacity: 0 } }
+@keyframes phx { 0% { transform: none } 10% { transform: translateX(-1px) } 20% { transform: translateX(1px) } 30% { transform: translateX(-1px) } 40% { transform: translateX(1px) }
+  50% { transform: translateX(-2px) } 60% { transform: translateX(2px) } 70% { transform: none; opacity: 1 } 85%, 100% { transform: none; opacity: 0 } }
+@keyframes phw { 0%, 69% { opacity: 0 } 70%, 100% { opacity: 1 } }
+@keyframes pborn { 0% { transform: translateY(2px); opacity: 0 } 25% { transform: translateY(2px); opacity: 1 } 50% { transform: translateY(-1px); opacity: 1 } 75%, 100% { transform: none; opacity: 1 } }
+svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
+.prdy > .pall { animation: prdy 1.6s steps(1) infinite; }
+.phx > .pall { animation: phx 1.4s steps(1) forwards; }
+.pet .phw { opacity: 0; }
+.phx .phw { animation: phw 1.4s steps(1) forwards; }
+.pborn > .pall { animation: pborn .6s steps(1) both; }
+/* the aura: flame tips on and off; sparks rise and snow falls a pixel a step;
+   stars are a dot that turns into a cross */
+@keyframes pfc { 0%, 49% { opacity: 0 } 50%, 100% { opacity: 1 } }
+@keyframes prs { from { transform: translateY(0) } to { transform: translateY(-9px) } }
+@keyframes prso { 0%, 11% { opacity: 0 } 12%, 77% { opacity: 1 } 78%, 100% { opacity: 0 } }
+@keyframes ptx { 0%, 49% { opacity: 0 } 50%, 100% { opacity: 1 } }
+@keyframes pfall { from { transform: translateY(-3px) } to { transform: translateY(9px) } }
+@keyframes pfo { 0%, 16% { opacity: 0 } 17%, 84% { opacity: 1 } 85%, 100% { opacity: 0 } }
 @keyframes pgl { 0%, 80% { opacity: 0 } 85%, 95% { opacity: 1 } 100% { opacity: 0 } }
 @keyframes pbob { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-1px) } }
-.pet .pfc { animation: pfc 1.8s ease-in-out infinite; }
-.pet .prs { animation: prs 2.4s linear infinite; opacity: 0; }
-.pet .ptw { animation: ptw 1.1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-.pet .pfall { animation: pfall 2.6s linear infinite; opacity: 0; }
+.pet .pfc { animation: pfc 1.8s infinite; }
+.pet .prs { animation: prs 2.4s steps(9) infinite, prso 2.4s infinite; opacity: 0; }
+.pet .ptw { animation: ptx 1.1s infinite; opacity: 0; }
+.pet .pfall { animation: pfall 2.6s steps(12) infinite, pfo 2.6s infinite; opacity: 0; }
 .pet .pgl { animation: pgl 4.8s steps(1) infinite; opacity: 0; }
 .pet .pbob { animation: pbob 1s infinite; }
 /* The critter's poses on a pet (pet-poses.js) take the critter's classes
-   above (la, lb, bob, glance, blink, ...); these keep the ones that move
-   by part of a pixel on whole pixels, and add the egg's rocking and the
-   squeeze. Off screen (.off) it all holds still. */
+   above (la, lb, glance, blink, ...); the ones that move the critter by part
+   of a pixel have whole-pixel versions here, scoped to pets, so the critter
+   moves as it always did. pjog lifts the whole pet a pixel (feet too), at
+   0.5 s, 0.4 s for bash and write (pjf). Off screen (.off) it all holds
+   still. */
+@keyframes pjog { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-1px) } }
 @keyframes phop { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(-2px) } }
 @keyframes pbobc { 0%, 49% { transform: translateY(0) } 50%, 100% { transform: translateY(1px) } }
 @keyframes pzz { 0%, 49% { transform: translateY(0); opacity: .9 } 50%, 100% { transform: translateY(-1px); opacity: .45 } }
 @keyframes prock { 0%, 24% { transform: none } 25%, 49% { transform: translateX(-1px) } 50%, 74% { transform: none } 75%, 100% { transform: translateX(1px) } }
 @keyframes psq { 0%, 32% { transform: none } 33%, 65% { transform: translateY(1px) } 66%, 100% { transform: translateY(2px) } }
+@keyframes psq1 { 0%, 32% { transform: none } 33%, 100% { transform: translateY(1px) } }
+.pet .pjog { animation: pjog .5s infinite; }
+.pet .pjog.pjf { animation-duration: .4s; }
 .pet .hop { animation: phop .4s infinite; }
 .pet .bobc { animation: pbobc .6s infinite; }
 .pet .zz { animation: pzz 2.4s infinite; }
-.pet .zz + .zz { animation-delay: -1.2s; }
+.pet .z1 { animation-delay: -1.2s; } /* each z its own class, so its outline moves with it */
 .pet .prock { animation: prock 1.2s infinite; }
 .pet .prock.prk2 { animation-duration: .6s; }
 .pet .psq { animation: psq 1.2s infinite; }
+.pet .psq.psq1 { animation-name: psq1; } /* the kid drops one pixel: its face sits low */
 .spr.off svg, .spr.off svg * { animation-play-state: paused !important; }
 .pet .pd1 { animation-delay: -.53s; } .pet .pd2 { animation-delay: -1.06s; } .pet .pd3 { animation-delay: -1.59s; } .pet .pd4 { animation-delay: -2.12s; }
 .pet .pd5 { animation-delay: -2.65s; } .pet .pd6 { animation-delay: -3.18s; } .pet .pd7 { animation-delay: -3.71s; } .pet .pd8 { animation-delay: -4.24s; } .pet .pd9 { animation-delay: -4.77s; }
 .pet .pt1 { animation-delay: -.27s; } .pet .pt2 { animation-delay: -.54s; } .pet .pt3 { animation-delay: -.81s; } .pet .pt4 { animation-delay: -1.08s; }
 .pet .pf1 { animation-delay: -.65s; } .pet .pf2 { animation-delay: -1.3s; } .pet .pf3 { animation-delay: -1.95s; }
-/* waking: the ice cracks, then flies apart, once */
+/* waking: the ice cracks, then its shards fly apart 2 pixels a step, once */
 @keyframes pwg { 0%, 55% { opacity: 1 } 56%, 100% { opacity: 0 } }
 @keyframes pwc { 0%, 30% { opacity: 0 } 31%, 55% { opacity: 1 } 56%, 100% { opacity: 0 } }
-@keyframes ps0 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 100% { opacity: 0; transform: translate(-5px, -5px) } }
-@keyframes ps1 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 100% { opacity: 0; transform: translate(5px, -6px) } }
-@keyframes ps2 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 100% { opacity: 0; transform: translate(-6px, 2px) } }
-@keyframes ps3 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 100% { opacity: 0; transform: translate(6px, 2px) } }
-@keyframes ps4 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 100% { opacity: 0; transform: translate(0, -8px) } }
+@keyframes ps0 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 70% { opacity: 1; transform: translate(-2px, -2px) } 85% { opacity: 1; transform: translate(-4px, -4px) } 100% { opacity: 0; transform: translate(-6px, -6px) } }
+@keyframes ps1 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 70% { opacity: 1; transform: translate(2px, -2px) } 85% { opacity: 1; transform: translate(4px, -4px) } 100% { opacity: 0; transform: translate(6px, -6px) } }
+@keyframes ps2 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 70% { opacity: 1; transform: translate(-2px, 0) } 85% { opacity: 1; transform: translate(-4px, 2px) } 100% { opacity: 0; transform: translate(-6px, 2px) } }
+@keyframes ps3 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 70% { opacity: 1; transform: translate(2px, 0) } 85% { opacity: 1; transform: translate(4px, 2px) } 100% { opacity: 0; transform: translate(6px, 2px) } }
+@keyframes ps4 { 0%, 55% { opacity: 0; transform: none } 56% { opacity: 1; transform: none } 70% { opacity: 1; transform: translate(0, -2px) } 85% { opacity: 1; transform: translate(0, -4px) } 100% { opacity: 0; transform: translate(0, -6px) } }
 .pwk .pwg { animation: pwg 1.6s steps(1) forwards; }
 .pwk .pwc { animation: pwc 1.6s steps(1) forwards; opacity: 0; }
-.pwk .pws { opacity: 0; animation: 1.6s ease-out forwards; }
+.pwk .pws { opacity: 0; animation: 1.6s steps(1) forwards; }
 .pwk .ps0 { animation-name: ps0; } .pwk .ps1 { animation-name: ps1; } .pwk .ps2 { animation-name: ps2; } .pwk .ps3 { animation-name: ps3; } .pwk .ps4 { animation-name: ps4; }
 @media (prefers-reduced-motion: reduce) {
   .pet *, .pet { animation: none !important; }
   svg.pet.phx { opacity: .4; }
-  .pet .pfc, .pet .prs, .pet .pfall, .pet .pgl, .pet .pws, .pet .pwc, .pwk .pwg { opacity: 0; }
+  .pet .pfc, .pet .prs, .pet .pfall, .pet .pgl, .pet .pws, .pet .pwc, .pwk .pwg, .pet .phw, .pet .ptw { opacity: 0; }
 }
 
 /* ---------- status at a glance: dots, link tiles, cards that fit ---------- */
@@ -941,6 +1072,11 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 .pvhead .pvface .spr, .pvhead .pvface svg { width: 22px; }
 .pvhead .acc { color: var(--orange2); font-weight: 700; }
 .pgrid { flex: 1; min-height: 0; gap: 6px; }
+/* fitPanel (settings.js) sets whole-pixel tile sizes: --pc wide, --pr tall */
+.pgrid { flex: none; grid-template-columns: repeat(4, var(--pc, minmax(0, 1fr))); grid-template-rows: repeat(4, var(--pr, minmax(0, 1fr))); }
+.pgrid > .tile { aspect-ratio: auto; min-height: 0; }
+.pgrid { container-type: inline-size; }
+@container (max-width: 480px) { .tile .spr.pet { width: 40px; } }
 .pgrid .tile.free { background: #0E0E0D; border: 1px solid #1F1F1D; }
 .pgrid .tile.free .fs { display: none; }
 
@@ -964,10 +1100,15 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 /* the page beside it: Home's side column fades, the deck keeps clear of it */
 .deckside { transition: opacity 160ms; }
 .barred .deckside { opacity: 0; pointer-events: none; }
-.deckmain { transform: scale(var(--dz, 1)); transform-origin: 0 0; transition: transform 240ms var(--bar-ease); }
+/* With the sidebar open the deck gets narrower (fitDeck sets its
+   max-width): the tiles shrink, the pets keep whole-pixel sizes (60 px, 40
+   px in a narrow deck) instead of a fractional scale that blurs them. */
+.deckmain { transition: max-width 240ms var(--bar-ease); }
+.deckmain .grid4 { container-type: inline-size; }
+@container (max-width: 520px) { .tile .spr.pet { width: 40px; } }
 .barred .panelview { right: var(--bar); }
 .panelview { transition: right 240ms var(--bar-ease); }
-.pvscreen { transition: width 240ms var(--bar-ease); }
+.pvscreen { transition: none; } /* fitPanel snaps it to whole pixels */
 .barred .pvside { display: none; }
 .barred .pvscreen { width: min(636px, calc(100vh - 150px), calc(100vw - var(--bar) - 60px)); }
 @media (prefers-reduced-motion: reduce) { .agentbar, .deckmain, .deckside, .panelview, .pvscreen { transition: none; } }
@@ -992,6 +1133,7 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 /* the pet's view: the sidebar widens over the deck, up to the menu on the left */
 .agentbar { transition: transform 240ms var(--bar-ease), width 240ms var(--bar-ease); }
 .agentbar.petv { width: calc(100vw - var(--side)); }
+.panelmode .agentbar.petv { width: 100vw; } /* Panel view has no menu on the left */
 .abpane { min-height: 100%; display: flex; flex-direction: column; background: var(--term); }
 .pvhd { display: flex; align-items: center; gap: 14px; padding: 16px 28px; background: var(--orange); color: var(--bar-ink); border-bottom: 2px solid var(--bar-ink); position: sticky; top: 0; z-index: 1; }
 .pvback { display: inline-flex; align-items: center; gap: 6px; border: 2px solid var(--bar-ink); background: transparent; color: var(--bar-ink); border-radius: 0; padding: 6px 12px; cursor: pointer;
@@ -1125,6 +1267,14 @@ svg.pet.pborn { animation: pborn .6s steps(4) both; transform-origin: 50% 80%; }
 .abacts { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
 .abacts .btn { height: auto; border: 2px solid var(--bar-ink); padding: 6px 12px; font-size: 11px; line-height: 16px; letter-spacing: 0.12em; font-weight: 700; color: var(--bar-ink); background: transparent; }
 .abacts .btn:hover:not(:disabled) { background: var(--bar-ink); color: var(--orange); border-color: var(--bar-ink); }
+/* Panel view's Back: square, like the other actions */
+.abacts .btn.sq, .pvacts .btn.sq { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.abacts .btn.sq[hidden] { display: none; }
+.pvacts { display: flex; gap: 8px; }
+.abpetrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.abhearts { display: inline-flex; gap: 2px; flex: none; }
+.abhearts svg { width: 14px; height: 12px; display: block; }
+.abhearts[hidden] { display: none; }
 .abfull { font-size: 11px; line-height: 16px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; text-decoration: underline; color: var(--bar-ink); padding: 8px 0; }
 .abfull:hover { text-decoration-thickness: 2px; }
 .abnote { margin: 0; font-size: 12px; line-height: 16px; }

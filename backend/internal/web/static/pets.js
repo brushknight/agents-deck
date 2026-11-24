@@ -126,10 +126,13 @@ export function petKind(pet) {
 }
 
 // A pixel heart, full or empty.
-export function heartSVG(full) {
+// onOrange: near-black hearts, the empty ones faint, as red won't read on
+// orange (the sidebar).
+export function heartSVG(full, onOrange = false) {
   const d = ['.rr.rr.', 'rrrrrrr', 'rrrrrrr', '.rrrrr.', '..rrr..', '...r...']
     .flatMap((row, y) => [...row].map((c, x) => (c === 'r' ? `M${x} ${y}h1v1h-1z` : ''))).join('');
-  return `<svg viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="${d}" fill="${full ? '#E8452B' : '#3B3A36'}"/></svg>`;
+  const fill = onOrange ? `#0A0A0A"${full ? '' : ' opacity="0.25"'}` : `${full ? '#E8452B' : '#3B3A36'}"`;
+  return `<svg viewBox="0 0 7 6" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="${d}" fill="${fill}/></svg>`;
 }
 
 const key = (x, y) => `${x},${y}`;
@@ -299,7 +302,8 @@ function auraSVG(filled, kind) {
   let stars = '';
   if (kind === 'legend') {
     [[-2, ys[0] - 2], [17, ys[0]], [-3, 7], [18, 8], [8, ys[0] - 7]].forEach(([x, y], i) => {
-      stars += paths([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dy]) => [x + dx, y + dy, '#FFF6C8', 1, `ptw pt${i}`]));
+      // two frames: a dot, then a cross
+      stars += paths([[x, y, '#FFF6C8', 1, `ptc pt${i}`]]) + paths([[-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dy]) => [x + dx, y + dy, '#FFF6C8', 1, `ptw pt${i}`]));
     });
   }
   return { behind: out, front: sparks + stars };
@@ -344,7 +348,8 @@ function iceSVG(filled, waking) {
 // pose), working (it bobs, without a pose), waking (the ice cracks off),
 // mystery (a "?" where the hat will be, until it shows), hatching (the
 // ready egg shakes and bursts), born (the new pet pops in), sil (one colour,
-// no aura or stroke: a stage not reached yet), still (no aura or motion). A
+// no aura or stroke: a stage not reached yet), still (no aura or motion;
+// glow keeps the aura, still: the growth path). A
 // ready egg wobbles. The viewBox is the same for every pet, so all of them
 // are drawn at one scale; auras, strokes, bubbles and props reach outside
 // it. Back to front: flames, the stroke, the pet, its bubble and props,
@@ -355,7 +360,7 @@ export function petSVG(pet, opts = {}) {
   const pose = moving && !opts.hatching && !opts.waking ? opts.pose || '' : '';
   const look = petLook(pet, opts);
   const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
-  const glow = look.aura && moving && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
+  const glow = look.aura && !opts.sil && (moving || opts.glow) && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
   const keepOut = new Set([...look.pix].filter(([, ch]) => ch === 'q').map(([k]) => k));
   const p = pose ? posePet(look, pose, { bubble: opts.bubble, keepOut }) : null;
   const pix = p ? p.pix : look.pix;
@@ -383,7 +388,8 @@ export function petSVG(pet, opts = {}) {
   let bodyG;
   if (p?.top) {
     const top = [...pix].filter(([k]) => p.top.has(k)), low = [...pix].filter(([k]) => !p.top.has(k));
-    bodyG = `<g class="psq">${paths(top.map(([k, ch]) => [...at(k), cell(ch)]))}${lay(p.inner)}${lay(hatLayers)}</g>${paths(low.map(([k, ch]) => [...at(k), cell(ch)]))}`;
+    // the rows below first: the top drops over them, face and all
+    bodyG = `${paths(low.map(([k, ch]) => [...at(k), cell(ch)]))}<g class="psq${p.squeeze === 1 ? ' psq1' : ''}">${paths(top.map(([k, ch]) => [...at(k), cell(ch)]))}${lay(p.inner)}${lay(hatLayers)}</g>`;
   } else bodyG = paths([...pix].map(([k, ch]) => [...at(k), cell(ch)])) + (p ? lay(p.inner) + lay(hatLayers) : '');
   let behind = '', front = '', under = '', over = '';
   if ((look.asleep || opts.waking) && !opts.sil) {
@@ -396,7 +402,13 @@ export function petSVG(pet, opts = {}) {
   const g0 = `<g${grp ? ` class="${grp}"` : ''}>`;
   const outer = p ? lay(p.outer) : '';
   const stroke = opts.sil ? '' : `${g0}${outline(bodyG)}</g>${outline(outer)}`;
-  return `<svg class="${cls}" viewBox="-2 -3 20 17" shape-rendering="crispEdges" aria-hidden="true" focusable="false">${behind}${under}${stroke}${g0}${bodyG}</g>${outer}${front}${over}</svg>`;
+  // Hatching: after the shake the egg flashes white, a frame of whole pixels.
+  const flash = moving && opts.hatching ? paths([...look.pix.keys()].map((k) => [...at(k), '#FFFFFF', 1, 'phw'])) : '';
+  // The aura moves with the pet (its flames, sparks and stars in the same
+  // motion group); a wrapper carries the ready egg's wobble, the hatch and the
+  // pop-in, in whole cells.
+  const inG = (m) => (m && grp ? `${g0}${m}</g>` : m);
+  return `<svg class="${cls}" viewBox="-2 -3 20 17" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><g class="pall">${inG(behind)}${under}${stroke}${g0}${bodyG}${flash}</g>${outer}${inG(front)}${over}</g></svg>`;
 }
 
 // outline: the stroke under some markup: the cells of its paths grown by one

@@ -1,5 +1,5 @@
 # Host tests for the Deck Link core (Apple clang or gcc).
-#   make test       build and run the unit tests (test_link, and test_ble: Bluetooth LE with a fake link)
+#   make test       build and run the unit tests (test_link; test_ble: Bluetooth LE with a fake link; test_pet: the pets)
 #   make board_sim  build the board simulator
 #   make test_tls   the pairing tests with mbedTLS 3 (Homebrew's mbedtls, or MBEDTLS=<prefix>)
 #   make board_wifi a board that pairs over serial and connects over TLS 1.3
@@ -10,17 +10,18 @@ CPPFLAGS += -I$(SRC) -D_POSIX_C_SOURCE=200809L
 # The plain tests build without Wi-Fi (no mbedTLS); test_tls and board_wifi
 # (below) build the same sources with mbedTLS 3 and TLS 1.3.
 TEST_CPPFLAGS := -DDECK_LINK_NO_WIFI
-CORE := $(SRC)/deck_link.c $(SRC)/deck_tiles.c $(SRC)/cobs.c $(SRC)/crc16.c \
+CORE := $(SRC)/deck_link.c $(SRC)/deck_tiles.c $(SRC)/deck_pet.c $(SRC)/cobs.c $(SRC)/crc16.c \
 	$(SRC)/deck_store.c $(SRC)/deck_pair.c $(SRC)/deck_tls.c $(SRC)/deck_fw.c $(SRC)/deck_ble.c \
 	$(SRC)/proto/link.pb.c $(SRC)/proto/pb_common.c $(SRC)/proto/pb_encode.c $(SRC)/proto/pb_decode.c
 HDRS := $(wildcard $(SRC)/*.h $(SRC)/proto/*.h)
 OUT := build
 
-all: $(OUT)/test_link $(OUT)/test_ble $(OUT)/board_sim
+all: $(OUT)/test_link $(OUT)/test_ble $(OUT)/test_pet $(OUT)/board_sim
 
-test: $(OUT)/test_link $(OUT)/test_ble
+test: $(OUT)/test_link $(OUT)/test_ble $(OUT)/test_pet
 	./$(OUT)/test_link
 	./$(OUT)/test_ble
+	./$(OUT)/test_pet
 
 board_sim: $(OUT)/board_sim
 
@@ -29,6 +30,9 @@ $(OUT)/test_link: test_link.c $(CORE) $(HDRS) | $(OUT)
 
 $(OUT)/test_ble: test_ble.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CPPFLAGS) $(TEST_CPPFLAGS) $(CFLAGS) -o $@ test_ble.c $(CORE) -lpthread
+
+$(OUT)/test_pet: test_pet.c pet_golden.h $(CORE) $(HDRS) | $(OUT)
+	$(CC) $(CPPFLAGS) $(TEST_CPPFLAGS) $(CFLAGS) -o $@ test_pet.c $(CORE) -lm
 
 $(OUT)/board_sim: board_sim.c $(CORE) $(HDRS) | $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ board_sim.c $(CORE)

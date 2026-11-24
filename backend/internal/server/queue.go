@@ -13,6 +13,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,7 +106,11 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request, p Prompter, id,
 		writeErr(w, http.StatusNotImplemented, "queueing prompts is not available here")
 		return
 	}
-	if s.Queue.Count(id) == 0 && !s.queue.inFlight(id) {
+	// While the CPU guard holds, an MCP client's prompt waits in the queue
+	// even for an idle agent; what a person sends goes in at once.
+	held, _ := s.holding()
+	mcpHeld := held && strings.HasPrefix(callerOf(r), "mcp:")
+	if s.Queue.Count(id) == 0 && !s.queue.inFlight(id) && !mcpHeld {
 		err := s.prompt(p, id, text, false)
 		if err == nil {
 			auditNote(r, "sent now")
@@ -202,10 +207,29 @@ func (s *Server) RunQueue(ctx context.Context) {
 	}
 }
 
-// deliver types in the next queued prompt of every agent that is ready for it.
+// Holder says whether the computer is too busy for work that can wait, and
+// why, in words for whoever asked (cpuguard.Guard).
+type Holder interface {
+	Holding() (bool, string)
+}
+
+// holding: the CPU guard holds queued prompts and start_agent now.
+func (s *Server) holding() (bool, string) {
+	if s.Guard == nil {
+		return false, ""
+	}
+	return s.Guard.Holding()
+}
+
+// deliver types in the next queued prompt of every agent that is ready for
+// it, unless the CPU guard holds them (the computer is busy). A prompt sent
+// to an idle agent with an empty queue still goes in at once (enqueue).
 func (s *Server) deliver(now time.Time) {
 	waiting := s.Queue.Agents()
 	if len(waiting) == 0 {
+		return
+	}
+	if held, _ := s.holding(); held {
 		return
 	}
 	p, ok := s.Ctl.(Prompter)

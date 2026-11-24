@@ -82,6 +82,7 @@ _agentctl() {
     'system:what the service is doing'
     'settings:show or change the service settings'
     'diagnostics:a report to send when something is wrong'
+    'cpu:how much CPU the service and the whole machine use'
     'status:is the service running and where its files are'
     'serve:run the service'
     'install:start the service at login, and now'
@@ -186,6 +187,11 @@ _agentctl() {
         esac
       fi ;;
     status)     _agentctl_args '--json[print it as JSON]' ;;
+    cpu)
+      if (( CURRENT == 3 )); then _values 'cpu' 'limit[the CPU guard'"'"'s limit for now]' 'schedule[the week'"'"'s schedule]' '--top[also list who uses the CPU]' '--json[print it as JSON]'
+      elif [[ ${words[3]} == limit ]]; then
+        if (( CURRENT == 4 )); then _values 'limit' 60 65 70 75 80 85 90 95 'schedule[back to the schedule]'; else _values 'option' '--for[how long, such as 3h]'; fi
+      fi ;;
     serve)      _agentctl_args '--demo[simulated fleet from the fixture]' '--fixture[with --demo, the fleet from a dataset file]:file:_files' '--log[append the log to a file]:file:_files' ;;
     completion) (( CURRENT == 3 )) && _values 'shell' zsh ;;
     set)
