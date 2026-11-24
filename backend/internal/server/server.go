@@ -145,7 +145,7 @@ type Server struct {
 	Projects ProjectBook
 
 	// Guard holds what can wait while the computer is busy (cpuguard):
-	// queued prompts and start_agent over MCP. nil: nothing is held.
+	// queued prompts. Starting agents is never held. nil: nothing is held.
 	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
