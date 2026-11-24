@@ -629,20 +629,15 @@ class _PetScene {
     Color cell(String ch) => col[ch] ?? col['b']!;
     grp = p?.grp ?? '';
     calm = d.calm;
-    // The body and what moves with it; the cells that drop when it is
-    // squeezed form group 2.
+    // The body and what moves with it, in the web's paint order: the body
+    // cells that don't drop (all of them when nothing is squeezed), then
+    // the ones that drop when it is squeezed (group 2, over the rows they
+    // drop onto), then the layers that move on their own (glancing and
+    // scanning eyes, the chomping mouth, arms, the flag, hat frames), so
+    // nothing of the body covers the face.
     final top = p?.top;
+    squeeze = p != null && p.squeeze == 1 ? 'psq1' : 'psq';
     final bodyParts = <(List<(int, int, String)>, String, int)>[
-      (
-        [
-          for (final MapEntry(key: (x, y), value: ch) in pix.entries)
-            if (top != null && top.contains((x, y))) (x, y, ch),
-        ],
-        '',
-        2,
-      ),
-      for (final (cells, cls) in [...?p?.inner, ...hatParts])
-        (cells, cls, top != null ? 2 : 1),
       (
         [
           for (final MapEntry(key: (x, y), value: ch) in pix.entries)
@@ -651,6 +646,17 @@ class _PetScene {
         '',
         1,
       ),
+      if (top != null)
+        (
+          [
+            for (final MapEntry(key: (x, y), value: ch) in pix.entries)
+              if (top.contains((x, y))) (x, y, ch),
+          ],
+          '',
+          2,
+        ),
+      for (final (cells, cls) in [...?p?.inner, ...hatParts])
+        (cells, cls, top != null ? 2 : 1),
     ];
     final outerParts = [
       for (final (c, cls) in [...?p?.outer]) (c, cls, 0),
@@ -696,7 +702,7 @@ class _PetScene {
     classes = {
       for (final l in [...body, ...outer, ...strokes]) l.cls,
       grp,
-      if (top != null) 'psq',
+      if (top != null) squeeze,
     }.toList();
     final xs = filled.map((c) => c.$1), ys = filled.map((c) => c.$2);
     bounds = Rect.fromLTRB(
@@ -724,6 +730,9 @@ class _PetScene {
   late final List<String> classes;
   late final bool calm;
 
+  /// The squeeze's motion class: psq, or psq1 for a pet that drops 1 row.
+  late final String squeeze;
+
   /// A ready egg: it wobbles.
   late final bool ready;
 
@@ -737,7 +746,9 @@ class _PetScene {
   _Layer? glint;
   List<(int, int)> sparks = const [];
   Color spark = const Color(0x00000000);
-  List<_Layer> stars = const [];
+
+  /// A legend's stars: a dot, and its 4 arms (on for half of each beat).
+  List<(_Layer, _Layer)> stars = const [];
   List<(int, int)> snow = const [];
 
   /// Has parts that move on the 150 ms aura and ice steps.
@@ -760,20 +771,34 @@ class _PetScene {
       first = false;
     }
 
-    for (final l in [...behind, ...glow, ...under, ...over, ...stars]) {
+    for (final l in [...under, ...over]) {
       add(l.path.getBounds());
     }
-    for (final (x, y) in sparks) {
-      add(Rect.fromLTRB(x.toDouble(), y - 9.0, x + 1.0, y + 1.0));
+    // The aura moves with the pet.
+    final aura = [
+      for (final l in [...behind, ...glow]) l.path.getBounds(),
+      for (final (d, arms) in stars) ...[
+        d.path.getBounds(),
+        arms.path.getBounds(),
+      ],
+      for (final (x, y) in sparks)
+        Rect.fromLTRB(x.toDouble(), y - 8.0, x + 1.0, y + 1.0),
+    ];
+    for (final o in {
+      for (var t = 0; t < 4800; t += 50) motion(grp, t, false),
+    }) {
+      for (final b in aura) {
+        add(b.shift(Offset(o.$2.toDouble(), o.$3.toDouble())));
+      }
     }
     for (final (x, y) in snow) {
-      add(Rect.fromLTRB(x.toDouble(), y - 3.0, x + 1.0, y + 10.0));
+      add(Rect.fromLTRB(x.toDouble(), y - 3.0, x + 1.0, y + 9.0));
     }
     final posed = [...strokes, ...body, ...outer];
-    final squeezed = classes.contains('psq');
+    final squeezed = classes.contains(squeeze);
     for (var t = 0; t < 4800; t += 50) {
       final (_, gx, gy) = motion(grp, t, false);
-      final (_, qx, qy) = motion('psq', t, false);
+      final (_, qx, qy) = motion(squeeze, t, false);
       for (final l in posed) {
         final (a, dx, dy) = motion(l.cls, t, false);
         if (a <= 0) continue;
@@ -798,7 +823,13 @@ class _PetScene {
   int signature(int ms, bool still) => Object.hashAll([
     for (final c in classes) motion(c, ms, still),
     if (ready && !still) petReadyWobble(ms),
-    if (glows && !still) ms ~/ 150,
+    if (glows && !still) ...[
+      petGlowOn(ms),
+      for (var i = 0; i < sparks.length; i++) petSparkAt(i, ms),
+      for (var i = 0; i < stars.length; i++) petStarArms(i, ms),
+      for (var i = 0; i < snow.length; i++) petSnowAt(i, ms),
+      (ms ~/ 150) % 32,
+    ],
   ]);
 
   void _aura(Set<_Cell> filled, _Aura a, bool legend) {
@@ -878,16 +909,13 @@ class _PetScene {
           // Nudged down from the web's 7 rows, so it stays on the tile.
           (8, ys.first - 4),
         ])
-          _Layer(const Color(0xFFFFF6C8), [
-            for (final (dx, dy) in const [
-              (0, 0),
-              (-1, 0),
-              (1, 0),
-              (0, -1),
-              (0, 1),
-            ])
-              (x + dx, y + dy),
-          ]),
+          (
+            _Layer(const Color(0xFFFFF6C8), [(x, y)]),
+            _Layer(const Color(0xFFFFF6C8), [
+              for (final (dx, dy) in const [(-1, 0), (1, 0), (0, -1), (0, 1)])
+                (x + dx, y + dy),
+            ]),
+          ),
       ];
     }
   }
@@ -974,18 +1002,18 @@ Map<(int, int), Color> petCellsAt(
   final s = _PetScene.of(pet, spots, draw);
   final out = <(int, int), Color>{};
   final (_, gx, gy) = s.motion(s.grp, ms, still);
-  final (_, qx, qy) = s.motion('psq', ms, still);
+  final (_, qx, qy) = s.motion(s.squeeze, ms, still);
   for (final l in [...s.strokes, ...s.body, ...s.outer]) {
     final (a, dx, dy) = s.motion(l.cls, ms, still);
     if (a <= 0) continue;
     final ox =
         dx +
         (l.group > 0 ? gx : 0) +
-        (l.group == 2 && s.classes.contains('psq') ? qx : 0);
+        (l.group == 2 && s.classes.contains(s.squeeze) ? qx : 0);
     final oy =
         dy +
         (l.group > 0 ? gy : 0) +
-        (l.group == 2 && s.classes.contains('psq') ? qy : 0);
+        (l.group == 2 && s.classes.contains(s.squeeze) ? qy : 0);
     final b = l.path.getBounds();
     for (var y = b.top.round(); y < b.bottom.round(); y++) {
       for (var x = b.left.round(); x < b.right.round(); x++) {
@@ -1032,7 +1060,6 @@ class PetSprite extends StatefulWidget {
     this.celebrateUntil,
     this.afterCelebrate = CritterPose.idle,
     this.fit = false,
-    this.ground,
   });
 
   final AgentPet pet;
@@ -1042,9 +1069,6 @@ class PetSprite extends StatefulWidget {
   /// pet pixel, smaller (whole device pixels) when its glow, hat or bubble
   /// would leave the box, standing on the box's bottom edge.
   final bool fit;
-
-  /// With [fit]: a ground line under its feet, in this colour.
-  final Color? ground;
 
   /// With [cell]: the box's height (the ground line is its bottom edge).
   final double? height;
@@ -1167,10 +1191,10 @@ class _PetSpriteState extends State<PetSprite> {
         ),
         painter: _PetPainter(
           scene: scene,
+          hatch: PetHatchScope.of(context),
           still: _still,
           cell: cell,
           fit: widget.fit,
-          ground: widget.ground,
           ms: _still || !scene.moves ? null : _ms,
         ),
       ),
@@ -1185,7 +1209,7 @@ class _PetPainter extends CustomPainter {
     required this.still,
     this.cell,
     this.fit = false,
-    this.ground,
+    this.hatch,
     this.ms,
   }) : _scene = scene,
        super(repaint: ms);
@@ -1197,7 +1221,9 @@ class _PetPainter extends CustomPainter {
   final bool still;
   final double? cell;
   final bool fit;
-  final Color? ground;
+
+  /// A hatch or a pop-in in progress (see [PetHatchScope]).
+  final PetHatchStep? hatch;
   final ValueListenable<int>? ms;
 
   static final _paint = Paint()..isAntiAlias = false;
@@ -1206,7 +1232,6 @@ class _PetPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final s = _scene;
     final t = ms?.value ?? 0;
-    final n = t ~/ 150;
     final m = canvas.getTransform();
     final scale = m[0] > 0 ? m[0] : 1.0;
     double snap(double v, double tr) =>
@@ -1234,20 +1259,6 @@ class _PetPainter extends CustomPainter {
       if (x + e.right * u > size.width) x = size.width - e.right * u;
       ox = snap(x, m[12] / scale);
       oy = snap(size.height - e.bottom * u, m[13] / scale);
-      if (ground case final g?) {
-        // The ground line, under the feet across what it reaches.
-        _paint.color = g;
-        final y = oy + s.look.bottom * u;
-        canvas.drawRect(
-          Rect.fromLTRB(
-            ox + e.left * u,
-            y,
-            ox + e.right * u,
-            y + math.max(1 / scale, (2 * scale).roundToDouble() / scale),
-          ),
-          _paint,
-        );
-      }
     } else if (cell case final c?) {
       // On a ground line: the art's lowest row on the box's bottom edge,
       // its middle column on the box's centre.
@@ -1271,9 +1282,18 @@ class _PetPainter extends CustomPainter {
     canvas.scale(u);
     // A ready egg wobbles, all of it.
     if (s.ready && !still) canvas.translate(petReadyWobble(t).toDouble(), 0);
+    // Hatching shakes and pops in by whole cells, all of it (aura too).
+    final h = hatch;
+    if (h != null) {
+      if (!h.shown) {
+        canvas.restore();
+        return;
+      }
+      canvas.translate(h.dx.toDouble(), h.dy.toDouble());
+    }
     final (_, gx, gy) = s.motion(s.grp, t, still);
-    final (_, qx, qy) = s.motion('psq', t, still);
-    final squeezed = s.classes.contains('psq');
+    final (_, qx, qy) = s.motion(s.squeeze, t, still);
+    final squeezed = s.classes.contains(s.squeeze);
 
     void draw(
       List<_Layer> layers, [
@@ -1304,58 +1324,57 @@ class _PetPainter extends CustomPainter {
       }
     }
 
-    draw(s.behind);
-    if (!still) {
-      // The glow layer fades in and out over 1.8 s (12 steps).
-      const glowSteps = 12;
-      final g = (n % glowSteps) / glowSteps;
-      draw(s.glow, 0.75 * _wave(g));
-    }
+    // The aura moves with the pet (its jog, hop or rock).
+    final ax = gx.toDouble(), ay = gy.toDouble();
+    draw(s.behind, 1, ax, ay);
+    // The second flame layer: off, then on, half of 1.8 s each.
+    if (!still && petGlowOn(t)) draw(s.glow, 1, ax, ay);
     draw(s.under);
     posed(s.strokes);
     posed(s.body);
-    posed(s.outer);
-    if (!still) {
-      // Sparks rise 9 cells over 2.4 s (16 steps), each a little later.
-      for (final (i, (x, y)) in s.sparks.indexed) {
-        final k = (n + (i * 7) ~/ 2) % 16;
-        final f = (k + 0.5) / 16;
-        final a = f < 0.15 ? f / 0.15 : 1 - (f - 0.15) / 0.85;
-        _paint.color = s.spark.withValues(alpha: a);
-        canvas.drawRect(
-          Rect.fromLTWH(x.toDouble(), y - (9 * k ~/ 16).toDouble(), 1, 1),
-          _paint,
-        );
+    // Hatching: the egg's cells flash white.
+    if (h != null && h.white) {
+      _paint.color = const Color(0xFFFFFFFF);
+      for (final (x, y) in s.look.pix.keys) {
+        canvas.drawRect(Rect.fromLTWH(x + ax, y + ay, 1, 1), _paint);
       }
     }
-    // Legend's stars twinkle in turn (1.2 s); lit and still with no motion.
-    for (final (i, star) in s.stars.indexed) {
-      final k = (n + i * 2) % 8;
-      draw([star], still ? 1 : 0.15 + 0.85 * _wave(k / 8));
+    posed(s.outer);
+    if (!still) {
+      // Sparks rise a cell a step (9 steps over 2.4 s), shown steps 1 to 7.
+      _paint.color = s.spark;
+      for (final (i, (x, y)) in s.sparks.indexed) {
+        final (k, shown) = petSparkAt(i, t);
+        if (!shown) continue;
+        canvas.drawRect(Rect.fromLTWH(x + ax, y - k + ay, 1, 1), _paint);
+      }
+    }
+    // A legend's stars: a dot, then a cross for half of 1.1 s, in turn;
+    // crosses, still, with no motion.
+    for (final (i, (dot, arms)) in s.stars.indexed) {
+      draw([dot], 1, ax, ay);
+      if (still || petStarArms(i, t)) draw([arms], 1, ax, ay);
     }
     // The ice over everything.
     draw(s.over);
-    if (!still && s.glint != null && n % 32 >= 28 && n % 32 <= 30) {
+    if (!still &&
+        s.glint != null &&
+        (t ~/ 150) % 32 >= 28 &&
+        (t ~/ 150) % 32 <= 30) {
       draw([s.glint!]);
     }
     if (!still) {
-      // Snow falls 12 cells over 2.7 s (18 steps).
+      // Snow falls a cell a step from 3 above (12 steps over 2.6 s), shown
+      // from 17 % to 85 %.
+      _paint.color = const Color(0xFFE8F6FF);
       for (final (i, (x, y)) in s.snow.indexed) {
-        final k = (n + i * 4) % 18;
-        final f = (k + 0.5) / 18;
-        final a = f < 0.2 ? f / 0.2 : 1 - (f - 0.2) / 0.8;
-        _paint.color = const Color(0xFFE8F6FF).withValues(alpha: a);
-        canvas.drawRect(
-          Rect.fromLTWH(x.toDouble(), y - 3 + (12 * k ~/ 18).toDouble(), 1, 1),
-          _paint,
-        );
+        final (k, shown) = petSnowAt(i, t);
+        if (!shown) continue;
+        canvas.drawRect(Rect.fromLTWH(x.toDouble(), y - 3.0 + k, 1, 1), _paint);
       }
     }
     canvas.restore();
   }
-
-  /// 0 → 1 → 0 over t in 0..1, eased.
-  static double _wave(double t) => 0.5 - 0.5 * math.cos(2 * math.pi * t);
 
   @override
   bool shouldRepaint(_PetPainter old) =>
@@ -1363,6 +1382,91 @@ class _PetPainter extends CustomPainter {
       old.still != still ||
       old.cell != cell ||
       old.fit != fit ||
-      old.ground != ground ||
+      old.hatch != hatch ||
       old.ms != ms;
+}
+
+/// The aura's steps, as the web's classes run them (docs/pet-poses.md,
+/// "Timings"): every one moves whole cells or turns on and off.
+
+/// pfc: the second flame layer, off then on, half of 1.8 s each.
+bool petGlowOn(int ms) => ms % 1800 >= 900;
+
+/// prs: spark [i] (0.53 s later each) rises a cell a step, 9 steps over
+/// 2.4 s, and shows from 12 % to 78 % (steps 1 to 7): its rise and whether
+/// it shows.
+(int, bool) petSparkAt(int i, int ms) {
+  final t = (ms + 530 * i) % 2400 / 2400;
+  return ((t * 9).floor(), t >= 0.12 && t < 0.78);
+}
+
+/// ptw: star [i] (0.27 s later each) shows its 4 arms for the second half
+/// of 1.1 s.
+bool petStarArms(int i, int ms) => (ms + 270 * i) % 1100 >= 550;
+
+/// pfall: snowflake [i] (0.65 s later each) falls a cell a step from 3
+/// above, 12 steps over 2.6 s, shown from 17 % to 85 %.
+(int, bool) petSnowAt(int i, int ms) {
+  final t = (ms + 650 * i) % 2600 / 2600;
+  return ((t * 12).floor(), t >= 0.17 && t < 0.85);
+}
+
+/// One step of a hatch or a pop-in: where the whole pet is, in cells,
+/// whether it shows, and whether the egg flashes white.
+@immutable
+class PetHatchStep {
+  const PetHatchStep({
+    this.dx = 0,
+    this.dy = 0,
+    this.shown = true,
+    this.white = false,
+  });
+
+  /// phx (1.4 s): -1, +1, -1, +1, -2, +2 cells in x, a tenth each, then
+  /// still; white from 70 %; gone from 85 %.
+  factory PetHatchStep.hatch(double t) {
+    const xs = [0, -1, 1, -1, 1, -2, 2];
+    final i = (t * 10).floor();
+    return PetHatchStep(
+      dx: i < xs.length ? xs[i] : 0,
+      shown: t < 0.85,
+      white: t >= 0.7,
+    );
+  }
+
+  /// pborn (0.6 s): +2 cells in y hidden, +2 shown, -1, then in place, a
+  /// quarter each.
+  factory PetHatchStep.born(double t) => switch ((t * 4).floor()) {
+    0 => const PetHatchStep(dy: 2, shown: false),
+    1 => const PetHatchStep(dy: 2),
+    2 => const PetHatchStep(dy: -1),
+    _ => const PetHatchStep(),
+  };
+
+  final int dx, dy;
+  final bool shown, white;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PetHatchStep &&
+      other.dx == dx &&
+      other.dy == dy &&
+      other.shown == shown &&
+      other.white == white;
+
+  @override
+  int get hashCode => Object.hash(dx, dy, shown, white);
+}
+
+/// Tells the pets under it they are hatching or popping in ([PetHatcher]).
+class PetHatchScope extends InheritedWidget {
+  const PetHatchScope({super.key, required this.step, required super.child});
+
+  final PetHatchStep? step;
+
+  static PetHatchStep? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PetHatchScope>()?.step;
+
+  @override
+  bool updateShouldNotify(PetHatchScope old) => old.step != step;
 }

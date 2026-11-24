@@ -134,9 +134,11 @@ void main() {
       expect(find.byKey(const Key('agent-usage')), findsOneWidget);
       expect(find.text('all models · week'), findsOneWidget);
       if (scenario == 'out') {
-        // The chip says until when, and "continue on personal" what to do.
+        // The chip says until when, and the line under the rows says the
+        // agent waits (the page has no "continue on" row any more).
         expect(find.textContaining('OUT · BACK'), findsOneWidget);
-        expect(find.byKey(const Key('agent-handoff-note')), findsOneWidget);
+        expect(find.byKey(const Key('agent-usage-out')), findsOneWidget);
+        expect(find.byKey(const Key('agent-handoff-note')), findsNothing);
       } else {
         expect(find.textContaining('OUT · BACK'), findsNothing);
       }

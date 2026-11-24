@@ -21,7 +21,7 @@ class PetRig {
     this.feet,
     required this.bubble,
     required this.tow,
-    this.bottom = 2,
+    this.squeeze = 2,
   });
 
   /// [x, y, w, h], left eye then right.
@@ -40,8 +40,9 @@ class PetRig {
   /// The top-left of the 5 x 3 mini pet in tow.
   final PetCell tow;
 
-  /// The rows an egg keeps when it is squeezed.
-  final int bottom;
+  /// How far it drops while compacting: 2 rows, unless its face sits too
+  /// low to drop 2 without covering its eyes (the kid's: 1).
+  final int squeeze;
 }
 
 const petRig = <String, PetRig>{
@@ -51,7 +52,7 @@ const petRig = <String, PetRig>{
     eyes: [(5, 7, 1, 2), (10, 7, 1, 2)],
     mouth: (7, 9),
     arms: (9, 7, 3),
-    feet: ([12], [4, 6, 9, 11], [3, 5, 10, 12]),
+    feet: ([12], [4, 6, 9, 11], [5, 7, 9, 11]),
     bubble: (13, -1),
     tow: (14, 10),
   ),
@@ -62,6 +63,7 @@ const petRig = <String, PetRig>{
     feet: ([11, 12], [4, 6, 9, 11], [3, 5, 10, 12]),
     bubble: (14, 0),
     tow: (14, 10),
+    squeeze: 1,
   ),
   'builder': PetRig(
     eyes: [(4, 5, 1, 2), (10, 5, 1, 2)],
@@ -115,12 +117,12 @@ const _poses = <CritterPose, _Pose>{
     bubble: 'think',
   ),
   CritterPose.read: _Pose(eyes: 'scan', bubble: 'read'),
-  CritterPose.bash: _Pose(walk: 'fast', grp: 'bob fast', bubble: 'bash'),
-  CritterPose.write: _Pose(walk: 'fast', grp: 'bob fast', bubble: 'bash'),
+  CritterPose.bash: _Pose(walk: 'fast', grp: 'pjog pjf', bubble: 'bash'),
+  CritterPose.write: _Pose(walk: 'fast', grp: 'pjog pjf', bubble: 'bash'),
   CritterPose.web: _Pose(eyes: 'up', bubble: 'web'),
   CritterPose.plan: _Pose(bubble: 'plan'),
-  CritterPose.delegate: _Pose(walk: 'yes', grp: 'bob', swing: true, tow: true),
-  CritterPose.run: _Pose(walk: 'yes', grp: 'bob', swing: true, bubble: 'dots'),
+  CritterPose.delegate: _Pose(walk: 'yes', grp: 'pjog', swing: true, tow: true),
+  CritterPose.run: _Pose(walk: 'yes', grp: 'pjog', swing: true, bubble: 'dots'),
   CritterPose.compact: _Pose(eyes: 'strain', squash: true, bubble: 'press'),
   CritterPose.celebrate: _Pose(
     eyes: 'happy',
@@ -199,7 +201,8 @@ final _bubbles = <String, List<(List<String>, int, int, String, String)>>{
   'cookie': [(petGlyph['cookie']!, 0, 0, 'bobc', 'P')],
   'ask': [(petGlyph['ask']!, 1, 0, 'blink', 'P')],
   'bang': [(petGlyph['bang']!, 2, 0, 'bang', 'P')],
-  'zz': [(_z4, 0, 1, 'zz', 'P'), (_z3, 4, -2, 'zz zz2', 'P')],
+  // Each z its own class, so each has its own outline.
+  'zz': [(_z4, 0, 1, 'zz z0', 'P'), (_z3, 4, -2, 'zz z1', 'P')],
   'sparks': [(_plus, 0, 2, 'spark s0', 'P'), (_plus, 2, 0, 'spark s1', 'P')],
 };
 
@@ -295,6 +298,9 @@ class PosedPet {
   bool hollow = false;
   bool shade = false;
   PetCell? flagAt;
+
+  /// How far it drops while compacting (see [PetRig.squeeze]).
+  int squeeze = 2;
 }
 
 /// The pet doing [pose] (docs/pet-poses.md); [bubble] false leaves its
@@ -374,22 +380,15 @@ PosedPet posePet(
         }
       }
       final fast = spec.walk == 'fast' ? ' fast' : '';
-      layer(
-        [
-          for (final y in rows)
-            for (final x in xs) (x, y, body),
-        ],
-        'la$fast',
-        true,
-      );
-      layer(
-        [
-          for (final y in rows)
-            for (final x in stepped) (x, y, body),
-        ],
-        'lb$fast',
-        true,
-      );
+      // Inside the body's motion: the feet never come apart from the body.
+      layer([
+        for (final y in rows)
+          for (final x in xs) (x, y, body),
+      ], 'la$fast');
+      layer([
+        for (final y in rows)
+          for (final x in stepped) (x, y, body),
+      ], 'lb$fast');
     }
     if (spec.chomp) {
       final (mx, my) = rig.mouth!;
@@ -467,12 +466,14 @@ PosedPet posePet(
     } else {
       out.grp = spec.grp;
     }
-    // Squeezed: all but its bottom two rows (above the feet) drop.
+    // Squeezed: all but the rows it drops over (above the feet) drop, and
+    // are drawn over them, face and all.
     if (spec.squash) {
       final feetTop =
           rig.feet?.$1.first ??
           pix.keys.map((c) => c.$2).reduce((a, b) => a > b ? a : b) + 1;
-      final split = feetTop - rig.bottom;
+      out.squeeze = rig.squeeze;
+      final split = feetTop - rig.squeeze;
       out.top = {
         for (final c in pix.keys)
           if (c.$2 < split) c,
@@ -481,7 +482,8 @@ PosedPet posePet(
   }
   if (spec.tow && !bubbleOnly) {
     final (tx, ty) = rig.tow;
-    layer(_glyph(['#####', '#.#.#'], tx, ty, body), 'pp bob', true);
+    // It doesn't bob: its feet would come apart from it.
+    layer(_glyph(['#####', '#.#.#'], tx, ty, body), 'pp', true);
     layer(_glyph(['#...#'], tx, ty + 2, body), 'pp la', true);
     layer(_glyph(['.#.#.'], tx, ty + 2, body), 'pp lb', true);
   }
@@ -510,7 +512,12 @@ PosedPet posePet(
     final clash = parts.any((p) => p.$1.any((c) => near(c.$1, c.$2)));
     if (!clash) {
       for (final (cells, cls) in parts) {
-        layer(cells, cls.isEmpty ? 'pp' : 'pp $cls', true);
+        // The sparks by the flag hop with it.
+        layer(
+          cells,
+          cls.isEmpty ? 'pp' : 'pp $cls',
+          !(name == 'sparks' && out.flagAt != null),
+        );
       }
     }
   }
@@ -545,6 +552,9 @@ PosedPet posePet(
         if (f(pace) < 0.5) a = 0;
       case 'bob':
         if (f(pace) >= 0.5) dy -= 1;
+      case 'pjog':
+        // The whole pet lifts a cell, feet and all (0.4 s for bash: pjf).
+        if (f(c.contains('pjf') ? 400 : 500) >= 0.5) dy -= 1;
       case 'pbob':
         if (f(1000) >= 0.5) dy -= 1;
       case 'hop':
@@ -586,12 +596,15 @@ PosedPet posePet(
       case 'bobc':
         if (f(600) >= 0.5) dy += 1;
       case 'zz':
-        if (f(2400, c.contains('zz2') ? 1200 : 0) >= 0.5) {
+        if (f(2400, c.contains('z1') ? 1200 : 0) >= 0.5) {
           dy -= 1;
           a *= 0.45;
         } else {
           a *= 0.9;
         }
+      case 'psq1':
+        // The kid's squeeze: one row, from a third of the way.
+        if (f(1200) >= 0.33) dy += 1;
       case 'psq':
         final t = f(1200);
         dy += t < 0.33

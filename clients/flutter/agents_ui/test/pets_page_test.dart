@@ -279,10 +279,42 @@ void main() {
     await open(tester, 'checkout-api');
     await tester.tap(find.byKey(const Key('agent-pet')));
     await tester.pump();
-    expect(find.text('Juno'), findsOneWidget);
+    // It goes by its agent's name; its own name isn't shown.
+    expect(find.text('Juno'), findsNothing);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('pet-name')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data,
+      'checkout-api',
+    );
     expect(find.text('BUILDER · LEVEL 14'), findsOneWidget);
     expect(find.text('LEVEL 14'), findsOneWidget);
-    expect(find.text("checkout-api's pet"), findsOneWidget);
+    expect(find.text('its pet'), findsOneWidget);
+    // The whole growth path: reached stages in their real look, the ones
+    // ahead as dark shapes.
+    final path = tester
+        .widgetList<PetSprite>(
+          find.descendant(
+            of: find.byKey(const Key('pet-path')),
+            matching: find.byType(PetSprite),
+          ),
+        )
+        .toList();
+    expect(path, hasLength(petStages.length));
+    // Juno is a grown-up (index 3): egg to grown-up real, strong on dark.
+    expect(
+      [for (final p in path) p.sil != null],
+      [
+        false, false, false, false, true, true, true, //
+      ],
+    );
+    expect(find.text('as a baby'), findsOneWidget);
+    expect(find.byType(HudClock), findsNothing);
     expect(find.text('57%'), findsOneWidget);
     expect(find.text('teal beanie'), findsOneWidget);
     expect(find.text('rolled at hatching, for good'), findsOneWidget);
@@ -295,7 +327,7 @@ void main() {
     await golden(tester, 'pet');
     await tester.tap(find.byKey(const Key('pet-back')));
     await tester.pump();
-    expect(find.text('Juno'), findsNothing);
+    expect(find.byKey(const Key('pet-name')), findsNothing);
     expect(find.text('FOCUS TERMINAL'), findsOneWidget);
   });
 
@@ -306,11 +338,11 @@ void main() {
     await open(tester, 'docs-site');
     await tester.tap(find.byKey(const Key('agent-pet')));
     await tester.pump();
-    expect(find.text('An egg'), findsOneWidget);
+    expect(find.text('its egg'), findsOneWidget);
     expect(find.text('?'), findsOneWidget); // its hat: a surprise
     source.load(petsPageState());
     await tester.pump();
-    expect(find.text('An egg, ready'), findsOneWidget);
+    expect(find.text('its egg, ready to hatch'), findsOneWidget);
     expect(find.text('It hatches'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await golden(tester, 'petegg');
@@ -353,9 +385,16 @@ void main() {
     expect(name.data, a['title']);
     expect(name.style!.fontSize, lessThan(56));
     expect(find.text('please tidy the export tables'), findsOneWidget);
-    // One quiet line and a square button for the other account.
-    expect(find.byKey(const Key('agent-handoff')), findsOneWidget);
-    expect(find.text('CONTINUE ON WORK'), findsOneWidget);
+    // With two accounts: which one it runs in, beside the status; moving
+    // it to the other is for the browser.
+    // A working agent: at the end of the last prompt's row, the square and
+    // the name only.
+    expect(find.byKey(const Key('agent-account')), findsNothing);
+    expect(find.byKey(const Key('agent-account-name')), findsOneWidget);
+    expect(find.text('personal'), findsOneWidget);
+    expect(find.text('CONTINUE ON WORK'), findsNothing);
+    // No clock on this page.
+    expect(find.byType(HudClock), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

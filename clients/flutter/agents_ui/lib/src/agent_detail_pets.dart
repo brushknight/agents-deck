@@ -9,7 +9,6 @@ part of 'agent_detail.dart';
 // page. Only the card is rounded; buttons, chips and boxes are square.
 
 const _pRule = Color(0xFF3B3A36);
-const _pLine = Color(0xFF262622);
 const _pText = Color(0xFFC9C5BC);
 const _pMuted = Color(0xFF9A968C);
 const _pOrange2 = Color(0xFFFF6A2E);
@@ -268,7 +267,18 @@ extension _PetsPage on _AgentDetailState {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  chip,
+                  // The status chip, and the pet's level in the corner on
+                  // the same row: the name and its session line get the
+                  // whole width under them.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      chip,
+                      const Spacer(),
+                      const SizedBox(width: 16),
+                      _petMeta(pet, orange: orange),
+                    ],
+                  ),
                   const SizedBox(height: 6),
                   _FitName(
                     a.title,
@@ -291,28 +301,20 @@ extension _PetsPage on _AgentDetailState {
               ),
             ),
           ),
-          const SizedBox(width: 16),
-          _petMeta(pet, orange: orange),
         ],
       ),
     );
   }
 
-  /// Hearts, level and its bar, and the clock.
+  /// Hearts, level and its bar (no clock on this page).
   Widget _petMeta(AgentPet pet, {required bool orange}) {
     final ink = orange ? _pInkOnOrange : DeckHud.ink;
     final fill = orange ? _pInkOnOrange : _pLevel;
     final track = orange ? _pInkOnOrange.withValues(alpha: 0.22) : _pTrack;
-    final clock = _menuBar
-        ? const SizedBox.shrink()
-        : Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: HudClock(color: ink, size: 28),
-          );
     if (pet.isEgg) {
       final pct = pet.nextAt > 0 ? (pet.ate / pet.nextAt).clamp(0.0, 1.0) : 0.0;
       return Padding(
-        padding: const EdgeInsets.only(top: 4),
+        padding: const EdgeInsets.only(top: 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -329,17 +331,15 @@ extension _PetsPage on _AgentDetailState {
                 key: const Key('agent-pet-level'),
                 style: DeckHud.rm(20, ink, weight: 700, spacing: 1.2),
               ),
-              const SizedBox(height: 9),
+              const SizedBox(height: 7),
               _pBar(pct, width: 150, height: 6, fill: fill, track: track),
             ],
-            const SizedBox(height: 9),
-            clock,
           ],
         ),
       );
     }
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -358,10 +358,8 @@ extension _PetsPage on _AgentDetailState {
               ),
             ],
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 7),
           _pBar(pet.progress, width: 150, height: 6, fill: fill, track: track),
-          const SizedBox(height: 9),
-          clock,
         ],
       ),
     );
@@ -498,17 +496,6 @@ extension _PetsPage on _AgentDetailState {
                     afterCelebrate: after,
                   ),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 6,
-                  top: 122,
-                  height: 2,
-                  child: ColoredBox(
-                    color: orange
-                        ? _pInkOnOrange.withValues(alpha: 0.45)
-                        : _pRule,
-                  ),
-                ),
               ],
             ),
           ),
@@ -526,8 +513,7 @@ extension _PetsPage on _AgentDetailState {
     final intFlash = _flashColors('interrupt', onAccent: false);
     final rmFlash = _flashColors('dismiss', onAccent: false);
     final resumeFlash = _flashColors('resume', onAccent: false);
-    final others = _otherAccounts(a);
-    final armed = others.where((x) => x.name == _confirmHandoff).firstOrNull;
+    final account = _petAccount(a);
     final tool = switch (a.tool) {
       'claude' => 'claude code',
       '' => '',
@@ -548,9 +534,20 @@ extension _PetsPage on _AgentDetailState {
         children: [
           _petHead(state, a),
           const SizedBox(height: 22),
-          if (running) ..._petNow(a, subs) else ..._petStatus(state, a),
+          if (running) ..._petNow(a, subs) else _petStatus(state, a, account),
           const SizedBox(height: 22),
-          _pLabel('last prompt', _pMuted, tail: ago),
+          // A working agent's account sits at the end of this row, so the
+          // "doing now" block keeps its shape.
+          if (running && account != null)
+            Row(
+              children: [
+                Expanded(child: _pLabel('last prompt', _pMuted, tail: ago)),
+                const SizedBox(width: 16),
+                _petAccountName(a, 16),
+              ],
+            )
+          else
+            _pLabel('last prompt', _pMuted, tail: ago),
           const SizedBox(height: 8),
           // Up to five lines of it, as many as fit.
           Expanded(
@@ -579,9 +576,7 @@ extension _PetsPage on _AgentDetailState {
             // when there is no "continue on" row to say what to do.
             UsageRows(
               limits: l,
-              outUntil: a.needsYou || others.isNotEmpty
-                  ? null
-                  : state.outUntil(a),
+              outUntil: a.needsYou ? null : state.outUntil(a),
               size: _fs(16),
             ),
           ],
@@ -624,37 +619,6 @@ extension _PetsPage on _AgentDetailState {
               ],
             ],
           ),
-          // Another Claude account: one quiet line above the actions,
-          // a square button per account (two taps: it says what it does
-          // in between).
-          if (others.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Row(
-              key: const Key('agent-handoff'),
-              children: [
-                Expanded(
-                  child: armed == null
-                      ? _pLabel(
-                          'account',
-                          _pMuted,
-                          tail: a.account!.name,
-                          key: const Key('agent-handoff-note'),
-                        )
-                      : Text(
-                          _AgentDetailState._handoffNote(a, armed.name),
-                          key: const Key('agent-handoff-note'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: DeckHud.rm(16, DeckHud.accent, weight: 700),
-                        ),
-                ),
-                for (final to in others) ...[
-                  const SizedBox(width: 14),
-                  _handoffButton(a, to, square: true),
-                ],
-              ],
-            ),
-          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -846,7 +810,7 @@ extension _PetsPage on _AgentDetailState {
   }
 
   /// "Status" and how it is: finished, and whether anybody has looked.
-  List<Widget> _petStatus(AgentsState state, Agent a) {
+  Widget _petStatus(AgentsState state, Agent a, Widget? account) {
     final t = shortDuration(state.inStatus(a));
     final (String main, String rest, Color color) = switch (a.status) {
       AgentStatus.error => (a.errorMessage ?? 'error', '', DeckHud.accent),
@@ -871,26 +835,80 @@ extension _PetsPage on _AgentDetailState {
         DeckHud.ink,
       ),
     };
-    return [
-      _pLabel('status', _pMuted),
-      const SizedBox(height: 8),
-      Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(text: main),
-            if (rest.isNotEmpty)
-              TextSpan(
-                text: ' · $rest',
-                style: const TextStyle(color: _pMuted),
-              ),
-          ],
+    final status = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _pLabel('status', _pMuted),
+        const SizedBox(height: 8),
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: main),
+              if (rest.isNotEmpty)
+                TextSpan(
+                  text: ' · $rest',
+                  style: const TextStyle(color: _pMuted),
+                ),
+            ],
+          ),
+          key: const Key('agent-status'),
+          maxLines: account == null ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: DeckHud.rm(22, color, weight: 500).copyWith(height: 30 / 22),
         ),
-        key: const Key('agent-status'),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: DeckHud.rm(22, color, weight: 500).copyWith(height: 30 / 22),
-      ),
-    ];
+      ],
+    );
+    if (account == null) return status;
+    // The status keeps left and gives way first; the account sits right.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: status),
+        const SizedBox(width: 28),
+        account,
+      ],
+    );
+  }
+
+  /// Which Claude account it runs in, when there is more than one: a label
+  /// and the name after a square in the account's colour.
+  Widget? _petAccount(Agent a) {
+    if (a.account == null || (_accounts?.length ?? 0) < 2) return null;
+    return Column(
+      key: const Key('agent-account'),
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _pLabel('account', _pMuted),
+        const SizedBox(height: 8),
+        _petAccountName(a, 22),
+      ],
+    );
+  }
+
+  /// "■ personal": a square in the account's colour, then its name.
+  Widget _petAccountName(Agent a, double size) {
+    final acc = a.account!;
+    return Row(
+      key: const Key('agent-account-name'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, color: hatColor(acc.color).$1),
+        const SizedBox(width: 10),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 200),
+          child: Text(
+            acc.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: DeckHud.rm(
+              size,
+              DeckHud.ink,
+              weight: 500,
+            ).copyWith(height: size >= 22 ? 30 / 22 : 1.25),
+          ),
+        ),
+      ],
+    );
   }
 
   /// The back button in the actions row (the menu bar; hosts without an
@@ -1197,9 +1215,9 @@ extension _PetsPage on _AgentDetailState {
     final pet = a.pet!;
     final pose = critterPoseOf(a, inStatus: state.inStatus(a));
     final egg = pet.isEgg;
-    final name = egg
-        ? (pet.ready ? 'An egg, ready' : 'An egg')
-        : (pet.name.isEmpty ? 'Its pet' : pet.name);
+    // The pet goes by its agent's name for now (its own name stays in the
+    // model, not on screen).
+    final name = a.title;
     return _petCard(
       fill: DeckHud.bg,
       child: PetHatcher(
@@ -1259,7 +1277,6 @@ extension _PetsPage on _AgentDetailState {
                     tailColor: _pMuted,
                   ),
                 ),
-                if (!_menuBar) HudClock(size: 28),
               ],
             ),
             const SizedBox(height: 18),
@@ -1294,13 +1311,6 @@ extension _PetsPage on _AgentDetailState {
                             ),
                           ),
                         ),
-                        const Positioned(
-                          left: 10,
-                          right: 10,
-                          top: 262,
-                          height: 2,
-                          child: ColoredBox(color: _pRule),
-                        ),
                       ],
                     ),
                   ),
@@ -1328,7 +1338,11 @@ extension _PetsPage on _AgentDetailState {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          "${a.title}'s ${egg ? 'egg' : 'pet'}",
+                          egg
+                              ? (pet.ready
+                                    ? 'its egg, ready to hatch'
+                                    : 'its egg')
+                              : 'its pet',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: DeckHud.rm(16, _pMuted),
@@ -1341,11 +1355,13 @@ extension _PetsPage on _AgentDetailState {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            // The menu bar's bigger text takes some of the gaps.
+            SizedBox(height: _menuBar ? 12 : 18),
             _petTiles(pet),
-            const SizedBox(height: 18),
+            SizedBox(height: _menuBar ? 12 : 18),
             ?_petNext(pet),
             const Spacer(),
+            _petPath(pet, a.hat),
             if (_note != null)
               Text(
                 _note!,
@@ -1592,7 +1608,7 @@ extension _PetsPage on _AgentDetailState {
                   'hatched',
                   const Color(0xFF8FCB6B),
                   '${hatched.toLocal().day} ${months[hatched.toLocal().month - 1]} ${hatched.toLocal().year}',
-                  pet.name.isEmpty ? '' : 'as ${pet.name}',
+                  'as a baby',
                 ),
         ],
       ),
@@ -1635,13 +1651,6 @@ extension _PetsPage on _AgentDetailState {
                   height: 62,
                 ),
               ),
-              const Positioned(
-                left: 8,
-                right: 8,
-                bottom: 8,
-                height: 2,
-                child: ColoredBox(color: _pLine),
-              ),
             ],
           ),
         ),
@@ -1672,6 +1681,62 @@ extension _PetsPage on _AgentDetailState {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  /// The whole path it grows along, egg to legend: the stages it has
+  /// reached in their real look (its own hat from kid on, a "?" only on the
+  /// stage it is at before the hat shows, the strong, mighty and legend
+  /// auras, the stroke), the ones ahead as still dark shapes. The stage it
+  /// is at is named in orange.
+  Widget _petPath(AgentPet pet, AgentHat? spots) {
+    final at = petStages.indexOf(pet.stage);
+    return Row(
+      key: const Key('pet-path'),
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (final (i, stage) in petStages.indexed)
+          Expanded(
+            child: Column(
+              key: Key('pet-path-$stage'),
+              children: [
+                PetSprite(
+                  pet: i == at
+                      ? pet
+                      : AgentPet(
+                          stage: stage,
+                          level: petStageLevel[stage]!,
+                          hat: i >= 2 && i < at ? pet.hat : null,
+                        ),
+                  hat: spots,
+                  mystery: i == at && pet.hat == null && pet.level < 5,
+                  // Ahead: only a still dark shape of that form, as the
+                  // next unlock's (no hat, glow or "?").
+                  sil: i > at ? const Color(0xFF55524B) : null,
+                  fit: true,
+                  // One scale for every stage (the legend's glow fits at 2).
+                  cell: 2,
+                  width: 86,
+                  // The menu bar's bigger text leaves it less room.
+                  height: _menuBar ? 44 : 52,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  petStageNames[stage]!.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  softWrap: false,
+                  style: DeckHud.rm(
+                    _fs(12),
+                    i == at ? _pOrange2 : _pMuted,
+                    weight: 700,
+                    spacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

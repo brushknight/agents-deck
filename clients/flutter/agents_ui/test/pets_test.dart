@@ -242,16 +242,21 @@ void main() {
       expect(petArmCells(weak, 4, true), [(14, 4), (14, 5)]);
     });
 
-    test('bash: feet step fast, the body bobs, ">_" with its cursor', () {
+    test('bash: feet step fast, the pet jogs, ">_" with its cursor', () {
       final a = at(builder, CritterPose.bash, 0);
       final b = at(builder, CritterPose.bash, 150);
       // la: feet at 2 4 11 13; lb (from 100 ms): at 3 5 10 12.
       expect(a[(2, 11)], body);
       expect(a[(3, 11)], black);
       expect(b[(3, 11)], body);
-      // The body bobs a cell up in the second half (fast: 0.2 s).
+      // The whole pet jogs a cell up in the second half of 0.4 s (pjf),
+      // feet and all.
       expect(a[(1, 3)], body);
-      expect(b[(1, 2)], body);
+      expect(b[(1, 3)], body);
+      final c = at(builder, CritterPose.bash, 250); // la again, lifted
+      expect(c[(1, 2)], body);
+      expect(c[(2, 10)], body);
+      expect(c[(2, 11)], black);
       // The prompt glyph in the bubble box (16, -2), one row down, white.
       expect(a[(16, -1)], white);
       expect(a[(17, 0)], white);
@@ -368,7 +373,10 @@ void main() {
         [0, 1, 2],
       );
       expect(petMotion('pp zz', 0), (0.9, 0, 0));
-      expect(petMotion('pp zz zz2', 0), (0.45, 0, -1));
+      expect(petMotion('pp zz z1', 0), (0.45, 0, -1));
+      expect(petMotion('pjog', 300), (1.0, 0, -1));
+      expect(petMotion('pjog pjf', 150), (1.0, 0, 0));
+      expect(petMotion('pjog pjf', 250), (1.0, 0, -1));
       expect(petMotion('hf-4-120-2', 250).$1, 1);
       expect(petMotion('hf-4-120-2', 130).$1, 0);
       expect(petMotion('pp spark s1', 100).$1, 0.45);
@@ -407,6 +415,126 @@ void main() {
     }
     expect(tallest * 4, lessThanOrEqualTo(96));
     expect(widest * 4, lessThanOrEqualTo(158));
+  });
+
+  test('the face shows in every frame of every pose', () {
+    // Every hatched stage and mood doing every pose, painted every 50 ms
+    // over 2.4 s in paint order: both eyes always show, and never fewer
+    // eye cells than at the start (a body layer must never cover them).
+    // A hat without near-black cells, so only eyes (and the weak art's
+    // mouth) have the eyes' colour.
+    const hat = AgentHat(shape: 'beanie', color: 'teal');
+    for (final stage in petStages.skip(1)) {
+      for (final mood in ['fed', 'hungry', 'weak', 'asleep']) {
+        final pet = AgentPet(stage: stage, mood: mood, hat: hat);
+        final art = PetLook.of(pet).art;
+        final eyeColor = art == 'weak'
+            ? const Color(0xFF0A0A0A)
+            : const Color(0xFF141412);
+        for (final pose in CritterPose.values) {
+          if (pose == CritterPose.exited) continue; // eyes become body dots
+          int? start;
+          for (var ms = 0; ms < 2400; ms += 50) {
+            final cells = petCellsAt(pet, PetDraw(pose: pose), ms);
+            var eyes = [
+              for (final e in cells.entries)
+                // (x 15 and up: the flag's dark squares, not a face)
+                if (e.value == eyeColor && e.key.$1 < 15) e.key,
+            ];
+            if (art == 'weak' && eyes.isNotEmpty) {
+              // Its mouth shares the eyes' colour and sits rows lower: keep
+              // the top two rows of that colour, where the eyes are.
+              final top = eyes.map((c) => c.$2).reduce((a, b) => a < b ? a : b);
+              eyes = [
+                for (final c in eyes)
+                  if (c.$2 <= top + 1) c,
+              ];
+            }
+            final why = '$stage $mood $pose at $ms ms';
+            expect(eyes.where((c) => c.$1 < 8), isNotEmpty, reason: why);
+            expect(eyes.where((c) => c.$1 >= 8), isNotEmpty, reason: why);
+            start ??= eyes.length;
+            expect(eyes.length, greaterThanOrEqualTo(start), reason: why);
+          }
+        }
+      }
+    }
+  });
+
+  test('the feet stay on the body in every frame', () {
+    // Every hatched stage and mood that walks, painted every 50 ms over
+    // 2.4 s: each foot (the body's lowest row) has the body right above it,
+    // so the body never jogs off its legs.
+    for (final stage in petStages.skip(1)) {
+      for (final mood in ['fed', 'hungry', 'weak']) {
+        final pet = AgentPet(stage: stage, mood: mood);
+        final bodyColor = PetLook.of(pet).weak
+            ? const Color(0xFFB0673F)
+            : const Color(0xFFFF4D00);
+        for (final pose in [
+          CritterPose.run,
+          CritterPose.bash,
+          CritterPose.write,
+          CritterPose.delegate,
+        ]) {
+          for (var ms = 0; ms < 2400; ms += 50) {
+            final cells = petCellsAt(pet, PetDraw(pose: pose), ms);
+            final own = [
+              for (final e in cells.entries)
+                // (x 14 and up: the mini pet in tow, its own feet)
+                if (e.value == bodyColor && e.key.$1 < 14) e.key,
+            ];
+            final low = own.map((c) => c.$2).reduce((a, b) => a > b ? a : b);
+            for (final (x, y) in own.where((c) => c.$2 == low)) {
+              final held =
+                  cells[(x, y - 1)] == bodyColor ||
+                  cells[(x, y - 2)] == bodyColor;
+              expect(
+                held,
+                isTrue,
+                reason: '$stage $mood $pose $ms ms ($x, $y)',
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
+  test('each z of "z z" has its own outline', () {
+    final m0 = petCellsAt(
+      const AgentPet(stage: 'grown'),
+      const PetDraw(pose: CritterPose.idle),
+      0,
+    );
+    final m1 = petCellsAt(
+      const AgentPet(stage: 'grown'),
+      const PetDraw(pose: CritterPose.idle),
+      1200,
+    );
+    // Half a cycle apart the zs swap heights; nothing black is left where
+    // a z was without it.
+    expect(m0, isNot(m1));
+    for (final m in [m0, m1]) {
+      for (final MapEntry(key: (x, y), value: c) in m.entries) {
+        if (c != petStroke || y > -1) continue;
+        final near = [
+          (x + 1, y),
+          (x - 1, y),
+          (x, y + 1),
+          (x, y - 1),
+        ].any((n) => m[n] != null && m[n] != petStroke);
+        expect(near, isTrue, reason: 'a lone outline at ($x, $y)');
+      }
+    }
+  });
+
+  test('the kid drops one row while compacting, the others two', () {
+    expect(petMotion('psq1', 0).$3, 0);
+    expect(petMotion('psq1', 500).$3, 1);
+    expect(petMotion('psq1', 1000).$3, 1);
+    expect(petRig['kid']!.squeeze, 1);
+    expect(petRig['builder']!.squeeze, 2);
   });
 
   group('auras', () {
