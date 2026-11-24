@@ -307,3 +307,36 @@ func TestProjectMethods(t *testing.T) {
 		t.Errorf("removed twice: %v", err)
 	}
 }
+
+// MCP's view of the list: folders added and removed one at a time, through
+// EditProject's checks.
+func TestMCPProjects(t *testing.T) {
+	r := newRig(t)
+	app, web, api := t.TempDir(), t.TempDir(), t.TempDir()
+	m := r.a.MCPProjects()
+	p, err := m.CreateProject(server.ProjectInfo{Name: "harbor", Folders: []string{app, web}})
+	if err != nil || len(p.Folders) != 2 || p.ID == "" {
+		t.Fatalf("create: %+v %v", p, err)
+	}
+	p, err = m.ChangeProject("harbor", server.ProjectChange{AddFolders: []string{api}})
+	if err != nil || len(p.Folders) != 3 || p.Folders[2] != api {
+		t.Fatalf("add a folder: %+v %v", p, err)
+	}
+	name := "dock"
+	p, err = m.ChangeProject(p.ID, server.ProjectChange{Name: &name, RemoveFolders: []string{app}})
+	if err != nil || p.Name != "dock" || len(p.Folders) != 2 || p.Folders[0] != web {
+		t.Fatalf("rename, remove a folder: %+v %v", p, err)
+	}
+	if _, err := m.ChangeProject("dock", server.ProjectChange{RemoveFolders: []string{app}}); err == nil {
+		t.Error("removing a folder it doesn't have")
+	}
+	if _, err := m.ChangeProject("dock", server.ProjectChange{RemoveFolders: []string{web, api}}); err == nil {
+		t.Error("removing every folder")
+	}
+	if l := m.ListProjects(); len(l) != 1 || l[0].Name != "dock" || len(l[0].Folders) != 2 {
+		t.Errorf("list: %+v", l)
+	}
+	if err := m.RemoveProject("dock"); err != nil || len(m.ListProjects()) != 0 {
+		t.Errorf("remove: %v", err)
+	}
+}
