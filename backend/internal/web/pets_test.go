@@ -309,3 +309,13 @@ func TestPetKeyframes(t *testing.T) {
 		}
 	}
 }
+
+// With the sidebar open the deck narrows instead of scaling: a fractional
+// transform would blur the pets' pixels.
+func TestDeckNotScaled(t *testing.T) {
+	css, _ := fs.ReadFile(web.Static(), "settings.css")
+	js, _ := fs.ReadFile(web.Static(), "settings.js")
+	if regexp.MustCompile(`\.deckmain \{[^}]*scale\(`).Match(css) || strings.Contains(string(js), "--dz") {
+		t.Error("the deck is scaled while the sidebar is open")
+	}
+}

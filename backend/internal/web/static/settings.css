@@ -986,7 +986,12 @@ svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
 /* the page beside it: Home's side column fades, the deck keeps clear of it */
 .deckside { transition: opacity 160ms; }
 .barred .deckside { opacity: 0; pointer-events: none; }
-.deckmain { transform: scale(var(--dz, 1)); transform-origin: 0 0; transition: transform 240ms var(--bar-ease); }
+/* With the sidebar open the deck gets narrower (fitDeck sets its
+   max-width): the tiles shrink, the pets keep whole-pixel sizes (60 px, 40
+   px in a narrow deck) instead of a fractional scale that blurs them. */
+.deckmain { transition: max-width 240ms var(--bar-ease); }
+.deckmain .grid4 { container-type: inline-size; }
+@container (max-width: 520px) { .tile .spr.pet { width: 40px; } }
 .barred .panelview { right: var(--bar); }
 .panelview { transition: right 240ms var(--bar-ease); }
 .pvscreen { transition: width 240ms var(--bar-ease); }

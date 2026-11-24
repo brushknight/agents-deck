@@ -1543,22 +1543,23 @@ function syncBar() {
   fitDeck(open); // again, now that it is the chat or the pet: back to the chat scales the deck back at once
 }
 
-// fitDeck scales the deck down (never up) so it keeps clear of the
-// sidebar: a true scale, so names and critters shrink together.
+// fitDeck narrows the deck (never widens it) so it keeps clear of the
+// sidebar: the tiles get narrower and pets switch to their smaller whole-
+// pixel size, never a fractional scale (that blurs the pixels).
 function fitDeck(open) {
   const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
   if (!m) return;
-  let z = 1;
   const b = barEl();
   if (open && b.el.classList.contains('petv')) return; // the pet covers the deck: it keeps its size for the way back
+  let max = '';
   if (open && window.innerWidth > 900) {
     // The sidebar's width as it will be, not as it is mid-slide: reading
     // offsetWidth while the pet view shrinks back gave the old, wide one.
     const w = Math.min(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480, window.innerWidth);
     const room = window.innerWidth - w - m.getBoundingClientRect().left - 24;
-    z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
+    max = `${Math.max(280, Math.floor(room))}px`;
   }
-  m.style.setProperty('--dz', z.toFixed(3));
+  m.style.maxWidth = max;
 }
 window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
 
