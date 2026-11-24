@@ -191,7 +191,7 @@ typedef struct {
 static const rig_t rigs[] = {
 	{false, {{0}}, {0, 0}, false, {0}, 0, {0}, {0}, {0}, {14, -4}, {16, 11}},  /* egg */
 	{false, {{0}}, {0, 0}, false, {0}, 0, {0}, {0}, {0}, {14, -4}, {16, 11}},  /* crack */
-	{true, {{5, 7, 1, 2}, {10, 7, 1, 2}}, {7, 9}, true, {9, 7, 3}, 1, {12, 0}, {4, 6, 9, 11}, {3, 5, 10, 12}, {13, -1}, {14, 10}},
+	{true, {{5, 7, 1, 2}, {10, 7, 1, 2}}, {7, 9}, true, {9, 7, 3}, 1, {12, 0}, {4, 6, 9, 11}, {5, 7, 9, 11}, {13, -1}, {14, 10}},
 	{true, {{5, 7, 1, 2}, {10, 7, 1, 2}}, {7, 9}, true, {9, 7, 4}, 2, {11, 12}, {4, 6, 9, 11}, {3, 5, 10, 12}, {14, 0}, {14, 10}},
 	{true, {{4, 5, 1, 2}, {10, 5, 1, 2}}, {7, 7}, true, {7, 5, 2}, 2, {10, 11}, {2, 4, 11, 13}, {3, 5, 10, 12}, {16, -2}, {16, 9}},
 	{true, {{3, 7, 2, 1}, {9, 7, 2, 1}}, {6, 10}, true, {9, 7, 4}, 1, {11, 0}, {2, 4, 11, 13}, {3, 5, 10, 12}, {15, 0}, {17, 9}},
@@ -200,7 +200,7 @@ static const rig_t rigs[] = {
 /* ---- motion (the critter's timing classes, in whole cells) ----------------- */
 
 enum {
-	M_NONE, M_LA, M_LB, M_LA_FAST, M_LB_FAST, M_LA_SLOW, M_LB_SLOW, M_BOB, M_BOB_FAST, M_HOP, M_ROCK,
+	M_NONE, M_LA, M_LB, M_LA_FAST, M_LB_FAST, M_LA_SLOW, M_LB_SLOW, M_JOG, M_JOG_FAST, M_HOP, M_ROCK,
 	M_ROCK2, M_GLANCE, M_SCAN, M_T2, M_T3, M_CURSOR, M_TICK0, M_TICK1, M_TICK2, M_DOTS, M_PRESS2,
 	M_PRESS1, M_BOBC, M_BLINK, M_ZZ, M_ZZ2, M_PSQ, M_PSQ1,
 };
@@ -216,8 +216,8 @@ static bool motion(int m, uint32_t ms, int *dx, int *dy)
 	case M_LB_FAST: return ms % 200 >= 100;
 	case M_LA_SLOW: return ms % 800 < 400;
 	case M_LB_SLOW: return ms % 800 >= 400;
-	case M_BOB: *dy = ms % 500 >= 250 ? -1 : 0; return true;
-	case M_BOB_FAST: *dy = ms % 200 >= 100 ? -1 : 0; return true;
+	case M_JOG: *dy = ms % 500 >= 250 ? -1 : 0; return true;      /* the whole pet lifts a cell */
+	case M_JOG_FAST: *dy = ms % 400 >= 200 ? -1 : 0; return true; /* bash and write's beat */
 	case M_HOP: *dy = ms % 400 >= 200 ? -2 : 0; return true;
 	case M_ROCK:
 	case M_ROCK2:
@@ -260,13 +260,13 @@ static const pose_t poses[] = {
 	{E_KEEP, A_NONE, A_NONE, W_NONE, M_NONE, BB_NONE, false, false, false, false, false},     /* none */
 	{E_GLANCE, A_DOWN, A_MID, W_NONE, M_NONE, BB_THINK, false, false, false, false, false},   /* think */
 	{E_SCAN, A_NONE, A_NONE, W_NONE, M_NONE, BB_READ, false, false, false, false, false},     /* read */
-	{E_KEEP, A_NONE, A_NONE, W_FAST, M_BOB_FAST, BB_BASH, false, false, false, false, false}, /* write */
-	{E_KEEP, A_NONE, A_NONE, W_FAST, M_BOB_FAST, BB_BASH, false, false, false, false, false}, /* bash */
+	{E_KEEP, A_NONE, A_NONE, W_FAST, M_JOG_FAST, BB_BASH, false, false, false, false, false}, /* write */
+	{E_KEEP, A_NONE, A_NONE, W_FAST, M_JOG_FAST, BB_BASH, false, false, false, false, false}, /* bash */
 	{E_UP, A_NONE, A_NONE, W_NONE, M_NONE, BB_WEB, false, false, false, false, false},        /* web */
 	{E_KEEP, A_NONE, A_NONE, W_NONE, M_NONE, BB_PLAN, false, false, false, false, false},     /* plan */
-	{E_KEEP, A_SWING, A_SWING, W_STEP, M_BOB, BB_NONE, true, false, false, false, false},     /* delegate */
+	{E_KEEP, A_SWING, A_SWING, W_STEP, M_JOG, BB_NONE, true, false, false, false, false},     /* delegate */
 	{E_STRAIN, A_NONE, A_NONE, W_NONE, M_NONE, BB_PRESS, false, true, false, false, false},   /* compact */
-	{E_KEEP, A_SWING, A_SWING, W_STEP, M_BOB, BB_DOTS, false, false, false, false, false},    /* run */
+	{E_KEEP, A_SWING, A_SWING, W_STEP, M_JOG, BB_DOTS, false, false, false, false, false},    /* run */
 	{E_UP, A_NONE, A_NONE, W_NONE, M_NONE, BB_ASK, false, false, false, false, false},        /* wait */
 	{E_X, A_UP, A_UP, W_NONE, M_NONE, BB_BANG, false, false, false, false, false},            /* err */
 	{E_SHUT, A_NONE, A_NONE, W_NONE, M_NONE, BB_ZZ, false, false, false, false, false},       /* idle */
@@ -714,9 +714,11 @@ static int eye_cells(const int8_t *e, int kind, int side, int8_t out[][2])
 	return n;
 }
 
-/* The flames round a strong, mighty or legend pet (pets.js auraSVG, its
- * still frame) and the legend's stars, from the still pet in base_g. */
-static void flames(deck_pet_look_t *l)
+/* The flames round a strong, mighty or legend pet (pets.js auraSVG), from
+ * the still pet in base_g, moved with the pet's group (dx, dy) at ms: the
+ * still layer, the second layer for the second half of 1.8 s, the sparks
+ * rising a cell a step and the legend's stars twinkling. */
+static void flames(deck_pet_look_t *l, uint32_t ms, int dx, int dy)
 {
 	const aura_t *a = &auras[l->aura];
 	int top[DECK_PET_GRID_W], sl[DECK_PET_GRID_H], sr[DECK_PET_GRID_H];
@@ -751,37 +753,53 @@ static void flames(deck_pet_look_t *l)
 	uint32_t fl[DECK_PET_GRID_H];
 	memset(fl, 0, sizeof fl);
 	const int mid2 = ys0 + ys1; /* twice the middle row */
-	for (int y = ys0; y <= ys1; y++) {
-		const int iy = y - DECK_PET_GRID_Y0;
-		if (sr[iy] < sl[iy]) continue;
-		const int w = 2 * y <= mid2 ? 2 : 1;
-		for (int k = 2; k < 2 + w; k++)
-			if (y % 4 != 0 || k == 2) {
-				bit_set(fl, sl[iy] - k, y);
-				bit_set(fl, sr[iy] + k, y);
-			}
-	}
-	int i = 0;
-	for (int x = xs0 - 2; x <= xs1 + 2; x++, i++) {
-		const int h = a->h[i % a->n];
-		const int tx = in_grid(x, 0) ? top[x - DECK_PET_GRID_X0] : 999;
-		const int tl = in_grid(x - 1, 0) ? top[x - 1 - DECK_PET_GRID_X0] : 999;
-		const int tr = in_grid(x + 1, 0) ? top[x + 1 - DECK_PET_GRID_X0] : 999;
-		const int t = (tx != 999 ? tx : tl != 999 ? tl : tr != 999 ? tr : ys0) - 2;
-		for (int k = 0; k < h; k++) bit_set(fl, x, t - k);
+	for (int f = 0; f < 2; f++) {
+		if (f && ms % 1800 < 900) /* the second layer: off, then on */
+			break;
+		for (int y = ys0; y <= ys1; y++) {
+			const int iy = y - DECK_PET_GRID_Y0;
+			if (sr[iy] < sl[iy]) continue;
+			const int w = 2 * y <= mid2 ? 2 : 1;
+			for (int k = 2; k < 2 + w; k++)
+				if ((y + f) % 4 != 0 || k == 2) {
+					bit_set(fl, sl[iy] - k, y);
+					bit_set(fl, sr[iy] + k, y);
+				}
+		}
+		int i = 0;
+		for (int x = xs0 - 2; x <= xs1 + 2; x++, i++) {
+			const int h = a->h[(i + f * 3) % a->n];
+			const int tx = in_grid(x, 0) ? top[x - DECK_PET_GRID_X0] : 999;
+			const int tl = in_grid(x - 1, 0) ? top[x - 1 - DECK_PET_GRID_X0] : 999;
+			const int tr = in_grid(x + 1, 0) ? top[x + 1 - DECK_PET_GRID_X0] : 999;
+			const int t = (tx != 999 ? tx : tl != 999 ? tl : tr != 999 ? tr : ys0) - 2;
+			for (int k = 0; k < h; k++) bit_set(fl, x, t - k);
+		}
 	}
 	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
 		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++)
 			if (bit_at(fl, x, y) && !get(base_g, x, y) && !bit_at(gap, x, y))
-				bit_set(l->flame, x, y);
-	if (l->aura == DECK_PET_AURA_LEGEND) {
+				bit_set(l->flame, x + dx, y + dy);
+	/* sparks: each rises a cell a step, 9 steps in 2.4 s, shown on steps 1 to 7 */
+	const int cx = (xs0 + xs1) >> 1;
+	const int sx[10] = {xs0 - 2, xs1 + 2, xs0 + 2, xs1 - 2, cx, xs0 - 1, xs1 + 1, xs0 + 4, xs1 - 4, cx + 2};
+	static const uint8_t nsparks[] = {0, 5, 7, 10};
+	for (int s = 0; s < nsparks[l->aura]; s++) {
+		const int step = (int)((ms + 530u * (uint32_t)s) % 2400u * 9u / 2400u);
+		if (step >= 1 && step <= 7)
+			bit_set(l->spark, sx[s % 10] + dx, ys1 - s % 3 - step + dy);
+	}
+	if (l->aura == DECK_PET_AURA_LEGEND) { /* a dot, then the dot and its four arms, in 1.1 s */
 		const int st[5][2] = {{-2, ys0 - 2}, {17, ys0}, {-3, 7}, {18, 8}, {8, ys0 - 7}};
 		for (int s = 0; s < 5; s++) {
-			bit_set(l->star, st[s][0], st[s][1]);
-			bit_set(l->star, st[s][0] - 1, st[s][1]);
-			bit_set(l->star, st[s][0] + 1, st[s][1]);
-			bit_set(l->star, st[s][0], st[s][1] - 1);
-			bit_set(l->star, st[s][0], st[s][1] + 1);
+			const int x = st[s][0] + dx, y = st[s][1] + dy;
+			bit_set(l->star, x, y);
+			if ((ms + 270u * (uint32_t)s) % 1100u >= 550u) {
+				bit_set(l->star, x - 1, y);
+				bit_set(l->star, x + 1, y);
+				bit_set(l->star, x, y - 1);
+				bit_set(l->star, x, y + 1);
+			}
 		}
 	}
 }
@@ -865,8 +883,6 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 			}
 	look->ice_x0 = (int8_t)(bx0 - 1), look->ice_x1 = (int8_t)(bx1 + 1);
 	look->ice_y0 = (int8_t)(by0 - 1), look->ice_y1 = (int8_t)(by1 + 1);
-	if (look->aura)
-		flames(look);
 
 	/* The pose (pet-poses.js posePet). */
 	const pose_t *sp = &poses[pose_id];
@@ -965,6 +981,9 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 		}
 	}
 
+	if (look->aura) /* the flames, sparks and stars move with the pet */
+		flames(look, opts->ms, p.gdx, p.gdy);
+
 	/* Draw the posed body: squeezed, the rows it drops over first, then the
 	 * top rows, the hat and the inner layers over them (they drop together,
 	 * the face stays on top); then the outer layers. */
@@ -1024,6 +1043,14 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 				body_cell(&p, x, y + 1, 'b', M_NONE, top);
 			}
 		}
+		if (sp->walk) { /* stepping feet, with the body: they never come apart from it */
+			const int fa = sp->walk == W_FAST ? M_LA_FAST : M_LA, fb = sp->walk == W_FAST ? M_LB_FAST : M_LB;
+			for (int r = 0; r < rig->nfeet; r++)
+				for (int i = 0; i < 4; i++) {
+					body_cell(&p, rig->feet_x[i], rig->feet[r], body, fa, top);
+					body_cell(&p, rig->feet_step[i], rig->feet[r], body, fb, top);
+				}
+		}
 		if (sp->chomp) {
 			const int mx = rig->mouth[0], my = rig->mouth[1];
 			if (art == DECK_PET_ART_WEAK) {
@@ -1050,20 +1077,12 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 			if (k && !shared)
 				body_cell(&p, x, y, k, M_NONE, top);
 		}
-	if (posing && !bubble_only && !egg && sp->walk) { /* stepping feet */
-		const int fa = sp->walk == W_FAST ? M_LA_FAST : M_LA, fb = sp->walk == W_FAST ? M_LB_FAST : M_LB;
-		for (int r = 0; r < rig->nfeet; r++)
-			for (int i = 0; i < 4; i++) {
-				outer_cell(&p, rig->feet_x[i], rig->feet[r], body, fa);
-				outer_cell(&p, rig->feet_step[i], rig->feet[r], body, fb);
-			}
-	}
-	if (posing && !bubble_only && sp->tow) { /* the mini pet in tow */
+	if (posing && !bubble_only && sp->tow) { /* the mini pet in tow (it doesn't bob: its feet would come apart) */
 		static const char *const mini[] = {"#####", "#.#.#"};
 		const int tx = rig->tow[0], ty = rig->tow[1];
 		for (int r = 0; r < 2; r++)
 			for (int c = 0; c < 5; c++)
-				if (mini[r][c] == '#') outer_cell(&p, tx + c, ty + r, body, M_BOB);
+				if (mini[r][c] == '#') outer_cell(&p, tx + c, ty + r, body, M_NONE);
 		for (int c = 0; c < 5; c++) {
 			if (c == 0 || c == 4) outer_cell(&p, tx + c, ty + 2, body, M_LA);
 			if (c == 1 || c == 3) outer_cell(&p, tx + c, ty + 2, body, M_LB);
@@ -1079,7 +1098,14 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 			g = bubble_flag_sparks;
 			n = 2;
 		}
-		for (int i = 0; i < n; i++) glyph(&p, &g[i], bx, by);
+		if (g == bubble_flag_sparks) { /* the sparks by the flag hop with it */
+			for (int i = 0; i < n; i++)
+				for (int r = 0; r < g[i].n; r++)
+					for (int k = 0; g[i].rows[r][k]; k++)
+						if (g[i].rows[r][k] == '#') body_cell(&p, bx + g[i].x + k, by + g[i].y + r, g[i].key, g[i].m, false);
+		} else {
+			for (int i = 0; i < n; i++) glyph(&p, &g[i], bx, by);
+		}
 	}
 
 	/* The stroke: a cell round everything drawn, four ways, under it. */
@@ -1096,7 +1122,7 @@ void deck_pet_look(deck_pet_look_t *look, const deck_pet_t *pet, const deck_pet_
 	for (int y = DECK_PET_GRID_Y0; y < DECK_PET_GRID_Y0 + DECK_PET_GRID_H; y++)
 		for (int x = DECK_PET_GRID_X0; x < DECK_PET_GRID_X0 + DECK_PET_GRID_W; x++)
 			if (deck_pet_at(look, x, y) || bit_at(look->stroke, x, y) || bit_at(look->flame, x, y) ||
-			    bit_at(look->star, x, y)) {
+			    bit_at(look->star, x, y) || bit_at(look->spark, x, y)) {
 				if (x < look->x0) look->x0 = (int8_t)x;
 				if (x > look->x1) look->x1 = (int8_t)x;
 				if (y < look->y0) look->y0 = (int8_t)y;
@@ -1197,6 +1223,12 @@ static bool pick_star(const deck_pet_look_t *l, int x, int y, uint32_t *rgb)
 	return bit_at(l->star, x, y);
 }
 
+static bool pick_spark(const deck_pet_look_t *l, int x, int y, uint32_t *rgb)
+{
+	*rgb = l->aura == DECK_PET_AURA_LEGEND ? STAR_RGB : 0xFFFFFF;
+	return bit_at(l->spark, x, y);
+}
+
 void deck_pet_draw(const deck_pet_look_t *l, int x, int y, int scale, deck_pet_fill_fn fill, void *user)
 {
 	if (!l || !fill || scale < 1 || l->x1 < l->x0)
@@ -1220,6 +1252,8 @@ void deck_pet_draw(const deck_pet_look_t *l, int x, int y, int scale, deck_pet_f
 		for (int i = 0; i < 3; i++) /* the shine */
 			cells(&d, x0 + 1 + i, y0 + 1 + i, 1, 0xFFFFFF, 204);
 	}
+	if (l->aura) /* in front: the sparks and the legend's stars */
+		runs(l, &d, pick_spark);
 	if (l->aura == DECK_PET_AURA_LEGEND)
 		runs(l, &d, pick_star);
 }
@@ -1234,10 +1268,9 @@ void deck_pet_bounds(const deck_pet_look_t *l, int scale, int *bx, int *by, int 
 
 void deck_pet_motion(const deck_pet_look_t *l, uint32_t ms, int scale, int *dx, int *dy)
 {
-	const int half = scale / 2 > 0 ? scale / 2 : 1;
 	*dx = *dy = 0;
-	if (l->ready) { /* rock, rock, then rest: 1.6 s */
-		static const int8_t rock[8] = {0, 1, 0, -1, 0, 0, 0, 0};
-		*dx = rock[ms % 1600 / 200] * half;
+	if (l->ready) { /* still until 60 % of 1.6 s, then -1, +1, -1 cell, a tenth each */
+		static const int8_t wobble[10] = {0, 0, 0, 0, 0, 0, -1, 1, -1, 0};
+		*dx = wobble[ms % 1600 / 160] * scale;
 	}
 }

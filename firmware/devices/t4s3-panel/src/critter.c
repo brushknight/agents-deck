@@ -347,7 +347,7 @@ static void pet_draw(lv_layer_t *layer, const critter_t *c, int32_t x0, int32_t 
 	o.pose = (unsigned)c->pose < sizeof poses ? poses[c->pose] : DECK_PET_POSE_NONE;
 	o.ms = ms;
 	o.bubble = c->bubble;
-	static deck_pet_look_t look; // 1.4 KB: off the UI task's stack
+	static deck_pet_look_t look; // 1.6 KB: off the UI task's stack
 	deck_pet_look(&look, &c->pet, &o);
 	int dx, dy;
 	deck_pet_motion(&look, ms, s, &dx, &dy);

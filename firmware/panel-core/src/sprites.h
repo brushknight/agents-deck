@@ -526,7 +526,7 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
 // pose with its bubble: one pet cell is one sprite unit. Cell (0, 0) sits at
 // unit (-1, -5), so the pet's middle is the body's and a grown-up's feet land
 // on the critter's. With its bubbles, flag, flames and stroke it reaches
-// cells DECK_PET_REACH_* (units -6..23 across, -15..10 down).
+// cells DECK_PET_REACH_* (units -6..23 across, -17..10 down).
 
 namespace sprite_detail {
 
