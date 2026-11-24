@@ -76,11 +76,11 @@ const COL = {
   q: '#8A867C', // the mystery hat's "?"
 };
 const WEAK_BODY = '#B0673F';
-// On orange (a tile that needs you, the sidebar) a pet is drawn as the
-// critter is there: its body in near-black ink, its eyes, mouth and dark
-// lines cut out in orange, props in ink; the hat keeps its colours and an
-// egg its shell. A weak pet's ink is a lighter grey.
-const ORANGE = '#FF4D00', INK = '#0A0A0A', WEAK_INK = '#3B3A36';
+// The stroke: a black outline one pixel wide (up, down, left, right) around
+// every layer of the pet, so it reads on any background and inside any
+// aura. Props and bubbles are white.
+const STROKE = '#000000';
+const PROP = '#FFFFFF';
 
 // Power-up auras: flame tongues around the body, a pixel clear of it (the
 // first frame holds still, a second layer glows in and out), sparks drifting
@@ -93,28 +93,7 @@ const AURA = {
 };
 export const AURA_COLORS = Object.fromEntries(Object.entries(AURA).map(([k, v]) => [k, v.outer]));
 
-// Hats stay readable inside an aura: a hat in the aura's colour family (WCAG
-// contrast under 1.6 and hue within 40 degrees) is drawn in its shade.
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-function luminance(hex) {
-  const [r, g, b] = rgb(hex).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-export function contrast(a, b) {
-  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
-  return (x + 0.05) / (y + 0.05);
-}
-export function hue(hex) {
-  const [r, g, b] = rgb(hex);
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-  if (!d) return 0;
-  const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return (h * 60 + 360) % 360;
-}
-export function clashes(hatColor, auraColor) {
-  const dh = Math.abs(hue(hatColor) - hue(auraColor));
-  return contrast(hatColor, auraColor) < 1.6 && Math.min(dh, 360 - dh) <= 40;
-}
 const darker = (hex, f = 0.72) => `#${rgb(hex).map((v) => Math.round(v * f * 255).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
 
 export const STAGES = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legend'];
@@ -272,31 +251,17 @@ function paths(cells) {
   return out;
 }
 
-function colours(hat, spots, weak, sil, ink, egg) {
+function colours(hat, spots, weak, sil) {
   const [ha, hb] = HAT_COLORS[hat?.color] || HAT_COLORS.teal;
   const c = { ...COL, s: (HAT_COLORS[spots?.color] || HAT_COLORS[hat?.color] || HAT_COLORS.teal)[0], h: ha, H: hb };
   if (weak) { c.b = WEAK_BODY; c.d = WEAK_BODY; }
-  if (ink) {
-    c.b = c.d = weak ? WEAK_INK : INK;
-    c.e = c.m = ORANGE;
-    if (!egg) c.k = ORANGE; // the egg's crack stays dark on its shell
-  }
   if (sil) for (const k of Object.keys(c)) c[k] = sil;
   return c;
 }
 
-// near: k or one of its 8 neighbours is in set.
-function near(set, k) {
-  const [x, y] = at(k);
-  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (set.has(key(x + dx, y + dy))) return true;
-  return false;
-}
-
-// auraSVG: the flames never touch the hat: a pixel of background stays
-// between them.
-// avoid: the cells moving parts (props, bubbles, a moving hat) reach; the
-// flames, sparks and stars keep a pixel clear of them too.
-function auraSVG(filled, kind, hatKeys = new Set(), avoid = new Set()) {
+// auraSVG: flame tongues a pixel out from the body (the stroke fills that
+// pixel), sparks and, for a legend, stars.
+function auraSVG(filled, kind) {
   const a = AURA[kind];
   const pts = [...filled].map(at);
   const xs = [...new Set(pts.map(([x]) => x))].sort((p, q) => p - q);
@@ -324,22 +289,16 @@ function auraSVG(filled, kind, hatKeys = new Set(), avoid = new Set()) {
       const t = (top.get(x) ?? top.get(x - 1) ?? top.get(x + 1) ?? ys[0]) - 2;
       for (let k = 0; k < h; k++) fl.add(key(x, t - k));
     }
-    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k) && !near(hatKeys, k) && !near(avoid, k)).map((k) => [...at(k), a.outer, 1, f ? 'pfc' : '']);
+    const cells = [...fl].filter((k) => !filled.has(k) && !inner.has(k)).map((k) => [...at(k), a.outer, 1, f ? 'pfc' : '']);
     out += paths(cells);
   }
   const x0 = xs[0], x1 = xs[xs.length - 1], cxm = Math.floor((x0 + x1) / 2);
   const sx = [x0 - 2, x1 + 2, x0 + 2, x1 - 2, cxm, x0 - 1, x1 + 1, x0 + 4, x1 - 4, cxm + 2];
   let sparks = '';
-  for (let i = 0; i < a.n; i++) {
-    const x = sx[i % 10], y = ys[ys.length - 1] - (i % 3);
-    // a spark rises 9 pixels: none through a prop
-    if ([...avoid].some((k) => { const [ax, ay] = at(k); return Math.abs(ax - x) <= 1 && ay <= y && ay >= y - 10; })) continue;
-    sparks += paths([[x, y, a.spark, 1, `prs pd${i}`]]);
-  }
+  for (let i = 0; i < a.n; i++) sparks += paths([[sx[i % 10], ys[ys.length - 1] - (i % 3), a.spark, 1, `prs pd${i}`]]);
   let stars = '';
   if (kind === 'legend') {
     [[-2, ys[0] - 2], [17, ys[0]], [-3, 7], [18, 8], [8, ys[0] - 7]].forEach(([x, y], i) => {
-      if ([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => near(avoid, key(x + dx, y + dy)))) return;
       stars += paths([[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].map(([dx, dy]) => [x + dx, y + dy, '#FFF6C8', 1, `ptw pt${i}`]));
     });
   }
@@ -380,37 +339,34 @@ function iceSVG(filled, waking) {
 
 // petSVG: the pet as SVG markup. opts: pose (the critter's pose,
 // deck-core.js poseOf: the pet does it, pet-poses.js), bubble (false: the
-// pose without its bubble), ink (it sits on orange: drawn in ink, as the
-// critter is there), hat (the agent's hat: only the egg's spots take
+// pose without its bubble), hat (the agent's hat: only the egg's spots take
 // its colour; the pet wears its own pet.hat), idle (eyes shut, without a
 // pose), working (it bobs, without a pose), waking (the ice cracks off),
 // mystery (a "?" where the hat will be, until it shows), hatching (the
 // ready egg shakes and bursts), born (the new pet pops in), sil (one colour,
-// no aura: a stage not reached yet), still (no aura or motion). A ready egg
-// wobbles. The viewBox is the same for every pet, so all of them are drawn
-// at one scale; auras, bubbles and props reach outside it.
+// no aura or stroke: a stage not reached yet), still (no aura or motion). A
+// ready egg wobbles. The viewBox is the same for every pet, so all of them
+// are drawn at one scale; auras, strokes, bubbles and props reach outside
+// it. Back to front: flames, the stroke, the pet, its bubble and props,
+// sparks and stars, and the ice over everything.
 export function petSVG(pet, opts = {}) {
   if (!pet) return '';
   const moving = !opts.still && !opts.sil;
   const pose = moving && !opts.hatching && !opts.waking ? opts.pose || '' : '';
   const look = petLook(pet, opts);
-  const ink = !!opts.ink && !opts.sil;
-  const c = colours(pet.hat, opts.hat, look.weak, opts.sil, ink, look.egg);
+  const c = colours(pet.hat, opts.hat, look.weak, opts.sil);
   const glow = look.aura && moving && pose !== 'exit'; // an exited agent's pet is a hollow outline, no aura
-  const flame = glow ? AURA[look.aura].outer : '';
   const keepOut = new Set([...look.pix].filter(([, ch]) => ch === 'q').map(([k]) => k));
   const p = pose ? posePet(look, pose, { bubble: opts.bubble, keepOut }) : null;
   const pix = p ? p.pix : look.pix;
   // A working hat cycles through its frames: what they share is drawn with
   // the body, the rest one layer per frame (the critter's frame classes).
-  let hatKeys = look.hatKeys;
   const hatLayers = [];
   const hf = p && WORKING_POSES.has(pose) && !look.asleep && hatFrames(look.name, pet.hat);
   if (hf) {
     for (const k of look.hatKeys) { if (look.base.has(k)) pix.set(k, look.base.get(k)); else pix.delete(k); }
     const { frames, ms } = hf;
-    hatKeys = new Set(frames.flatMap((m) => [...m.keys()]));
-    for (const k of hatKeys) {
+    for (const k of new Set(frames.flatMap((m) => [...m.keys()]))) {
       const ch = frames[0].get(k);
       if (ch && frames.every((m) => m.get(k) === ch)) pix.set(k, ch);
     }
@@ -419,12 +375,9 @@ export function petSVG(pet, opts = {}) {
       hatLayers.push([cells, `hf-${frames.length}-${ms}-${i}${i ? ' hfo' : ''}`]);
     });
   }
-  // A hat in the aura's colour family takes its shade, so it stands out;
-  // so does the hat of a pet whose agent has exited.
-  if ((glow && hatKeys.size && clashes(c.h, flame)) || p?.shade) { c.h = c.H; c.H = darker(c.H); }
-  // Props and bubbles: light, else the body's colour, else its shade,
-  // whichever stands out from the aura.
-  c.P = ink ? INK : !glow ? c.p : [c.p, c.b, c.d].find((x) => !clashes(x, flame)) || c.d;
+  // The hat of a pet whose agent has exited dims to its shade.
+  if (p?.shade) { c.h = c.H; c.H = darker(c.H); }
+  c.P = opts.sil || PROP;
   const cell = (ch) => c[ch] || c.b;
   const lay = (layers) => layers.map(([cells, cls]) => paths(cells.map(([x, y, ch]) => [x, y, cell(ch), 1, cls]))).join('');
   let bodyG;
@@ -437,13 +390,36 @@ export function petSVG(pet, opts = {}) {
     const ice = iceSVG(new Set(look.pix.keys()), opts.waking);
     under = ice.under; over = ice.over;
   }
-  if (glow) {
-    // the flames keep a pixel clear of the hat and of every prop, wherever they move
-    const reach = new Set(p ? p.avoid : []);
-    for (const k of hatKeys) { const [x, y] = at(k); for (const [dx, dy] of p ? p.moves : [[0, 0]]) reach.add(key(x + dx, y + dy)); }
-    ({ behind, front } = auraSVG(new Set(look.pix.keys()), look.aura, hatKeys, reach));
-  }
+  if (glow) ({ behind, front } = auraSVG(new Set(look.pix.keys()), look.aura));
   const grp = p ? p.grp : opts.working && moving && !look.asleep ? 'pbob' : '';
   const cls = `pet${opts.waking ? ' pwk' : ''}${moving && opts.hatching ? ' phx' : moving && pet.ready ? ' prdy' : ''}${moving && opts.born ? ' pborn' : ''}`;
-  return `<svg class="${cls}" viewBox="-2 -3 20 17" shape-rendering="crispEdges" aria-hidden="true" focusable="false">${behind}${under}<g${grp ? ` class="${grp}"` : ''}>${bodyG}</g>${over}${p ? lay(p.outer) : ''}${front}</svg>`;
+  const g0 = `<g${grp ? ` class="${grp}"` : ''}>`;
+  const outer = p ? lay(p.outer) : '';
+  const stroke = opts.sil ? '' : `${g0}${outline(bodyG)}</g>${outline(outer)}`;
+  return `<svg class="${cls}" viewBox="-2 -3 20 17" shape-rendering="crispEdges" aria-hidden="true" focusable="false">${behind}${under}${stroke}${g0}${bodyG}</g>${outer}${front}${over}</svg>`;
+}
+
+// outline: the stroke under some markup: the cells of its paths grown by one
+// (up, down, left, right) in black, one path per motion class, so each
+// outline moves with its own layer. <g> wrappers (the squeeze) stay, so the
+// stroke drops with its cells.
+function outline(markup) {
+  let out = '';
+  let byCls = new Map();
+  const flush = () => {
+    for (const [cls, cells] of byCls) out += paths([...cells].map((k) => [...at(k), STROKE, 1, cls]));
+    byCls = new Map();
+  };
+  for (const m of markup.matchAll(/<path d="([^"]*)" fill="[^"]*"( opacity="[^"]*")?(?: class="([^"]*)")?\/>|<g[^>]*>|<\/g>/g)) {
+    if (!m[0].startsWith('<path')) { flush(); out += m[0]; continue; }
+    if (m[2]) continue; // nothing see-through gets a stroke
+    const cls = m[3] || '';
+    if (!byCls.has(cls)) byCls.set(cls, new Set());
+    const set = byCls.get(cls);
+    for (const [, x, y, n] of m[1].matchAll(/M(-?\d+) (-?\d+)h(\d+)v1h-\d+z/g)) {
+      for (let i = 0; i < +n; i++) for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) set.add(key(+x + i + dx, +y + dy));
+    }
+  }
+  flush();
+  return out;
 }

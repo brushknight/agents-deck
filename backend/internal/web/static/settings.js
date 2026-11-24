@@ -596,7 +596,7 @@ function setSprite(el, pose, tool, hat, opts = {}) {
 // critter's poses (pet-poses.js), bubble and all.
 const petCache = new Map();
 function petNode(pet, opts) {
-  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false, !!opts.ink,
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false,
     !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
   let node = petCache.get(k);
   if (!node) {
@@ -609,7 +609,7 @@ function petNode(pet, opts) {
 // setPet fills el with an agent's pet doing its agent's pose, the ice
 // cracking off when it wakes, the egg bursting while it hatches and the new
 // pet popping in. more: waking, mystery ("?" where its hat will be),
-// bubble (false: the pose without its bubble), ink (it sits on orange).
+// bubble (false: the pose without its bubble).
 function setPet(el, a, more = {}) {
   const { k, node } = petNode(a.pet, { hat: a.hat, pose: poseOf(a), ...more,
     hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
@@ -732,7 +732,7 @@ function tileFor(a) {
     // Woken from hibernation (it ate): the ice cracks off, once.
     if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
     t.mood = a.pet.mood;
-    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0), ink: cls === 'wait' });
+    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0) });
   } else {
     t.spr.className = 'spr c dk';
     setSprite(t.spr, poseOf(a), a.tool, a.hat);
@@ -1110,6 +1110,10 @@ function agentHead(a) {
   const mascot = h('button', { type: 'button', class: `tile ${tileClass(a)} mascot`, 'aria-label': `Change the hat of ${agentName(a)}`, 'aria-expanded': 'false', disabled: !a.cwd });
   const spr = h('span', { class: 'spr c dk' });
   mascot.append(spr);
+  // With Agent pets on, the pet stands here doing its pose, and the hat
+  // can't be changed (the pet wears its own): no button.
+  const petSpr = h('span', { class: 'spr pet' });
+  const petBox = h('div', { class: `tile ${tileClass(a)} mascot`, hidden: true }, petSpr);
   const holder = h('div', {});
   mascot.addEventListener('click', () => {
     const open = mascot.getAttribute('aria-expanded') === 'true';
@@ -1120,11 +1124,17 @@ function agentHead(a) {
   const eyebrow = h('span', { class: 'eyebrow dim' });
   const status = h('span', { class: 'chip st2' });
   const chips = h('div', { class: 'chips' });
-  const el = h('div', { class: 'ahead' }, mascot, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
+  const el = h('div', { class: 'ahead' }, mascot, petBox, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
   return {
     el: h('div', {}, el, holder),
     update: (x) => {
-      setSprite(spr, poseOf(x), x.tool, x.hat);
+      mascot.hidden = !!x.pet;
+      petBox.hidden = !x.pet;
+      if (x.pet) {
+        if (mascot.getAttribute('aria-expanded') === 'true') { mascot.setAttribute('aria-expanded', 'false'); holder.replaceChildren(); }
+        setPet(petSpr, x);
+        petBox.className = `tile ${tileClass(x)} mascot`;
+      } else setSprite(spr, poseOf(x), x.tool, x.hat);
       mascot.className = `tile ${tileClass(x)} mascot`;
       eyebrow.replaceChildren(...[TOOL_NAMES[x.tool] || x.tool || '', x.account ? ' · ' : '', x.account ? sw : '', x.account ? x.account.name : ''].filter((v) => v !== ''));
       if (x.account) sw.style.background = acctColor(x.account);
@@ -1684,7 +1694,7 @@ function buildBar(a, body, view) {
     petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
     if (x.pet) {
       const p = x.pet;
-      setPet(petSpr, x, { bubble: false, ink: true }); // the sidebar is orange
+      setPet(petSpr, x, { bubble: false });
       petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${p.name} · ${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
       const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
       const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));

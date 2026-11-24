@@ -564,6 +564,7 @@ a.tile:hover { border-color: var(--edge); }
 .tile.mascot { width: 96px; height: 96px; flex: none; cursor: pointer; aspect-ratio: auto; }
 .tile.mascot .spr { width: 60px; }
 .tile.mascot:disabled { cursor: default; }
+div.tile.mascot { cursor: default; } /* its pet, with Agent pets on: nothing to click */
 .eyebrow.dim { color: var(--muted); }
 .acsw { display: inline-block; width: 9px; height: 9px; margin: 0 4px 1px 2px; }
 .chip.st2 { min-width: 140px; }

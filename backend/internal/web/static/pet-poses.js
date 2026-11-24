@@ -65,8 +65,6 @@ const BUBBLES = {
   zz: [[Z4, 0, 1, 'zz'], [Z3, 4, -2, 'zz']],
   sparks: [[PLUS, 0, 2, 'spark s0'], [PLUS, 2, 0, 'spark s1']],
 };
-// How far each motion class moves its layer (cells), for the aura's gap.
-const MOVES = { bob: [[0, -1]], hop: [[0, -2]], prock: [[-1, 0], [1, 0]], psq: [[0, 1], [0, 2]], bobc: [[0, 1]], zz: [[0, -1]], glance: [[-1, 0], [1, 0]], scan: [[-1, 0], [1, 0]] };
 
 const key = (x, y) => `${x},${y}`;
 const at = (k) => k.split(',').map(Number);
@@ -111,14 +109,13 @@ export function eyeCells([x, y, w, h], kind, side) {
 // mystery "?"). Returns pix (the body, changed), the motion class of the
 // body (grp), layers inside it (inner) and outside it (outer: feet that
 // step, the bubble, the mini pet), each [cells [x, y, colour key], class],
-// top (the cells that drop when it is squeezed), hollow, shade (the hat
-// dims), and avoid: every cell a moving part reaches, which auras keep a
-// pixel clear of.
+// top (the cells that drop when it is squeezed), hollow and shade (the hat
+// dims).
 export function posePet(look, pose, opts = {}) {
   const spec = POSES[pose] || POSES.idle;
   const rig = RIG[look.name];
   const pix = new Map(look.pix);
-  const out = { pix, grp: '', inner: [], outer: [], top: null, hollow: false, shade: false, avoid: new Set() };
+  const out = { pix, grp: '', inner: [], outer: [], top: null, hollow: false, shade: false };
   if (!rig) return out;
   const egg = look.egg;
   const body = look.name === 'weak' ? 'd' : 'b';
@@ -227,14 +224,5 @@ export function posePet(look, pose, opts = {}) {
     const clash = cells.some(([cs]) => cs.some(([x, y]) => [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => keep.has(key(x + dx, y + dy))))));
     if (!clash) for (const [cs, cls] of cells) layer(cs, `pp${cls ? ` ${cls}` : ''}`, out.outer);
   }
-  // what the moving parts reach
-  const grpMoves = out.grp.split(' ').flatMap((c) => MOVES[c] || []);
-  const reach = (cells, cls, inGroup) => {
-    const moves = [[0, 0], ...cls.split(' ').flatMap((c) => MOVES[c] || []), ...(inGroup ? grpMoves : [])];
-    for (const [x, y] of cells) for (const [dx, dy] of moves) out.avoid.add(key(x + dx, y + dy));
-  };
-  for (const [cells, cls] of out.inner) reach(cells, cls, true);
-  for (const [cells, cls] of out.outer) reach(cells, cls, false);
-  out.moves = [[0, 0], ...grpMoves, ...(out.top ? MOVES.psq : [])];
   return out;
 }

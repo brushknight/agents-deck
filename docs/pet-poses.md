@@ -16,7 +16,7 @@ and `pets.js`), so the panel (Flutter) and the boards (firmware) can draw the sa
   keeps its art, in the weak colour.
 - Colours used by poses: body `b` #FF4D00 (weak: #B0673F), eyes `e` #141412 (the weak art's eyes and mouth
   `k` #0A0A0A), hungry mouth `m` #BDB8AD, flag light `w` #F4F0E6, flag dark `k` #0A0A0A, and `P`, the prop
-  colour (see "Colours inside an aura").
+  colour, #FFFFFF. Around all of it runs the stroke (see "Stroke").
 
 ## The rig
 
@@ -184,41 +184,35 @@ those have whole-cell versions for pets (`hop`, `bobc`, `zz`). Each runs forever
 | press2 / press1 | 1.2 s | press2 shows for the first third, press1 for two thirds, the last bar always |
 | hf-N-ms-i | N x ms | hat frame i shows for its ms slot |
 
-## Colours inside an aura
+## Stroke
 
-Strong, mighty and legend pets glow (`pets.js`, `AURA`), and the rules that keep the hat readable cover
-everything that moves:
+Every pet has a black (#000000) outline one cell wide: each opaque cell of each layer (body, hat and every
+hat frame, arms, eyes, mouth, props, bubbles, the mini pet) also paints its 4 neighbours (up, down, left,
+right) in black, underneath the pet. So every extent in this spec grows by 1 cell on each side: an egg
+spanning x 1 to 14 is drawn from x 0 to 15, a bubble box 5 x 5 becomes 7 x 7, and so on.
 
-- The flames keep one cell clear (8 neighbours) of the hat and of every prop, bubble, arm and mini pet, at
-  every place their motion takes them (the hat's frames, bob, hop, rock, squeeze). Sparks don't rise through
-  a prop and stars aren't drawn next to one.
-- A colour clashes with the aura when their contrast is under 1.6 and their hues are within 40 degrees. A
-  clashing hat takes its shade. `P` is #E8E4DC, else the body colour, else the body's shade, the first that
-  doesn't clash: so props are light on mighty and legend pets and orange on strong ones.
+- Each outline belongs to its layer and moves with that layer's motion (bob, hop, rock, squeeze, glance, a
+  hat frame, la / lb, the bubble's own class). A layer that is hidden (an lb frame, a hat frame not in its
+  slot) hides its outline too.
+- Inside the pet the outline is covered by the pet itself; it shows only at the outer edges and in the
+  gaps (between the feet, between a raised arm and the head, inside a hollow outline).
+- Nothing see-through gets a stroke (the ice), and neither do auras, sparks or stars. A silhouette (a stage
+  not reached yet) has none.
+- Layers back to front: aura flames, the strokes, the pet (body, hat, eyes, arms, flag), its bubble and props
+  in white, the aura's sparks and the legend's stars, and when it hibernates the ice over everything.
+
+The stroke replaces the old aura rules: hats keep their own colours inside any aura, props are always white,
+and flames no longer keep a gap from the hat or the props (the black outline separates them).
 
 ## On orange
 
-Where the background is orange (a tile that needs you, the sidebar), the pet is drawn the way the critter
-always is there: in ink, with no plate behind it.
-
-| key | off orange | on orange |
-|---|---|---|
-| body `b`, shade `d` | #FF4D00, #C23A00 | #0A0A0A (a weak pet #3B3A36) |
-| eyes `e`, hungry mouth `m` | #141412, #BDB8AD | #FF4D00 (cut out) |
-| the weak art's eyes and mouth, the flag's dark squares `k` | #0A0A0A | #FF4D00 (cut out) |
-| props and bubbles `P` | see above | #0A0A0A, whatever the aura |
-| arms, mini pet | body colour | #0A0A0A |
-| hat | its colours | its colours (a hat's near-black stays #0A0A0A) |
-| egg shell, spots and crack | as drawn | as drawn; only its bubble is in ink |
-| flag light squares and pole light `w` | #F4F0E6 | #F4F0E6 |
-
-Auras stay as they are on orange, with the same one-cell gap and the same hat shade rule: the flames
-still read against the orange, and ink props never clash with them. Nothing changes off orange.
+Where the background is orange (a tile that needs you, the sidebar), the pet keeps its own colours; the
+stroke is what keeps it apart from the orange. There is no plate behind it and no other change.
 
 ## Motion budget
 
 - All motion is CSS on a handful of paths: each colour of each moving layer is one path, rows of cells
-  joined into rectangles. A posed pet stays under 48 shapes.
+  joined into rectangles, and the stroke is one path per motion class. A posed pet stays under 96 shapes.
 - A pet off screen holds still: its animations pause until it scrolls back into view.
 - With reduced motion nothing moves: the first frame of each pair shows (`la`, hat frame 0), every bubble
   stays up.

@@ -62,7 +62,7 @@ for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep
   vb = vb || box(s);
   if (box(s) !== vb) fail(what + ': drawn at another scale');
   const shapes = (s.match(/<(path|rect)/g) || []).length;
-  if (shapes > 40) fail(what + ': ' + shapes + ' shapes');
+  if (shapes > 48) fail(what + ': ' + shapes + ' shapes');
   // Clean pixels: whole-pixel shapes, nothing see-through around the body
   // (only the ice is).
   if (/[0-9]\.[0-9]/.test(s.replace(/viewBox="[^"]+"/, '').replace(/opacity="[^"]+"/g, ''))) fail(what + ': a shape off the pixel grid');
@@ -81,15 +81,7 @@ if (petSVG({ stage: 'kid', mood: 'fed' }, { hat }).includes('#E8B94A')) fail('a 
 if (!petSVG({ stage: 'egg', mood: 'fed', ate: 60000, ready: true }, { hat }).includes('prdy')) fail('ready egg: no wobble');
 if (!petSVG({ stage: 'egg', mood: 'fed', ate: 60000, ready: true }, { hat, hatching: true }).includes('phx')) fail('hatching: no burst');
 if (!petSVG({ stage: 'baby', mood: 'fed' }, { hat, born: true }).includes('pborn')) fail('born: no pop');
-// Hats inside auras: no flame pixel touches a hat pixel (8 neighbours), and a
-// hat in the aura's colour family (contrast under 1.6, hue within 40 degrees,
-// worked out here on its own) is drawn in its shade.
-const rgb = (x) => [1, 3, 5].map((i) => parseInt(x.slice(i, i + 2), 16) / 255);
-const lum = (x) => { const [r, g, b] = rgb(x).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-const ratio = (p, q) => { const [x, y] = [lum(p), lum(q)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-const hueOf = (x) => { const [r, g, b] = rgb(x); const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b); if (!d) return 0;
-  return ((mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60 + 360) % 360; };
-const family = (p, q) => { const dh = Math.abs(hueOf(p) - hueOf(q)); return ratio(p, q) < 1.6 && Math.min(dh, 360 - dh) <= 40; };
+// Hats inside auras: with the stroke every hat keeps its own colours.
 // cell -> fill for the paths that pass test(fill, the rest of the tag)
 const cellsOf = (svg, test) => {
   const out = new Map();
@@ -99,26 +91,12 @@ const cellsOf = (svg, test) => {
   }
   return out;
 };
-const touches = (a, b) => [...a].some((k) => { const [x, y] = k.split(',').map(Number);
-  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (b.has((x + dx) + ',' + (y + dy))) return true; return false; });
-const clashSeen = [];
-for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const shape of [...Object.keys(HAT_ART), 'devil horns']) for (const [color, [main, shade]] of Object.entries(HAT_COLORS)) {
+for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const shape of Object.keys(HAT_ART)) for (const [color, [main]] of Object.entries(HAT_COLORS)) {
   const svg = petSVG({ stage, mood: 'fed', ate: 0, hat: { shape, color } }, { hat });
   const what = stage + ' with a ' + color + ' ' + shape;
-  const flames = cellsOf(svg, (f, rest) => f === flame.toUpperCase() && !/prs|ptw/.test(rest));
-  // The hat: what differs from the same pet without one (the pencil may share a hat's colour).
-  const bare = cellsOf(petSVG({ stage, mood: 'fed', ate: 0 }, { hat }), (f, rest) => !rest);
-  const hatCells = new Map([...cellsOf(svg, (f, rest) => !rest)].filter(([k, f]) => bare.get(k) !== f && !flames.has(k)));
-  if (!flames.size) fail(what + ': no flames');
-  if (!hatCells.size) fail(what + ': no hat');
-  if (touches(new Set(flames.keys()), new Set(hatCells.keys()))) fail(what + ': a flame touches the hat');
-  const clash = family(main, flame);
-  if (clash && !svg.includes('fill="' + shade + '"')) fail(what + ': clashes, but the hat is not in its shade');
-  if (clash && [...hatCells.values()].includes(main.toUpperCase())) fail(what + ': clashes, but its main colour is still drawn');
-  if (clash && shape === 'cap') clashSeen.push(stage + ' ' + color);
+  if (!cellsOf(svg, (f, rest) => f === flame.toUpperCase() && !/prs|ptw/.test(rest)).size) fail(what + ': no flames');
+  if (shape !== 'chef' && !svg.includes('fill="' + main + '"')) fail(what + ': the hat lost its colour');
 }
-// The pairs measured by eye stay in the list.
-for (const pair of ['strong yellow', 'strong ink', 'legend yellow', 'mighty teal', 'mighty blue', 'mighty sky']) if (!clashSeen.includes(pair)) fail('expected a clash: ' + pair + ' (found ' + clashSeen.join(', ') + ')');
 if (!petSVG({ stage: 'grown', mood: 'hungry' }, { hat }).includes('#BDB8AD')) fail('hungry: no light grey mouth');
 if (!petSVG({ stage: 'legend', mood: 'fed' }, { hat }).includes('class="ptw pt0"')) fail('legend: no stars');
 if (petSVG({ stage: 'legend', mood: 'weak' }, { hat }).includes('prs')) fail('weak: no aura');
@@ -141,7 +119,7 @@ for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep
   if (/style=|NaN|undefined|Infinity/.test(s)) fail(what + ': bad markup');
   if (box(s) !== vb) fail(what + ': drawn at another scale');
   const shapes = (s.match(/<(path|rect)/g) || []).length;
-  if (shapes > 48) fail(what + ': ' + shapes + ' shapes');
+  if (shapes > 96) fail(what + ': ' + shapes + ' shapes');
   if (/[0-9]\.[0-9]/.test(s.replace(/viewBox="[^"]+"/, '').replace(/opacity="[^"]+"/g, ''))) fail(what + ': a shape off the pixel grid');
   if (mood !== 'asleep' && /opacity=/.test(s)) fail(what + ': see-through pixels');
   const sign = SIGN[pose];
@@ -170,33 +148,36 @@ if (petSVG(ph, { hat, pose: 'wait' }).includes('hf-')) fail('waiting: the hat sh
 if (petSVG({ ...ph, stage: 'kid' }, { hat, pose: 'run' }).includes('hf-')) fail('kid: its small hat holds still');
 // The mystery "?" keeps the bubble away.
 if (petSVG({ stage: 'egg', mood: 'fed', ate: 0 }, { hat, mystery: true, pose: 'wait' }).includes('blink')) fail('egg: the bubble over the mystery hat');
-// Auras keep a pixel clear of every prop and of a moving hat, and props
-// stand out from the flames.
-for (const [stage, flame] of Object.entries(AURA_COLORS)) for (const pose of Object.keys(POSES)) for (const shape of ['propeller', 'top hat', 'cap', 'devil horns']) for (const ink of [false, true]) {
-  const svg = petSVG({ stage, mood: 'fed', ate: 0, hat: { shape, color: 'yellow' } }, { hat, pose, ink });
-  const what = stage + ' ' + pose + ' in a ' + shape + (ink ? ' on orange' : '');
-  const flames = cellsOf(svg, (f, rest) => f === flame.toUpperCase() && !/prs|ptw/.test(rest));
-  const props = cellsOf(svg, (f, rest) => /class="(pp|hf-)/.test(rest));
-  if (pose !== 'exit' && !flames.size) fail(what + ': no flames');
-  if (touches(new Set(flames.keys()), new Set(props.keys()))) fail(what + ': a flame touches a prop');
-  for (const f of new Set(cellsOf(svg, (f, rest) => /class="pp/.test(rest) && f !== '#FF4D00' && f !== '#141412' && f !== '#0A0A0A' && f !== '#F4F0E6').values())) if (family(f, flame)) fail(what + ': a prop in the aura\'s colours');
+// The stroke: every layer of the pet (body, hat frames, props, bubbles, the
+// mini pet) sits on a black outline one pixel wider (up, down, left, right)
+// in the same motion class, drawn after the flames and before the pet; props
+// are white; sparks and stars come after the pet, the ice last. A silhouette
+// has none.
+const STROKE = '#000000';
+const SKIP = /prs|ptw|pfc|pfall|pgl|pws|pwc|opacity/;
+for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak', 'asleep']) for (const pose of Object.keys(POSES)) {
+  const pet = { stage, mood, ate: 40000, hat: { shape: 'propeller', color: 'teal' } };
+  const what = stage + ' ' + mood + ' ' + pose + ': stroke';
+  const svg = petSVG(pet, { hat, pose });
+  const byCls = new Map();
+  for (const m of svg.matchAll(/<path d="([^"]+)" fill="(#[0-9A-Fa-f]{6})"([^>]*)\/>/g)) {
+    if (SKIP.test(m[3]) || Object.values(AURA_COLORS).includes(m[2])) continue; // the flames have no stroke
+    const cls = (/class="([^"]*)"/.exec(m[3]) || [])[1] || '';
+    const isStroke = m[2] === STROKE;
+    if (!byCls.has(cls)) byCls.set(cls, { stroke: new Set(), cells: new Set() });
+    const g = byCls.get(cls);
+    for (const r of m[1].matchAll(/M(-?\d+) (-?\d+)h(\d+)v1h-\d+z/g)) for (let i = 0; i < +r[3]; i++) (isStroke ? g.stroke : g.cells).add((+r[1] + i) + ',' + r[2]);
+  }
+  for (const [cls, g] of byCls) for (const k of g.cells) {
+    const [x, y] = k.split(',').map(Number);
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) if (!g.stroke.has((x + dx) + ',' + (y + dy))) { fail(what + ': no stroke at ' + (x + dx) + ',' + (y + dy) + ' (' + (cls || 'body') + ')'); break; }
+  }
+  const first = svg.indexOf('fill="' + STROKE + '"'), body = svg.search(/fill="#(FF4D00|F4F0E6|B0673F)"/);
+  const lastFlame = Math.max(...Object.values(AURA_COLORS).map((f) => svg.lastIndexOf('fill="' + f + '" class="pfc"')));
+  if (first < 0 || first > body || first < lastFlame) fail(what + ': the stroke should sit between the flames and the pet');
+  if (svg.includes('prs') && svg.indexOf('prs') < body) fail(what + ': sparks should be in front');
+  if (svg.includes('pfall') && svg.indexOf('pfall') < svg.lastIndexOf('fill="' + STROKE + '"')) fail(what + ': the ice should be over everything');
+  for (const m of svg.matchAll(/fill="(#[0-9A-F]{6})" class="pp (blink|bang|dots|cursor|zz|bobc|t3|spark s1)/g)) if (m[1] !== STROKE && m[1] !== '#FFFFFF') fail(what + ': a bubble not white');
 }
-// On orange (ink) a pet is drawn as the critter is there: body in ink, eyes
-// and mouth cut out in orange, props in ink, the hat in its colours, an egg
-// in its shell. Off orange nothing changes.
-const fills = (svg) => { const n = new Map(); for (const [, f] of cellsOf(svg, () => true)) n.set(f, (n.get(f) || 0) + 1); return n; };
-for (const stage of STAGES) for (const mood of ['fed', 'hungry', 'weak']) for (const pose of Object.keys(POSES)) {
-  const pet = { stage, mood, ate: 0, hat: { shape: 'propeller', color: 'teal' } };
-  const what = stage + ' ' + mood + ' ' + pose + ' on orange';
-  const svg = petSVG(pet, { hat, pose, ink: true });
-  const n = fills(svg);
-  const egg = stage === 'egg', weak = mood === 'weak' && !egg;
-  if (/style=/.test(svg)) fail(what + ': inline style');
-  if (egg && !n.get('#F4F0E6')) fail(what + ': the shell should stay');
-  if (!egg && (n.get(weak ? '#3B3A36' : '#0A0A0A') || 0) < 30) fail(what + ': the body should be in ink');
-  if (!egg && (n.get('#FF4D00') || 0) > 16) fail(what + ': orange should only cut out the face');
-  if (stage !== 'baby' && !egg && pose !== 'exit' && !svg.includes('#4FB3A6') && !svg.includes('#2F7F75')) fail(what + ': the hat lost its colour');
-  for (const m of svg.matchAll(/fill="(#[0-9A-F]{6})" class="pp (blink|bang|dots|cursor|zz|bobc|t3|spark s1)/g)) if (m[1] !== '#0A0A0A') fail(what + ': a bubble not in ink');
-  if (!(egg && pose === 'exit') && petSVG(pet, { hat, pose }) === svg) fail(what + ': drawn as off orange'); // a hollow shell has no ink
-}
+if (petSVG({ stage: 'mighty', mood: 'fed' }, { hat, sil: '#3B3A36' }).includes(STROKE)) fail('silhouette: no stroke');
 `
