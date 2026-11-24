@@ -283,6 +283,7 @@ void main() {
     expect(find.text('BUILDER · LEVEL 14'), findsOneWidget);
     expect(find.text('LEVEL 14'), findsOneWidget);
     expect(find.text("checkout-api's pet"), findsOneWidget);
+    expect(find.byType(HudClock), findsNothing);
     expect(find.text('57%'), findsOneWidget);
     expect(find.text('teal beanie'), findsOneWidget);
     expect(find.text('rolled at hatching, for good'), findsOneWidget);

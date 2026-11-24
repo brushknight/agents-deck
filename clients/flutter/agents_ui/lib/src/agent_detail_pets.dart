@@ -1241,7 +1241,6 @@ extension _PetsPage on _AgentDetailState {
                     tailColor: _pMuted,
                   ),
                 ),
-                if (!_menuBar) HudClock(size: 28),
               ],
             ),
             const SizedBox(height: 18),
