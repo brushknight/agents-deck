@@ -14,6 +14,8 @@ import 'attention.dart';
 import 'attention_screen.dart';
 import 'critter.dart';
 import 'live_picker.dart';
+import 'pet_art.dart';
+import 'pet_card.dart';
 
 /// Agents app: a Stream-Deck-style board of the Mac's coding agents
 /// (`agentctl serve`). Chrome-less 4×4 grid, one tile per agent by slot,
@@ -597,27 +599,40 @@ class _AgentTileState extends State<AgentTile> {
                         child: Column(
                           children: [
                             const SizedBox(height: 30),
-                            CritterSprite(
-                              pose: critterPoseOf(
-                                a,
-                                inStatus: widget.state.inStatus(a),
+                            // With Agent pets on, its pet takes the
+                            // critter's place, at the critter's size.
+                            if (a.pet case final pet?)
+                              PetSprite(
+                                pet: pet,
+                                hat: a.hat,
+                                idle: petAgentIdle(a),
+                                // Needs you: a dark plate under it, or its
+                                // orange would vanish into the tile's.
+                                plate: fill == DeckHud.accent,
+                                width: 92,
+                              )
+                            else
+                              CritterSprite(
+                                pose: critterPoseOf(
+                                  a,
+                                  inStatus: widget.state.inStatus(a),
+                                ),
+                                celebrateUntil: DateTime.now().add(
+                                  critterCelebration - widget.state.inStatus(a),
+                                ),
+                                afterCelebrate: a.unseen
+                                    ? CritterPose.hungry
+                                    : CritterPose.idle,
+                                species: critterSpeciesFor(a.tool),
+                                hat: a.hat,
+                                centerBody: true,
+                                width: 92,
+                                body: c(look.body),
+                                bubble: look.bubble == null
+                                    ? null
+                                    : c(look.bubble!),
+                                cut: fill,
                               ),
-                              celebrateUntil: DateTime.now().add(
-                                critterCelebration - widget.state.inStatus(a),
-                              ),
-                              afterCelebrate: a.unseen
-                                  ? CritterPose.hungry
-                                  : CritterPose.idle,
-                              species: critterSpeciesFor(a.tool),
-                              hat: a.hat,
-                              centerBody: true,
-                              width: 92,
-                              body: c(look.body),
-                              bubble: look.bubble == null
-                                  ? null
-                                  : c(look.bubble!),
-                              cut: fill,
-                            ),
                             const SizedBox(height: 14),
                             _line(
                               a.title,
