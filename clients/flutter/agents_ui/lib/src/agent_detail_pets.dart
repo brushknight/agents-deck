@@ -1196,9 +1196,9 @@ extension _PetsPage on _AgentDetailState {
     final pet = a.pet!;
     final pose = critterPoseOf(a, inStatus: state.inStatus(a));
     final egg = pet.isEgg;
-    final name = egg
-        ? (pet.ready ? 'An egg, ready' : 'An egg')
-        : (pet.name.isEmpty ? 'Its pet' : pet.name);
+    // The pet goes by its agent's name for now (its own name stays in the
+    // model, not on screen).
+    final name = a.title;
     return _petCard(
       fill: DeckHud.bg,
       child: PetHatcher(
@@ -1319,7 +1319,11 @@ extension _PetsPage on _AgentDetailState {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          "${a.title}'s ${egg ? 'egg' : 'pet'}",
+                          egg
+                              ? (pet.ready
+                                    ? 'its egg, ready to hatch'
+                                    : 'its egg')
+                              : 'its pet',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: DeckHud.rm(16, _pMuted),
@@ -1337,6 +1341,7 @@ extension _PetsPage on _AgentDetailState {
             const SizedBox(height: 18),
             ?_petNext(pet),
             const Spacer(),
+            _petPath(pet, a.hat),
             if (_note != null)
               Text(
                 _note!,
@@ -1583,7 +1588,7 @@ extension _PetsPage on _AgentDetailState {
                   'hatched',
                   const Color(0xFF8FCB6B),
                   '${hatched.toLocal().day} ${months[hatched.toLocal().month - 1]} ${hatched.toLocal().year}',
-                  pet.name.isEmpty ? '' : 'as ${pet.name}',
+                  'as a baby',
                 ),
         ],
       ),
@@ -1656,6 +1661,56 @@ extension _PetsPage on _AgentDetailState {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  /// The whole path it grows along, egg to legend, each stage in its real
+  /// look: its own hat from kid on (a "?" only on the stage it is at, before
+  /// the hat shows), the strong, mighty and legend auras, the stroke. The
+  /// stage it is at is named in orange.
+  Widget _petPath(AgentPet pet, AgentHat? spots) {
+    final at = petStages.indexOf(pet.stage);
+    return Row(
+      key: const Key('pet-path'),
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (final (i, stage) in petStages.indexed)
+          Expanded(
+            child: Column(
+              key: Key('pet-path-$stage'),
+              children: [
+                PetSprite(
+                  pet: i == at
+                      ? pet
+                      : AgentPet(
+                          stage: stage,
+                          level: petStageLevel[stage]!,
+                          hat: i >= 2 ? pet.hat : null,
+                        ),
+                  hat: spots,
+                  mystery: i == at && pet.hat == null && pet.level < 5,
+                  fit: true,
+                  cell: 3,
+                  width: 86,
+                  height: 52,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  petStageNames[stage]!.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  softWrap: false,
+                  style: DeckHud.rm(
+                    12,
+                    i == at ? _pOrange2 : _pMuted,
+                    weight: 700,
+                    spacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

@@ -279,10 +279,31 @@ void main() {
     await open(tester, 'checkout-api');
     await tester.tap(find.byKey(const Key('agent-pet')));
     await tester.pump();
-    expect(find.text('Juno'), findsOneWidget);
+    // It goes by its agent's name; its own name isn't shown.
+    expect(find.text('Juno'), findsNothing);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('pet-name')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data,
+      'checkout-api',
+    );
     expect(find.text('BUILDER · LEVEL 14'), findsOneWidget);
     expect(find.text('LEVEL 14'), findsOneWidget);
-    expect(find.text("checkout-api's pet"), findsOneWidget);
+    expect(find.text('its pet'), findsOneWidget);
+    // The whole growth path, each stage in its real look.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('pet-path')),
+        matching: find.byType(PetSprite),
+      ),
+      findsNWidgets(petStages.length),
+    );
+    expect(find.text('as a baby'), findsOneWidget);
     expect(find.byType(HudClock), findsNothing);
     expect(find.text('57%'), findsOneWidget);
     expect(find.text('teal beanie'), findsOneWidget);
@@ -296,7 +317,7 @@ void main() {
     await golden(tester, 'pet');
     await tester.tap(find.byKey(const Key('pet-back')));
     await tester.pump();
-    expect(find.text('Juno'), findsNothing);
+    expect(find.byKey(const Key('pet-name')), findsNothing);
     expect(find.text('FOCUS TERMINAL'), findsOneWidget);
   });
 
@@ -307,11 +328,11 @@ void main() {
     await open(tester, 'docs-site');
     await tester.tap(find.byKey(const Key('agent-pet')));
     await tester.pump();
-    expect(find.text('An egg'), findsOneWidget);
+    expect(find.text('its egg'), findsOneWidget);
     expect(find.text('?'), findsOneWidget); // its hat: a surprise
     source.load(petsPageState());
     await tester.pump();
-    expect(find.text('An egg, ready'), findsOneWidget);
+    expect(find.text('its egg, ready to hatch'), findsOneWidget);
     expect(find.text('It hatches'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await golden(tester, 'petegg');
