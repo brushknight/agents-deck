@@ -240,6 +240,22 @@ void main() {
     expect(find.byKey(const Key('hat-picker')), findsNothing);
   });
 
+  test('hatching moves whole cells: shake, white, gone; then the pop-in', () {
+    expect(
+      [
+        for (final t in [0.05, 0.15, 0.25, 0.55, 0.65])
+          PetHatchStep.hatch(t).dx,
+      ],
+      [0, -1, 1, -2, 2],
+    );
+    expect(PetHatchStep.hatch(0.75), const PetHatchStep(white: true));
+    expect(PetHatchStep.hatch(0.9).shown, isFalse);
+    expect(PetHatchStep.born(0.1), const PetHatchStep(dy: 2, shown: false));
+    expect(PetHatchStep.born(0.3), const PetHatchStep(dy: 2));
+    expect(PetHatchStep.born(0.6), const PetHatchStep(dy: -1));
+    expect(PetHatchStep.born(0.9), const PetHatchStep());
+  });
+
   testWidgets('pets grid golden', skip: !autoUpdateGoldenFiles, (tester) async {
     await pumpBoard(tester, _withPets());
     await expectLater(
