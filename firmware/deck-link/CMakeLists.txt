@@ -5,6 +5,7 @@ idf_component_register(
   SRCS
     "src/deck_link.c"
     "src/deck_tiles.c"
+    "src/deck_pet.c"
     "src/cobs.c"
     "src/crc16.c"
     "src/deck_store.c"

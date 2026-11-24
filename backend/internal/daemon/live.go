@@ -17,13 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/term"
-	"github.com/brushknight/agents-deck/backend/internal/tmux"
 )
 
 // errLive answers actions a watched session can't take from the deck.
@@ -55,10 +55,9 @@ type liveWatch struct {
 	// transcript's size and time stay the same (sessionMeta).
 	meta map[string]liveMeta
 
-	claudeBin  string        // resolved once from the login shell
-	reported   []claude.Live // last `claude agents --json`
-	reportedAt time.Time
-	reportedOK bool
+	claudeBin string        // resolved once from the login shell
+	reported  []claude.Live // last `claude agents --json`, all accounts
+	poller    agentsPoller  // when to run it again
 }
 
 func addedPath() string   { return filepath.Join(paths.Data(), "watched.json") }
@@ -146,7 +145,7 @@ func (d *Daemon) WatchLive() {
 
 func (d *Daemon) syncLive() {
 	// Our own agents run in tmux panes: never list those.
-	skip := tmux.PaneTTYs()
+	skip := d.paneTTYs()
 	ours := map[string]bool{}
 	for _, e := range d.Store.Entries() {
 		if (!e.External || inApp(e)) && e.SessionID != "" {
@@ -154,7 +153,7 @@ func (d *Daemon) syncLive() {
 		}
 	}
 	var found []claude.Live
-	for _, l := range d.discover(skip) {
+	for _, l := range d.discover(skip, ours) {
 		if !ours[l.SessionID] {
 			found = append(found, l)
 		}
@@ -325,9 +324,10 @@ func (d *Daemon) removeLive(e store.Entry) {
 }
 
 // discover lists hand-started and background Claude sessions: from Claude
-// Code itself (`claude agents --json`, every 10 s), else by scanning
-// processes (older Claude Code).
-func (d *Daemon) discover(skip map[string]bool) []claude.Live {
+// Code itself (`claude agents --json`, run again only when its session files
+// changed: see agentsPoller), else by scanning processes (older Claude
+// Code). ours are the sessions the deck already follows through their hooks.
+func (d *Daemon) discover(skip, ours map[string]bool) []claude.Live {
 	d.live.mu.Lock()
 	if d.live.claudeBin == "" {
 		d.live.claudeBin = LookPathLogin("claude")
@@ -335,17 +335,25 @@ func (d *Daemon) discover(skip map[string]bool) []claude.Live {
 			d.live.claudeBin = "-" // not installed: don't look again
 		}
 	}
-	bin, fresh := d.live.claudeBin, time.Since(d.live.reportedAt) < 10*time.Second
-	cached, ok := d.live.reported, d.live.reportedOK
+	bin := d.live.claudeBin
 	d.live.mu.Unlock()
-	if !fresh && bin != "-" {
-		cached, ok = activeSessions(bin, skip)
-		d.live.mu.Lock()
-		d.live.reported, d.live.reportedOK, d.live.reportedAt = cached, ok, time.Now()
-		d.live.mu.Unlock()
+	if bin == "-" {
+		return claude.LiveSessions(skip)
 	}
+	all, ok := d.live.poller.sessions(accounts.List(), func(a accounts.Account) ([]claude.Live, bool) {
+		return claude.ActiveSessions(bin, a.ConfigDir(), projectsDirs(a), nil)
+	}, func(id string) bool { return ours[id] })
+	var list []claude.Live // our own tmux panes left out, as the process scan does
+	for _, l := range all {
+		if l.TTY == "" || !skip[l.TTY] {
+			list = append(list, l)
+		}
+	}
+	d.live.mu.Lock()
+	d.live.reported = list
+	d.live.mu.Unlock()
 	if ok {
-		return cached
+		return list
 	}
 	return claude.LiveSessions(skip)
 }

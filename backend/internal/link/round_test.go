@@ -30,7 +30,7 @@ func buildRoundSim(t *testing.T, dir string) string {
 	fw, _ := filepath.Abs(repo + "/firmware")
 	kit := filepath.Join(fw, "deck-link", "src")
 	srcs, _ := filepath.Glob(filepath.Join(kit, "proto", "*.c"))
-	srcs = append(srcs, filepath.Join(kit, "deck_link.c"), filepath.Join(kit, "cobs.c"), filepath.Join(kit, "crc16.c"))
+	srcs = append(srcs, filepath.Join(kit, "deck_link.c"), filepath.Join(kit, "deck_pet.c"), filepath.Join(kit, "cobs.c"), filepath.Join(kit, "crc16.c"))
 	var objs []string
 	for _, src := range srcs {
 		obj := filepath.Join(dir, strings.TrimSuffix(filepath.Base(src), ".c")+".o")

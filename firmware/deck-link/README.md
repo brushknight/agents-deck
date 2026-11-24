@@ -7,6 +7,8 @@ draws and reacts. To build a new device, see [new-device.md](../../docs/link/new
 
 - `src/deck_link.h`: the core. C99, no malloc, no Arduino, no OS. One context struct holds everything.
 - `src/deck_tiles.h`: optional helper that keeps a small table of agents for simple devices.
+- `src/deck_pet.h`: optional: an agent's pet (Agent pets), as the web deck draws it, at any whole-pixel
+  scale and any colour depth.
 - `src/deck_store.h`, `src/deck_pair.h`, `src/deck_tls.h`: Wi-Fi (see below): what a board keeps in
   NVS, its own key and certificate request, and a TLS 1.3 client transport.
 - `src/deck_ble.h`: Bluetooth LE (see below): the byte stream between the core and a GATT link, with
@@ -116,6 +118,42 @@ title and options (key, label, primary). Helpers: `deck_tiles_find`, `deck_tiles
 `deck_tiles_first_waiting`, `deck_tile_primary`, `deck_status_name`.
 
 
+## Agent pets
+
+While Agent pets is on (the deck's Settings, General), every agent has a pet (`Agent.pet`, in
+`FIELDS_TILE`) that the deck shows in place of its critter. `deck_pet.h` keeps one in 26 bytes and
+draws it with the web deck's pixel art (`backend/internal/web/static/pets.js`): the egg (cracked once
+it has eaten 30k tokens), the baby, the kid and the grown-up, which strong, mighty and legend pets
+stay, with a one-cell aura round them in pale yellow, blue or gold. A hungry pet has its mouth open;
+its eyes are shut while it is weak or its agent is idle; a weak grown-up lies down, brown; a
+hibernating pet sits in an ice cube. The kid, the grown-up and the weak one wear the agent's hat.
+
+```c
+deck_pet_t pet;
+deck_pet_from_proto(&pet, a->has_pet, &a->pet);         /* in on_agent; has_pet false: pets are off */
+
+deck_pet_look_t look;                                   /* 584 bytes: build it, draw it, drop it */
+deck_pet_opts_t o = {.hat = deck_pet_hat_of(a->hat.shape), .hat_color = deck_pet_hat_color_of(a->hat.color),
+                     .idle = idle, .working = running};
+deck_pet_look(&look, &pet, &o);
+deck_pet_draw(&look, x, y, scale, fill, ctx);           /* fill(ctx, x, y, w, h, 0xRRGGBB, alpha) */
+```
+
+The art is 16 x 14 cells (cell (0, 0) at the pixel you give); a hat rises two cells above it, and the
+aura or the ice reach one or two cells round it (`deck_pet_bounds()`). Colours come as 0xRRGGBB with
+an alpha: the ice and the aura are see-through, so mix them with what's under them, or on a screen
+that can't, draw the ones at 128 or more solid and skip the rest. The hat stays readable inside an aura: the aura leaves a cell of background round the hat, and a
+hat in a colour close to the aura's (yellow or ink in strong, teal, blue or sky in mighty, yellow in
+legend: contrast under 1.6 and hue within 40 degrees) is drawn in its shade. `.plate` draws the pet on a dark
+square plate one cell larger than it on every side (covering the ice too), for a background in its
+own orange. `deck_pet_motion()` gives the small moves (a working pet
+bobs, an egg waiting to be seen rocks) for a board that redraws its critter anyway.
+`deck_pet_stage_name()` says "Grown-up" and the like, for a board that shows the pet's name, stage
+and level.
+
+`test/host/pet_golden.h` holds every look's cells as pets.js draws them (`tools/pet_golden.mjs`
+writes it); `test_pet` checks the kit against it, so a change to the art goes in both.
+
 ## Pairing and Wi-Fi
 
 A board can pair over USB and then connect over Wi-Fi with the same frames
@@ -198,6 +236,7 @@ Measured on ESP32 (xtensa gcc) with the defaults:
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
 | of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
+| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) | 26 / 584 |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
 The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.
@@ -224,7 +263,7 @@ tools/generate.sh --check  # fails if src/proto differs from the proto files
 ## Tests
 
 ```sh
-make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage, Bluetooth stream
+make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage, Bluetooth stream, pets
 make -C test/host board_sim   # builds test/host/build/board_sim
 make -C test/host test_tls    # pairing with mbedTLS 3 (Homebrew's mbedtls, or MBEDTLS=<prefix>)
 make -C test/host board_wifi  # a board that pairs over serial and connects over TLS 1.3

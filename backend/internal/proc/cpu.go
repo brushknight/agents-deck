@@ -139,6 +139,9 @@ type CPUReport struct {
 	Last10 *CPUSpan `json:"last10,omitempty"`
 	Last60 *CPUSpan `json:"last60,omitempty"`
 	Since  *CPUSpan `json:"sinceStart"`
+
+	Machine *MachineCPU `json:"machine,omitempty"` // the whole computer (MachineMeter)
+	Top     *CPUTop     `json:"top,omitempty"`     // who uses it, when asked (TopUsers)
 }
 
 // Report is the use over the last 1, 10 and 60 minutes (when the service

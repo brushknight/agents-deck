@@ -81,9 +81,10 @@ static inline void critterAt(Canvas& c, int cx, int cy, int s, Species sp, Pose 
   drawSprite(c, cx - 7 * s, cy - 7 * s, s, sp, pose, body, cut, ms, bubble, hat, hatColor);
 }
 
+// An agent's critter, or its pet, by the body centre.
 static inline void agentCritter(Canvas& c, const Agent& a, int cx, int cy, int s, uint16_t body, uint16_t cut,
                                 uint32_t ms, int64_t now, bool bubble) {
-  critterAt(c, cx, cy, s, a.species, poseOf(a, now), body, cut, ms, bubble, a.hat, a.hatColor);
+  drawCritter(c, cx - 7 * s, cy - 7 * s, s, a, poseOf(a, now), body, cut, ms, bubble);
 }
 
 static inline int fontAscent(const Font& f) { return (f.cellH * 795 + 500) / 1000; }   // Roboto Mono: 1.048 of 1.319 em
@@ -489,10 +490,12 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   const bool loud = a.status == Status::Running || waiting || a.status == Status::Error || hungry(a);
   textOn(c, *S.statusFont, 240, S.statusBase, buf, loud ? T.t.accent : T.t.dim);
 
-  // The third line: model · effort · context; or the prompt's question; or "hold to stop".
+  // The third line: model · effort · context (with Agent pets on, the pet's
+  // name, stage and level instead); or the prompt's question; or "hold to stop".
   uint16_t col = T.t.dim;
   if (ui.pressed.kind == HitKind::Stop) { snprintf(buf, sizeof buf, "hold to stop"); col = T.t.accent; }
   else if (waiting) { snprintf(buf, sizeof buf, "%s", a.waitTitle[0] ? a.waitTitle : "needs you"); col = T.t.accent; }
+  else if (a.pet.has) petLine(a, buf, sizeof buf);
   else {
     buf[0] = '\0';
     auto add = [&](const char* part) {

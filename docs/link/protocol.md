@@ -38,7 +38,7 @@ COBS( 0xDE 0xC1 | 0x01 | <Frame, protobuf> | CRC16 hi | CRC16 lo ) 0x00
   removes every zero byte, so `0x00` ends a frame. After any noise or a corrupt frame, a reader
   resynchronises at the next `0x00`.
 - A frame is at most **4096 bytes** before COBS, unless the board asks for less in `Hello.max_frame`
-  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3413 bytes.
+  (at least 512). The largest frame the deck can send with the limits in `link.options` is 3425 bytes.
 
 Anything that isn't a valid frame is ignored, including the ESP32's boot log. Since `0xDE 0xC1` never
 occurs in UTF-8 text, printing text on the same port is harmless.
@@ -100,10 +100,10 @@ board                                   deck
 
   | bit | group | fields |
   |---|---|---|
-  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot queued out_until_ms` |
-  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms` |
+  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat account activity.tool subagent_count attention_slot queued slowed slowed_by_you project pet out_until_ms` |
+  | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms last_active_ms project_folder` |
   | 4 | `FIELDS_PROMPT` | `waiting` |
-  | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns` |
+  | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns cpu` |
   | 16 | `FIELDS_LIMITS` | not an agent field: the board also gets `Limits` |
 
   `id` and `slot` are always set. `fields: 0` means `FIELDS_TILE`.
@@ -149,6 +149,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `Stash {agent_ids, all}` | `POST /v1/stash` | act | `Result` |
 | `MagicView {agent_ids}` | `POST /v1/magic/view` | act | `Result` |
 | `SetHat {agent_id or folder, shape, color, automatic}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
+| `HatchPet {agent_id}` | `POST /v1/agents/{id}/pet/hatch` | act | `Result`: 204 when the agent's egg hatched; 409 if it isn't ready (`Pet.ready`). Frame field 70 |
 | `Dismiss`, `Resume` `{agent_id}` | `POST /v1/agents/{id}/dismiss`, `…/resume` | admin | `Result` |
 | `Handoff {agent_id, account}` | `POST /v1/agents/{id}/handoff` | admin | `Result` (200 when it started) |
 | `Restore {agent_ids}` | `POST /v1/restore` | admin | `RestoreResult`: the listed lost agents, or every lost agent when `agent_ids` is empty |
@@ -310,7 +311,7 @@ It is never the password.
 | `WifiConfig` | deck → board, answered with `Result` | 62 | USB serial, Bluetooth |
 | `NetStatus` | board → deck | 63 | any |
 
-These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49
+These are not web API commands, so they have no route; the parity test keeps commands in fields 30–49 (and 70–89, once those were taken)
 and checks these are documented here.
 
 ## Firmware updates over Wi-Fi

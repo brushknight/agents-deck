@@ -30,6 +30,8 @@ class DeckSystem {
     this.updateState = 'none',
     this.updateVersion = '',
     this.firmwareUpdates = 0,
+    this.cpuBusy = false,
+    this.cpuPercent = 0,
   });
 
   factory DeckSystem.fromJson(Map<String, dynamic> j) {
@@ -41,6 +43,7 @@ class DeckSystem {
         m[k] is String ? m[k] as String : '';
     final boards = obj('boards');
     final update = obj('update');
+    final cpu = obj('cpu');
     return DeckSystem(
       version: s(j, 'version'),
       platform: s(j, 'platform'),
@@ -52,6 +55,8 @@ class DeckSystem {
       updateState: s(update, 'state').isEmpty ? 'none' : s(update, 'state'),
       updateVersion: s(update, 'version'),
       firmwareUpdates: n(j, 'firmware_updates'),
+      cpuBusy: cpu['busy'] == true,
+      cpuPercent: cpu['percent'] is num ? (cpu['percent'] as num).round() : 0,
     );
   }
 
@@ -73,6 +78,11 @@ class DeckSystem {
   final String updateState;
   final String updateVersion;
   final int firmwareUpdates;
+
+  /// The CPU guard: the whole computer has been over its CPU limit for a
+  /// while (`cpu.busy`), and how busy it is (`cpu.percent`, every core: 100).
+  final bool cpuBusy;
+  final int cpuPercent;
 }
 
 enum ServiceState {

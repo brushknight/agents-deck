@@ -18,7 +18,7 @@ done
 mkdir -p out/kit
 # The kit's C sources, once.
 KIT_OBJS=()
-for src in "$KIT"/deck_link.c "$KIT"/cobs.c "$KIT"/crc16.c "$KIT"/proto/*.c; do
+for src in "$KIT"/deck_link.c "$KIT"/deck_pet.c "$KIT"/cobs.c "$KIT"/crc16.c "$KIT"/proto/*.c; do
   obj="out/kit/$(basename "$src" .c).o"
   "$CC" -std=c99 -Wall -Wextra $SAN -I"$KIT" -c "$src" -o "$obj"
   KIT_OBJS+=("$obj")

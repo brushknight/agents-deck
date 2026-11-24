@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -34,6 +35,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
@@ -124,7 +126,13 @@ const usage = `agentctl: runs and controls agents deck
   agentctl bluetooth [scan | ls | add <name>]
                                  boards over Bluetooth: find one nearby, add it with the code on its screen
   agentctl system                what the service is doing (boards, new ports, updates)
-  agentctl cpu                   how much CPU the service and its helpers use
+  agentctl cpu [--top]           how much CPU the service and its helpers use, the whole machine
+                                 and the CPU guard's limit; --top: who uses it (each agent with its
+                                 biggest programs, the deck, other programs)
+  agentctl cpu limit <60-95> [--for 3h] | schedule
+                                 the CPU guard's limit for now: until the schedule's next change
+                                 (or for the time given); schedule: back to the schedule
+  agentctl cpu schedule          the week's schedule for the CPU guard's limit
   agentctl settings [<key> <value>]
                                  start-at-login, notifications, sound, restore, updates, network
   agentctl diagnostics           a report to send when something's wrong (no names or folders)
@@ -1078,6 +1086,7 @@ type fileConfig struct {
 	Link       struct {
 		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
 	} `json:"link"`
+	CPUGuard json.RawMessage `json:"cpuGuard"` // cpuguard.Setting, read with cpuguard.FromConfig
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1192,8 +1201,22 @@ func serve(args []string) error {
 		st.Hat = demoHats(fleet, book)
 	}
 	st.Account = accounts.Of
+	// Agent pets (off by default): they eat the agents' tokens.
+	petsPath := paths.Pets()
+	if *demoMode {
+		petsPath = ""
+	}
+	petBook := pets.Open(petsPath, pets.Settings(paths.Config()))
+	st.Pet = petBook.View
+	go petBook.Follow(st.Subscribe, func() []pets.Sight {
+		var out []pets.Sight
+		for _, e := range st.Entries() {
+			out = append(out, pets.Sight{ID: e.A.ID, Session: e.SessionID, Tokens: e.A.Tokens, Status: e.A.Status})
+		}
+		return out
+	}, st.Touch, nil)
 	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
-		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
+		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book, Pets: petBook,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()},
 		Tokens: &devices.Tokens{Path: paths.MCPTokens()}}
 	// Prompts queued for busy agents survive a restart (a demo keeps them in memory).
@@ -1213,9 +1236,67 @@ func serve(args []string) error {
 	}
 	wifiDefault := &link.WifiDefault{Store: wifiStore}
 	adm := newAdmin(st, srv, self, *logFile)
+	// Each agent's project, by its folder.
+	st.Project = adm.ProjectOf
+	// MCP's project tools change the same list, through the same checks.
+	srv.Projects = adm.MCPProjects()
 	meter := proc.NewCPUMeter()
 	go meter.Run()
-	adm.CPU = meter.Report
+	// The whole machine's CPU: one reader for the service's life, stopped
+	// (its iostat killed) before serve returns.
+	machine := proc.NewMachineMeter()
+	machineCtx, stopMachine := context.WithCancel(context.Background())
+	machineDone := make(chan struct{})
+	go func() { machine.Run(machineCtx); close(machineDone) }()
+	defer func() { stopMachine(); <-machineDone }()
+	adm.CPU = func() proc.CPUReport {
+		r := meter.Report()
+		m := machine.Report()
+		r.Machine = &m
+		return r
+	}
+	adm.CPUTop = func(n int) proc.CPUTop {
+		var panes map[string]string
+		if fleet == nil { // a demo's agents have no terminals
+			panes = tmux.SessionTTYs()
+		}
+		return proc.TopUsers(daemon.AgentTerminals(st.Entries(), panes), n)
+	}
+	// The CPU guard: while the computer is busy it warns, and holds queued
+	// prompts and start_agent over MCP.
+	guard := cpuguard.New(machine)
+	guard.Queued = func() (n int) {
+		for _, c := range srv.Queue.Agents() {
+			n += c
+		}
+		return n
+	}
+	guard.Top = func() []proc.CPUUser { return adm.CPUTop(5).Users }
+	guard.Changed, guard.Logf = st.Touch, log.Printf
+	guard.Ended = adm.DropCPUOverride // a limit picked by hand is over: out of config.json
+	guard.Set(cpuguard.FromConfig(cfg.CPUGuard))
+	srv.Guard, adm.Guard = guard, guard
+	go guard.Run(machineCtx)
+	// While busy, the heaviest agent runs in background mode (macOS). Undone
+	// when calm and on a clean stop; after a crash, here on the next start.
+	// A demo's agents have no processes: nothing to slow.
+	if !*demoMode {
+		slower := &cpuguard.Slower{Guard: guard, List: proc.Processes, File: paths.Slowed(), Self: os.Getpid(),
+			Logf: log.Printf, Changed: st.Touch}
+		slower.Agents = func() []proc.AgentTerminal {
+			var live []store.Entry
+			for _, e := range st.Entries() {
+				if e.A.Status != model.Exited {
+					live = append(live, e)
+				}
+			}
+			return daemon.AgentTerminals(live, tmux.SessionTTYs())
+		}
+		slower.Recover()
+		defer slower.Stop()
+		go slower.Run(machineCtx)
+		guard.Slowed, guard.SlowedByYou, st.Slow, adm.Slower = slower.Slowed, slower.SlowedByYou, slower.Use, slower
+	}
 	hub := &link.Hub{Wifi: wifiDefault, OnFirmware: adm.FirmwareChanged} // updates over Wi-Fi feed admin jobs
 	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Hub: hub, Wifi: wifiDefault,
 		Ports: func() []link.PortConfig { return adm.LinkPorts(loadConfig().Link.Ports) }}
@@ -1284,13 +1365,16 @@ func serve(args []string) error {
 	select {
 	case err := <-errc:
 		st.Flush()
+		_ = petBook.Save()
 		return err
 	case s := <-sig:
 		st.Flush()
+		_ = petBook.Save()
 		log.Printf("stopping (%s)", sigName(s))
 		return nil
 	case <-serveStop:
 		st.Flush()
+		_ = petBook.Save()
 		log.Printf("stopping (asked from Settings)")
 		return nil
 	}

@@ -767,6 +767,7 @@ var Routes = map[string]string{
 	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
 	"add_live":       "POST /v1/live/{session}/add",
 	"handoff":        "POST /v1/agents/{id}/handoff",
+	"hatch_pet":      "POST /v1/agents/{id}/pet/hatch",
 
 	"list_accounts": "GET /v1/accounts",
 }
@@ -897,6 +898,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path = http.MethodPost, agentPath(b.Interrupt.AgentId, "interrupt")
 	case *linkpb.Frame_Dismiss:
 		method, path = http.MethodPost, agentPath(b.Dismiss.AgentId, "dismiss")
+	case *linkpb.Frame_HatchPet:
+		method, path = http.MethodPost, agentPath(b.HatchPet.AgentId, "pet/hatch")
 	case *linkpb.Frame_Resume:
 		method, path = http.MethodPost, agentPath(b.Resume.AgentId, "resume")
 	case *linkpb.Frame_Handoff:

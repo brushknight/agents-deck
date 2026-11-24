@@ -59,7 +59,10 @@ type Daemon struct {
 	orca      orcaWatch
 	herdr     herdrWatch
 	cmux      cmuxWatch
-	front     string // tmux session of the focused terminal (last tick)
+	front     string          // tmux session of the focused terminal (last tick)
+	panes     map[string]bool // our panes' terminals (last tick)
+	panesAt   time.Time
+	screens   screenCache // Run's goroutine only
 
 	lastAutoRestore time.Time
 	live            liveWatch
@@ -91,103 +94,111 @@ func (d *Daemon) Run() {
 			accKey = k
 			d.Store.Touch()
 		}
-		activity := tmux.SessionActivity()
-		live := make(map[string]bool, len(activity))
-		for name := range activity {
-			live[name] = true
-		}
-		// The focused agent: the session of the most recently active client whose
-		// terminal reports focus (tmux focus-events; no AppleScript needed).
-		clients := map[string][]tmux.Client{}
-		front := ""
-		list := tmux.ClientList() // most recent first
-		d.enableFocusReports(list)
-		for _, c := range list {
-			clients[c.Session] = append(clients[c.Session], c)
-			if front == "" && c.Focused {
-				front = c.Session
-			}
-		}
-		d.mu.Lock()
-		d.front = front
-		d.mu.Unlock()
-		var gone, died []string
-		d.Store.Each(func(e *store.Entry) bool {
-			if e.External {
-				return false // mirrored by WatchCodex
-			}
-			changed := claude.Tail(e)
-			alive := live[e.TmuxName]
-			if alive && tmuxActive(*e, activity[e.TmuxName]) && e.MarkActiveStep(activity[e.TmuxName]) {
-				changed = true
-			}
-			young := time.Since(e.A.StartedAt) < 3*time.Second // tmux session still being created
-			switch {
-			case !alive && !young && e.A.Status != model.Exited:
-				e.SetStatus(model.Exited)
-				died = append(died, e.A.ID)
-				changed = true
-			case !alive && e.A.Status == model.Exited && !e.A.Lost && d.exitedTTL() > 0 && time.Since(e.A.StatusSince) > d.exitedTTL():
-				remember(*e)
-				gone = append(gone, e.A.ID)
-			case alive && e.A.Status == model.Exited:
-				e.SetStatus(model.Idle) // e.g. the daemon restarted while tmux was briefly unreachable
-				e.A.Lost = false
-				changed = true
-			}
-			if n%2 == 0 && alive && e.A.Tool == "claude" {
-				if d.subagents(e, e.RunSince()) {
-					changed = true
-				}
-				// A turn that ended without its hook (Esc, a restart) ends here;
-				// while subagents work, they keep it running (see subagents).
-				if !e.Sim && len(e.A.Subagents) == 0 && claude.Settle(e, time.Now()) {
-					changed = true
-				}
-			} else if !alive && e.A.Subagents != nil {
-				e.A.Subagents = nil
-				changed = true
-			}
-			if r := e.A.Status == model.Exited && e.A.Tool == "claude" && e.SessionID != "" && !e.Sim; r != e.A.Resumable {
-				e.A.Resumable = r
-				changed = true
-			}
-			attached := len(clients[e.TmuxName]) > 0
-			focused := front != "" && front == e.TmuxName
-			if lookedAt(e, focused) {
-				changed = true
-			}
-			if attached != e.A.Attached || focused != e.A.Focused {
-				e.A.Attached, e.A.Focused = attached, focused
-				changed = true
-			}
-			// Dialogs that fire no hook (workspace trust before SessionStart): read the screen.
-			if alive && (e.A.Status == model.Starting || e.Menu) && time.Since(e.A.StartedAt) > 2*time.Second {
-				if d.scanMenu(e) {
-					changed = true
-				}
-			} else if alive && e.A.Status == model.Waiting && e.A.Waiting != nil && n%2 == 1 {
-				if d.askOnScreen(e) {
-					changed = true
-				} else if claude.RefineOptions(e.A.Waiting, tmux.Capture(e.TmuxName, 40)) {
-					// A permission/question prompt whose options we only guessed: read the screen.
-					changed = true
-				}
-			}
-			return changed
-		})
-		for _, id := range gone {
-			d.Store.Remove(id)
-			log.Printf("removed exited agent %s", id)
-		}
-		// Several agents gone at once and no tmux server left: it crashed or
-		// was killed, the agents didn't quit. (One agent quitting is normal,
-		// and the server exits by itself after its last session.)
-		if len(died) >= 2 && !tmux.ServerRunning() {
-			d.markLost(died, "tmux server stopped")
-		}
-		d.syncHeaders(live)
+		d.tick(n)
 	}
+}
+
+// tick is one second of Run (n counts them).
+func (d *Daemon) tick(n int) {
+	st := tmux.Look() // one call, not one per list
+	activity := st.Activity
+	d.screens.look(activity, time.Now())
+	live := make(map[string]bool, len(activity))
+	for name := range activity {
+		live[name] = true
+	}
+	// The focused agent: the session of the most recently active client whose
+	// terminal reports focus (tmux focus-events; no AppleScript needed).
+	clients := map[string][]tmux.Client{}
+	front := ""
+	list := st.Clients // most recent first
+	d.enableFocusReports(list)
+	for _, c := range list {
+		clients[c.Session] = append(clients[c.Session], c)
+		if front == "" && c.Focused {
+			front = c.Session
+		}
+	}
+	d.mu.Lock()
+	d.front = front
+	d.panes, d.panesAt = st.PaneTTYs, time.Now()
+	d.mu.Unlock()
+	var gone, died []string
+	d.Store.Each(func(e *store.Entry) bool {
+		if e.External {
+			return false // mirrored by WatchCodex
+		}
+		changed := claude.Tail(e)
+		alive := live[e.TmuxName]
+		if alive && tmuxActive(*e, activity[e.TmuxName]) && e.MarkActiveStep(activity[e.TmuxName]) {
+			changed = true
+		}
+		young := time.Since(e.A.StartedAt) < 3*time.Second // tmux session still being created
+		switch {
+		case !alive && !young && e.A.Status != model.Exited:
+			e.SetStatus(model.Exited)
+			died = append(died, e.A.ID)
+			changed = true
+		case !alive && e.A.Status == model.Exited && !e.A.Lost && d.exitedTTL() > 0 && time.Since(e.A.StatusSince) > d.exitedTTL():
+			remember(*e)
+			gone = append(gone, e.A.ID)
+		case alive && e.A.Status == model.Exited:
+			e.SetStatus(model.Idle) // e.g. the daemon restarted while tmux was briefly unreachable
+			e.A.Lost = false
+			changed = true
+		}
+		if n%2 == 0 && alive && e.A.Tool == "claude" {
+			if d.subagents(e, e.RunSince()) {
+				changed = true
+			}
+			// A turn that ended without its hook (Esc, a restart) ends here;
+			// while subagents work, they keep it running (see subagents).
+			if !e.Sim && len(e.A.Subagents) == 0 && claude.Settle(e, time.Now()) {
+				changed = true
+			}
+		} else if !alive && e.A.Subagents != nil {
+			e.A.Subagents = nil
+			changed = true
+		}
+		if r := e.A.Status == model.Exited && e.A.Tool == "claude" && e.SessionID != "" && !e.Sim; r != e.A.Resumable {
+			e.A.Resumable = r
+			changed = true
+		}
+		attached := len(clients[e.TmuxName]) > 0
+		focused := front != "" && front == e.TmuxName
+		if lookedAt(e, focused) {
+			changed = true
+		}
+		if attached != e.A.Attached || focused != e.A.Focused {
+			e.A.Attached, e.A.Focused = attached, focused
+			changed = true
+		}
+		// Dialogs that fire no hook (workspace trust before SessionStart): read the screen.
+		if alive && (e.A.Status == model.Starting || e.Menu) && time.Since(e.A.StartedAt) > 2*time.Second {
+			if d.scanMenu(e) {
+				changed = true
+			}
+		} else if alive && e.A.Status == model.Waiting && e.A.Waiting != nil && n%2 == 1 {
+			if d.askOnScreen(e) {
+				changed = true
+			} else if claude.RefineOptions(e.A.Waiting, d.screens.read(e.TmuxName, 40)) {
+				// A permission/question prompt whose options we only guessed: read the screen.
+				changed = true
+			}
+		}
+		return changed
+	})
+	for _, id := range gone {
+		d.Store.Remove(id)
+		log.Printf("removed exited agent %s", id)
+	}
+	// Several agents gone at once and no tmux server left: it crashed or
+	// was killed, the agents didn't quit. (One agent quitting is normal,
+	// and the server exits by itself after its last session.)
+	if len(died) >= 2 && !st.Running {
+		d.markLost(died, "tmux server stopped")
+	}
+	d.syncHeaders(live)
 }
 
 // tmuxActive reports whether tmux's last-output time counts as activity for
@@ -283,7 +294,7 @@ func (d *Daemon) askOnScreen(e *store.Entry) bool {
 	if f != nil && time.Since(f.Typed) < formSettle {
 		return false
 	}
-	screen := tmux.Capture(e.TmuxName, 0)
+	screen := d.screens.read(e.TmuxName, 0)
 	if closed, answered := claude.AskClosed(screen); closed {
 		if answered {
 			e.SetStatus(model.Running) // PostToolUse follows
@@ -298,7 +309,7 @@ func (d *Daemon) askOnScreen(e *store.Entry) bool {
 // scanMenu turns an on-screen arrow-key menu into a prompt, and clears the
 // prompt again once the menu is gone.
 func (d *Daemon) scanMenu(e *store.Entry) bool {
-	title, opts, ok := claude.ParseCursorMenu(tmux.Capture(e.TmuxName, 0))
+	title, opts, ok := claude.ParseCursorMenu(d.screens.read(e.TmuxName, 0))
 	switch {
 	case ok && !e.Menu:
 		e.SetStatus(model.Waiting)
