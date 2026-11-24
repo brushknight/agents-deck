@@ -136,23 +136,27 @@ void main() {
     for (final id in _pets.keys) {
       expect(inTile(id, PetSprite), findsOneWidget, reason: id);
     }
-    // checkout-api's subagent still gets its mini critter; the agent
-    // itself is its pet.
-    expect(inTile('k3f9a2', CritterSprite), findsOneWidget);
+    // With pets on, a tile's subagents are a count in its corner, not the
+    // old mini critters: the pet itself shows a mini pet in tow when its
+    // agent delegates.
+    expect(inTile('k3f9a2', CritterSprite), findsNothing);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('agent-tile-k3f9a2')),
+              matching: find.byKey(const Key('agent-tile-subagents')),
+            ),
+          )
+          .data,
+      '3 SUB',
+    );
     expect(inTile('h0m3l4', CritterSprite), findsNothing);
     // Agents without a pet keep their critter.
     expect(inTile('scr4tc', CritterSprite), findsOneWidget);
     expect(inTile('scr4tc', PetSprite), findsNothing);
-    // The same box as the critter it replaces.
-    expect(
-      tester.getSize(inTile('h0m3l4', PetSprite)),
-      tester.getSize(
-        find.descendant(
-          of: find.byKey(const ValueKey('agent-tile-scr4tc')),
-          matching: find.byType(CritterSprite),
-        ),
-      ),
-    );
+    // The pet stands on a ground line and keeps all of it in the tile.
+    expect(tester.widget<PetSprite>(inTile('h0m3l4', PetSprite)).fit, isTrue);
     // Each pet does its agent's pose: infra-network needs you, in its own
     // colours on the orange tile (no plate: the stroke keeps it apart).
     expect(
