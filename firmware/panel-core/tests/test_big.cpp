@@ -3,6 +3,7 @@
 // prompt layout (choose, then send), and every screen inside the frame.
 #include <assert.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "../sim/fixture.h"
@@ -251,7 +252,7 @@ int main() {
     p = bigPrompt(S, w);
     assert(p.n == 6 && p.opt[0].y > p.titleY && p.opt[5].y + p.opt[5].h <= p.btn.r[0].y);
     for (int i = 0; i < 6; i++) assert(p.opt[i].h >= kLineL + 4);
-    // Free text: no answers, focus terminal is the wide button.
+    // Free text: no answers, open in terminal is the wide button.
     w.optCount = 0;
     p = bigPrompt(S, w);
     assert(p.btn.n == 2 && p.btn.kind[1] == Hit::Focus && p.btn.r[1].x + p.btn.r[1].w == S.w - kPadX);
@@ -281,12 +282,16 @@ int main() {
     assert(!a.lastIsAnswer && !strcmp(a.lastPrompt, "fix it"));
   }
 
-  // ---- a pet fits its tile: all it can reach in its pose, over its motion, inside the tile
+  // ---- every pet on the grid is the same size: the tiles' scale, never
+  // shrunk to fit; what reaches over the tile's top is cut at the tile
   {
     static DeckFleet d;
     assert(fixture::load(FIXTURE, d));
     const BigGrid g = bigGrid(S, 1);
-    for (int stage = 0; stage < 7; stage++) {
+    const Rect cell = bigCell(g, 0);
+    const uint16_t GUARD = 0x1234;
+    std::vector<uint16_t> mem(S.w * S.h, GUARD);
+    for (int stage = 1; stage < 7; stage++) {
       for (Pose pose : {Pose::Idle, Pose::Wait, Pose::Bash, Pose::Celebrate, Pose::Hungry, Pose::Delegate}) {
         Agent a = d.fleet.agents[0];
         a.pet.has = true;
@@ -294,14 +299,19 @@ int main() {
         a.pet.level = (uint8_t)(stage * 8);
         a.hat = 3;
         a.pet.hat = stage >= 2 ? 2 : 0;
-        const big_detail::PetExtent e = big_detail::petExtent(a, pose, true);
-        const Rect cell = bigCell(g, 0);
-        const float u = cell.w / 170.f;
-        const int bw = (int)lroundf(158 * u), bh = (int)lroundf(96 * u);
-        int s = S.tileScale;
-        if (bw / (e.x1 - e.x0) < s) s = bw / (e.x1 - e.x0);
-        if (bh / (e.y1 - e.y0) < s) s = bh / (e.y1 - e.y0);
-        assert(s >= 1 && (e.y1 - e.y0) * s <= bh && (e.x1 - e.x0) * s <= bw);
+        a.subagents = 0;
+        std::fill(mem.begin(), mem.end(), GUARD);
+        Canvas c{mem.data(), S.w, S.h};
+        big_detail::petTile(c, cell, Rect{cell.x + 4, cell.y + 5, cell.w - 8, 64}, S.tileScale, a, pose, 0, true);
+        int x0 = S.w, x1 = -1;
+        for (int y = 0; y < S.h; y++)
+          for (int x = 0; x < S.w; x++) {
+            if (mem[y * S.w + x] == GUARD) continue;
+            assert(y >= cell.y && y < cell.y + cell.h);   // nothing over the tile's top or under its foot
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+          }
+        assert(x1 - x0 + 1 >= 14 * S.tileScale);   // drawn at the tiles' scale (a body is 14+ cells wide)
       }
     }
   }
@@ -452,7 +462,7 @@ int main() {
           assert(a == b);
         }
   }
-  // ---- the 4"'s card is the big panel's (the desk panel's detail, its "focus terminal" button), not
+  // ---- the 4"'s card is the big panel's (the desk panel's detail, its "open in terminal" button), not
   // the small boards' card that a 480 x 480 SquareSpec would draw
   {
     static DeckFleet d;
