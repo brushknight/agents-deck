@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/proc"
@@ -91,17 +93,69 @@ func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map
 }
 
 // ttysOf maps the interactive sessions' processes to their terminals.
-func ttysOf(list []claudeAgent) map[int]string {
-	var pids []int
+func ttysOf(list []claudeAgent) map[int]string { return knownTTYs.of(list, processTTYs) }
+
+// knownTTYs: a process keeps its terminal for life, so ps is asked only
+// about processes it hasn't told yet. With 50 sessions one ps costs about
+// 0.2 s of CPU, and the sessions are listed every few seconds.
+var knownTTYs ttyCache
+
+// ttyCache remembers each session process's terminal ("" for none).
+type ttyCache struct {
+	mu sync.Mutex
+	m  map[ttyKey]string
+}
+
+// ttyKey is one process: its pid and when it started (a pid can be reused).
+type ttyKey struct {
+	pid     int
+	started int64
+}
+
+// of is the terminals of list's interactive sessions, asking lookup (ps)
+// only about processes not seen before. Processes no longer listed are
+// forgotten; a lookup that failed is tried again next time.
+func (c *ttyCache) of(list []claudeAgent, lookup func([]int) (map[int]string, bool)) map[int]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[ttyKey]string{}
+	}
+	out := map[int]string{}
+	listed := map[ttyKey]bool{}
+	var ask []int
 	for _, a := range list {
-		if a.PID > 0 && a.Kind != "background" {
-			pids = append(pids, a.PID)
+		if a.PID <= 0 || a.Kind == "background" {
+			continue
+		}
+		k := ttyKey{a.PID, a.StartedAt}
+		listed[k] = true
+		if tty, ok := c.m[k]; ok {
+			if tty != "" {
+				out[a.PID] = tty
+			}
+		} else {
+			ask = append(ask, a.PID)
 		}
 	}
-	if len(pids) == 0 {
-		return map[int]string{}
+	if len(ask) > 0 {
+		if got, ok := lookup(ask); ok {
+			for _, a := range list {
+				if k := (ttyKey{a.PID, a.StartedAt}); listed[k] && slices.Contains(ask, a.PID) {
+					c.m[k] = got[a.PID] // "" when ps didn't list it: no terminal, or gone
+					if got[a.PID] != "" {
+						out[a.PID] = got[a.PID]
+					}
+				}
+			}
+		}
 	}
-	return processTTYs(pids)
+	for k := range c.m {
+		if !listed[k] {
+			delete(c.m, k)
+		}
+	}
+	return out
 }
 
 // ConfigEnv is env with CLAUDE_CONFIG_DIR set to configDir, or removed when
