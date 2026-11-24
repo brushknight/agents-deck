@@ -1693,7 +1693,8 @@ extension _PetsPage on _AgentDetailState {
                   fit: true,
                   cell: 3,
                   width: 86,
-                  height: 52,
+                  // The menu bar's bigger text leaves it less room.
+                  height: _menuBar ? 38 : 52,
                 ),
                 const SizedBox(height: 6),
                 Text(
