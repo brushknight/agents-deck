@@ -113,7 +113,7 @@ func pair(t *testing.T) (a, b *deck, ra, rb *relay, ran map[*deck]*[]string) {
 	_ = a.s.Node.SetAddress("attic", rb.addr)
 	ran = map[*deck]*[]string{}
 	for _, d := range []*deck{a, b} {
-		var mu sync.Mutex
+		mu := &ranMu
 		list := &[]string{}
 		ran[d] = list
 		d.s.Node.Dir = d.dir
@@ -125,6 +125,15 @@ func pair(t *testing.T) (a, b *deck, ra, rb *relay, ran map[*deck]*[]string) {
 		}
 	}
 	return
+}
+
+// ranMu guards the lists of calls each deck ran (pair); ranList reads one.
+var ranMu sync.Mutex
+
+func ranList(l *[]string) []string {
+	ranMu.Lock()
+	defer ranMu.Unlock()
+	return append([]string(nil), *l...)
 }
 
 func run(t *testing.T, d *deck) {
@@ -207,8 +216,8 @@ func TestOutboxDeliversInOrderOnceAfterReconnect(t *testing.T) {
 	run(t, b)
 	ra.up(t, ra.addr)
 	rb.up(t, rb.addr)
-	waitFor(t, "all delivered", 5*time.Second, func() bool { return a.s.Node.Pending("attic") == 0 && len(*ran[b]) == 100 })
-	for i, body := range *ran[b] {
+	waitFor(t, "all delivered", 5*time.Second, func() bool { return a.s.Node.Pending("attic") == 0 && len(ranList(ran[b])) == 100 })
+	for i, body := range ranList(ran[b]) {
 		if want := `"` + string(rune('a'+i%26)) + `-` + strconv.Itoa(i) + `"`; body != want {
 			t.Fatalf("call %d: %s, want %s (order)", i, body, want)
 		}
@@ -235,8 +244,8 @@ func TestOutboxSameKeyRunsOnce(t *testing.T) {
 			t.Fatalf("answer: %d %s", w.Code, w.Body)
 		}
 	}
-	if len(*ran[b]) != 1 {
-		t.Fatalf("ran %d times", len(*ran[b]))
+	if len(ranList(ran[b])) != 1 {
+		t.Fatalf("ran %d times", len(ranList(ran[b])))
 	}
 }
 
@@ -311,4 +320,31 @@ func TestAwayWordOnlyFromTheConstant(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// Only one direction open (attic can't dial studio, studio can dial attic):
+// attic shows studio out of reach, one way, and its outbox waits; studio,
+// whose own dial works, shows attic online. Being called isn't reachable.
+func TestLinkOneWay(t *testing.T) {
+	fast(t)
+	a, b, ra, _, ran := pair(t) // ra: attic → studio
+	ra.down()
+	run(t, a)
+	run(t, b)
+	_, _ = b.s.Node.Enqueue("studio", "local", "POST", "/v1/test", []byte(`"waits"`))
+	waitFor(t, "studio sees attic online", 2*time.Second, func() bool { return reachable(a, "attic") })
+	waitFor(t, "attic sees studio one way", node.AwayAfter+time.Second, func() bool {
+		for _, s := range b.s.Node.States() {
+			if s.Name == "studio" {
+				return !s.Reachable && s.OneWay && s.Waiting == 1
+			}
+		}
+		return false
+	})
+	if len(ranList(ran[a])) != 0 {
+		t.Fatalf("attic's call reached studio over a closed direction: %v", ranList(ran[a]))
+	}
+	// The direction opens: the call goes.
+	ra.up(t, ra.addr)
+	waitFor(t, "attic's call delivered", node.BackoffMax+2*time.Second, func() bool { return len(ranList(ran[a])) == 1 })
 }

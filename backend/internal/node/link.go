@@ -10,8 +10,11 @@ package node
 // (HTTP keep-alive): a heartbeat every HeartbeatEvery, and the machine's own
 // outbox for that machine (outbox.go) goes over it. So a pair of machines has
 // two connections, one per direction: each carries what its dialer sends,
-// with no channel back to hold open. A machine is reachable while a
-// heartbeat answered, or it called this one, within AwayAfter. Nothing on
+// with no channel back to hold open. A machine is reachable while this
+// machine's own heartbeat to it answered within AwayAfter: that is when this
+// machine's outbox for it can be delivered. A machine that calls this one
+// while this one can't dial it is still out of reach, with OneWay set (on a
+// routed network only one direction may be open: port 7341). Nothing on
 // this machine waits on the link: its agents, screens and API go on alone.
 
 import (
@@ -61,6 +64,9 @@ type State struct {
 	RTTMs     int       `json:"rttMs,omitempty"`    // the last heartbeat's round trip
 	Version   string    `json:"version,omitempty"`
 	Waiting   int       `json:"waiting"` // calls in this machine's outbox for it
+	// OneWay: it calls this machine, but this machine can't reach it (its
+	// port 7341 closed, or no route): its calls arrive, ours wait.
+	OneWay bool `json:"oneWay,omitempty"`
 }
 
 // Event is what the link tells subscribers (the /v1/events stream): Kind
@@ -112,7 +118,8 @@ func (m *Manager) peer(name string) *peer {
 	return p
 }
 
-// Heard notes a request from a machine: it is reachable.
+// Heard notes a request from a machine. It doesn't make it reachable (this
+// machine's own dial decides that); it tells a one-way link apart.
 func (m *Manager) Heard(name string) {
 	m.lmu.Lock()
 	m.peer(name).heard = m.clock()
@@ -149,6 +156,9 @@ func (m *Manager) States() []State {
 	names := m.List()
 	m.lmu.Lock()
 	defer m.lmu.Unlock()
+	if m.tm == (timings{}) {
+		m.tm = current()
+	}
 	out := make([]State, 0, len(names))
 	for _, x := range names {
 		p := m.peer(x.Name)
@@ -157,6 +167,7 @@ func (m *Manager) States() []State {
 			s.RTTMs = int(p.rtt.Milliseconds())
 		} else {
 			s.AwaySince = p.awaySince
+			s.OneWay = !p.heard.IsZero() && m.clock().Sub(p.heard) < m.tm.away
 		}
 		out = append(out, s)
 	}
@@ -305,10 +316,7 @@ func (m *Manager) watch() {
 	}
 	changed := false
 	for name, p := range m.peers {
-		last := p.lastOK
-		if p.heard.After(last) {
-			last = p.heard
-		}
+		last := p.lastOK // only this machine's own dial counts (OneWay says the rest)
 		reach := !last.IsZero() && now.Sub(last) < m.tm.away
 		flip := reach != p.reachable
 		if flip || (!reach && p.awaySince.IsZero()) {

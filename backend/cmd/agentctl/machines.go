@@ -118,7 +118,11 @@ func machineStatus(st node.State, now time.Time) string {
 	if now.Sub(since) > 20*time.Hour {
 		when = since.Format("Jan 2 15:04")
 	}
-	return node.AwayWord + " since " + when
+	s := node.AwayWord + " since " + when
+	if st.OneWay {
+		s += " (it reaches this machine; this one can't reach it: its port 7341?)"
+	}
+	return s
 }
 
 // scopeWords says what a scope lets a machine do.

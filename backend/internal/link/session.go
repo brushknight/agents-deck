@@ -828,17 +828,17 @@ func (s *Session) command(f *linkpb.Frame) error {
 		return s.typed(f.Seq, "/v1/machines", func(raw []byte) *linkpb.Frame {
 			var r struct {
 				Machines []struct {
-					Name, Version  string
-					Reachable      bool
-					AwaySince      time.Time
-					RttMs, Waiting int
+					Name, Version     string
+					Reachable, OneWay bool
+					AwaySince         time.Time
+					RttMs, Waiting    int
 				}
 			}
 			_ = json.Unmarshal(raw, &r)
 			l := &linkpb.MachineList{}
 			for _, x := range r.Machines {
 				l.Machines = append(l.Machines, &linkpb.MachineInfo{Name: x.Name, Reachable: x.Reachable,
-					AwaySinceMs: uint64(max(ms(x.AwaySince), 0)), RttMs: uint32(x.RttMs), Version: x.Version, Waiting: uint32(x.Waiting)})
+					AwaySinceMs: uint64(max(ms(x.AwaySince), 0)), RttMs: uint32(x.RttMs), Version: x.Version, Waiting: uint32(x.Waiting), OneWay: x.OneWay})
 			}
 			return &linkpb.Frame{Body: &linkpb.Frame_MachineList{MachineList: l}}
 		})

@@ -492,6 +492,7 @@ typedef struct _agentsdeck_link_v1_MachineInfo {
     uint32_t rtt_ms; /* the last heartbeat's round trip, while reachable */
     char version[24];
     uint32_t waiting; /* calls waiting in this deck's outbox for it */
+    bool one_way; /* it reaches this deck, this deck can't reach it (port 7341?) */
 } agentsdeck_link_v1_MachineInfo;
 
 /* The prompts queued for an agent, next first: the first few (total says how
@@ -957,7 +958,7 @@ extern "C" {
 #define agentsdeck_link_v1_AccountList_init_default {0, {agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default, agentsdeck_link_v1_AccountInfo_init_default}}
 #define agentsdeck_link_v1_AccountInfo_init_default {"", "", 0}
 #define agentsdeck_link_v1_MachineList_init_default {0, {agentsdeck_link_v1_MachineInfo_init_default, agentsdeck_link_v1_MachineInfo_init_default, agentsdeck_link_v1_MachineInfo_init_default, agentsdeck_link_v1_MachineInfo_init_default}}
-#define agentsdeck_link_v1_MachineInfo_init_default {"", 0, 0, 0, "", 0}
+#define agentsdeck_link_v1_MachineInfo_init_default {"", 0, 0, 0, "", 0, 0}
 #define agentsdeck_link_v1_QueueList_init_default {0, {agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default, agentsdeck_link_v1_QueuedPrompt_init_default}, 0}
 #define agentsdeck_link_v1_QueuedPrompt_init_default {"", "", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_default {0, {agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default, agentsdeck_link_v1_Restored_init_default}}
@@ -1026,7 +1027,7 @@ extern "C" {
 #define agentsdeck_link_v1_AccountList_init_zero {0, {agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero, agentsdeck_link_v1_AccountInfo_init_zero}}
 #define agentsdeck_link_v1_AccountInfo_init_zero {"", "", 0}
 #define agentsdeck_link_v1_MachineList_init_zero {0, {agentsdeck_link_v1_MachineInfo_init_zero, agentsdeck_link_v1_MachineInfo_init_zero, agentsdeck_link_v1_MachineInfo_init_zero, agentsdeck_link_v1_MachineInfo_init_zero}}
-#define agentsdeck_link_v1_MachineInfo_init_zero {"", 0, 0, 0, "", 0}
+#define agentsdeck_link_v1_MachineInfo_init_zero {"", 0, 0, 0, "", 0, 0}
 #define agentsdeck_link_v1_QueueList_init_zero   {0, {agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero, agentsdeck_link_v1_QueuedPrompt_init_zero}, 0}
 #define agentsdeck_link_v1_QueuedPrompt_init_zero {"", "", "", 0}
 #define agentsdeck_link_v1_RestoreResult_init_zero {0, {agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero, agentsdeck_link_v1_Restored_init_zero}}
@@ -1182,6 +1183,7 @@ extern "C" {
 #define agentsdeck_link_v1_MachineInfo_rtt_ms_tag 4
 #define agentsdeck_link_v1_MachineInfo_version_tag 5
 #define agentsdeck_link_v1_MachineInfo_waiting_tag 6
+#define agentsdeck_link_v1_MachineInfo_one_way_tag 7
 #define agentsdeck_link_v1_MachineList_machines_tag 1
 #define agentsdeck_link_v1_QueuedPrompt_id_tag   1
 #define agentsdeck_link_v1_QueuedPrompt_text_tag 2
@@ -1855,7 +1857,8 @@ X(a, STATIC,   SINGULAR, BOOL,     reachable,         2) \
 X(a, STATIC,   SINGULAR, UINT64,   away_since_ms,     3) \
 X(a, STATIC,   SINGULAR, UINT32,   rtt_ms,            4) \
 X(a, STATIC,   SINGULAR, STRING,   version,           5) \
-X(a, STATIC,   SINGULAR, UINT32,   waiting,           6)
+X(a, STATIC,   SINGULAR, UINT32,   waiting,           6) \
+X(a, STATIC,   SINGULAR, BOOL,     one_way,           7)
 #define agentsdeck_link_v1_MachineInfo_CALLBACK NULL
 #define agentsdeck_link_v1_MachineInfo_DEFAULT NULL
 
@@ -2129,8 +2132,8 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Project_msg;
 #define agentsdeck_link_v1_ListMachines_size     0
 #define agentsdeck_link_v1_LiveSession_size      300
 #define agentsdeck_link_v1_LiveSessions_size     2424
-#define agentsdeck_link_v1_MachineInfo_size      84
-#define agentsdeck_link_v1_MachineList_size      344
+#define agentsdeck_link_v1_MachineInfo_size      86
+#define agentsdeck_link_v1_MachineList_size      352
 #define agentsdeck_link_v1_MagicView_size        208
 #define agentsdeck_link_v1_Magic_size            8
 #define agentsdeck_link_v1_MoveAttention_size    19

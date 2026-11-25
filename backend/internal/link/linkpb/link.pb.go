@@ -5184,7 +5184,8 @@ type MachineInfo struct {
 	AwaySinceMs   uint64                 `protobuf:"varint,3,opt,name=away_since_ms,json=awaySinceMs,proto3" json:"away_since_ms,omitempty"` // since when it can't be reached; 0 while reachable
 	RttMs         uint32                 `protobuf:"varint,4,opt,name=rtt_ms,json=rttMs,proto3" json:"rtt_ms,omitempty"`                     // the last heartbeat's round trip, while reachable
 	Version       string                 `protobuf:"bytes,5,opt,name=version,proto3" json:"version,omitempty"`
-	Waiting       uint32                 `protobuf:"varint,6,opt,name=waiting,proto3" json:"waiting,omitempty"` // calls waiting in this deck's outbox for it
+	Waiting       uint32                 `protobuf:"varint,6,opt,name=waiting,proto3" json:"waiting,omitempty"`             // calls waiting in this deck's outbox for it
+	OneWay        bool                   `protobuf:"varint,7,opt,name=one_way,json=oneWay,proto3" json:"one_way,omitempty"` // it reaches this deck, this deck can't reach it (port 7341?)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5259,6 +5260,13 @@ func (x *MachineInfo) GetWaiting() uint32 {
 		return x.Waiting
 	}
 	return 0
+}
+
+func (x *MachineInfo) GetOneWay() bool {
+	if x != nil {
+		return x.OneWay
+	}
+	return false
 }
 
 type QueueList struct {
@@ -6372,14 +6380,15 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\n" +
 	"is_default\x18\x03 \x01(\bR\tisDefault\"J\n" +
 	"\vMachineList\x12;\n" +
-	"\bmachines\x18\x01 \x03(\v2\x1f.agentsdeck.link.v1.MachineInfoR\bmachines\"\xae\x01\n" +
+	"\bmachines\x18\x01 \x03(\v2\x1f.agentsdeck.link.v1.MachineInfoR\bmachines\"\xc7\x01\n" +
 	"\vMachineInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\treachable\x18\x02 \x01(\bR\treachable\x12\"\n" +
 	"\raway_since_ms\x18\x03 \x01(\x04R\vawaySinceMs\x12\x15\n" +
 	"\x06rtt_ms\x18\x04 \x01(\rR\x05rttMs\x12\x18\n" +
 	"\aversion\x18\x05 \x01(\tR\aversion\x12\x18\n" +
-	"\awaiting\x18\x06 \x01(\rR\awaiting\"]\n" +
+	"\awaiting\x18\x06 \x01(\rR\awaiting\x12\x17\n" +
+	"\aone_way\x18\a \x01(\bR\x06oneWay\"]\n" +
 	"\tQueueList\x12:\n" +
 	"\aprompts\x18\x01 \x03(\v2 .agentsdeck.link.v1.QueuedPromptR\aprompts\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\rR\x05total\"d\n" +
