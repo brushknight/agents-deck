@@ -24,6 +24,9 @@ The management API (`/admin/v1`, [below](#management-api-adminv1)) is served onl
 loopback dashboard, never on the network.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
 mutating request whose `Origin` is not that host.
+Every answer on the unix socket carries the service's version in an `Agents-Deck-Version` header.
+`agentctl` compares it with its own and, once per command, says on stderr when they differ and which
+side to update (not for `hook`, `statusline`, `mcp` and completion, which other programs run).
 
 ## Endpoints
 

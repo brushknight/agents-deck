@@ -780,8 +780,17 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	mux.HandleFunc("POST /local/login-code", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"code": s.logins.issue()})
 	})
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Store != nil && s.Store.Version != "" {
+			w.Header().Set(VersionHeader, s.Store.Version)
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
+
+// VersionHeader carries the service's version on every answer over the
+// socket, so agentctl can say when it and the service differ.
+const VersionHeader = "Agents-Deck-Version"
 
 func ServeUnix(path string, h http.Handler) error {
 	_ = os.Remove(path)

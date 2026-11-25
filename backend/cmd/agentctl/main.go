@@ -163,6 +163,7 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	versionQuiet = quietVersion[cmd]
 	if err := platformSupports(cmd); err != nil {
 		fmt.Fprintln(os.Stderr, "agentctl:", err)
 		os.Exit(1)
@@ -320,6 +321,7 @@ func callTimeout(method, path string, in, out any, timeout time.Duration) error 
 		return callErr(err, timeout)
 	}
 	defer resp.Body.Close()
+	noteVersion(resp.Header.Get(server.VersionHeader))
 	if resp.StatusCode >= 300 {
 		var e struct{ Error string }
 		_ = json.NewDecoder(resp.Body).Decode(&e)

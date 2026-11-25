@@ -72,7 +72,7 @@ func New(current string) *Updater {
 		Releases: NewReleases(), Sys: HostSystem{},
 	}
 	if runtime.GOOS == "darwin" && u.Kind == KindArchive {
-		u.MacApp = installedMacApp()
+		u.MacApp = InstalledMacApp()
 	}
 	if runtime.GOOS == "linux" {
 		if home, err := os.UserHomeDir(); err == nil {
