@@ -448,8 +448,9 @@ func TestQueueHeldWhileBusy(t *testing.T) {
 	if got := sentTexts(ctl); len(got) != 2 || got[0] != `free "by hand" false` || got[1] != `free "right now" false` {
 		t.Fatalf("by hand: %v", got)
 	}
+	// Starting an agent is never held: async work can always start more.
 	_, out := rpc(s.LocalHandler(), "/mcp", tok["chief"], call("start_agent", map[string]any{"folder": "/work/app"}))
-	if text, isErr := toolText(t, out); !isErr || text != "The Mac is busy (92% CPU for 4 minutes); try again in a few minutes" || len(ctl.started) != 0 {
+	if text, isErr := toolText(t, out); isErr || len(ctl.started) != 1 {
 		t.Fatalf("start_agent while busy: %s %v", text, ctl.started)
 	}
 	// An MCP client's prompt waits, even for an idle agent.
@@ -464,7 +465,7 @@ func TestQueueHeldWhileBusy(t *testing.T) {
 		!strings.Contains(strings.Join(got[2:], " "), `free "from a script" false`) || s.Queue.Count("busy")+s.Queue.Count("free") != 0 {
 		t.Fatalf("after the hold: %v", got)
 	}
-	if _, out = rpc(s.LocalHandler(), "/mcp", tok["chief"], call("start_agent", map[string]any{"folder": "/work/app"})); len(ctl.started) != 1 {
+	if _, out = rpc(s.LocalHandler(), "/mcp", tok["chief"], call("start_agent", map[string]any{"folder": "/work/app"})); len(ctl.started) != 2 {
 		t.Fatalf("start_agent after the hold: %v", out)
 	}
 }
