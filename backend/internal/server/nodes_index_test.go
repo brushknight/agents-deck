@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,13 +118,13 @@ func TestIndexSingleMachineUnchanged(t *testing.T) {
 	}
 }
 
-// Acting on another machine's agent isn't possible from here yet: 501.
-func TestRemoteAgentActionRefused(t *testing.T) {
-	a, b, _, _, _ := pair(t)
-	_ = a
+// Acting on another machine's agent goes to that machine: with no link up
+// (nothing running here), it waits in the outbox.
+func TestRemoteAgentActionWaits(t *testing.T) {
+	_, b, _, _, _ := pair(t)
 	w := httptest.NewRecorder()
 	b.s.UnixHandler(nil).ServeHTTP(w, httptest.NewRequest("POST", "/v1/agents/k3f9a2@s/interrupt", nil))
-	if w.Code != http.StatusNotImplemented {
+	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"waiting":"studio"`) {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }

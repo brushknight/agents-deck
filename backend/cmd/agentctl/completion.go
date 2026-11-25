@@ -161,7 +161,8 @@ _agentctl() {
     machines)
       if (( CURRENT == 3 )); then
         local -a sub; sub=('invite:a one-time code for a new machine' 'join:join a machine'"'"'s workspace'
-          'remove:take a machine out' 'leave:take this machine out')
+          'remove:take a machine out' 'leave:take this machine out'
+          'waiting:calls waiting for a machine' 'cancel:take a waiting call back')
         _describe -t machines 'machines command' sub
       elif (( CURRENT == 4 )) && [[ ${words[3]} == remove ]]; then _agentctl_values machines 'machines'
       fi ;;

@@ -460,17 +460,13 @@ func (s *Server) api() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 	})
-	// Another machine's agent (<id>@<tag>, multi-node) is shown here, but
-	// acting on it from this machine isn't possible yet.
+	// Another machine's agent (<id>@<tag>, multi-node): its calls go to that
+	// machine (nodes.go, forward). The caller's own scope was checked already.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/agents/") {
+		if strings.HasPrefix(r.URL.Path, "/v1/agents/") {
 			id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/v1/agents/"), "/")
 			if s.Node != nil && strings.Contains(id, "@") {
-				machine := "another machine"
-				if m, _, ok := s.Node.RemoteOwner(id); ok {
-					machine = m
-				}
-				writeErr(w, http.StatusNotImplemented, id+" runs on "+machine+": acting on another machine's agents isn't possible from here yet")
+				s.forward(w, r, id)
 				return
 			}
 		}

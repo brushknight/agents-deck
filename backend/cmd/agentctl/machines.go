@@ -3,6 +3,7 @@ package main
 // agentctl machines: the other machines of a multi-node workspace.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,7 +19,9 @@ const machinesUsage = `usage: agentctl machines                      the machine
        agentctl machines invite               a one-time code for a new machine (5 minutes)
        agentctl machines join <address> <code>  join the workspace of the machine at address
        agentctl machines remove <name>        take a machine out (it is told when it can be reached)
-       agentctl machines leave                take this machine out of the workspace`
+       agentctl machines leave                take this machine out of the workspace
+       agentctl machines waiting              calls waiting for a machine out of reach, and recent answers
+       agentctl machines cancel <key>         take a waiting call back before it goes`
 
 func machinesCmd(args []string) error {
 	if len(args) == 0 {
@@ -63,6 +66,37 @@ func machinesCmd(args []string) error {
 		} else {
 			fmt.Printf("removed %s here; it couldn't be reached, so run agentctl machines remove on it too, or leave there\n", r.Name)
 		}
+		return nil
+	case "waiting":
+		var r struct{ Outbox []server.OutboxRow }
+		if err := call("GET", "/local/outbox", nil, &r); err != nil {
+			return err
+		}
+		any := false
+		for _, m := range r.Outbox {
+			for i, c := range m.Waiting {
+				any = true
+				fmt.Printf("%s  waits for %s (%d)  %s %s  asked by %s %s ago\n", c.Key, m.Machine, i+1, c.Method, c.Path, c.By, humanAgo(time.Since(c.At)))
+			}
+		}
+		for _, m := range r.Outbox {
+			for _, a := range m.Answers {
+				any = true
+				fmt.Printf("%s  %s answered %d %s ago%s\n", a.Key, m.Machine, a.Code, humanAgo(time.Since(a.At)), answerError(a.Body))
+			}
+		}
+		if !any {
+			fmt.Println("no calls wait for another machine")
+		}
+		return nil
+	case "cancel":
+		if len(args) != 2 {
+			return errors.New(machinesUsage)
+		}
+		if err := call("POST", "/local/outbox/cancel", map[string]string{"key": args[1]}, nil); err != nil {
+			return err
+		}
+		fmt.Println("cancelled: it won't be sent")
 		return nil
 	case "leave":
 		var r struct{ Left []string }
@@ -123,6 +157,15 @@ func machineStatus(st node.State, now time.Time) string {
 		s += " (it reaches this machine; this one can't reach it: its port 7341?)"
 	}
 	return s
+}
+
+// answerError is ": <error>" from an answer's body, if it has one.
+func answerError(body []byte) string {
+	var e struct{ Error string }
+	if json.Unmarshal(body, &e) == nil && e.Error != "" {
+		return ": " + e.Error
+	}
+	return ""
 }
 
 // scopeWords says what a scope lets a machine do.

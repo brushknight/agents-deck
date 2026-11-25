@@ -494,6 +494,7 @@ are in `audit.log` (`"action": "join"`, `"remove"`).
 | GET | `/node/v1/hello` | nodes | `{"name", "version", "fingerprint"}` |
 | POST | `/node/v1/leave` | nodes | the caller forgot this machine; it is forgotten here too |
 | POST | `/node/v1/index` | nodes | `{"epoch", "from", "seq", "full", "agents", "removed"}`: the sender's agents (see "Every agent, every machine"); answers `{"epoch", "seq"}`, the seq this machine has |
+| POST | `/node/v1/act` | nodes | one call, now: `{"key", "by", "method", "path", "body"}` → `{"key", "code", "body", "at"}`; the same keys as the outbox, so a call runs once however it came |
 | POST | `/node/v1/outbox` | nodes | `{"calls": [{"key", "seq", "by", "at", "method", "path", "body"}]}`, oldest first: run in order, each as the caller's `/v1` request (its scope, the audit log with who asked); a key seen before gets its first answer again. Answers `{"answers": [{"key", "code", "body", "at"}]}` |
 
 **The link.** Every machine keeps a connection to every other one: it dials the other's listener
@@ -521,8 +522,20 @@ are not copied. A record that claims an agent of the receiving machine is ignore
 Deck Link and `agentctl ls`, another machine's agents come after this machine's own, with `machine`,
 `machineTag` and an id of `<id>@<tag>` (the tag is the machine's first letter, longer when two
 machines share one); while their machine is out of reach they stay, `"reachable": false`, with their
-last known state. Acting on them from another machine isn't possible yet (`501`). `agentctl ls`
-gets a MACHINE column once another machine has joined, and `--on <machine>`.
+last known state. `agentctl ls` gets a MACHINE column once another machine has joined, and `--on
+<machine>`.
+
+**Acting on another machine's agent.** Every `/v1/agents/<id>@<tag>/…` call (answer, prompt and the
+queue, interrupt, stop, rename; reading its queue too) is checked against the caller's scope on this
+machine, then sent to the machine that runs the agent as the same call on its own id, over this
+machine's connection (`POST /node/v1/act`). There it runs with that machine's normal checks, against
+the scope this machine has there, and the answer comes back as if the agent were here: the same
+status codes and errors (`409` for an answer to a question that has moved on). When that machine is
+out of reach, the call waits in this machine's outbox and the caller gets `202 {"waiting": "<machine>",
+"position": 2, "key": "…"}`; it goes out in order when the machine is back, and its answer is kept
+under its key (`agentctl machines waiting` lists waiting calls and recent answers; `agentctl machines
+cancel <key>` takes one back before it goes). Reading (`GET`) never waits: `503` while the machine is
+out of reach. Both machines' audit logs record the call and who asked (`<caller>@<machine>`).
 
 **State and events.** `GET /v1/machines` says, per machine, whether it is `reachable` (with `rttMs`),
 since when it isn't (`awaySince`), its version and how many calls wait for it; `/v1/events` sends

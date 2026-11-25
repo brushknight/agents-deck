@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 )
 
@@ -82,5 +83,19 @@ func TestDoctorSeparateInstance(t *testing.T) {
 	printChecks(&out, doctorChecks(e))
 	if s := out.String(); strings.Contains(s, "agentctl install") || !strings.Contains(s, "agentctl serve (with this AGENTSTERM_HOME)") {
 		t.Fatalf("a test instance was told to install:\n%s", s)
+	}
+}
+
+// A one-way link is named, with the machine whose port to open.
+func TestDoctorOneWayMachine(t *testing.T) {
+	e := serverEnv()
+	e.machines = func() []node.State {
+		return []node.State{{Name: "attic", Reachable: true, RTTMs: 38}, {Name: "garage", OneWay: true}}
+	}
+	var out bytes.Buffer
+	printChecks(&out, doctorChecks(e))
+	s := out.String()
+	if !strings.Contains(s, "ok    machine   attic: online · 38 ms") || !strings.Contains(s, "warn  machine   garage reaches this machine, this machine can't reach it") || !strings.Contains(s, "open port 7341 on garage") {
+		t.Fatalf("%s", s)
 	}
 }

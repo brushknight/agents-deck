@@ -247,6 +247,13 @@ func (m *Manager) dial(ctx context.Context, name string) {
 	}
 }
 
+// reachable is whether this machine's own dial to name works now.
+func (m *Manager) reachable(name string) bool {
+	m.lmu.Lock()
+	defer m.lmu.Unlock()
+	return m.peer(name).reachable
+}
+
 // Wake makes a machine's loop try at once (a call went into its outbox).
 func (m *Manager) Wake(name string) {
 	m.lmu.Lock()
