@@ -49,15 +49,28 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		if a.Account != nil {
 			p.Account = &linkpb.Account{Name: a.Account.Name, Color: a.Account.Color}
 		}
+		if a.Project != nil {
+			p.Project = &linkpb.Project{Id: a.Project.ID, Name: a.Project.Name}
+		}
 		if a.Activity != nil {
 			p.Activity = &linkpb.Activity{Tool: a.Activity.Tool}
 		}
 		p.SubagentCount = uint32(len(a.Subagents))
 		p.AttentionSlot = uint32(a.AttentionSlot)
 		p.Queued = uint32(a.Queued)
+		p.Slowed, p.SlowedByYou = a.Slowed, a.SlowedByYou
+		if a.Pet != nil {
+			p.Pet = &linkpb.Pet{Name: a.Pet.Name, Stage: a.Pet.Stage, Level: uint32(a.Pet.Level), Ate: a.Pet.Ate,
+				NextAt: a.Pet.NextAt, Hearts: uint32(a.Pet.Hearts), Mood: a.Pet.Mood, HatchedAtMs: ms(a.Pet.HatchedAt),
+				Ready: a.Pet.Ready, LevelFrom: a.Pet.LevelFrom}
+			if a.Pet.Hat != nil {
+				p.Pet.Hat = &linkpb.Hat{Shape: a.Pet.Hat.Shape, Color: a.Pet.Hat.Color}
+			}
+		}
+		p.OutUntilMs = ms(a.OutUntil)
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
-		p.AiTitle, p.Cwd, p.Branch = a.AITitle, a.Cwd, a.Branch
+		p.AiTitle, p.Cwd, p.Branch, p.ProjectFolder = a.AITitle, a.Cwd, a.Branch, a.ProjectFolder
 		p.Model, p.ModelLabel, p.Effort = a.Model, a.ModelLabel, a.Effort
 		if a.Activity != nil {
 			if p.Activity == nil {
@@ -66,6 +79,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 			p.Activity.Detail = a.Activity.Detail
 		}
 		p.LastPrompt = a.LastPrompt
+		p.LastAnswer, p.LastAnswerAtMs = a.LastAnswer, ms(a.LastAnswerAt)
 		if a.Error != nil {
 			p.Error = a.Error.Message
 		}
@@ -85,8 +99,31 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 	}
 	if has(linkpb.FieldGroup_FIELDS_NUMBERS) {
 		p.Tokens = &linkpb.Tokens{Input: a.Tokens.Input, Output: a.Tokens.Output, CacheRead: a.Tokens.CacheRead, CacheWrite: a.Tokens.CacheWrite}
-		p.CostUsd, p.Turns = a.CostUSD, uint32(a.Turns)
+		p.CostUsd, p.Turns, p.Cpu = a.CostUSD, uint32(a.Turns), float32(a.CPU)
 	}
 	clipMessage(p.ProtoReflect())
 	return p
+}
+
+var limitLevels = map[string]linkpb.LimitLevel{"near": linkpb.LimitLevel_LIMIT_NEAR, "low": linkpb.LimitLevel_LIMIT_LOW, "out": linkpb.LimitLevel_LIMIT_OUT}
+
+// limitsPB converts the accounts' usage limits, without the windows that
+// aren't shown (five_hour), clipped to the link limits.
+func limitsPB(ls []model.Limits) *linkpb.Limits {
+	out := &linkpb.Limits{}
+	for _, l := range ls {
+		set := &linkpb.LimitSet{Tool: tools[l.Tool], Account: l.Account, Level: limitLevels[l.Level], AsOfMs: ms(l.AsOf)}
+		for _, w := range l.Windows {
+			if w.Hidden {
+				continue
+			}
+			set.Windows = append(set.Windows, &linkpb.LimitWindow{Label: w.Label, Used: uint32(max(w.Used, 0)),
+				ResetsAtMs: ms(w.ResetsAt), Level: limitLevels[w.Level], Hit: w.Hit, Stale: w.Reset})
+		}
+		if len(set.Windows) > 0 {
+			out.Sets = append(out.Sets, set)
+		}
+	}
+	clipMessage(out.ProtoReflect())
+	return out
 }

@@ -169,6 +169,15 @@ func (s *Session) checkTransport(n *linkpb.NetStatus) {
 // heard notes a frame from the board (any goroutine reads it).
 func (s *Session) heard(t time.Time) { s.rxAt.Store(t.UnixNano()) }
 
+// quietFor: how long the board has sent nothing (0 before Run starts).
+func (s *Session) quietFor(now time.Time) time.Duration {
+	at := s.rxAt.Load()
+	if at == 0 {
+		return 0
+	}
+	return now.Sub(time.Unix(0, at))
+}
+
 // quiet: nothing from the board for two pings. A board answers every ping
 // on the link it carries its session on, so a quiet session is one the board
 // has left (a Wi-Fi network that went away, a cable whose deck went silent).

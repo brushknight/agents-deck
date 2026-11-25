@@ -38,6 +38,12 @@ export const lastActive = (a) => {
   if (!r) return '';
   return ageMin(a.lastActive) < 1 ? 'last active just now' : `last active ${r} ago`;
 };
+// The last block of an agent's page: once it has finished (idle) or ended
+// (exited), its last answer, when it has one; else (and while it works) its
+// last prompt. at is when, for "· 3m ago".
+export const lastShown = (a) => (a.status === 'idle' || a.status === 'exited') && a.lastAnswer
+  ? { label: 'Last answer', text: a.lastAnswer, at: a.lastAnswerAt || '' }
+  : { label: 'Last prompt', text: a.lastPrompt || '–', at: a.lastActive || '' };
 export const ageMin = (iso) => (now() - Date.parse(iso)) / 60000;
 export const tilde = (p) => (p || '').replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
 export const ctxPct = (a) => {
@@ -139,6 +145,18 @@ export const eyesShut = '<rect class="c" x="3.5" y="3.2" width="2" height="0.55"
 export const DOTS = '<g class="dots"><rect class="b" x="14.6" y="-2.6" width="0.9" height="0.9"/><rect class="b" x="15.9" y="-2.6" width="0.9" height="0.9"/><rect class="b" x="17.2" y="-2.6" width="0.8" height="0.9"/></g>';
 export const pixels = (rows, x0, w, cls, h = 0.9, y0 = -4) => `<g class="${cls}">` + rows.flatMap((row, r) => [...row].map((ch, c) =>
   ch === '#' ? `<rect class="b" x="${x0 + c * w}" y="${y0 + r * h}" width="${w}" height="${h}"/>` : '')).join('') + '</g>';
+
+// The critter's bubble bitmaps ('#' = a pixel), shared with the pets
+// (pet-poses.js), which draw them on whole pixels.
+export const GLYPH = {
+  mag: ['.##..', '#..#.', '#..#.', '.##..', '....#'],
+  prompt: ['#..', '.#.', '#..'],
+  globe: ['.###.', '#.#.#', '#####', '#.#.#', '.###.'],
+  globe2: ['.###.', '##.##', '#####', '##.##', '.###.'],
+  cookie: ['.###.', '##.##', '#####', '#.###', '.###.'],
+  ask: ['###', '..#', '.#.', '...', '.#.'],
+  bang: ['#', '#', '#', '.', '#'],
+};
 
 export const MINI = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><g class="bob"><path class="b" d="${BODY}"/>` +
   '<rect class="b" x="0" y="2" width="1" height="2"/><rect class="b" x="13" y="2" width="1" height="2"/>' +
@@ -415,16 +433,16 @@ export function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
       break;
     case 'read':
       eyes = `<g class="scan">${eyesOpen(2)}</g>`;
-      bubble = pixels(['.##..', '#..#.', '#..#.', '.##..', '....#'], 14.6, 0.75, '', 0.75);
+      bubble = pixels(GLYPH.mag, 14.6, 0.75, '', 0.75);
       break;
     case 'bash':
       eyes = eyesOpen(2); feet = legs(LEGS_A, 'la fast') + legs(LEGS_B, 'lb fast'); grp = 'bob fast';
-      bubble = pixels(['#..', '.#.', '#..'], 14.5, 0.7, '', 0.8, -3.7) + '<rect class="b cursor" x="16.5" y="-1.7" width="1.2" height="0.5"/>';
+      bubble = pixels(GLYPH.prompt, 14.5, 0.7, '', 0.8, -3.7) + '<rect class="b cursor" x="16.5" y="-1.7" width="1.2" height="0.5"/>';
       break;
     case 'web':
       eyes = '<rect class="c" x="4.4" y="1" width="1" height="2"/><rect class="c" x="9.4" y="1" width="1" height="2"/>';
-      bubble = pixels(['.###.', '#.#.#', '#####', '#.#.#', '.###.'], 14.4, 0.72, 'la slow', 0.72, -4.2) +
-        pixels(['.###.', '##.##', '#####', '##.##', '.###.'], 14.4, 0.72, 'lb slow', 0.72, -4.2);
+      bubble = pixels(GLYPH.globe, 14.4, 0.72, 'la slow', 0.72, -4.2) +
+        pixels(GLYPH.globe2, 14.4, 0.72, 'lb slow', 0.72, -4.2);
       break;
     case 'plan':
       eyes = eyesOpen(2);
@@ -440,7 +458,7 @@ export function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
       eyes = '<rect class="c" x="4.6" y="1" width="1" height="2"/><rect class="c" x="9.6" y="1" width="1" height="2"/>' +
         (bot ? '<rect class="c la slow" x="6.2" y="3.4" width="1.6" height="1.4"/><rect class="c lb slow" x="6.2" y="4" width="1.6" height="0.5"/>'
           : '<rect class="c la slow" x="6.2" y="4.2" width="2.2" height="1.6"/><rect class="c lb slow" x="6.2" y="4.8" width="2.2" height="0.5"/>');
-      bubble = `<g class="bobc">${pixels(['.###.', '##.##', '#####', '#.###', '.###.'], 14.3, 0.75, '', 0.75, -4.2)}</g>`;
+      bubble = `<g class="bobc">${pixels(GLYPH.cookie, 14.3, 0.75, '', 0.75, -4.2)}</g>`;
       break;
     case 'celebrate': {
       eyes = [4.5, 9.5].map((x) => `<path class="cx" stroke-width="0.55" d="M${x - 1} 3.3 L${x} 2.2 L${x + 1} 3.3"/>`).join('');
@@ -457,11 +475,11 @@ export function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
     case 'run':
       eyes = eyesOpen(2); feet = legs(LEGS_A, 'la') + legs(LEGS_B, 'lb'); bubble = DOTS; grp = 'bob'; arms = arm(2, 1, 'la') + arm(1, 2, 'lb'); break;
     case 'wait':
-      eyes = eyesOpen(1); bubble = pixels(['###', '..#', '.#.', '...', '.#.'], 14.5, 1.1, 'blink'); break;
+      eyes = eyesOpen(1); bubble = pixels(GLYPH.ask, 14.5, 1.1, 'blink'); break;
     case 'err':
       eyes = [3.8, 8.8].map((x) => `<path class="cx" stroke-width="0.55" d="M${x - 0.4} 1.8 l1.8 2.2 M${x + 1.4} 1.8 l-1.8 2.2"/>`).join('');
       arms = arm(0, 0); // both up in alarm
-      bubble = pixels(['#', '#', '#', '.', '#'], 15.6, 1.2, 'bang'); break;
+      bubble = pixels(GLYPH.bang, 15.6, 1.2, 'bang'); break;
     case 'start':
       eyes = eyesOpen(2); bubble = DOTS; break;
     case 'compact': {

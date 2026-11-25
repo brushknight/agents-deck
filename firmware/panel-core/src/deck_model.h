@@ -140,6 +140,7 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
     for (int i = 0; i < kHatColorCount; i++)
       if (!strcmp(in.hat.color, kHatColors[i])) a.hatColor = (uint8_t)i;
   }
+  deck_pet_from_proto(&a.pet, in.has_pet, &in.pet);   // no pet while Agent pets is off
 }
 
 // ---------------------------------------------------------------- the fleet

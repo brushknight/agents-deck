@@ -7,6 +7,8 @@ draws and reacts. To build a new device, see [new-device.md](../../docs/link/new
 
 - `src/deck_link.h`: the core. C99, no malloc, no Arduino, no OS. One context struct holds everything.
 - `src/deck_tiles.h`: optional helper that keeps a small table of agents for simple devices.
+- `src/deck_pet.h`: optional: an agent's pet (Agent pets), as the web deck draws it, at any whole-pixel
+  scale and any colour depth.
 - `src/deck_store.h`, `src/deck_pair.h`, `src/deck_tls.h`: Wi-Fi (see below): what a board keeps in
   NVS, its own key and certificate request, and a TLS 1.3 client transport.
 - `src/deck_ble.h`: Bluetooth LE (see below): the byte stream between the core and a GATT link, with
@@ -116,6 +118,47 @@ title and options (key, label, primary). Helpers: `deck_tiles_find`, `deck_tiles
 `deck_tiles_first_waiting`, `deck_tile_primary`, `deck_status_name`.
 
 
+## Agent pets
+
+While Agent pets is on (the deck's Settings, General), every agent has a pet (`Agent.pet`, in
+`FIELDS_TILE`) that the deck shows in place of its critter. `deck_pet.h` keeps one in 28 bytes and
+draws it as the web deck does (`pets.js`, `pet-poses.js`; [docs/pet-poses.md](../../docs/pet-poses.md)
+is the spec): the egg (cracked once it has eaten 30k tokens, or ready to hatch), the baby, the kid and
+the grown-up, which strong, mighty and legend pets stay, with flames round them in pale yellow, blue
+or gold. A hungry pet has its mouth open; a weak grown-up lies down, brown; a hibernating pet sits in
+an ice cube. The kid and up wear their own hat (`Pet.hat`, devil horns included).
+
+The pet does the critter's poses: the eyes, arms and feet move, and the bubble shows what its agent
+does (the thought dots, the magnifier, the prompt, the globe, the list, the "?", the "!", the "z z",
+the cookie), with the finish flag after a turn, the mini pet in tow while it delegates and the squeeze
+while it compacts. An egg rocks while its agent works. Every part has a black stroke one pet pixel
+wide, four ways round it, drawn under the pet; props and bubbles are white. On orange the pet keeps
+its own colours: the stroke keeps it apart.
+
+```c
+deck_pet_t pet;
+deck_pet_from_proto(&pet, a->has_pet, &a->pet);         /* in on_agent; has_pet false: pets are off */
+
+deck_pet_look_t look;                                   /* 1.6 KB: build it, draw it, drop it */
+deck_pet_opts_t o = {0};
+o.pose = DECK_PET_POSE_BASH;                            /* what its agent does */
+o.ms = millis();                                        /* where the pose's motion is */
+o.bubble = true;
+deck_pet_look(&look, &pet, &o);
+deck_pet_draw(&look, x, y, scale, fill, ctx);           /* fill(ctx, x, y, w, h, 0xRRGGBB, alpha) */
+```
+
+The art is 16 x 14 cells (cell (0, 0) at the pixel you give). Bubbles, the flag and the flames reach
+past it, to cells -5..24 across and -12..15 down (`DECK_PET_REACH_*`, for a fixed box round a pet;
+`deck_pet_bounds()` gives one look's). Colours come as 0xRRGGBB with an alpha: only the ice is
+see-through, so mix it with what's under it, or skip it on a screen that can't. `deck_pet_motion()`
+gives the wobble of an egg waiting to be seen. `deck_pet_look()` uses about 2.9 KB of its own scratch,
+so draw pets from one task.
+
+`test/host/pet_golden.h` holds every pose's cells over time as pets.js and pet-poses.js draw them
+(`tools/pet_golden.mjs` writes it); `test_pet` checks the kit against it, so a change to the art goes
+in both.
+
 ## Pairing and Wi-Fi
 
 A board can pair over USB and then connect over Wi-Fi with the same frames
@@ -198,6 +241,7 @@ Measured on ESP32 (xtensa gcc) with the defaults:
 | of which the decoded `agentsdeck_link_v1_Frame` | 3184 |
 | of which the TX buffer (a CertRequest fits) | 623 |
 | `deck_tiles_t` (16 tiles of 472) | 7568 |
+| `deck_pet_t` (one agent's pet) / `deck_pet_look_t` (while drawing) / its scratch | 28 / 1640 / 2944 static |
 | code: core + nanopb + generated tables | about 15 KB flash |
 
 The largest stack frame is a command's message (a `CertRequest`, about 610 bytes; an `Order` of 32 ids is about 400). Pairing and TLS run mbedTLS: give that task 8 KB or more of stack.
@@ -224,7 +268,7 @@ tools/generate.sh --check  # fails if src/proto differs from the proto files
 ## Tests
 
 ```sh
-make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage, Bluetooth stream
+make -C test/host test        # COBS, CRC, wire bytes, stream resync, handshake timers, tiles, pairing messages, storage, Bluetooth stream, pets
 make -C test/host board_sim   # builds test/host/build/board_sim
 make -C test/host test_tls    # pairing with mbedTLS 3 (Homebrew's mbedtls, or MBEDTLS=<prefix>)
 make -C test/host board_wifi  # a board that pairs over serial and connects over TLS 1.3

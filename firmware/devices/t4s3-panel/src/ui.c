@@ -296,6 +296,29 @@ static void critter_of(critter_t *c, const agentsdeck_link_v1_Agent *a, uint32_t
 		c->hat = a->hat.shape;
 		critter_hat_color(a->hat.color, &c->hat_color, &shade);
 	}
+	// Agent pets: the pet in the critter's place, in its pose (critter.c); the agent's hat colours an egg's spots.
+	deck_pet_from_proto(&c->pet, a->has_pet, &a->pet);
+	if (a->has_hat) {
+		c->pet_opts.hat = deck_pet_hat_of(a->hat.shape);
+		c->pet_opts.hat_color = deck_pet_hat_color_of(a->hat.color);
+	}
+}
+
+// A pet reaches past the critter's box: the box is redrawn that far round it.
+static void critter_ext_event(lv_event_t *e)
+{
+	lv_obj_t *o = lv_event_get_target(e);
+	lv_event_set_ext_draw_size(e, CRITTER_PET_REACH * lv_obj_get_width(o) / 18);
+}
+
+// "Pip • Kid • level 7", or "Egg": the card's line for the pet.
+static void pet_line(char *out, size_t cap, const deck_pet_t *p)
+{
+	const char *stage = deck_pet_stage_name(p->stage);
+	if (p->stage == DECK_PET_EGG || !p->name[0])
+		snprintf(out, cap, "%s", stage);
+	else
+		snprintf(out, cap, "%s \xE2\x80\xA2 %s \xE2\x80\xA2 level %u", p->name, stage, (unsigned)p->level);
 }
 
 static void draw_critter_event(lv_event_t *e)
@@ -485,6 +508,8 @@ static void build_grid(void)
 		// centre the body (cells 0..14), not body and bubble
 		lv_obj_align(t->spr, LV_ALIGN_TOP_MID, (int32_t)(2 * TILE_CELL), 10);
 		lv_obj_add_event_cb(t->spr, draw_critter_event, LV_EVENT_DRAW_MAIN, &t->crit);
+		lv_obj_add_event_cb(t->spr, critter_ext_event, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+		lv_obj_refresh_ext_draw_size(t->spr);
 		lv_obj_add_flag(t->spr, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
 		t->chip = box(t->box);
@@ -816,12 +841,19 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 	lv_obj_set_size(card_spr, (int32_t)(18 * CARD_CELL), (int32_t)(13 * CARD_CELL));
 	lv_obj_add_flag(card_spr, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 	lv_obj_add_event_cb(card_spr, draw_critter_event, LV_EVENT_DRAW_MAIN, &card_crit);
+	lv_obj_add_event_cb(card_spr, critter_ext_event, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+	lv_obj_refresh_ext_draw_size(card_spr);
 	lv_obj_t *title = label(head, &lv_font_montserrat_36, C_INK);
 	lv_obj_set_flex_grow(title, 1);
 	lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
 	set_text(title, a->title, false);
 	if (a->ai_title[0] && strcmp(a->ai_title, a->title) != 0)
 		lines_para(card_body, &lv_font_montserrat_20, C_DIM, a->ai_title, 1);
+	if (card_crit.pet.has) { // its pet's name, stage and level
+		char pl[64];
+		pet_line(pl, sizeof pl, &card_crit.pet);
+		lines_para(card_body, &lv_font_montserrat_20, C_DIM, pl, 1);
+	}
 
 	// What it asks, with the answers.
 	if (waiting && a->has_waiting) {

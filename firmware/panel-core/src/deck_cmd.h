@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "deck_link.h"
 #include "model.h"
 
 // What the board may do (Welcome.scope).
@@ -12,7 +13,16 @@ enum class DeckScope : uint8_t { View, Act, Admin };
 static inline bool canAct(DeckScope s) { return s != DeckScope::View; }
 
 // What the board should send.
-enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss, Resume };
+enum class DeckCmd : uint8_t { None, Answer, Focus, Interrupt, Dismiss, Resume, Hatch };
+
+// Whether this firmware's Deck Link can ask the deck to hatch a ready egg
+// (HatchPet, Frame field 70): the generated code names its tag once
+// link.proto has it.
+#ifdef agentsdeck_link_v1_Frame_hatch_pet_tag
+constexpr bool kCanHatch = true;
+#else
+constexpr bool kCanHatch = false;
+#endif
 
 struct DeckCommand {
   DeckCmd cmd = DeckCmd::None;

@@ -4,6 +4,7 @@ package link
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"syscall"
 	"testing"
@@ -34,18 +35,24 @@ func TestOpenPortClosesOnExec(t *testing.T) {
 	}
 }
 
-// Holders of the port as lsof -F pcR lists them: the daemon (pid 100) and,
+// Holders of the ports as lsof -F pcRn lists them: the daemon (pid 100) and,
 // for a moment between fork and exec, its children don't count.
-func TestOtherUser(t *testing.T) {
-	cases := []struct{ lsof, want string }{
-		{"p100\nR1\ncagentctl\nf5\n", ""},
-		{"p100\nR1\ncagentctl\nf5\np230\nR100\ncagentctl\nf5\n", ""},
-		{"p100\nR1\ncagentctl\nf5\np300\nR77\ncscreen\nf3\n", "screen"},
-		{"p300\nR1\ncesptool.py\nf3\n", "esptool.py"},
+func TestOtherUsersIn(t *testing.T) {
+	const a, b = "/dev/cu.usbmodem101", "/dev/cu.usbmodem202"
+	cases := []struct {
+		lsof string
+		want map[string]string
+	}{
+		{"p100\nR1\ncagentctl\nf5\nn" + a + "\n", map[string]string{}},
+		{"p100\nR1\ncagentctl\nf5\nn" + a + "\np230\nR100\ncagentctl\nf5\nn" + a + "\n", map[string]string{}},
+		{"p100\nR1\ncagentctl\nf5\nn" + a + "\nf6\nn" + b + "\np300\nR77\ncscreen\nf3\nn" + b + "\n", map[string]string{b: "screen"}},
+		{"p300\nR1\ncesptool.py\nf3\nn" + a + "\np301\nR1\ncminicom\nf4\nn" + a + "\nf5\nn" + b + "\n",
+			map[string]string{a: "esptool.py", b: "minicom"}},
+		{"", map[string]string{}},
 	}
 	for _, c := range cases {
-		if got := otherUser(c.lsof, 100); got != c.want {
-			t.Errorf("%q: %q, want %q", c.lsof, got, c.want)
+		if got := otherUsersIn(c.lsof, 100); !maps.Equal(got, c.want) {
+			t.Errorf("%q: %v, want %v", c.lsof, got, c.want)
 		}
 	}
 }

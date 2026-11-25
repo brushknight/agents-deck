@@ -79,7 +79,7 @@ func TestNoInlineCode(t *testing.T) {
 	if regexp.MustCompile(`<script(?:\s[^>]*)?>[^<]`).MatchString(html) || strings.Contains(html, "<style") || strings.Contains(html, " style=") {
 		t.Error("settings.html has inline script or style")
 	}
-	for _, name := range []string{"settings.js", "deck-core.js"} {
+	for _, name := range []string{"settings.js", "deck-core.js", "pets.js", "pet-poses.js"} {
 		js, _ := fs.ReadFile(web.Static(), name)
 		if strings.Contains(string(js), ".innerHTML") || strings.Contains(string(js), "setAttribute('style'") {
 			t.Errorf("%s builds HTML from strings or sets style attributes", name)
@@ -94,7 +94,7 @@ func TestScriptsParse(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"settings.js", "deck-core.js"} {
+	for _, name := range []string{"settings.js", "deck-core.js", "pets.js", "pet-poses.js"} {
 		b, err := fs.ReadFile(web.Static(), name)
 		if err != nil {
 			t.Fatal(err)

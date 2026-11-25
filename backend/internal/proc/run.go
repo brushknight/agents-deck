@@ -31,11 +31,12 @@ func Output(timeout time.Duration, name string, args ...string) ([]byte, error) 
 	return Timed(cmd, (*exec.Cmd).Output)
 }
 
-// Timed runs cmd with run (Output, CombinedOutput, …) and logs it when it
-// was slow or was stopped by its time limit.
+// Timed runs cmd with run (Output, CombinedOutput, …), counts its CPU time
+// (CPUMeter), and logs it when it was slow or was stopped by its time limit.
 func Timed(cmd *exec.Cmd, run func(*exec.Cmd) ([]byte, error)) ([]byte, error) {
 	start := time.Now()
 	out, err := run(cmd)
+	noteHelper(cmd)
 	if d := time.Since(start); d >= SlowHelper {
 		what := "took"
 		if cmd.ProcessState != nil && !cmd.ProcessState.Exited() {

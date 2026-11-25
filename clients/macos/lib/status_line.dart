@@ -44,6 +44,14 @@ List<StatusPart> statusParts(ServiceStatus s) {
     page: 'boards',
     attention: false,
   ));
+  if (sys.cpuBusy) {
+    final machine = sys.platform.startsWith('darwin') ? 'Mac' : 'computer';
+    parts.add((
+      text: '$machine busy (${sys.cpuPercent}% CPU)',
+      page: 'agents',
+      attention: true,
+    ));
+  }
   // The version is on the Updates page; the line stays short.
   if (sys.updateState == 'ready') {
     parts.add((text: 'update ready', page: 'updates', attention: true));
@@ -95,9 +103,14 @@ class StatusLine extends StatelessWidget {
     this.pinned = false,
     this.onPin,
     this.onDrag,
+    this.usage,
   });
 
   final ServiceStatus status;
+
+  /// The account closest to running out of its week ([usageStatus]): after
+  /// the boards, in the accent from 80%.
+  final ({String text, bool attention})? usage;
 
   /// Opens Settings on a page (see [settingsPages]).
   final void Function(String page) onOpen;
@@ -115,6 +128,9 @@ class StatusLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final running = status.state == ServiceState.running;
     final parts = statusParts(status);
+    if (usage case final u? when running && parts.length >= 2) {
+      parts.insert(2, (text: u.text, page: 'general', attention: u.attention));
+    }
     final onPin = this.onPin;
     final onDrag = this.onDrag;
     final line = Container(

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
@@ -52,9 +53,19 @@ type Entry struct {
 	Offset  int64               `json:"-"`
 	Usage   map[string]msgUsage `json:"-"` // message id -> last usage seen
 	Pending string              `json:"-"` // partial trailing line
-	PromptN int                 `json:"promptN"`
-	Menu    bool                `json:"-"`              // current prompt is an arrow-key menu, not numbered
-	Form    *Form               `json:"form,omitempty"` // the open question form, walked one step at a time
+	// The reply so far of the turn in progress: becomes the agent's
+	// LastAnswer when the turn ends (claude.Tail).
+	Answer   string    `json:"-"`
+	AnswerID string    `json:"-"` // …the API message it comes from
+	AnswerAt time.Time `json:"-"` // …and when it was written
+	PromptN  int       `json:"promptN"`
+	Menu     bool      `json:"-"`              // current prompt is an arrow-key menu, not numbered
+	Form     *Form     `json:"form,omitempty"` // the open question form, walked one step at a time
+
+	// How long it ran on WorkDay (YYYY-MM-DD, this computer's clock), up to
+	// its last status change (worked.go).
+	WorkDay string        `json:"workDay,omitempty"`
+	Worked  time.Duration `json:"worked,omitempty"`
 }
 
 type msgUsage struct {
@@ -110,8 +121,10 @@ func (e *Entry) DisplayTitle() string {
 // SetStatus changes status, stamping statusSince only on a real change.
 func (e *Entry) SetStatus(s model.Status) {
 	if e.A.Status != s {
+		now := time.Now()
+		e.endStretch(now)
 		e.A.Status = s
-		e.A.StatusSince = time.Now().UTC()
+		e.A.StatusSince = now.UTC()
 	}
 	if s != model.Waiting {
 		e.A.Waiting = nil
@@ -179,8 +192,22 @@ type Store struct {
 	// Account gives each agent its Claude account, from the account it was
 	// started in or its transcript's folder (nil: accounts aren't shown).
 	Account func(name, transcript string) *model.Account
+	// Project gives each agent its project and the project folder it
+	// matched, by working folder, from memory (nil: no projects).
+	Project func(cwd string) (*model.Project, string)
 	// Queued counts each agent's queued prompts (nil: no queue).
 	Queued func() map[string]int
+	// Pet gives each agent its pet (nil, or a nil answer: pets are off).
+	Pet func(a model.Agent) *model.Pet
+
+	// Slow says which agents are in background mode and by whom
+	// (cpuguard.ByGuard or ByYou), and each agent's CPU use while the
+	// computer is busy (cpuguard.Slower.Use). nil: neither.
+	Slow func() (slowedBy map[string]string, cpu map[string]float64)
+
+	// Limits is each account's usage limits, as the tools last reported
+	// them (nil: none are kept).
+	Limits func() []model.Limits
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -189,6 +216,8 @@ type Store struct {
 	randn     func(n int) int
 	linger    time.Duration
 	attnTimer *time.Timer
+
+	gone goneWork // time worked today by agents removed today (worked.go)
 }
 
 func New(path, name, version string) *Store {
@@ -381,9 +410,12 @@ func (s *Store) Place(id string, slot int) bool {
 func (s *Store) Remove(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.entries[id]; !ok {
+	e, ok := s.entries[id]
+	if !ok {
 		return false
 	}
+	now := s.now()
+	s.gone.add(now, e.A.Cwd, e.WorkedToday(now))
 	delete(s.entries, id)
 	s.changed()
 	return true
@@ -464,25 +496,45 @@ func (s *Store) Snapshot() model.State {
 		agents = append(agents, e.A)
 		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat, account, queued := s.Hat, s.Account, s.Queued
+	hat, account, project, queued, slow, pet, lims := s.Hat, s.Account, s.Project, s.Queued, s.Slow, s.Pet, s.Limits
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
 		counts = queued()
 	}
+	var slowedBy map[string]string
+	var cpu map[string]float64
+	if slow != nil {
+		slowedBy, cpu = slow()
+	}
+	var ls []model.Limits
+	if lims != nil {
+		ls = lims()
+	}
+	now := time.Now()
 	for i := range agents {
 		agents[i].Queued = counts[agents[i].ID]
+		by := slowedBy[agents[i].ID]
+		agents[i].Slowed, agents[i].SlowedByYou, agents[i].CPU = by != "", by == "you", cpu[agents[i].ID]
 		if hat != nil {
 			agents[i].Hat = hat(agents[i].Cwd)
 		}
 		if account != nil && agents[i].Tool == "claude" {
 			agents[i].Account = account(places[i].account, places[i].transcript)
 		}
+		if pet != nil {
+			agents[i].Pet = pet(agents[i])
+		}
+		if project != nil {
+			agents[i].Project, agents[i].ProjectFolder = project(agents[i].Cwd)
+		}
+		agents[i].OutUntil = limits.OutUntil(ls, agents[i], now)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })
 	return model.State{
 		Server: model.Server{Name: s.Name, Version: s.Version, Time: time.Now().UTC()},
 		Agents: agents,
+		Limits: ls,
 	}
 }
 

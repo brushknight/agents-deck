@@ -881,7 +881,7 @@ int main() {
           const square_detail::CardGeom g = square_detail::cardGeom(*S, a, sc);
           // The block (the name's capitals to the pill's foot) centred on the drawn critter, +-2 px.
           const int blockTop = g.name.y + square_detail::capTop(*S->title), blockBot = g.pill.y + g.pill.h;
-          const int mid = square_detail::critterMid(g.critter, S->cardScale, a.species, a.hat, a.hatColor);
+          const int mid = square_detail::critterMid(g.critter, S->cardScale, a);
           assert(abs((blockTop + blockBot) / 2 - mid) <= 2);
           assert(g.name.y + g.name.h <= g.pill.y && blockTop >= g.critter.y - 4 && blockBot <= g.critter.y + g.critter.h + 6);
           // And so it is drawn: the header's ink beside the critter, and the critter's own.

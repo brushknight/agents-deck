@@ -29,6 +29,7 @@ message Frame {
     AgentRemoved agent_removed = 22;
     SnapshotEnd snapshot_end = 23;
     Magic magic = 24;                   // its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow)
+    Limits limits = 25;                 // the accounts' usage limits (State.limits), with FIELDS_LIMITS: after a SnapshotEnd when there are any, and when they change
 
     // Commands, board → deck: one per web API endpoint (docs/protocol.md).
     Answer answer = 30;            // POST /v1/agents/{id}/answer
@@ -76,6 +77,10 @@ message Frame {
     // Which way the board should reach the deck (docs/link/protocol.md,
     // "Bluetooth"). Board management, not a web API command.
     LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
+
+    // More commands, board → deck, once fields 30..49 were taken: one per
+    // web API endpoint, like those.
+    HatchPet hatch_pet = 70;      // POST /v1/agents/{id}/pet/hatch
   }
 }
 
@@ -143,10 +148,11 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at, last_active
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project, pet, out_until
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, last_answer, last_answer_at, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
   FIELDS_PROMPT = 4;     // waiting
-  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
+  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns, cpu
+  FIELDS_LIMITS = 16;    // not an agent field: the board also gets Limits frames
 }
 
 // ---- state ---------------------------------------------------------------
@@ -232,6 +238,15 @@ message Agent {
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
   uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+  bool slowed = 38;            // in background mode while the computer is busy (the CPU guard; macOS)
+  float cpu = 39;              // percent of the whole computer, only while it is busy; 0 otherwise
+  bool slowed_by_you = 40;     // slowed with Slow it, not by the guard's own pick
+  Project project = 41;        // the project its working folder is in; unset for none
+  string project_folder = 42;  // the project folder it matched, in full; "" for none
+  Pet pet = 43;                // its pet; unset while Agent pets is off
+  int64 out_until_ms = 44;     // its account (or its model) is out of usage until then; 0 = not out
+  string last_answer = 45;       // its reply that ended its latest finished turn, as plain text
+  int64 last_answer_at_ms = 46;  // when it gave that reply; 0 = no answer yet
 }
 
 message Activity {
@@ -286,6 +301,21 @@ message Account {
   string color = 2;
 }
 
+// An agent's pet: it eats the agent's input and output tokens and grows.
+message Pet {
+  string name = 1;          // "" until it hatches
+  string stage = 2;         // egg, baby, kid, grown, strong, mighty, legend
+  uint32 level = 3;         // 0 while an egg; never goes down
+  int64 ate = 4;            // tokens eaten, all time
+  int64 next_at = 5;        // ate that reaches the next level
+  uint32 hearts = 6;        // 0..4
+  string mood = 7;          // fed, hungry, weak, asleep (hibernating)
+  int64 hatched_at_ms = 8;  // 0 while an egg
+  bool ready = 9;           // an egg that has eaten enough and waits to be seen hatching (HatchPet)
+  int64 level_from = 10;    // ate where the current level started (0 for an egg), for progress bars
+  Hat hat = 11;             // its mystery hat (shape and color only); unset until it is a kid (level 5)
+}
+
 message Subagent {
   string id = 1;
   string title = 2;
@@ -335,6 +365,7 @@ message Queue {
 }
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
+message HatchPet { string agent_id = 1; }  // hatch its pet's egg once it is ready (Pet.ready); Result 409 if it isn't
 
 message Move {
   string agent_id = 1;
@@ -380,6 +411,39 @@ message Magic {
   bool taken = 2;      // the receiver holds the agents now
   Corner arrive = 3;   // tiles fly in from this corner (the receiver on a take, the giver on a give-back)
   Corner leave = 4;    // and out to this one (the giver on a take, the receiver on a give-back)
+}
+
+// ---- usage limits --------------------------------------------------------
+
+// Limits, deck to board: how much of each account's usage is gone, as
+// Claude Code and Codex last reported it (docs/protocol.md, "Limits").
+message Limits {
+  repeated LimitSet sets = 1;
+}
+
+// LimitSet is one account in one tool.
+message LimitSet {
+  Tool tool = 1;
+  string account = 2;               // the account's name; "" with one account, and for Codex
+  LimitLevel level = 3;             // the worst of its windows (a per-model hit counts as NEAR)
+  int64 as_of_ms = 4;               // when the tool last reported
+  repeated LimitWindow windows = 5; // the ones to show, the week first
+}
+
+message LimitWindow {
+  string label = 1;        // "week", "Fable week", "spend"
+  uint32 used = 2;         // percent used
+  int64 resets_at_ms = 3;  // 0 = not known
+  LimitLevel level = 4;
+  bool hit = 5;            // the tool said it stopped on this limit
+  bool stale = 6;          // it reset since the last report (JSON "reset"): used is not known now
+}
+
+enum LimitLevel {
+  LIMIT_OK = 0;    // under 80%
+  LIMIT_NEAR = 1;  // 80 to 94%
+  LIMIT_LOW = 2;   // 95 to 99%
+  LIMIT_OUT = 3;   // 100%, or hit
 }
 
 // MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.
@@ -613,4 +677,11 @@ message FirmwareStatus {
   FirmwareState state = 1;
   uint32 percent = 2;  // 0..100
   string error = 3;    // for FAILED and REFUSED
+}
+
+// An agent's project (Agent.project): the one whose folder holds its working
+// folder, the deepest such folder winning.
+message Project {
+  string id = 1;
+  string name = 2;
 }

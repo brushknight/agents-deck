@@ -14,6 +14,8 @@ import 'attention.dart';
 import 'attention_screen.dart';
 import 'critter.dart';
 import 'live_picker.dart';
+import 'pet_art.dart';
+import 'usage_limits.dart';
 
 /// Agents app: a Stream-Deck-style board of the Mac's coding agents
 /// (`agentctl serve`). Chrome-less 4×4 grid, one tile per agent by slot,
@@ -38,6 +40,7 @@ class AgentsApp extends StatefulWidget {
     this.pairingCard,
     this.visible,
     this.backButton = false,
+    this.menuBar = false,
   }) : assert(
          (openCard == null) == (cardHost == null),
          'openCard and cardHost come together',
@@ -53,6 +56,10 @@ class AgentsApp extends StatefulWidget {
 
   /// A back button on agent cards, for hosts without an edge swipe.
   final bool backButton;
+
+  /// In the menu bar app: an agent's page has no clock and no text under
+  /// 16 design pixels (the deck is shown at 0.61 there).
+  final bool menuBar;
 
   /// Whether anyone can see the board (a menu bar window that hides): the
   /// critters stop animating while false. Null = always visible.
@@ -191,14 +198,17 @@ class _AgentsAppState extends State<AgentsApp> {
       id: 'agent/${a.id}',
       // The flight's colour = the card it lands as.
       fill: p?.kind == PromptKind.permission ? DeckHud.accent : DeckHud.bg,
-      builder: (close) => CritterScope(
-        clock: _cardClock,
-        child: AgentDetail(
-          source: widget.source,
-          agentId: a.id,
-          onClose: close,
-          onVisible: _cardVisible,
-          showBack: widget.backButton,
+      builder: (close) => agentsOwnText(
+        CritterScope(
+          clock: _cardClock,
+          child: AgentDetail(
+            source: widget.source,
+            agentId: a.id,
+            onClose: close,
+            onVisible: _cardVisible,
+            showBack: widget.backButton,
+            menuBar: widget.menuBar,
+          ),
         ),
       ),
     );
@@ -212,11 +222,13 @@ class _AgentsAppState extends State<AgentsApp> {
       cellKey,
       id: 'add/$slot',
       fill: DeckHud.bg,
-      builder: (close) => LivePicker(
-        source: widget.source,
-        slot: slot,
-        onClose: close,
-        showBack: widget.backButton,
+      builder: (close) => agentsOwnText(
+        LivePicker(
+          source: widget.source,
+          slot: slot,
+          onClose: close,
+          showBack: widget.backButton,
+        ),
       ),
     );
   }
@@ -226,9 +238,11 @@ class _AgentsAppState extends State<AgentsApp> {
     return CritterScope(
       clock: _gridClock,
       child: (widget.cardHost ?? (board) => CardMorph(child: board))(
-        ValueListenableBuilder<AgentsSnapshot>(
-          valueListenable: widget.source.snapshot,
-          builder: (context, snap, _) => _body(snap),
+        agentsOwnText(
+          ValueListenableBuilder<AgentsSnapshot>(
+            valueListenable: widget.source.snapshot,
+            builder: (context, snap, _) => _body(snap),
+          ),
         ),
       ),
     );
@@ -352,9 +366,25 @@ class _AgentsAppState extends State<AgentsApp> {
         return KeyEventResult.handled;
       },
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        // On whole device pixels when the host scales the deck.
+        padding: EdgeInsets.fromLTRB(
+          DeckPixels.snap(context, 8),
+          DeckPixels.snap(context, 8),
+          DeckPixels.snap(context, 8),
+          0,
+        ),
         child: Column(
           children: [
+            // Each account's week, on the panel (the menu bar says it in
+            // its status line).
+            if (!widget.menuBar && state.limits.isNotEmpty)
+              SizedBox(
+                height: 26,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                  child: UsageLine(state: state),
+                ),
+              ),
             Expanded(
               child: PageView.builder(
                 key: const Key('agents-pages'),
@@ -505,6 +535,8 @@ class _AgentTileState extends State<AgentTile> {
   Widget build(BuildContext context) {
     final a = widget.agent;
     final look = AgentLook.of(a);
+    // Out of usage: an orange edge, the pet dimmed, until when it is back.
+    final out = a.needsYou ? null : widget.state.outUntil(a);
     return Pressable(
       key: _tileKey,
       onTap: () => widget.onOpen(context, _tileKey, a),
@@ -517,6 +549,8 @@ class _AgentTileState extends State<AgentTile> {
             // Over the content so the ring never shifts the layout.
             foregroundPainter: pressed
                 ? null
+                : out != null
+                ? const _OutEdgePainter()
                 : ContextRingPainter(
                     fraction: a.contextFraction,
                     color: look.ring,
@@ -550,9 +584,27 @@ class _AgentTileState extends State<AgentTile> {
                         ),
                       ),
                     ),
-                  // Subagents at work: a small critter in the top-left
-                  // corner (body only), with a count when there are more.
-                  if (a.subagents.isNotEmpty)
+                  // Subagents at work, with pets on: only how many, in the
+                  // top-left corner (the pet shows a mini pet in tow when
+                  // its agent delegates).
+                  if (a.subagents.isNotEmpty && a.pet != null)
+                    Positioned(
+                      top: 9,
+                      left: 10,
+                      child: Text(
+                        '${a.subagents.length} SUB',
+                        key: const Key('agent-tile-subagents'),
+                        style: DeckHud.rm(
+                          11,
+                          c(look.meta),
+                          weight: 700,
+                          spacing: 1.3,
+                        ),
+                      ),
+                    )
+                  // Without pets: a small critter in the top-left corner
+                  // (body only), with a count when there are more.
+                  else if (a.subagents.isNotEmpty)
                     Positioned(
                       top: 8,
                       left: 9,
@@ -596,39 +648,77 @@ class _AgentTileState extends State<AgentTile> {
                         dimension: _tileDesign,
                         child: Column(
                           children: [
-                            const SizedBox(height: 30),
-                            CritterSprite(
-                              pose: critterPoseOf(
-                                a,
-                                inStatus: widget.state.inStatus(a),
+                            // With Agent pets on, its pet takes the
+                            // critter's place: on its baseline (no line
+                            // drawn), at the critter's scale, smaller when its glow, hat
+                            // or bubble would leave the tile (nothing
+                            // does). It does its agent's pose, in its own
+                            // colours with its black stroke (on orange
+                            // too).
+                            if (a.pet case final pet?) ...[
+                              const SizedBox(height: 8),
+                              Opacity(
+                                opacity: out == null ? 1 : 0.55,
+                                child: PetSprite(
+                                  fit: true,
+                                  cell: 92 / 18,
+                                  height: 96,
+                                  pet: pet,
+                                  hat: a.hat,
+                                  pose: critterPoseOf(
+                                    a,
+                                    inStatus: widget.state.inStatus(a),
+                                  ),
+                                  celebrateUntil: DateTime.now().add(
+                                    critterCelebration -
+                                        widget.state.inStatus(a),
+                                  ),
+                                  afterCelebrate: a.unseen
+                                      ? CritterPose.hungry
+                                      : CritterPose.idle,
+                                  width: _tileDesign - 12,
+                                ),
                               ),
-                              celebrateUntil: DateTime.now().add(
-                                critterCelebration - widget.state.inStatus(a),
+                              const SizedBox(height: 6),
+                            ] else ...[
+                              const SizedBox(height: 30),
+                              CritterSprite(
+                                pose: critterPoseOf(
+                                  a,
+                                  inStatus: widget.state.inStatus(a),
+                                ),
+                                celebrateUntil: DateTime.now().add(
+                                  critterCelebration - widget.state.inStatus(a),
+                                ),
+                                afterCelebrate: a.unseen
+                                    ? CritterPose.hungry
+                                    : CritterPose.idle,
+                                species: critterSpeciesFor(a.tool),
+                                hat: a.hat,
+                                centerBody: true,
+                                width: 92,
+                                body: c(look.body),
+                                bubble: look.bubble == null
+                                    ? null
+                                    : c(look.bubble!),
+                                cut: fill,
                               ),
-                              afterCelebrate: a.unseen
-                                  ? CritterPose.hungry
-                                  : CritterPose.idle,
-                              species: critterSpeciesFor(a.tool),
-                              hat: a.hat,
-                              centerBody: true,
-                              width: 92,
-                              body: c(look.body),
-                              bubble: look.bubble == null
-                                  ? null
-                                  : c(look.bubble!),
-                              cut: fill,
-                            ),
-                            const SizedBox(height: 14),
+                              const SizedBox(height: 14),
+                            ],
                             _line(
                               a.title,
                               DeckHud.mono(size: 16, color: c(look.label)),
                             ),
                             const SizedBox(height: 5),
                             _line(
-                              agentMetaLine(a, widget.state),
+                              out != null
+                                  ? 'out · ${resetText(out)}'
+                                  : agentMetaLine(a, widget.state),
                               DeckHud.mono(
                                 size: 12.5,
-                                color: c(look.meta),
+                                color: c(
+                                  out != null ? DeckHud.accent : look.meta,
+                                ),
                               ).copyWith(letterSpacing: 0.4),
                             ),
                           ],
@@ -655,6 +745,25 @@ class _AgentTileState extends State<AgentTile> {
       style: style,
     ),
   );
+}
+
+/// A tile out of usage: a solid orange edge, inside it.
+class _OutEdgePainter extends CustomPainter {
+  const _OutEdgePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      (Offset.zero & size).deflate(1.5),
+      Paint()
+        ..color = DeckHud.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OutEdgePainter old) => false;
 }
 
 /// Diagonal accent stripes sliding across a hungry tile (a finished agent
@@ -1192,3 +1301,23 @@ class AgentsPairingCard extends StatelessWidget {
     );
   }
 }
+
+/// The deck's text, whatever the host app's theme: every style here names
+/// its own font and size, and this keeps the rest from inheriting the host's
+/// (a Material theme's font, underlines outside a Material, a system text
+/// scale). The deck is laid out in design pixels; hosts scale it as a
+/// whole.
+Widget agentsOwnText(Widget child) => Builder(
+  builder: (context) => MediaQuery(
+    data: (MediaQuery.maybeOf(context) ?? const MediaQueryData()).copyWith(
+      textScaler: TextScaler.noScaling,
+    ),
+    child: DefaultTextStyle(
+      style: DeckHud.rm(
+        16,
+        DeckHud.ink,
+      ).copyWith(decoration: TextDecoration.none),
+      child: child,
+    ),
+  ),
+);

@@ -140,8 +140,16 @@ static inline bool loud(const Agent& a) { return a.status == Status::Running || 
 // The ring's halo radius round a critter at scale s.
 static inline int haloR(int s) { return 12 * s + 4; }
 
-static inline RoundRect critterBox(int x, int y, int s, bool halo) {
+// What a critter at (x, y) draws; a pet (sprites.h drawPet) reaches further,
+// with its aura or ice and its bob.
+static inline RoundRect critterBox(int x, int y, int s, bool halo, bool pet = false) {
   int x0 = x - 10 * s - 1, x1 = x + 12 * s + 1, y0 = y - 11 * s - 1, y1 = y + 6 * s + 1;
+  if (pet) {   // cell c of a pet is at x + (c - 8) s (sprites.h drawPet), plus its rock
+    x0 = x + (DECK_PET_REACH_X0 - 9) * s - 1;
+    x1 = x + (DECK_PET_REACH_X1 - 6) * s + 1;
+    y0 = y + (DECK_PET_REACH_Y0 - 8) * s - 1;
+    y1 = y + (DECK_PET_REACH_Y1 - 7) * s + 1;
+  }
   if (halo) {
     const int r = haloR(s) + 10;
     if (x - r < x0) x0 = x - r;
@@ -280,7 +288,7 @@ static inline void build(const SpringLayout& L, const RoundInput& in, Frame& fr)
     e.bubble = !moving && (s < 1e-3f && s > -1e-3f);
     const Agent& a = f.agents[j];
     const bool halo = e.alpha >= 15 && e.z >= 2 && (a.status == Status::Waiting || hungry(a));
-    e.box = critterBox(e.x, e.y, e.scale, halo);
+    e.box = critterBox(e.x, e.y, e.scale, halo, a.pet.has);
     cr[nc++] = e;
   }
   for (int i = 1; i < nc; i++)   // insertion sort by (z, scale): stable, few items

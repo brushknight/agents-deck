@@ -15,9 +15,9 @@ In **Settings, Agents, MCP**, click **New token**, give it a name and pick what 
 
 | scope | in Settings | may |
 |---|---|---|
-| `view` | look only | `list_agents`, `get_agent`, `list_queue` |
+| `view` | look only | `list_agents`, `get_agent`, `list_queue`, `list_projects` |
 | `act` | can answer (the default) | also `send_prompt` (every mode), `cancel_queued`, `answer`, `interrupt` |
-| `admin` | can manage | also `start_agent`, `list_sessions`, `add_session` |
+| `admin` | can manage | also `start_agent`, `list_sessions`, `add_session`, `create_project`, `update_project`, `remove_project` |
 
 The token (`adk_` and 64 hex digits) is shown once, with the commands below filled in. The deck keeps
 only its SHA-256, so a lost token can't be shown again: revoke it and make another. The list shows
@@ -61,16 +61,20 @@ interrupt to stop it first".
 
 | tool | scope | arguments | what it does |
 |---|---|---|---|
-| `list_agents` | view | – | every agent, compact: `id`, `title`, `folder`, `tool`, `runsIn` (`deck`, `herdr`, `cmux`, `orca`, or read-only elsewhere), `status`, how long in it, what it is doing, its last prompt, the question it waits on (`promptId`, option keys and labels), `contextPct`, working `subagents`, `queued` (prompts waiting for its turn to end), `acceptsPrompts` |
+| `list_agents` | view | `project` (a project's name, any case, or its id: only its agents) | every agent, compact: `id`, `title`, `folder`, `tool`, `runsIn` (`deck`, `herdr`, `cmux`, `orca`, or read-only elsewhere), `status`, how long in it, what it is doing, its last prompt and last answer, the question it waits on (`promptId`, option keys and labels), `contextPct`, working `subagents`, `queued` (prompts waiting for its turn to end), `acceptsPrompts`, `project` (the name of the project its folder is in; omitted for none) |
 | `get_agent` | view | `agent_id` | one agent in full: the whole question, subagents, `queued`, model, branch, folder, tokens, cost, turns |
-| `send_prompt` | act | `agent_id`, `text`, `mode` (`queue`, `type`, `now` or `interrupt`; default `queue`), `queue_position` (`back` or `front`; default `back`), `interrupt` (the same as `mode: interrupt`, for older clients) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`), now or once its turn ends: see [Queue a prompt](#queue-a-prompt-for-a-busy-agent). Answers `sent: …`, or, when queued, `{"status": "queued", "queue_id", "position", …}` |
+| `send_prompt` | act | `agent_id`, `text`, `mode` (`queue`, `type`, `now` or `interrupt`; default `queue`), `queue_position` (`back` or `front`; default `back`), `interrupt` (the same as `mode: interrupt`, for older clients) | types the text into the agent's session and presses Enter (`POST /v1/agents/{id}/prompt`), now or once its turn ends: see [Queue a prompt](#queue-a-prompt-for-a-busy-agent). While the computer is busy and the CPU guard holds work that can wait, `mode: queue` queues it even for an idle agent. Answers `sent: …`, or, when queued, `{"status": "queued", "queue_id", "position", …}` |
 | `list_queue` | view | `agent_id` | the prompts queued for the agent, next first: `queue_id`, `position`, `text`, `by` (who queued it), `queuedAt` |
 | `cancel_queued` | act | `agent_id`, `queue_id` | takes a queued prompt back before it is typed in |
 | `answer` | act | `agent_id`, `prompt_id`, `key` | picks an option of the question the agent waits on |
 | `interrupt` | act | `agent_id` | presses Esc: stops the current turn |
-| `start_agent` | admin | `folder`, `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent in the folder, on the deck; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
-| `list_sessions` | admin | – | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
+| `start_agent` | admin | `project` (name or id) or `folder`, or both; `tool` (`claude`, `codex` or `shell`), `title`, `account`, `prompt` | starts an agent on the deck: in a project, in its first folder (or `folder`, one of its folders) with its tool and account unless you pick others; or in any folder; with `prompt`, waits (up to a minute) until it is ready and sends it. If the agent asks something first (trusting a new folder), the result shows the question: answer it, then `send_prompt` |
+| `list_sessions` | admin | `project` (a project's name, any case, or its id: only sessions working in its folders) | Claude sessions started elsewhere on this computer (as `GET /v1/live`) |
 | `add_session` | admin | `session_id` | puts one of them on the deck, watched (read-only) |
+| `list_projects` | view | – | the projects: `id`, `name`, `folders` (full paths), `tool` and `account` their agents start with, and `agents` (how many on the deck work in them now) |
+| `create_project` | admin | `name`, `folders` (full paths or `~/…`, at most 20), `tool`, `account` | adds a project, with the same checks as Settings: the folders exist, and a folder belongs to one project |
+| `update_project` | admin | `project` (name or id), `name`, `add_folders`, `remove_folders`, `tool`, `account` | renames it, adds or removes folders, changes what its agents start with; what is left out stays. The id stays the same |
+| `remove_project` | admin | `project` (name or id) | takes it off the list; its folders and agents stay, with no project |
 
 ## What can take a prompt
 

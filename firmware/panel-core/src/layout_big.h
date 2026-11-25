@@ -8,16 +8,16 @@
 //
 //   home    the deck's 4 x 4 grid of square tiles by slot, paged, with the
 //           page bars under it (AgentTile, DeckGrid, _PageBars)
-//   card    the Flutter overview: the critter (and its subagent crew), the
-//           title, the tool chip and status pill; doing now; context with
-//           the tick bar; tokens out, cache read, cost, turns; the last
-//           prompt; model · folder · branch; and the button row: focus
-//           terminal, interrupt while running, otherwise stop ("tap again to
-//           stop" arms it for 3 s) or resume and remove once exited
-//   prompt  one layout for permissions and questions (the Flutter question
-//           card): the question, the detail, the options with their hint
-//           lines; tap one to choose it, "send" answers. A permission is the
-//           orange card, a question dark with the orange border.
+//   card    the agent: its pet (or critter) on its baseline, the status
+//           chip, hearts and level, the name, the session and the level bar;
+//           doing now with the command and the subagents; the last prompt;
+//           context and where it runs; and square buttons in a row: focus,
+//           interrupt while running, otherwise stop ("again" arms it for
+//           3 s) or resume and remove once exited, and back to the deck. An egg ready to hatch sits
+//           in a box that says "tap to hatch" (HatchPet).
+//   prompt  the whole screen orange: the pet boxed with its "?", what it
+//           asks, the command, and every answer as a row; tap one to choose
+//           it, tap it again to send; focus at the foot
 //   states  waiting for approval, connecting, deck offline, no agents; on
 //           Wi-Fi, where it is (joining, connecting, wrong password, network
 //           not found, deck not reachable, certificate rejected)
@@ -38,6 +38,7 @@
 #include "deck_ui.h"
 #include "font_big.h"
 #include "font_data.h"
+#include "font_square.h"
 #include "model.h"
 #include "page_slide.h"
 #include "panel_layout.h"
@@ -187,60 +188,123 @@ static inline int bigBarAt(const BigBars& b, int x) {
 }
 
 // ---------------------------------------------------------------- the card's parts
+// The agent's own screens on the 4" (the boards' pass 3 design): sharp
+// corners, the firmware's Roboto Mono sizes, the pet on its baseline (no line drawn).
+//
+//   card    the pet in its zone (or, an egg ready to hatch, in a box with
+//           "tap to hatch"), the status chip, hearts and level, the name, the
+//           session's title and the level bar; doing now with the command and
+//           the subagents in a box (or the status); the last prompt; context
+//           and where it runs; focus, interrupt and stop as squares in a row
+//   prompt  the whole screen orange: the pet boxed with its "?", the name,
+//           the chip, hearts and level; what it asks, the command, and every
+//           answer as a row (tap one to choose it, tap it again to send); focus
 
-// The button row (AgentButton): 68 px tall, 14 px apart, at the card's foot.
+namespace big_ui {   // the design's numbers
+constexpr int kM = 18, kGap = 10;
+constexpr int kZoneW = 116, kZoneH = 92, kCell = 5;   // the pet's zone and its scale
+constexpr int kBoxCell = 4, kCtaH = 20;                // the ready egg's box
+constexpr int kAskBox = 64, kAskCell = 3;              // the boxed pet on a prompt
+constexpr int kAct = 62, kActGap = 10;                 // the square buttons
+constexpr int kChipH = 18, kLineXS = 13, kLineS = 15, kLineM = 17, kLineL = 19, kLineB20 = 25, kLineQ = 29;
+}  // namespace big_ui
+
+// The button row: squares in a centred row at the foot.
 struct BigButtons {
   int n = 0;
-  Hit kind[3];
-  Rect r[3];
+  Hit kind[4];
+  Rect r[4];
 };
 
 static inline Rect bigCardInner(const BigSpec& S) {
-  return Rect{bk(S, 36), bk(S, 34), S.w - 2 * bk(S, 36), S.h - bk(S, 34) - bk(S, 30)};
+  return Rect{big_ui::kM, big_ui::kM, S.w - 2 * big_ui::kM, S.h - 2 * big_ui::kM};
 }
 
-static inline BigButtons bigCardButtons(const BigSpec& S, const Agent& a, DeckScope scope) {
+// A ready egg: its box says "tap to hatch".
+static inline bool bigHatchable(const Agent& a) { return a.pet.has && a.pet.stage == DECK_PET_EGG && a.pet.ready; }
+
+static inline BigButtons bigCardButtons(const BigSpec& S, const Agent& a, DeckScope scope, int size = big_ui::kAct) {
   BigButtons b;
-  const Rect in = bigCardInner(S);
-  const int h = bk(S, 68), y = in.y + in.h - h, gap = bk(S, 14), side = bk(S, 200);
   const bool exited = a.status == Status::Exited, running = a.status == Status::Running;
   // What the scope allows: focus and interrupt need act, stop / remove / resume admin.
   const bool act = canAct(scope), admin = scope == DeckScope::Admin;
-  if (!act) return b;
-  if (!exited) {
-    const bool second = running || admin;
-    b.kind[b.n] = Hit::Focus;
-    b.r[b.n++] = Rect{in.x, y, second ? in.w - gap - side : in.w, h};
-    if (running) {
-      b.kind[b.n] = Hit::Interrupt;
-      b.r[b.n++] = Rect{in.x + in.w - side, y, side, h};
-    } else if (admin) {
-      b.kind[b.n] = Hit::Stop;
-      b.r[b.n++] = Rect{in.x + in.w - side, y, side, h};
-    }
-  } else if (admin && a.resumable) {
-    b.kind[b.n] = Hit::Resume;
-    b.r[b.n++] = Rect{in.x, y, in.w - gap - side, h};
-    b.kind[b.n] = Hit::Stop;
-    b.r[b.n++] = Rect{in.x + in.w - side, y, side, h};
-  } else if (admin) {
-    b.kind[b.n] = Hit::Stop;
-    b.r[b.n++] = Rect{in.x, y, in.w, h};
+  if (act && !exited) {
+    b.kind[b.n++] = Hit::Focus;
+    if (running) b.kind[b.n++] = Hit::Interrupt;
+    if (admin) b.kind[b.n++] = Hit::Stop;
+  } else if (act && admin) {
+    if (a.resumable) b.kind[b.n++] = Hit::Resume;
+    b.kind[b.n++] = Hit::Stop;
   }
+  b.kind[b.n++] = Hit::Back;   // back to the deck, as the menu bar app's agent page has it
+  const int w = b.n * size + (b.n - 1) * big_ui::kActGap;
+  for (int i = 0; i < b.n; i++)
+    b.r[i] = Rect{(S.w - w) / 2 + i * (size + big_ui::kActGap), S.h - big_ui::kM - size, size, size};
   return b;
 }
 
-// The prompt: the question, the detail box, the context line, the options
-// (pinned above the button row), and send / focus terminal.
+// Where the card's parts go.
+struct BigCard {
+  Rect zone;                   // the pet's zone, or the ready egg's box
+  bool box;                    // the box (with "tap to hatch")
+  int textX, textW;            // the column beside it
+  int chipY, nameY, sumY, barY;
+  int nowY;                    // "doing now" (or "status")
+  Rect term;                   // the command box (h 0: none)
+  int subs;                    // subagent lines in it
+  int lastY, lastLines;        // the last prompt (lastLines 0: no room)
+  int ctxY, whereY;
+};
+
+static inline BigCard bigCard(const BigSpec& S, const Agent& a, DeckScope scope) {
+  using namespace big_ui;
+  BigCard g{};
+  g.box = bigHatchable(a);
+  const int zh = g.box ? kZoneH + kCtaH : kZoneH;
+  g.zone = Rect{kM, kM, kZoneW, zh};
+  g.textX = kM + kZoneW + kGap;
+  g.textW = S.w - kM - g.textX;
+  // The column, from its foot (the zone's) up: the level bar, the summary, the name, the chip.
+  const int foot = g.zone.y + g.zone.h - 2;
+  g.barY = foot - 3;
+  g.sumY = g.barY - 3 - kLineS;
+  g.nameY = g.sumY - 3 - kLineB20;
+  g.chipY = g.nameY - 3 - kChipH;
+  int y = g.zone.y + g.zone.h + kGap;
+  g.nowY = y;
+  y += kLineXS + 3;
+  if (a.status == Status::Running) {
+    g.subs = a.subCount;
+    if (g.subs > 3) g.subs = 3;
+    g.term = Rect{kM, y, S.w - 2 * kM, 6 + kLineL + g.subs * (2 + kLineM) + 6};
+    y += g.term.h;
+  } else {
+    y += kLineL;
+  }
+  y += kGap;
+  g.lastY = y;
+  // The foot: the buttons, where it runs, context.
+  const BigButtons b = bigCardButtons(S, a, scope);
+  const int btnTop = b.n ? b.r[0].y : S.h - kM;
+  g.whereY = btnTop - (b.n ? kGap : 0) - kLineXS;
+  g.ctxY = g.whereY + 5 - kGap - kLineXS;
+  g.lastLines = (g.ctxY - kGap - (g.lastY + kLineXS + 2)) / kLineM;
+  if (g.lastLines > 4) g.lastLines = 4;
+  if (g.lastLines < 0) g.lastLines = 0;
+  return g;
+}
+
+// Where the prompt's parts go.
 struct BigPrompt {
-  int titleY, titleLines;
-  Rect box;                    // h = 0: no detail
-  int boxLines;
-  int ctxY;                    // 0: no context line
+  Rect pet;                    // the boxed pet
+  int nameY, chipY;
+  int askY, titleY, titleLines;
+  Rect term;                   // the command box (h 0: none)
+  int termLines;
   int n;
   Rect opt[kMaxOptions];
-  bool subs;                   // room for the hint lines
-  Rect send, terminal;
+  Rect terminal;               // focus
+  int orY;                     // "or at the terminal"
 };
 
 static inline int bigWrapLines(const Font& f, const char* s, int maxW, int maxLines) {
@@ -248,69 +312,50 @@ static inline int bigWrapLines(const Font& f, const char* s, int maxW, int maxLi
   return textWrapped(none, f, 0, 0, s, 0, maxW, maxLines);
 }
 
-static inline void bigSplit(const char* label, char* title, size_t tcap, char* sub, size_t scap) {
-  const char* seps[] = {" \xE2\x80\x94 ", " \xE2\x80\x93 ", " - "};
-  for (const char* sep : seps) {
-    const char* p = strstr(label, sep);
-    if (!p) continue;
-    size_t n = (size_t)(p - label);
-    if (n >= tcap) n = tcap - 1;
-    memcpy(title, label, n);
-    title[n] = '\0';
-    snprintf(sub, scap, "%s", p + strlen(sep));
-    return;
-  }
-  snprintf(title, tcap, "%s", label);
-  sub[0] = '\0';
-}
-
-static inline int bigTopBarBottom(const BigSpec& S) {
-  return bk(S, 34) + 13 * S.cardScale + bk(S, 10) + bk(S, 30);
-}
-
 static inline BigPrompt bigPrompt(const BigSpec& S, const Agent& a) {
+  using namespace big_ui;
   BigPrompt p{};
-  const bool perm = !strcmp(a.waitKind, "permission");
-  const Rect in = bigCardInner(S);
-  const int btnH = bk(S, 68), btnY = in.y + in.h - btnH;
-  p.send = Rect{in.x, btnY, in.w - bk(S, 14) - bk(S, 260), btnH};
-  p.terminal = Rect{in.x + in.w - bk(S, 260), btnY, bk(S, 260), btnH};
-  const int qLine = (int)lroundf(fontPx(*S.heading) * 1.3f), tLine = (int)lroundf(fontPx(*S.text) * 1.45f);
-  p.titleY = bigTopBarBottom(S) + bk(S, 20);
-  p.titleLines = bigWrapLines(*S.heading, a.waitTitle[0] ? a.waitTitle : "needs you", in.w, 3);
+  const int w = S.w - 2 * kM;
+  p.pet = Rect{kM, kM, kAskBox, kAskBox};
+  const int block = kLineB20 + 3 + kChipH;
+  p.nameY = kM + (kAskBox - block) / 2;
+  p.chipY = p.nameY + kLineB20 + 3;
+  int y = kM + kAskBox + kGap;
+  p.askY = y;
+  y += kLineXS + 2;
+  p.titleY = y;
+  p.titleLines = bigWrapLines(FONT_Q24B, a.waitTitle[0] ? a.waitTitle : "needs you", w, 2);
   if (p.titleLines < 1) p.titleLines = 1;
-  int y = p.titleY + p.titleLines * qLine;
-  // The options, from the bottom up: 74 px rows 10 apart, shorter (and
-  // without hints) when there are many.
+  y += p.titleLines * kLineQ + kGap;
+  // The focus square at the foot, the answers above it.
+  const int act = kAct - 8;
+  p.terminal = Rect{0, S.h - kM - act, act, act};
+  p.orY = p.terminal.y + (act - kLineXS) / 2;
   p.n = a.optCount;
-  const int bottom = btnY - bk(S, 20);
-  int rowH = bk(S, 74);
-  const int gap = bk(S, 10);
-  const int textTop = y + bk(S, 10);
-  if (p.n) {
-    const int room = bottom - textTop - fontPx(*S.label) - bk(S, 10);
-    const int fit = (room - (p.n - 1) * gap) / p.n;
-    if (fit < rowH) rowH = fit < fontPx(*S.text) + 8 ? fontPx(*S.text) + 8 : fit;
-  }
-  p.subs = rowH >= fontPx(*S.text) + fontPx(*S.label) + bk(S, 4) + 2 * bk(S, 10);
-  const int optTop = p.n ? bottom - p.n * rowH - (p.n - 1) * gap : bottom;
-  for (int i = 0; i < p.n; i++) p.opt[i] = Rect{in.x, optTop + i * (rowH + gap), in.w, rowH};
-  // The detail in a box, with the lines left above the options.
-  if (a.waitDetail[0]) {
-    const int pad = bk(S, 16);
-    const int ctxH = a.promptCtx[0] && perm ? fontPx(*S.label) + bk(S, 10) : 0;
-    int lines = (optTop - bk(S, 10) - ctxH - textTop - 2 * pad) / tLine;
-    if (lines > 4) lines = 4;
-    const int need = bigWrapLines(*S.text, a.waitDetail, in.w - 2 * bk(S, 18), lines > 0 ? lines : 1);
-    if (need < lines) lines = need;
-    if (lines >= 1) {
-      p.boxLines = lines;
-      p.box = Rect{in.x, textTop, in.w, lines * tLine + 2 * pad};
-      y = p.box.y + p.box.h;
+  const int rowH = 2 + 6 + kLineL + 6 + 2, gap = kGap - 2;
+  const int bottom = p.terminal.y - kGap;
+  int optTop = bottom - p.n * rowH - (p.n > 0 ? (p.n - 1) * gap : 0);
+  // The command box between the question and the answers.
+  if (a.waitDetail[0] || a.promptCtx[0]) {
+    int lines = bigWrapLines(FONT_L, a.waitDetail[0] ? a.waitDetail : " ", w - 16, 3);
+    const int ctxH = a.promptCtx[0] ? kLineXS + 2 : 0;
+    while (lines > 1 && y + 12 + lines * kLineL + ctxH + kGap > optTop) lines--;
+    if (y + 12 + lines * kLineL + ctxH + kGap <= optTop || !p.n) {
+      p.termLines = a.waitDetail[0] ? lines : 0;
+      p.term = Rect{kM, y, w, 12 + p.termLines * kLineL + ctxH};
+      y += p.term.h + kGap;
     }
   }
-  // Where a permission runs (a question's context is in its pill).
-  if (perm && a.promptCtx[0] && y + bk(S, 10) + fontPx(*S.label) <= optTop - 4) p.ctxY = y + bk(S, 10);
+  // The answers right under it; too many for the room, they get thinner.
+  optTop = y;
+  int pitch = rowH + gap;
+  if (p.n && optTop + p.n * pitch - gap > bottom) pitch = (bottom - optTop + gap) / p.n;
+  for (int i = 0; i < p.n; i++)
+    p.opt[i] = Rect{kM, optTop + i * pitch, w, pitch - gap < rowH ? pitch - gap : rowH};
+  // "or at the terminal" and the square, centred together.
+  const int orW = textW(FONT_XS, "OR AT THE TERMINAL");
+  const int total = orW + 12 + act;
+  p.terminal.x = (S.w - total) / 2 + orW + 12;
   return p;
 }
 
@@ -350,12 +395,12 @@ static inline PanelHit bigHit(const BigSpec& S, const PanelUi& ui, const Fleet& 
     const BigButtons b = bigCardButtons(S, a, scope);
     for (int k = 0; k < b.n; k++)
       if (b.r[k].contains(x, y)) { h.kind = b.kind[k]; return h; }
+    if (bigHatchable(a) && canAct(scope) && bigCard(S, a, scope).zone.contains(x, y)) { h.kind = Hit::Hatch; return h; }
     return PanelHit();
   }
   const BigPrompt p = bigPrompt(S, a);
   for (int k = 0; k < p.n; k++)
     if (p.opt[k].contains(x, y)) { h.kind = Hit::Option; h.index = k; return h; }
-  if (p.send.contains(x, y)) { h.kind = Hit::Send; return h; }
   if (p.terminal.contains(x, y)) { h.kind = Hit::Focus; return h; }
   return PanelHit();
 }
@@ -382,6 +427,7 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
   DeckCommand out;
   switch (h.kind) {
     case Hit::Tile: bigOpen(ui, f, h.agent); break;
+    case Hit::Back: bigHome(ui); break;
     case Hit::PageBar: ui.page = h.index; ui.needsYou = false; break;
     case Hit::NeedsYou: ui.needsYou = ui.att != nullptr; break;
     case Hit::Focus:
@@ -406,7 +452,14 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
         ui.stopArmedUntil = ms + kStopArmMs;   // first tap: arm
       }
       break;
-    case Hit::Option: ui.selected = h.index; break;
+    case Hit::Hatch:
+      if (!kCanHatch) { uiToast(ui, "hatch it on the deck", ms); break; }
+      out = commandFor(DeckCmd::Hatch, f.agents[h.agent]);
+      uiToast(ui, "hatching\xE2\x80\xA6", ms, 1500);
+      break;
+    case Hit::Option:   // the first tap chooses an answer, a tap on the chosen one sends it
+      if (ui.selected != h.index) { ui.selected = h.index; break; }
+      // fall through
     case Hit::Send: {
       const Agent& a = f.agents[h.agent];
       if (ui.selected < 0 || ui.selected >= a.optCount || ui.backAfterToast) break;
@@ -698,8 +751,7 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   const int s = S.tileScale;
   const float unit = 92.f / 18.f;                    // the deck's critter: px per sprite unit
   const int feet = oy + d(30 + 12 * unit);
-  drawSprite(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a.species, poseOf(a, now), cc(k.body), fill, ms, true, a.hat,
-             a.hatColor);
+  drawCritter(c, ox + side / 2 - 7 * s, feet - 12 * s, s, a, poseOf(a, now), cc(k.body), fill, ms, true);
   SQ_ADD(sprite, tp);
   SQ_T0(tt);
   // Title (mono 16) at 30 + 92 x 13/18 + 14; the status line (12.5) 5 px under it.
@@ -805,259 +857,334 @@ static inline void pillLabel(const Agent& a, int64_t now, char* out, size_t cap)
   }
 }
 
-// _topBar: the critter and its crew, the title under them; on the right, the
-// tool chip and the pill level with the title.
-static inline void topBar(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in, const Agent& a, uint16_t ink,
-                          uint16_t pillFill, uint16_t pillInk, uint16_t body, uint16_t cut) {
-  const Rect r = bigCardInner(S);
-  const int cs = S.cardScale;
-  drawSprite(c, r.x, r.y, cs, a.species, poseOf(a, in.nowEpoch), body, cut, in.ms, true, a.hat, a.hatColor);
-  if (a.subagents) {                                 // SubagentCrew: up to six small critters and a count
-    int x = r.x + 18 * cs + bk(S, 16);
-    const int n = a.subagents > 6 ? 6 : a.subagents;
-    const int ss = S.crewScale;
-    for (int i = 0; i < n; i++) {
-      // Each posed by its latest tool (thinking before its first); those past the kept ones run.
-      const Pose p = i < a.subCount ? (a.subs[i].tool[0] ? poseOfTool(a.subs[i].tool) : Pose::Think)
-                     : i == 0 && a.subTool[0] ? poseOfTool(a.subTool) : Pose::Run;
-      drawSprite(c, x, r.y + 13 * cs - 13 * ss, ss, Species::Claude, p, body, cut, in.ms, true);
-      x += 18 * ss + bk(S, 9);
-    }
-    char buf[32];
-    snprintf(buf, sizeof buf, "%u subagent%s", (unsigned)a.subagents, a.subagents == 1 ? "" : "s");
-    c.text(*S.label, x + bk(S, 4), r.y + 13 * cs - S.label->cellH + 2, buf, body);
-  }
-  const int titleTop = r.y + 13 * cs + bk(S, 10), titleH = bk(S, 30);
-  // The pill (mono 15, 12 x 4 padding, radius 8) and the chip, right-aligned.
-  char pill[112];
-  pillLabel(a, in.nowEpoch, pill, sizeof pill);
-  const Font& pf = *S.label;
-  const int ph = fontPx(pf) + 2 * bk(S, 4), maxPw = bk(S, 300);
-  int pw = textW(pf, pill) + 2 * bk(S, 12);
-  if (pw > maxPw) pw = maxPw;
-  const Rect pr{r.x + r.w - pw, titleTop + (titleH - ph) / 2, pw, ph};
-  rrect(c, pr, bk(S, 8), pillFill);
-  textAt(c, pf, pr.x + bk(S, 12), pr.y + bk(S, 4), pill, pillInk, pw - 2 * bk(S, 12));
-  const int chip = bk(S, 8);
-  c.rect(pr.x - bk(S, 8) - chip, titleTop + (titleH - chip) / 2, chip, chip, toolColor(T, a.tool));
-  textAt(c, *S.title, r.x, titleTop + (titleH - fontPx(*S.title)) / 2, a.title[0] ? a.title : a.id, ink,
-         pr.x - chip - 2 * bk(S, 8) - r.x);
+// ---------------------------------------------------------------- the card and the prompt
+// The design's colours (mock3/boards3.css): on the dark screen and on orange.
+constexpr uint16_t kRule = rgb565(0x3B, 0x3A, 0x36);
+constexpr uint16_t kText = rgb565(0xC9, 0xC5, 0xBC);
+constexpr uint16_t kMuted = rgb565(0x9A, 0x96, 0x8C);
+constexpr uint16_t kOrange2 = rgb565(0xFF, 0x6A, 0x2E);
+constexpr uint16_t kLevel = rgb565(0xFF, 0x8A, 0x4C);
+constexpr uint16_t kBarTrack = rgb565(0x2E, 0x2D, 0x2A);
+constexpr uint16_t kSegOff = rgb565(0x2A, 0x29, 0x25);
+constexpr uint16_t kHeart = rgb565(0xE8, 0x45, 0x2B);
+
+// Text in capitals (the design's small labels), cut to maxW.
+static inline int upperAt(Canvas& c, const Font& f, int x, int y, const char* s, uint16_t col, int maxW = -1) {
+  char b[128];
+  size_t i = 0;
+  for (; s[i] && i + 1 < sizeof b; i++) b[i] = (char)toupper((unsigned char)s[i]);
+  b[i] = '\0';
+  return c.text(f, x, y, b, col, maxW);
 }
 
-static inline void tickBar(Canvas& c, const BigSpec& S, int x, int y, int w, int pct, uint16_t col) {
-  const int h = bk(S, 14), mid = y + h / 2, pitch = bk(S, 6) < 3 ? 3 : bk(S, 6);
-  const int half = bk(S, 3.5f) < 2 ? 2 : bk(S, 3.5f), thin = bk(S, 1.6f) < 1 ? 1 : bk(S, 1.6f);
-  for (int xx = 0; xx < w; xx += pitch) c.rect(x + xx, mid - half, thin, 2 * half + 1, col);
-  if (pct > 0) {
-    const int thick = bk(S, 7);
-    c.rect(x, mid - thick / 2, w * (pct > 100 ? 100 : pct) / 100, thick, col);
+// A text line whose line box (lineH) starts at y: the glyph cell centred in it.
+static inline int lineAt(Canvas& c, const Font& f, int lineH, int x, int y, const char* s, uint16_t col, int maxW = -1) {
+  return c.text(f, x, y + (lineH - f.cellH) / 2, s, col, maxW);
+}
+
+// The status chip: "WORKING · 38M" on ink, "NEEDS YOU" in orange on black,
+// "HUNGRY" on orange, "IDLE" in an outline. Returns its width.
+static inline int chip(Canvas& c, const Theme& T, int x, int y, const Agent& a, int64_t now, bool onOrange) {
+  char t[8], s[40];
+  fmtAge(a.statusSince ? now - a.statusSince : 0, t, sizeof t);
+  uint16_t fill = T.bg, ink = kMuted, edge = kRule;
+  switch (a.status) {
+    case Status::Running: snprintf(s, sizeof s, "working" DECK_DOT "%s", t); fill = edge = T.ink; ink = T.bg; break;
+    case Status::Waiting: snprintf(s, sizeof s, "needs you" DECK_DOT "%s", t); fill = edge = T.bg; ink = T.accent; break;
+    case Status::Error: snprintf(s, sizeof s, "error"); fill = edge = T.accent; ink = T.bg; break;
+    case Status::Starting: snprintf(s, sizeof s, "starting" DECK_DOT "%s", t); break;
+    case Status::Exited: snprintf(s, sizeof s, "%s" DECK_DOT "%s", a.lost ? "lost" : "exited", t); break;
+    default:
+      if (a.unseen) { snprintf(s, sizeof s, "hungry" DECK_DOT "%s", t); fill = edge = T.accent; ink = T.bg; }
+      else snprintf(s, sizeof s, "idle" DECK_DOT "%s", t);
   }
+  if (onOrange && a.status != Status::Waiting) { fill = edge = T.bg; ink = T.accent; }
+  const int w = textW(FONT_XS, s) + 12;
+  c.rect(x, y, w, big_ui::kChipH, edge);
+  if (fill != edge) c.rect(x + 1, y + 1, w - 2, big_ui::kChipH - 2, fill);
+  upperAt(c, FONT_XS, x + 6, y + (big_ui::kChipH - FONT_XS.cellH) / 2, s, ink);
+  return w;
+}
+
+// A pixel heart (7 x 6 cells of `px`), full or empty.
+static inline void heart(Canvas& c, int x, int y, int px, bool full, bool onOrange, uint16_t bg) {
+  static const char* const kRows[] = {".rr.rr.", "rrrrrrr", "rrrrrrr", ".rrrrr.", "..rrr..", "...r..."};
+  const uint16_t col = onOrange ? (full ? rgb565(0x0A, 0x0A, 0x0A) : blend565(bg, rgb565(0x0A, 0x0A, 0x0A), 4))
+                                : (full ? kHeart : kRule);
+  for (int r = 0; r < 6; r++)
+    for (int k = 0; k < 7; k++)
+      if (kRows[r][k] == 'r') c.rect(x + k * px, y + r * px, px, px, col);
+}
+
+// Hearts and level ("♥♥♥♡ LV 14"), "EGG · 84%", or the "READY TO HATCH" chip,
+// right-aligned at `right`.
+static inline void petMeta(Canvas& c, const Theme& T, int right, int y, const Agent& a, int px, bool onOrange, uint16_t bg) {
+  const deck_pet_t& p = a.pet;
+  const uint16_t ink = onOrange ? T.bg : T.ink;
+  char s[24];
+  if (p.stage == DECK_PET_EGG) {
+    if (p.ready) {
+      const int w = textW(FONT_XS, "READY TO HATCH") + 12;
+      c.rect(right - w, y, w, big_ui::kChipH, kLevel);
+      upperAt(c, FONT_XS, right - w + 6, y + (big_ui::kChipH - FONT_XS.cellH) / 2, "ready to hatch", T.bg);
+    } else {
+      snprintf(s, sizeof s, "egg" DECK_DOT "%d%%", p.progress * 100 / 255);
+      upperAt(c, FONT_XS, right - textW(FONT_XS, s), y + (big_ui::kChipH - FONT_XS.cellH) / 2, s, ink);
+    }
+    return;
+  }
+  snprintf(s, sizeof s, "LV %u", (unsigned)p.level);
+  int x = right - textW(FONT_XS, s);
+  c.text(FONT_XS, x, y + (big_ui::kChipH - FONT_XS.cellH) / 2, s, ink);
+  x -= 8;
+  const int hw = 7 * px, hh = 6 * px;
+  for (int i = DECK_PET_HEARTS - 1; i >= 0; i--) {
+    x -= hw;
+    heart(c, x, y + (big_ui::kChipH - hh) / 2, px, i < p.hearts, onOrange, bg);
+    x -= 2;
+  }
+}
+
+// The pet standing on its zone's baseline at groundY (cell `s`); with
+// pets off the critter, in body on cut.
+static inline void petZone(Canvas& c, const Rect& z, int s, const Agent& a, Pose pose, uint32_t ms, bool bubble, int groundY,
+                           uint16_t body, uint16_t cut) {
+  if (a.pet.has) drawPetCells(c, z.x + z.w / 2 - 9 * s, groundY - petBottom(a) * s, s, a, pose, ms, bubble);
+  else drawSprite(c, z.x + z.w / 2 - 7 * s, groundY - 12 * s, s, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
+}
+
+// The design's icons on a 16-unit grid: focus (a terminal), interrupt (pause), stop.
+static inline void icon(Canvas& c, Hit kind, int cx, int cy, int size, uint16_t col) {
+  const float u = size / 16.f;
+  auto r = [&](float x, float y, float w, float h) {
+    c.rect(cx - size / 2 + (int)lroundf(x * u), cy - size / 2 + (int)lroundf(y * u), (int)lroundf(w * u) < 1 ? 1 : (int)lroundf(w * u),
+           (int)lroundf(h * u) < 1 ? 1 : (int)lroundf(h * u), col);
+  };
+  switch (kind) {
+    case Hit::Focus: {
+      const float t = 1.6f;
+      r(1.5f - t / 2, 2.5f - t / 2, 13 + t, t);
+      r(1.5f - t / 2, 13.5f - t / 2, 13 + t, t);
+      r(1.5f - t / 2, 2.5f - t / 2, t, 11 + t);
+      r(14.5f - t / 2, 2.5f - t / 2, t, 11 + t);
+      for (int i = 0; i < 3; i++) r(4 + i * 0.85f, 6 + i * 0.7f - 0.6f, 1.4f, 1.4f);   // ">"
+      for (int i = 0; i < 2; i++) r(4 + (1 - i) * 0.85f, 8.1f + i * 0.7f, 1.4f, 1.4f);
+      r(8, 10.5f - 0.8f, 4, 1.6f);                                                   // "_"
+      break;
+    }
+    case Hit::Interrupt: r(4, 3, 3, 10); r(9, 3, 3, 10); break;
+    case Hit::Resume: r(5, 3, 2, 10); r(7, 4, 2, 8); r(9, 5, 2, 6); r(11, 7, 1, 2); break;
+    case Hit::Back:   // a chevron pointing left
+      for (int i = 0; i < 5; i++) { r(9 - i, 3 + i, 2, 2); r(9 - i, 11 - i, 2, 2); }
+      break;
+    default: r(4, 4, 8, 8);
+  }
+}
+
+// A square button: its icon over its label in capitals.
+static inline void act(Canvas& c, const Theme& T, const Rect& r, Hit kind, const char* label, bool pri, bool stop,
+                       bool pressed, bool onOrange) {
+  uint16_t fill = onOrange ? T.accent : T.bg, edge = onOrange ? T.bg : kRule, ink = onOrange ? T.bg : T.ink;
+  if (pri) { fill = edge = onOrange ? T.bg : T.ink; ink = onOrange ? T.accent : T.bg; }
+  if (stop && !onOrange) { edge = ink = T.accent; }
+  if (pressed) { fill = edge = T.accent; ink = T.bg; }
+  c.rect(r.x, r.y, r.w, r.h, edge);
+  c.rect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, fill);
+  const int is = (int)lroundf(r.w * 0.34f), lh = FONT_XS.cellH;
+  const int block = is + 3 + lh, top = r.y + (r.h - block) / 2;
+  icon(c, kind, r.x + r.w / 2, top + is / 2, is, ink);
+  char b[24];
+  snprintf(b, sizeof b, "%s", label);
+  for (char* p = b; *p; p++) *p = (char)toupper((unsigned char)*p);
+  const int w = textW(FONT_XS, b) < r.w - 4 ? textW(FONT_XS, b) : r.w - 4;
+  c.text(FONT_XS, r.x + (r.w - w) / 2, top + is + 3, b, ink, r.w - 4);
+}
+
+// "↳": a hook down and to the right, for a subagent's line.
+static inline int hook(Canvas& c, int x, int y, int lineH, uint16_t col) {
+  const int top = y + lineH / 2 - 4;
+  c.rect(x + 1, top, 1, 6, col);
+  c.rect(x + 1, top + 5, 6, 1, col);
+  c.rect(x + 5, top + 3, 1, 5, col);
+  return 12;
+}
+
+// The context bar: n segments, 2 px apart.
+static inline void segs(Canvas& c, const Theme& T, int x, int y, int w, int pct, uint16_t off) {
+  const int n = 40, gap = 2, sw = (w - (n - 1) * gap) / n;
+  const int on = (pct * n + 50) / 100;
+  for (int i = 0; i < n; i++) c.rect(x + i * (sw + gap), y, sw, 6, i < on ? T.ink : off);
 }
 
 static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in, const Agent& a) {
-  const Rect r = bigCardInner(S);
+  using namespace big_ui;
+  const BigCard g = bigCard(S, a, in.scope);
+  const PanelUi& ui = *in.ui;
+  const Pose pose = poseOf(a, in.nowEpoch);
   char buf[224];
-  const Look look = lookOf(T, a);
-  uint16_t pillFill = T.panel, pillInk = T.ink;
-  if (a.status == Status::Running) { pillFill = T.ink; pillInk = T.bg; }
-  else if (a.status == Status::Error) { pillFill = T.accent; pillInk = T.bg; }
-  topBar(c, S, T, in, a, T.ink, pillFill, pillInk, look.body == T.bg ? T.ink : look.body, T.bg);
-  int y = bigTopBarBottom(S) + bk(S, 26);
-  const Font& lf = *S.label;
-  // Doing now (_doingNow).
-  const char* label = "doing now";
-  uint16_t valCol = T.ink;
-  char val[160];
-  switch (a.status) {
-    case Status::Running:
-      if (!a.actTool[0]) snprintf(val, sizeof val, "thinking");
-      else {
-        char verb[80];
-        metaLine(a, 0, verb, sizeof verb);
-        char* dot = strstr(verb, DECK_DOT);
-        if (dot) *dot = '\0';
-        snprintf(val, sizeof val, "%s%s%s", verb, a.actDetail[0] ? DECK_DOT : "", a.actDetail);
+  // The pet: on its baseline, or (an egg ready to hatch) in its box with "tap to hatch".
+  if (g.box) {
+    const bool pressed = ui.pressed.kind == Hit::Hatch;
+    c.rect(g.zone.x, g.zone.y, g.zone.w, g.zone.h, kLevel);
+    c.rect(g.zone.x + 2, g.zone.y + 2, g.zone.w - 4, g.zone.h - 4, T.panel);
+    petZone(c, g.zone, kBoxCell, a, pose, in.ms, false, g.zone.y + g.zone.h - kCtaH - 2 * kBoxCell, T.ink, T.panel);
+    c.rect(g.zone.x, g.zone.y + g.zone.h - kCtaH, g.zone.w, kCtaH, pressed ? T.ink : kLevel);
+    const int tw = textW(FONT_XS, "TAP TO HATCH");
+    upperAt(c, FONT_XS, g.zone.x + (g.zone.w - tw) / 2, g.zone.y + g.zone.h - kCtaH + (kCtaH - FONT_XS.cellH) / 2, "tap to hatch", T.bg);
+  } else {   // with pets off the critter, at the pet's size
+    const Look k = lookOf(T, a);
+    petZone(c, g.zone, a.pet.has ? kCell : kCell - 1, a, pose, in.ms, true, g.zone.y + g.zone.h - 2 - kCell,
+            k.body == T.bg || k.body == T.dim ? T.ink : k.body, T.bg);
+  }
+  // The column: chip, hearts and level; the name; the session; the level bar.
+  chip(c, T, g.textX, g.chipY, a, in.nowEpoch, false);
+  if (a.pet.has) petMeta(c, T, g.textX + g.textW, g.chipY, a, 2, false, T.bg);
+  lineAt(c, FONT_B20, kLineB20, g.textX, g.nameY, a.title[0] ? a.title : a.id, T.ink, g.textW);
+  lineAt(c, FONT_S, kLineS, g.textX, g.sumY, a.aiTitle[0] ? a.aiTitle : a.folder, kMuted, g.textW);
+  if (a.pet.has) {   // how far it is to its next level
+    c.rect(g.textX, g.barY, g.textW, 3, kBarTrack);
+    c.rect(g.textX, g.barY, g.textW * a.pet.progress / 255, 3, kLevel);
+  }
+  // Doing now: the command and the subagents; or the status.
+  const int w = S.w - 2 * kM;
+  if (a.status == Status::Running) {
+    int x = upperAt(c, FONT_XS, kM, g.nowY, "doing now", kMuted) + kM;
+    if (a.actTool[0]) {
+      snprintf(buf, sizeof buf, DECK_DOT "%s", a.actTool);
+      upperAt(c, FONT_XS, x, g.nowY, buf, T.dim);
+    }
+    if (a.subagents) {
+      snprintf(buf, sizeof buf, "%u subagent%s", (unsigned)a.subagents, a.subagents == 1 ? "" : "s");
+      char up[40];
+      size_t i = 0;
+      for (; buf[i] && i + 1 < sizeof up; i++) up[i] = (char)toupper((unsigned char)buf[i]);
+      up[i] = '\0';
+      c.text(FONT_XS, kM + w - textW(FONT_XS, up), g.nowY, up, kMuted);
+    }
+    c.rect(g.term.x, g.term.y, g.term.w, g.term.h, T.panel);
+    const int tx = g.term.x + 8, tw = g.term.w - 16;
+    const int dx = lineAt(c, FONT_L, kLineL, tx, g.term.y + 6, "$ ", kOrange2);
+    lineAt(c, FONT_L, kLineL, tx + dx, g.term.y + 6, a.actDetail[0] ? a.actDetail : a.actTool[0] ? a.actTool : "thinking", T.ink, tw - dx);
+    for (int i = 0; i < g.subs; i++) {
+      const Subagent& sa = a.subs[i];
+      const int y = g.term.y + 6 + kLineL + 2 + i * (2 + kLineM);
+      int sx = tx + hook(c, tx, y, kLineM, T.dim);
+      sx += lineAt(c, FONT_M13, kLineM, sx, y, sa.title[0] ? sa.title : "subagent", kText, tx + tw - sx);
+      if (sa.type[0] && sx < tx + tw) {
+        snprintf(buf, sizeof buf, DECK_DOT "%s", sa.type);
+        lineAt(c, FONT_M13, kLineM, sx, y, buf, T.dim, tx + tw - sx);
       }
-      break;
-    case Status::Error:
-      label = "error";
-      snprintf(val, sizeof val, "%s", a.errMsg[0] ? a.errMsg : "error");
-      valCol = T.accent;
-      break;
-    case Status::Starting:
-      label = "starting";
-      snprintf(val, sizeof val, "launching agent\xE2\x80\xA6");
-      break;
-    default: {
-      label = "session";
-      const char* t = a.aiTitle[0] ? a.aiTitle : a.folder;
-      snprintf(val, sizeof val, "%s", t[0] ? t : "\xE2\x80\x94");
-      for (char* p = val; *p; p++) *p = (char)tolower((unsigned char)*p);
     }
-  }
-  textAt(c, lf, r.x, y, label, T.dim);
-  y += fontPx(lf) + bk(S, 8);
-  textAt(c, *S.body, r.x, y, val, valCol, r.w);
-  y += fontPx(*S.body) + bk(S, 26);
-  // Context.
-  const Font& hf = *S.heading;
-  const int cw = textAt(c, hf, r.x, y, "context", T.ink);
-  if (a.ctxWindow) {
-    char u[16], w[16];
-    compact(a.ctxUsed, u, sizeof u);
-    compact(a.ctxWindow, w, sizeof w);
-    snprintf(buf, sizeof buf, "%s / %s", u, w);
   } else {
-    snprintf(buf, sizeof buf, "--");
-  }
-  textAt(c, lf, r.x + cw + bk(S, 12), y + fontPx(hf) - fontPx(lf) - 1, buf, T.dim);
-  snprintf(buf, sizeof buf, a.ctxWindow ? "%d%%" : "--", ctxPct(a));
-  textAt(c, hf, r.x + r.w - textW(hf, buf), y, buf, T.ink);
-  y += fontPx(hf) + bk(S, 10);
-  tickBar(c, S, r.x, y, r.w, a.ctxWindow ? ctxPct(a) : 0, T.ink);
-  y += bk(S, 14) + bk(S, 26);
-  // Tokens out, cache read, cost, turns.
-  {
-    const char* labels[4] = {"tokens out", "cache read", "cost" DECK_DOT "est", "turns"};
-    char vals[4][16];
-    compact(a.tokensOut, vals[0], sizeof vals[0]);
-    compact(a.cacheRead, vals[1], sizeof vals[1]);
-    if (a.tool == ToolKind::Codex || a.costUsd <= 0) snprintf(vals[2], sizeof vals[2], "\xE2\x80\x94");
-    else snprintf(vals[2], sizeof vals[2], "$%.2f", (double)a.costUsd);
-    snprintf(vals[3], sizeof vals[3], "%u", a.turns);
-    const int colW = r.w / 4;
-    for (int i = 0; i < 4; i++) {
-      textAt(c, lf, r.x + i * colW, y, labels[i], T.dim, colW - 4);
-      textAt(c, hf, r.x + i * colW, y + fontPx(lf) + bk(S, 6), vals[i], T.ink, colW - 4);
+    upperAt(c, FONT_XS, kM, g.nowY, a.status == Status::Error ? "error" : "status", kMuted);
+    char t[8];
+    fmtAge(a.statusSince ? in.nowEpoch - a.statusSince : 0, t, sizeof t);
+    uint16_t col = T.ink;
+    switch (a.status) {
+      case Status::Error: snprintf(buf, sizeof buf, "%s", a.errMsg[0] ? a.errMsg : "error"); col = T.accent; break;
+      case Status::Starting: snprintf(buf, sizeof buf, "starting\xE2\x80\xA6"); break;
+      case Status::Exited: snprintf(buf, sizeof buf, "%s %s ago", a.lost ? "lost with tmux" : "exited", t); break;
+      default: snprintf(buf, sizeof buf, "finished %s ago%s", t, a.unseen ? DECK_DOT "nobody looked" : "");
     }
-    y += fontPx(lf) + bk(S, 6) + fontPx(hf) + bk(S, 26);
+    lineAt(c, FONT_L, kLineL, kM, g.nowY + kLineXS + 3, buf, col, w);
   }
-  // The last prompt, up to four lines, down to the footer.
-  textAt(c, lf, r.x, y, "last prompt", T.dim);
-  y += fontPx(lf) + bk(S, 8);
-  const BigButtons b = bigCardButtons(S, a, in.scope);
-  const int btnTop = b.n ? b.r[0].y : r.y + r.h;
-  const int footerY = btnTop - (b.n ? bk(S, 22) : 0) - fontPx(lf);
-  const int line = (int)lroundf(fontPx(*S.text) * 1.45f);
-  int lines = (footerY - bk(S, 8) - y) / line;
-  if (lines > 4) lines = 4;
-  if (lines > 0)
-    textWrapped(c, *S.text, r.x, y - (S.text->cellH - fontPx(*S.text)) / 2, a.lastPrompt[0] ? a.lastPrompt : "\xE2\x80\x94",
-                T.ink, r.w, lines, line);
-  // Footer: model · folder · branch, and the deck's name.
+  // The last prompt.
+  if (g.lastLines > 0) {
+    upperAt(c, FONT_XS, kM, g.lastY, "last prompt", kMuted);
+    textWrapped(c, FONT_M13, kM, g.lastY + kLineXS + 2 + (kLineM - FONT_M13.cellH) / 2,
+                a.lastPrompt[0] ? a.lastPrompt : "\xE2\x80\x94", kText, w, g.lastLines, kLineM);
+  }
+  // Context, and where it runs.
   {
+    const int lw = upperAt(c, FONT_XS, kM, g.ctxY, "context", kMuted);
+    snprintf(buf, sizeof buf, a.ctxWindow ? "%d%%" : "--", ctxPct(a));
+    const int pw = textW(FONT_XS, buf);
+    c.text(FONT_XS, kM + w - pw, g.ctxY, buf, T.ink);
+    segs(c, T, kM + lw + 8, g.ctxY + (kLineXS - 6) / 2, w - lw - 8 - pw - 8, a.ctxWindow ? ctxPct(a) : 0, kSegOff);
     buf[0] = '\0';
-    const char* parts[3] = {a.model, a.folder, a.branch};
+    const char* tool = a.tool == ToolKind::Claude ? "claude code" : a.tool == ToolKind::Codex ? "codex" : a.tool == ToolKind::Gemini ? "gemini" : "";
+    const char* parts[4] = {tool, a.model, a.folder, a.branch};
     for (const char* p : parts) {
       if (!p[0]) continue;
       if (buf[0]) strncat(buf, DECK_DOT, sizeof buf - strlen(buf) - 1);
       strncat(buf, p, sizeof buf - strlen(buf) - 1);
     }
-    const char* server = in.fleet->server;
-    const int sw = textW(lf, server);
-    textAt(c, lf, r.x + r.w - sw, footerY, server, T.dim);
-    textAt(c, lf, r.x, footerY, buf, T.dim, r.w - sw - bk(S, 16));
+    c.text(FONT_XS, kM, g.whereY, buf, T.dim, w);
   }
   // The buttons.
-  const PanelUi& ui = *in.ui;
+  const BigButtons b = bigCardButtons(S, a, in.scope);
   const bool armed = (int32_t)(ui.stopArmedUntil - in.ms) > 0;
   for (int i = 0; i < b.n; i++) {
     const bool pressed = ui.pressed.kind == b.kind[i];
     switch (b.kind[i]) {
-      case Hit::Focus:
-        if (pressed) button(c, S, b.r[i], "focus terminal", T.accent, T.bg, T.accent);
-        else button(c, S, b.r[i], hungry(a) ? "review in terminal" : "focus terminal", T.ink, T.bg, T.ink);
-        break;
-      case Hit::Resume:
-        button(c, S, b.r[i], "resume", pressed ? T.accent : T.ink, T.bg, pressed ? T.accent : T.ink);
-        break;
-      case Hit::Interrupt:
-        if (pressed) button(c, S, b.r[i], "interrupt", T.ink, T.bg, T.ink);
-        else button(c, S, b.r[i], "interrupt", T.bg, T.ink, T.dim);
-        break;
-      default: {                                     // stop / remove
+      case Hit::Focus: act(c, T, b.r[i], Hit::Focus, "focus", true, false, pressed, false); break;
+      case Hit::Interrupt: act(c, T, b.r[i], Hit::Interrupt, "interrupt", false, false, pressed, false); break;
+      case Hit::Resume: act(c, T, b.r[i], Hit::Resume, "resume", false, false, pressed, false); break;
+      case Hit::Back: act(c, T, b.r[i], Hit::Back, "back", false, false, pressed, false); break;
+      default: {
         const bool exited = a.status == Status::Exited;
-        const char* l = exited ? "remove" : armed ? "tap again to stop" : "stop";
-        if (pressed || (armed && !exited)) button(c, S, b.r[i], l, T.accent, T.bg, T.accent);
-        else button(c, S, b.r[i], l, T.bg, T.ink, T.dim);
+        act(c, T, b.r[i], Hit::Stop, exited ? "remove" : armed ? "again" : "stop", false, true, pressed || (armed && !exited), false);
       }
     }
   }
 }
 
 static inline void prompt(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in, const Agent& a) {
-  const bool perm = !strcmp(a.waitKind, "permission");
-  const uint16_t surface = perm ? T.accent : T.bg;
-  const uint16_t ink = perm ? T.bg : T.ink;
-  const int rad = bk(S, 26);
-  if (perm) rrect(c, Rect{0, 0, S.w, S.h}, rad, T.accent);
-  else rframe(c, Rect{0, 0, S.w, S.h}, rad, bk(S, 3), T.accent);
-  topBar(c, S, T, in, a, ink, perm ? T.bg : T.accent, perm ? T.accent : T.bg, perm ? T.bg : T.accent, surface);
-  const Rect r = bigCardInner(S);
+  using namespace big_ui;
   const BigPrompt p = bigPrompt(S, a);
-  const int qLine = (int)lroundf(fontPx(*S.heading) * 1.3f), tLine = (int)lroundf(fontPx(*S.text) * 1.45f);
-  textWrapped(c, *S.heading, r.x, p.titleY - (S.heading->cellH - fontPx(*S.heading)) / 2,
-              a.waitTitle[0] ? a.waitTitle : "needs you", ink, r.w, p.titleLines, qLine);
-  if (p.box.h) {
-    rrect(c, p.box, bk(S, 12), perm ? T.bg : T.panel);
-    textWrapped(c, *S.text, p.box.x + bk(S, 18), p.box.y + bk(S, 16) - (S.text->cellH - fontPx(*S.text)) / 2 +
-                (tLine - fontPx(*S.text)) / 2, a.waitDetail, T.ink, p.box.w - 2 * bk(S, 18), p.boxLines, tLine);
-  }
-  if (p.ctxY) textAt(c, *S.label, r.x, p.ctxY, a.promptCtx, perm ? T.bg : T.dim, r.w);
-
-  // The options (_questionRow): the key, the title and its hint.
   const PanelUi& ui = *in.ui;
+  const uint16_t ink = T.bg, soft = blend565(T.accent, T.bg, 11);   // the dark text at 70 %
+  const int w = S.w - 2 * kM;
+  c.fill(T.accent);
+  // The pet in its black box, its "?" steady.
+  c.rect(p.pet.x, p.pet.y, p.pet.w, p.pet.h, T.bg);
+  petZone(c, p.pet, a.pet.has ? kAskCell : 2, a, Pose::Wait, 0, true, p.pet.y + p.pet.h - 2 * kAskCell, T.accent, T.bg);
+  const int tx = p.pet.x + p.pet.w + kGap;
+  lineAt(c, FONT_B20, kLineB20, tx, p.nameY, a.title[0] ? a.title : a.id, ink, S.w - kM - tx);
+  const int cw = chip(c, T, tx, p.chipY, a, in.nowEpoch, true);
+  if (a.pet.has && a.pet.stage != DECK_PET_EGG) {
+    char lv[12];
+    snprintf(lv, sizeof lv, "LV %u", (unsigned)a.pet.level);
+    int x = tx + cw + 8;
+    for (int i = 0; i < DECK_PET_HEARTS; i++, x += 7 + 2) heart(c, x, p.chipY + (kChipH - 6) / 2, 1, i < a.pet.hearts, true, T.accent);
+    c.text(FONT_XS, x + 6, p.chipY + (kChipH - FONT_XS.cellH) / 2, lv, ink);
+  }
+  // What it asks.
+  int x = upperAt(c, FONT_XS, kM, p.askY, "it asks", ink) + kM;
+  if (a.waitKind[0]) {
+    char k[20];
+    snprintf(k, sizeof k, DECK_DOT "%s", a.waitKind);
+    upperAt(c, FONT_XS, x, p.askY, k, soft);
+  }
+  textWrapped(c, FONT_Q24B, kM, p.titleY + (kLineQ - FONT_Q24B.cellH) / 2, a.waitTitle[0] ? a.waitTitle : "needs you", ink, w,
+              p.titleLines, kLineQ);
+  // The command, and where it runs.
+  if (p.term.h) {
+    c.rect(p.term.x, p.term.y, p.term.w, p.term.h, T.bg);
+    int y = p.term.y + 6;
+    if (p.termLines) {
+      const int dx = lineAt(c, FONT_L, kLineL, p.term.x + 8, y, "$ ", kOrange2);
+      textWrapped(c, FONT_L, p.term.x + 8 + dx, y + (kLineL - FONT_L.cellH) / 2, a.waitDetail, T.ink, p.term.w - 16 - dx,
+                  p.termLines, kLineL);
+      y += p.termLines * kLineL;
+    }
+    if (a.promptCtx[0]) c.text(FONT_XS, p.term.x + 8, y + 2, a.promptCtx, T.dim, p.term.w - 16);
+  }
+  // Every answer: the chosen one filled; tap it again to send.
   for (int i = 0; i < p.n; i++) {
     const Rect& o = p.opt[i];
-    const bool on = ui.selected == i || (ui.pressed.kind == Hit::Option && ui.pressed.index == i);
-    uint16_t fill, edge, fg, sub;
-    if (perm) {
-      fill = on ? T.bg : T.accent;
-      edge = T.bg;
-      fg = on ? T.accent : T.bg;
-      sub = on ? T.dim : blend565(T.accent, T.bg, 9);
-    } else {
-      fill = on ? T.ink : T.panel;
-      edge = on ? T.ink : kRowOutline;
-      fg = on ? T.bg : T.ink;
-      sub = on ? kRowSubOnInk : T.dim;
-    }
-    rrect(c, o, bk(S, 14), edge);
-    rrect(c, Rect{o.x + (perm ? 2 : 1), o.y + (perm ? 2 : 1), o.w - (perm ? 4 : 2), o.h - (perm ? 4 : 2)},
-          bk(S, 14) - (perm ? 2 : 1), fill);
-    const int px = o.x + bk(S, 20);
-    textAt(c, *S.heading, px, o.y + (o.h - fontPx(*S.heading)) / 2, a.opts[i].key, fg, bk(S, 22) + 4);
-    char title[96], hint[96];
-    bigSplit(a.opts[i].label, title, sizeof title, hint, sizeof hint);
-    const int tx = px + bk(S, 22) + bk(S, 18), tw = o.x + o.w - bk(S, 20) - tx;
-    if (p.subs && hint[0]) {
-      const int block = fontPx(*S.text) + bk(S, 4) + fontPx(*S.label);
-      const int ty = o.y + (o.h - block) / 2;
-      textAt(c, *S.text, tx, ty, title, fg, tw);
-      textAt(c, *S.label, tx, ty + fontPx(*S.text) + bk(S, 4), hint, sub, tw);
-    } else {
-      textAt(c, *S.text, tx, o.y + (o.h - fontPx(*S.text)) / 2, title, fg, tw);
-    }
+    const bool on = ui.selected == i, down = ui.pressed.kind == Hit::Option && ui.pressed.index == i;
+    c.rect(o.x, o.y, o.w, o.h, T.bg);
+    if (!on && !down) c.rect(o.x + 2, o.y + 2, o.w - 4, o.h - 4, T.accent);
+    const uint16_t fg = on || down ? T.accent : ink, key = on || down ? blend565(T.bg, T.accent, 11) : soft;
+    const int ty = o.y + (o.h - kLineL) / 2;
+    const int kw = lineAt(c, FONT_L, kLineL, o.x + 10, ty, a.opts[i].key, key);
+    lineAt(c, FONT_L, kLineL, o.x + 10 + kw + 8, ty, a.opts[i].label, fg, o.w - 20 - kw - 8);
   }
-  if (!p.n) textAt(c, *S.label, r.x, p.send.y - bk(S, 20) - fontPx(*S.label), "free-text answer" DECK_DOT "type it at the terminal",
-                   perm ? T.bg : T.dim, r.w);
-
-  // send N, and focus terminal.
-  char send[24];
-  const bool chosen = ui.selected >= 0 && ui.selected < a.optCount;
-  if (chosen) snprintf(send, sizeof send, "send %s", a.opts[ui.selected].key);
-  else snprintf(send, sizeof send, "send");
-  const bool sp = ui.pressed.kind == Hit::Send, fp = ui.pressed.kind == Hit::Focus;
-  if (p.n) {
-    if (sp && chosen) button(c, S, p.send, send, T.ink, T.bg, T.ink);
-    else if (!chosen) button(c, S, p.send, send, perm ? blend565(T.accent, T.bg, 4) : T.panel, perm ? T.bg : T.dim,
-                             perm ? blend565(T.accent, T.bg, 4) : T.panel);
-    else if (perm) button(c, S, p.send, send, T.bg, T.accent, T.bg);
-    else button(c, S, p.send, send, T.accent, T.bg, T.accent);
-  }
-  const Rect term = p.n ? p.terminal : Rect{r.x, p.send.y, r.w, p.send.h};
-  if (fp) button(c, S, term, "focus terminal", perm ? T.bg : T.ink, perm ? T.accent : T.bg, perm ? T.bg : T.ink);
-  else button(c, S, term, "focus terminal", surface, ink, perm ? T.bg : T.dim);
+  if (!p.n) upperAt(c, FONT_XS, kM, p.terminal.y - kGap - kLineXS, "free text: type it at the terminal", soft, w);
+  // Or at the terminal.
+  upperAt(c, FONT_XS, p.terminal.x - 12 - textW(FONT_XS, "OR AT THE TERMINAL"), p.orY, "or at the terminal", soft);
+  act(c, T, p.terminal, Hit::Focus, "focus", true, false, ui.pressed.kind == Hit::Focus, true);
 }
 
 // _Notice: a centred critter, a title, a few lines (one of them a command).

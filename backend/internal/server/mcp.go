@@ -296,8 +296,9 @@ var mcpTools = []mcpTool{
 	{Name: "list_agents", Title: "List agents",
 		Description: "Every agent on the deck, compact: id, title, folder, tool, where it runs, status (starting, running, waiting, idle, error, exited), " +
 			"what it is doing, the question it waits on (with option keys to pass to answer), context use, working subagents, " +
-			"queued (prompts waiting for its turn to end) and acceptsPrompts (whether send_prompt can reach it). Start here, and call again to follow progress.",
-		InputSchema: schema(nil, map[string]any{}), Annotations: map[string]any{"readOnlyHint": true}},
+			"queued (prompts waiting for its turn to end), acceptsPrompts (whether send_prompt can reach it) and project (the project its folder is in). " +
+			"Pass project (a project's name or id) to list only that project's agents. Start here, and call again to follow progress.",
+		InputSchema: schema(nil, map[string]any{"project": prop("string", "Only agents in this project: its name (any case) or its id.")}), Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "get_agent", Title: "Get an agent",
 		Description: "Everything about one agent: status, its last prompt, current activity, the full waiting question (detail and options), " +
 			"working subagents, queued prompts (how many; list_queue lists them), tokens, cost, model, branch and folder.",
@@ -342,19 +343,22 @@ var mcpTools = []mcpTool{
 		Description: "Presses Esc in the agent's session: stops its current turn (and closes a question unanswered). The agent stays, idle.",
 		InputSchema: schema([]string{"agent_id"}, map[string]any{"agent_id": agentIDProp})},
 	{Name: "start_agent", Title: "Start an agent",
-		Description: "Starts a new agent in a folder on this computer, on the deck, and (with prompt) waits until it is ready and gives it " +
+		Description: "Starts a new agent on the deck, in a project (in its first folder, or the folder you pick, with the project's tool and account) " +
+			"or in any folder on this computer, and (with prompt) waits until it is ready and gives it " +
 			"that first task. If it asks something first (trust this folder?), the result says so: answer it, then send_prompt. Needs a token with scope admin.",
-		InputSchema: schema([]string{"folder"}, map[string]any{
-			"folder":  prop("string", "Absolute path of the project folder to work in."),
-			"tool":    map[string]any{"type": "string", "enum": []string{"claude", "codex", "shell"}, "description": "claude (default), codex, or a plain shell."},
-			"title":   prop("string", "Name on the deck (default: the folder's name)."),
-			"account": prop("string", "claude only: the Claude account to run in, when several are set up (default: the default one)."),
+		InputSchema: schema(nil, map[string]any{
+			"project": prop("string", "A project from list_projects (its name or id) to start the agent in. Give project, folder, or both."),
+			"folder":  prop("string", "Absolute path of the folder to work in; with project, one of its folders."),
+			"tool":    map[string]any{"type": "string", "enum": []string{"claude", "codex", "shell"}, "description": "claude, codex, or a plain shell (default: the project's, or claude)."},
+			"title":   prop("string", "Name on the deck (default: the project's or the folder's name)."),
+			"account": prop("string", "claude only: the Claude account to run in, when several are set up (default: the project's, or the default one)."),
 			"prompt":  prop("string", "The first task to send once it is ready (optional)."),
 		})},
 	{Name: "list_sessions", Title: "List other sessions",
 		Description: "Claude sessions running on this computer that the deck didn't start (in other terminals, or in the background), " +
 			"and whether each is on the deck. They can be watched (add_session) but not given prompts. Needs scope admin.",
-		InputSchema: schema(nil, map[string]any{}), Annotations: map[string]any{"readOnlyHint": true}},
+		InputSchema: schema(nil, map[string]any{"project": prop("string", "Only sessions working in this project's folders: its name (any case) or its id.")}),
+		Annotations: map[string]any{"readOnlyHint": true}},
 	{Name: "add_session", Title: "Watch a session",
 		Description: "Puts a session from list_sessions on the deck, watched: you see its status, but it stays read-only (it runs in its own terminal). Needs scope admin.",
 		InputSchema: schema([]string{"session_id"}, map[string]any{"session_id": prop("string", "sessionId from list_sessions.")})},
@@ -376,7 +380,13 @@ func init() {
 		"start_agent":   toolStartAgent,
 		"list_sessions": toolListSessions,
 		"add_session":   toolAddSession,
+		// mcp_projects.go
+		"list_projects":  toolListProjects,
+		"create_project": toolCreateProject,
+		"update_project": toolUpdateProject,
+		"remove_project": toolRemoveProject,
 	}
+	mcpTools = append(mcpTools, projectTools...)
 }
 
 // call runs one API request as who and turns a failure into a plain error.
@@ -472,6 +482,7 @@ type mcpAgentRow struct {
 	For            string     `json:"for"`
 	Doing          string     `json:"doing,omitempty"`
 	LastPrompt     string     `json:"lastPrompt,omitempty"`
+	LastAnswer     string     `json:"lastAnswer,omitempty"` // its reply that ended its latest finished turn
 	Waiting        *mcpPrompt `json:"waiting,omitempty"`
 	Error          string     `json:"error,omitempty"`
 	ContextPct     int        `json:"contextPct"`
@@ -479,11 +490,12 @@ type mcpAgentRow struct {
 	Queued         int        `json:"queued"`
 	Unseen         bool       `json:"finishedUnseen,omitempty"`
 	AcceptsPrompts bool       `json:"acceptsPrompts"`
+	Project        string     `json:"project,omitempty"` // its project's name
 }
 
 func rowOf(a model.Agent) mcpAgentRow {
 	r := mcpAgentRow{ID: a.ID, Title: a.Title, Folder: a.Folder, Tool: a.Tool, RunsIn: runsIn(a), Status: string(a.Status),
-		LastPrompt: clip(a.LastPrompt, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents), Queued: a.Queued,
+		LastPrompt: clip(a.LastPrompt, 160), LastAnswer: clip(a.LastAnswer, 160), Waiting: promptOf(a.Waiting, false), Subagents: len(a.Subagents), Queued: a.Queued,
 		Unseen: a.Unseen, AcceptsPrompts: acceptsPrompts(a)}
 	if a.AITitle != "" {
 		r.Title = a.Title + " (" + a.AITitle + ")"
@@ -496,6 +508,9 @@ func rowOf(a model.Agent) mcpAgentRow {
 	}
 	if a.Error != nil {
 		r.Error = a.Error.Message
+	}
+	if a.Project != nil {
+		r.Project = a.Project.Name
 	}
 	if a.Context.Window > 0 {
 		r.ContextPct = int(a.Context.Used * 100 / a.Context.Window)
@@ -518,13 +533,17 @@ func asJSON(v any) string {
 	return string(b)
 }
 
-func toolListAgents(s *Server, who devices.Device, _ mcpArgs) (string, error) {
+func toolListAgents(s *Server, who devices.Device, args mcpArgs) (string, error) {
 	list, err := s.agents(who)
 	if err != nil {
 		return "", err
 	}
+	project := args.str("project")
 	rows := make([]mcpAgentRow, 0, len(list))
 	for _, a := range list {
+		if project != "" && (a.Project == nil || (a.Project.ID != project && !strings.EqualFold(a.Project.Name, project))) {
+			continue
+		}
 		rows = append(rows, rowOf(a))
 	}
 	return asJSON(map[string]any{"agents": rows}), nil
@@ -570,7 +589,7 @@ func toolGetAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	}
 	f := full{mcpAgentRow: rowOf(ag), Cwd: ag.Cwd, Branch: ag.Branch, Model: ag.Model, Effort: ag.Effort, Context: ag.Context,
 		Tokens: ag.Tokens, CostUSD: ag.CostUSD, Turns: ag.Turns, Subagents: ag.Subagents, Started: ag.StartedAt, Resumable: ag.Resumable}
-	f.LastPrompt = ag.LastPrompt
+	f.LastPrompt, f.LastAnswer = ag.LastPrompt, ag.LastAnswer
 	f.Waiting = promptOf(ag.Waiting, true)
 	if ag.Account != nil {
 		f.Account = ag.Account.Name
@@ -709,19 +728,21 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	if !ok {
 		return "", errors.New("starting agents is not available on this service (demo mode)")
 	}
-	folder, err := a.need("folder")
-	if err != nil {
-		return "", err
+	if held, why := s.holding(); held {
+		return "", errors.New(why)
+	}
+	project, folder := a.str("project"), a.str("folder")
+	if project == "" && folder == "" {
+		return "", errors.New("give project (from list_projects) or folder")
 	}
 	tool := a.str("tool")
 	switch tool {
-	case "":
-		tool = "claude"
-	case "claude", "codex", "shell":
+	case "", "claude", "codex", "shell":
 	default:
 		return "", errors.New("tool must be claude, codex or shell")
 	}
 	prompt, _ := a["prompt"].(string)
+	var err error
 	if strings.TrimSpace(prompt) != "" {
 		if prompt, err = CleanPrompt(prompt); err != nil {
 			return "", err
@@ -729,7 +750,21 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	} else {
 		prompt = ""
 	}
-	id, err := st.Create(CreateOpts{Dir: folder, Title: a.str("title"), Tool: tool, Account: a.str("account")})
+	var id string
+	if project != "" {
+		var book ProjectBook
+		if book, err = s.projectBook(); err != nil {
+			return "", err
+		}
+		var started ProjectStartedAgent
+		started, err = book.StartInProject(project, ProjectStartOpts{Folder: folder, Tool: tool, Account: a.str("account"), Title: a.str("title")})
+		id, tool = started.ID, started.Tool
+	} else {
+		if tool == "" {
+			tool = "claude"
+		}
+		id, err = st.Create(CreateOpts{Dir: folder, Title: a.str("title"), Tool: tool, Account: a.str("account")})
+	}
 	code := http.StatusOK
 	if err != nil {
 		code = http.StatusBadRequest
@@ -762,14 +797,38 @@ func toolStartAgent(s *Server, who devices.Device, a mcpArgs) (string, error) {
 	return asJSON(map[string]any{"agent_id": id, "started": true, "prompted": true}), nil
 }
 
-func toolListSessions(s *Server, who devices.Device, _ mcpArgs) (string, error) {
+func toolListSessions(s *Server, who devices.Device, args mcpArgs) (string, error) {
 	out, err := s.call(who, http.MethodGet, "/v1/live", nil)
 	if err != nil {
 		return "", err
 	}
-	var v any
+	project := args.str("project")
+	if project == "" {
+		var v any
+		_ = json.Unmarshal(out, &v)
+		return asJSON(v), nil
+	}
+	var v struct {
+		Sessions []map[string]any `json:"sessions"`
+	}
 	_ = json.Unmarshal(out, &v)
-	return asJSON(v), nil
+	rows := make([]map[string]any, 0, len(v.Sessions))
+	for _, row := range v.Sessions {
+		cwd, _ := row["cwd"].(string)
+		if p := s.projectOf(cwd); p != nil && (p.ID == project || strings.EqualFold(p.Name, project)) {
+			rows = append(rows, row)
+		}
+	}
+	return asJSON(map[string]any{"sessions": rows}), nil
+}
+
+// projectOf is the project a working folder is in (nil: none, or no projects).
+func (s *Server) projectOf(cwd string) *model.Project {
+	if s.Store == nil || s.Store.Project == nil || cwd == "" {
+		return nil
+	}
+	p, _ := s.Store.Project(cwd)
+	return p
 }
 
 func toolAddSession(s *Server, who devices.Device, a mcpArgs) (string, error) {

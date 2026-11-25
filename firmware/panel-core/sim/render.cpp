@@ -1,7 +1,7 @@
 // Host renderer: draws the same frames as the board, without the board.
 //
 //   c++ -std=c++17 -Isrc -I../deck-link/src -I../deck-link/src/proto sim/render.cpp -o out/render
-//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|strip|orbit|dial|spring|spring28|selftest28|selftest21]
+//   out/render ../../docs/fixtures/state.json out/frames [ms] [147|lcd4|amoled18|t4s3|strip|orbit|dial|spring|spring28|selftest28|selftest21] [pets]
 //
 // The State JSON file becomes the Deck Link frames the deck would send
 // (sim/fixture.h), and those go through the board's adapter (deck_model.h).
@@ -14,12 +14,14 @@
 // With orbit or dial it draws the round boards (sim/round_shots.h): home
 // with 3, 8 and 22 agents, a new waiter, the detail, the prompt and the
 // full-screen states. Build with -DPANEL_MAX_AGENTS=64 for those.
+// With "pets" last, every agent has a pet (Agent pets on): each stage and mood in turn.
 // tools/ppm2png.py turns them into PNGs.
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "deck_pet.c"   // the kit's pets: this renderer links no kit objects (deck_pet.c builds as C++ too)
 #include "layout_147.h"
 #include "layout_big.h"
 #include "layout_square.h"
@@ -397,6 +399,12 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   in.scope = DeckScope::Admin;
   open("1nfr4t");
   shot("card-error");
+  for (int i = 0; i < f.count; i++)                 // with pets: an egg ready to hatch
+    if (f.agents[i].pet.ready) {
+      bigOpen(ui, f, i);
+      shot("card-ready");
+      break;
+    }
   open("h0m3l4");
   shot("permission");
   open("4uthfl");
@@ -443,6 +451,65 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
   return 0;
 }
 
+// Agent pets on: a pet for every agent, through the stages, with a few
+// hungry, one weak and one asleep among them.
+static void givePets(Fleet& f) {
+  static const char* const kNames[] = {"Pip", "Biscuit", "Momo", "Taro", "Juniper", "Waffles", "Nori", "Pebble"};
+  for (int i = 0; i < f.count; i++) {
+    deck_pet_t& p = f.agents[i].pet;
+    p = deck_pet_t{};
+    p.has = true;
+    p.stage = (uint8_t)((i + 3) % 7);       // the first agent a grown-up
+    p.cracked = i % 14 == 11;
+    p.mood = i % 9 == 4 ? DECK_PET_ASLEEP : i % 11 == 5 ? DECK_PET_WEAK : i % 3 == 2 ? DECK_PET_HUNGRY : DECK_PET_FED;
+    static const uint16_t kLevel[] = {0, 2, 6, 12, 23, 34, 41};
+    p.level = kLevel[p.stage];
+    p.hearts = p.mood == DECK_PET_HUNGRY ? 2 : p.mood == DECK_PET_FED ? 4 : 0;
+    if (p.stage) snprintf(p.name, sizeof p.name, "%s", kNames[i % 8]);
+    p.progress = (uint8_t)(40 + i * 37);
+    if (i == 7) {                           // an egg waiting to be seen hatching
+      p.stage = DECK_PET_EGG;
+      p.mood = DECK_PET_FED;
+      p.ready = p.cracked = true;
+      p.name[0] = '\0';
+    }
+    if (p.stage >= DECK_PET_KID) {          // its own hat, from a kid on (Pet.hat)
+      p.hat = (uint8_t)(1 + (i * 5) % DECK_PET_HAT_SHAPE_COUNT);
+      p.hat_color = (uint8_t)(i % DECK_PET_HAT_COLOR_COUNT);
+    }
+  }
+}
+
+// pets.ppm: the kit's pets with their stroke at scale 4: each look (rows), on
+// the dark background and on orange, still and in a few poses (columns).
+static void petSheet(const std::string& dir, uint32_t ms) {
+  struct Row { int stage, mood; bool ready; uint8_t hat; };
+  static const Row kRows[] = {{0, 0, false, 0}, {0, 0, true, 0}, {1, 0, false, 0}, {2, 0, false, 5},
+                              {3, 0, false, 3}, {4, 0, false, 11}, {5, 0, false, 9}, {6, 0, false, 8},
+                              {3, 2, false, 2}, {3, 3, false, 14}, {3, 1, false, 4}};
+  static const Pose kCols[] = {Pose::Idle, Pose::Run, Pose::Bash, Pose::Wait, Pose::Celebrate, Pose::Delegate};
+  const int s = 4, cw = 31 * s, rh = 27 * s, cols = 2 * (int)(sizeof kCols / sizeof kCols[0]);
+  const int rows = (int)(sizeof kRows / sizeof kRows[0]);
+  std::vector<uint16_t> buf((size_t)cols * cw * rows * rh);
+  Canvas c{buf.data(), cols * cw, rows * rh};
+  const uint16_t kOrange = rgb565(0xFF, 0x4D, 0x00);
+  for (int r = 0; r < rows; r++)
+    for (int k = 0; k < cols; k++) {
+      const bool orange = k % 2;
+      c.rect(k * cw, r * rh, cw, rh, orange ? kOrange : col::bg);
+      Agent a{};
+      a.pet.has = true;
+      a.pet.stage = (uint8_t)kRows[r].stage;
+      a.pet.mood = (uint8_t)kRows[r].mood;
+      a.pet.ready = a.pet.cracked = kRows[r].ready;
+      a.pet.hat = kRows[r].hat;
+      a.pet.hat_color = (uint8_t)(r % DECK_PET_HAT_COLOR_COUNT);
+      // the sprite box's top-left: the pet's cells -5..24 x -10..15 fit the cell
+      drawPet(c, k * cw + 6 * s, r * rh + 11 * s, s, a, kCols[k / 2], ms, true);
+    }
+  writePpm(dir + "/pets.ppm", c);
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "usage: render <state.json> <outdir> [ms]\n");
@@ -455,6 +522,10 @@ int main(int argc, char** argv) {
   if (!fixture::load(argv[1], deck)) {
     fprintf(stderr, "cannot read %s\n", argv[1]);
     return 1;
+  }
+  if (argc > 5 && !strcmp(argv[5], "pets")) {
+    givePets(deck.fleet);
+    petSheet(argv[2], ms);
   }
   const Fleet& fleet = deck.fleet;
   // The sample fleet has every statusSince equal to server.time. Move the clock

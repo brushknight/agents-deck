@@ -519,3 +519,87 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
   drawHat(p, bot, hat, hatColor, pose == Pose::Exit, working, ms);
   if (showLegs) legs(p, bot, legSet, legDy);
 }
+
+// ---------------------------------------------------------------- agent pets
+// While Agent pets is on, each agent's pet (Agent::pet, the kit's deck_pet.h)
+// stands where its critter would, at the same scale, and does the critter's
+// pose with its bubble: one pet cell is one sprite unit. Cell (0, 0) sits at
+// unit (-1, -5), so the pet's middle is the body's and a grown-up's feet land
+// on the critter's. With its bubbles, flag, flames and stroke it reaches
+// cells DECK_PET_REACH_* (units -6..23 across, -17..10 down).
+
+namespace sprite_detail {
+
+// The kit's colours (0xRRGGBB and an alpha) into the RGB565 canvas, clipped.
+static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha) {
+  Canvas& c = *(Canvas*)user;
+  const uint16_t col = rgb565((uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb);
+  const uint8_t a = (uint8_t)((alpha * 15 + 127) / 255);
+  if (a >= 15) { c.rect(x, y, w, h, col); return; }
+  if (a == 0) return;
+  const int x0 = x < 0 ? 0 : x, x1 = x + w > c.w ? c.w : x + w;
+  const int y0 = y < c.top ? c.top : y, y1 = y + h > c.h ? c.h : y + h;
+  for (int yy = y0; yy < y1; yy++)
+    for (int xx = x0; xx < x1; xx++) {
+      uint16_t& d = c.px[(size_t)yy * c.w + xx];
+      d = c.enc(blend565(c.dec(d), col, a));
+    }
+}
+
+}  // namespace sprite_detail
+
+// The pet's pose for the critter's (the kit's poses follow Pose, after NONE).
+static inline uint8_t petPose(Pose pose) { return (uint8_t)((int)pose + 1); }
+
+// Draws the agent's pet with its cell (0, 0) at pixel (x, y), in `pose` at
+// `ms`, with its bubble or not. The look is kept in static memory: pets are
+// drawn from one task.
+static inline void drawPetCells(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  using namespace sprite_detail;
+  // nothing of it in these rows (a strip of the frame)
+  if (y + (DECK_PET_REACH_Y1 + 1) * scale <= c.top || y + (DECK_PET_REACH_Y0 - 1) * scale >= c.h) return;
+  deck_pet_opts_t o{};
+  o.pose = petPose(pose);
+  o.ms = ms;
+  o.bubble = bubble;
+  o.hat = a.hat;
+  o.hat_color = a.hatColor;
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, &o);
+  int dx, dy;
+  deck_pet_motion(&look, ms, scale, &dx, &dy);
+  deck_pet_draw(&look, x + dx, y + dy, scale, petFill, &c);
+}
+
+// The pet with the sprite box's top-left at (x, y), as drawSprite would its critter.
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  drawPetCells(c, x - scale, y - scale, scale, a, pose, ms, bubble);
+}
+
+// The row under the pet's still art (its feet, the egg's foot, the weak one's
+// ground): stand it on a line there.
+static inline int petBottom(const Agent& a) {
+  static const uint8_t kBottom[] = {14, 14, 13, 13, 12, 13};   // per deck_pet_art_t
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, nullptr);
+  return look.art < sizeof kBottom ? kBottom[look.art] : 14;
+}
+
+// The agent as the deck shows it: its pet while it has one, else its critter
+// (drawSprite, with its hat); both in `pose`.
+static inline void drawCritter(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint16_t body, uint16_t cut,
+                               uint32_t ms, bool bubble) {
+  if (a.pet.has) drawPet(c, x, y, scale, a, pose, ms, bubble);
+  else drawSprite(c, x, y, scale, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
+}
+
+// "Pip · Kid · level 7", or "Egg": the pet's name, stage and level, for a
+// screen that shows one agent in detail. Empty without a pet.
+static inline void petLine(const Agent& a, char* out, size_t cap) {
+  if (!cap) return;
+  out[0] = '\0';
+  if (!a.pet.has) return;
+  const char* stage = deck_pet_stage_name(a.pet.stage);
+  if (a.pet.stage == DECK_PET_EGG || !a.pet.name[0]) snprintf(out, cap, "%s", stage);
+  else snprintf(out, cap, "%s" DECK_DOT "%s" DECK_DOT "level %u", a.pet.name, stage, (unsigned)a.pet.level);
+}

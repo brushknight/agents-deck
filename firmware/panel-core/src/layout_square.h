@@ -962,7 +962,7 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
       c.text(*S.tileMeta, p.count.x, p.count.y, n, k.meta, p.count.w);
     }
   }
-  drawSprite(c, p.critter.x, p.critter.y, p.scale, a.species, poseOf(a, now), k.body, k.fill, ms, true, a.hat, a.hatColor);
+  drawCritter(c, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
   SQ_ADD(sprite, t1);
   SQ_T0(t2);
   textCentered(c, *S.tileTitle, r.x + r.w / 2, p.name.y, a.title[0] ? a.title : a.id, k.label, p.name.w);
@@ -1309,6 +1309,7 @@ static inline void doingNow(const Agent& a, char* out, size_t cap) {
 struct CardGeom {
   Rect critter;                // the critter's 18 x 13 unit box
   Rect name, pill;             // the header's text block: name, then the pill under it
+  Rect pet;                    // then the pet's name, stage and level (h 0: no pet)
   int doingY, doingValueY;
   int subY, subPitch, subRows; // rows of working subagents (subRows may be fewer than kept)
   int ctxY, statsY;
@@ -1327,14 +1328,14 @@ static inline int capTop(const Font& f) { return (f.cellH * 795 + 500) / 1000 - 
 
 // The middle of what a critter draws in its box (scale s), from its hat (or
 // head) to its feet, standing still: the block and the onigiri, with and
-// without a hat, differ. Measured on a small drawing at scale 2.
-static inline int critterMid(const Rect& box, int s, Species sp, uint8_t hat, uint8_t hatColor) {
-  constexpr int kS = 2, kW = 26 * kS, kH = 20 * kS, kX = 4 * kS, kY = 3 * kS;
+// without a hat, differ, and so does a pet. Measured on a small drawing at scale 2.
+static inline int critterMid(const Rect& box, int s, const Agent& a) {
+  constexpr int kS = 2, kW = 26 * kS, kH = 30 * kS, kX = 5 * kS, kY = 12 * kS;
   constexpr uint16_t kBlank = 0x1234;
   static uint16_t px[kW * kH];
   for (int i = 0; i < kW * kH; i++) px[i] = kBlank;
   Canvas c{px, kW, kH};
-  drawSprite(c, kX, kY, kS, sp, Pose::Idle, 0xFFFF, 0x0001, 0, false, hat, hatColor);
+  drawCritter(c, kX, kY, kS, a, Pose::Idle, 0xFFFF, 0x0001, 0, false);
   int top = -1, bot = -1;
   for (int y = 0; y < kH; y++)
     for (int x = 0; x < kW; x++)
@@ -1354,12 +1355,14 @@ static inline CardGeom cardGeom(const SquareSpec& S, const Agent& a, DeckScope s
   // The name and the pill as one block, from the name's capitals to the
   // pill's foot, its middle on the drawn critter's.
   const int pillH = lf.cellH + 2, gap = 2;
+  const int petH = a.pet.has ? lf.cellH - 2 : 0;
   const int cap = capTop(nf);
-  const int blockH = nf.cellH - cap + gap + pillH;
-  const int top = critterMid(g.critter, s, a.species, a.hat, a.hatColor) - blockH / 2 - cap;
+  const int blockH = nf.cellH - cap + gap + pillH + (petH ? gap + petH : 0);
+  const int top = critterMid(g.critter, s, a) - blockH / 2 - cap;
   g.name = Rect{tx, top, tw, nf.cellH};
   g.pill = Rect{tx, top + nf.cellH + gap, tw, pillH};
-  int y = g.pill.y + g.pill.h + 14;
+  g.pet = Rect{tx, g.pill.y + g.pill.h + gap, tw, petH};
+  int y = (petH ? g.pet.y + g.pet.h : g.pill.y + g.pill.h) + 14;
   if (y < g.critter.y + g.critter.h + 8) y = g.critter.y + g.critter.h + 8;
 
   g.doingY = y;
@@ -1404,12 +1407,16 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
   // Header: the critter, and beside it the name over the pill, centred on it.
   const Look k = lookOf(T, a);
   const uint16_t body = a.status == Status::Running || hungry(a) ? T.accent : k.body == T.bg ? T.ink : k.body;
-  drawSprite(c, g.critter.x, g.critter.y, s, a.species, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true, a.hat, a.hatColor);
+  drawCritter(c, g.critter.x, g.critter.y, s, a, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true);
   const Font& nf = *S.title;
   c.text(nf, g.name.x, g.name.y, a.title[0] ? a.title : a.id, T.ink, g.name.w);
   pillLabel(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status == Status::Error || hungry(a);
   pillText(c, *S.label, g.pill.x, g.pill.y, buf, loud ? T.accent : T.ink, T.bg, g.pill.w);
+  if (g.pet.h) {
+    petLine(a, buf, sizeof buf);
+    c.text(*S.label, g.pet.x, g.pet.y, buf, T.dim, g.pet.w);
+  }
 
   const Font& lf = *S.label;
   const Font& bf = *S.body;
@@ -1559,8 +1566,7 @@ static inline void prompt(Canvas& c, const SquareSpec& S, const Theme& T, const 
   // Header: ×2 critter, the name, the age in a pill on the right.
   const int ps = S.promptScale;
   const int hy = 18;
-  drawSprite(c, m + (S.cornerR ? 6 : 0), hy, ps, a.species, Pose::Wait, perm ? T.bg : T.dim, bg, in.ms, false, a.hat,
-             a.hatColor);
+  drawCritter(c, m + (S.cornerR ? 6 : 0), hy, ps, a, Pose::Wait, perm ? T.bg : T.dim, bg, in.ms, false);
   char age[8];
   fmtAge(a.statusSince ? in.nowEpoch - a.statusSince : 0, age, sizeof age);
   const Font& lf = *S.label;
@@ -2020,12 +2026,12 @@ class SquarePanel : public PanelLayout {
       const int k = S.cardScale;
       int right = from.x + 20 * k;
       if (cg.name.x > from.x && right > cg.name.x - 2) right = cg.name.x - 2;
-      c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
+      if (a.pet.has) c.rect(from.x - 7 * k, from.y - 12 * k, right - (from.x - 7 * k), 28 * k, T.bg);   // a pet's reach
+      else c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
     }
     c.dim50();                                 // the card behind it at half brightness
     // Crossed eyes while it is sick (the error pose's), its own colours.
-    drawSprite(c, (int)p.x, (int)p.y, p.scale, a.species, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false, a.hat,
-               a.hatColor);
+    drawCritter(c, (int)p.x, (int)p.y, p.scale, a, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false);
     funPour(c, p, f, T.bg, in.ms);
     if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
     return true;

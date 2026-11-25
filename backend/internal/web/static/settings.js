@@ -3,9 +3,10 @@
 // innerHTML: names and messages from the service are always text.
 
 import {
-  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
+  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, lastShown, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
+import { petSVG, heartSVG, petKind, levelAt, STAGES, STAGE_NAMES, STAGE_LEVEL, MOOD_NAMES, MAX_HEARTS } from './pets.js';
 
 const PAGES = ['home', 'agents', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
 const SCOPES = [
@@ -251,6 +252,7 @@ const ICONS = {
   reply: [['path', { d: 'M10 7L4.5 12l5.5 5M5 12h9a5.5 5.5 0 0 1 5.5 5.5V19' }]],
   auto: [['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17.5 3v3.6h-3.6M6.5 21v-3.6h3.6' }]],
   power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
+  gauge: [['path', { d: 'M5.6 18.4a9 9 0 1 1 12.8 0' }], ['path', { d: 'M12 14l4.5-5' }], ['circle', { cx: 12, cy: 14, r: 1.6 }]],
 };
 function icon(name, size = 14, width = 2) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -313,7 +315,7 @@ function toggle(label, on, onChange, opts = {}) {
 
 // seg: a group of choices, one picked (a radio group: arrow keys move).
 function seg(label, options, current, onChange, opts = {}) {
-  const group = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label });
+  const group = h('div', { class: `seg ${opts.cls || ''}`.trim(), role: 'radiogroup', 'aria-label': label });
   options.forEach((o) => {
     const on = o.value === current;
     group.append(h('button', {
@@ -464,7 +466,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs',
+    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs', cpu: '/admin/v1/cpu',
   };
   try {
     const r = await api('GET', paths[what]);
@@ -491,7 +493,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state'] }[page] || [];
+  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
 }
 
 function firstError(page) {
@@ -536,8 +538,12 @@ function drawTop() {
   if (!show) return;
   const sys = S.system || {};
   const need = agentsList().filter(needsYou).length;
-  const cell = (n, words, href, hot) => h('a', { class: hot ? 'hotc' : '', href }, h('b', {}, String(n)), h('span', {}, words));
-  bar.replaceChildren(
+  const cell = (n, words, href, hot, title) => h('a', { class: hot ? 'hotc' : '', href, title }, h('b', {}, String(n)), h('span', {}, words));
+  const c = cpuOf();
+  // The CPU cell stays short ("92% CPU"), so the status fits at 1024 px;
+  // orange says busy.
+  put(bar,
+    c ? cell(pct(c.percent), 'CPU', c.busy ? '#home' : '#agents/cpu', c.busy, c.busy ? `The ${machine()} is busy` : null) : null,
     cell(need, 'need you', '#home', need > 0),
     cell(updatesReady(sys), updatesReady(sys) === 1 ? 'update' : 'updates', '#updates'),
     cell(boardsWaiting(sys), 'boards waiting', '#boards'),
@@ -545,6 +551,315 @@ function drawTop() {
       h('span', {}, h('span', { class: 'p' }, '$'), ' agentctl status'),
       connOK ? h('span', { class: 'okc' }, 'running') : h('span', { class: 'badc' }, 'not answering'),
       h('span', {}, sys.version || '')));
+}
+
+// ---- the CPU guard: when the computer is busy ------------------------------------------------
+// S.system.cpu (absent while the guard is off): how busy the whole computer
+// is, and whether queued prompts are held.
+
+const machine = () => ((S.system?.platform || '').startsWith('darwin') ? 'Mac' : 'computer');
+const cpuOf = () => (S.system?.cpu?.available ? S.system.cpu : null);
+const pct = (n) => `${Math.round(n)}%`;
+const minutesSince = (iso) => plural(Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 60000)), 'minute');
+// What Using the most measures over: it comes from ps, whose %cpu is a
+// decaying average of about the last minute on macOS, and each process's
+// average since it started on Linux.
+const topWindow = () => ((S.system?.platform || '').startsWith('darwin') ? 'about the last minute' : 'since each program started');
+
+// cpuRelease is Send them now: queued prompts go in although the computer
+// is busy, until it is calm again.
+const cpuRelease = (el) => busy(el, async () => {
+  S.system.cpu = await api('POST', '/admin/v1/cpu/release');
+  showSystem(S.system);
+  updateDeck();
+}, 'Sending the queued prompts');
+
+// cpuFace: who uses the CPU, in a 40 px box: an agent's critter with its
+// hat (as its tile draws it), the deck's own critter, or a program's first
+// letter.
+function cpuFace(u, a) {
+  if (u.kind === 'deck') return h('span', { class: 'face' }, critter({ hat: { shape: 'propeller', color: 'blue' }, cut: '#141412', centre: true }));
+  if (u.kind !== 'agent') return h('span', { class: 'face lt', 'aria-hidden': 'true' }, [...(u.name || '?').trim()][0]?.toUpperCase() || '?');
+  const face = h('span', { class: 'face dk' });
+  face.style.setProperty('--body', '#FF4D00');
+  face.style.setProperty('--cut', '#141412');
+  const spr = h('span', { class: 'spr c' });
+  setSprite(spr, a ? poseOf(a) : 'idle', a?.tool || 'claude', a?.hat || null, { bubble: false });
+  face.append(spr);
+  return face;
+}
+
+// cpuUserRow: one user of the CPU, a whole line: face, name (an agent's
+// biggest programs under it), a bar and its share of every core. more: what goes at the end of the line.
+function cpuUserRow(u, more = []) {
+  const a = u.kind === 'agent' ? agentsList().find((x) => x.id === u.agent) : null;
+  const name = u.kind === 'deck' ? 'agents deck' : u.name;
+  const kind = u.kind === 'deck' ? 'agentctl and its helpers'
+    : u.kind === 'agent' ? (a && TOOL_NAMES[a.tool]) || 'agent'
+      : 'not an agent · the deck only shows it';
+  const cmds = (u.commands || []).map((x) => `${x.name} ${x.percent < 1 ? x.percent.toFixed(1) : Math.round(x.percent)}%`).join(' · ');
+  const fill = h('div');
+  fill.style.width = `${Math.max(0, Math.min(100, u.percent))}%`;
+  return h('div', { class: 'cpuu' }, cpuFace(u, a),
+    h('span', { class: 'grow' }, h('span', { class: 'nm', title: name }, name), h('span', { class: 'sub' }, kind),
+      cmds ? h('span', { class: 'sub cmds', title: 'What uses the most on its terminal' }, cmds) : null),
+    h('span', { class: 'bar', 'aria-hidden': 'true' }, fill),
+    h('b', { class: 'mono pc' }, u.percent < 1 ? `${u.percent.toFixed(1)}%` : pct(u.percent)),
+    ...more);
+}
+
+// The limit in use (S.system.cpu): where it comes from and until when.
+const hhmm = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+// whenAt: "18:00" today, "Tue 09:00" another day.
+function whenAt(iso) {
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? hhmm(d) : `${d.toLocaleDateString([], { weekday: 'short' })} ${hhmm(d)}`;
+}
+// whenShort: "18:00" today, "Tue" another day (the strip's CPU cell is narrow).
+function whenShort(iso) {
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? hhmm(d) : d.toLocaleDateString([], { weekday: 'short' });
+}
+// limitSays: the banner's words for the limit.
+function limitSays(c) {
+  const until = c.until ? ` until ${whenAt(c.until)}` : '';
+  if (c.limitFrom === 'schedule') return `Your limit is ${c.limit}%${until}, from the schedule.`;
+  if (c.limitFrom === 'override') return `Your limit is ${c.limit}%${until}, set by ${c.by || 'hand'}.`;
+  return `Your limit is ${c.limit}%${c.scheduled ? until : ''}.`;
+}
+// cpuSecond: the strip's CPU cell, its second line.
+function cpuSecond(c) {
+  if (c.busy) return machine() === 'Mac' ? 'Mac busy' : 'busy';
+  if (c.limitFrom === 'override') return c.until ? `${c.limit}% till ${whenShort(c.until)}` : `limit ${c.limit}%`;
+  return c.scheduled ? `limit ${c.limit}%` : 'calm';
+}
+
+// cpuBlock: on Home while the computer is busy: a warning (how busy, for
+// how long, where the limit comes from, what waits, Send them now) and a
+// link to who uses the CPU, in Settings.
+function cpuBlock() {
+  const c = cpuOf();
+  if (!c || !c.busy) return null;
+  const under = `under ${c.limit - 10}% for a minute`;
+  let what = `Nothing is held: Hold queued prompts is off in Settings, Agents.`;
+  if (c.released) what = `Queued prompts go in anyway until it is ${under}.`;
+  else if (c.hold && c.held) what = `${plural(c.held, 'queued prompt')} wait${c.held === 1 ? 's' : ''} until it is ${under}.`;
+  else if (c.hold) what = `Queued prompts wait until it is ${under}.`;
+  const byYou = (id) => (c.slowedByYou ? c.slowedByYou.includes(id) : !!agentsList().find((x) => x.id === id)?.slowedByYou);
+  const picked = (c.slowed || []).filter((id) => !byYou(id)).length; // the guard's picks, not yours
+  if (picked) {
+    what += ` ${picked === 1 ? 'The heaviest agent runs' : `The ${say(picked).toLowerCase()} heaviest agents run`} in the background until ${what.endsWith('for a minute.') ? 'then' : `the ${machine()} is calm`}.`;
+  }
+  return h('div', { class: 'ask cpuask', role: 'status' },
+    h('span', { class: 'af', 'aria-hidden': 'true' }, icon('gauge', 30, 2.2)),
+    h('span', { class: 'grow' },
+      h('b', {}, h('span', { class: 'sr' }, `${machine() === 'Mac' ? 'The Mac' : 'This computer'} is busy. `), `${pct(c.percent)} of the CPU for ${minutesSince(c.since)}. ${limitSays(c)}`),
+      h('span', {}, what, ' ', h('a', { href: '#agents/cpu-top', 'data-k': 'cpu-who' }, 'Who uses it'))),
+    c.hold && c.held ? btn('Send them now', (e) => cpuRelease(e.currentTarget), 'dark fix', { 'data-k': 'cpu-release' }) : null);
+}
+
+// usingTheMost: in Settings, under When the Mac is busy: who uses the CPU,
+// each agent with its biggest programs; while busy, Slow it and Full speed.
+// One ps every 30 s while the page is open.
+function usingTheMost() {
+  const c = cpuOf();
+  if (!c) return null;
+  if (!S.cpuTopAt || Date.now() - S.cpuTopAt > 30000) {
+    S.cpuTopAt = Date.now();
+    api('GET', '/admin/v1/cpu?top=6').then((r) => { S.cpuTop = r?.top; if (S.page === 'agents') draw(false); }).catch(() => {});
+  }
+  const top = S.cpuTop;
+  const rule = h('div', { class: 'rule' }, h('h2', {}, 'Using the most'), h('span', { class: 'm' }, `${topWindow()} · 100% = every core`));
+  if (top && !top.available) return [rule, blk(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, `Not listed here: ${top.why}.`)))];
+  const users = (top?.users || []).filter((u) => u.percent >= 0.5 || u.kind === 'deck');
+  const slowed = c.slowed || [];
+  for (const id of slowed) { // a slowed agent stays listed, so Full speed is at hand
+    const a = agentsList().find((x) => x.id === id);
+    if (a && !users.some((u) => u.agent === id)) users.push({ kind: 'agent', agent: id, name: a.title || a.aiTitle || id, percent: a.cpu || 0 });
+  }
+  if (!users.length) return [rule, blk(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, top ? 'Nothing uses the CPU right now.' : 'Looking…')))];
+  const byYou = (id) => (c.slowedByYou ? c.slowedByYou.includes(id) : !!agentsList().find((x) => x.id === id)?.slowedByYou);
+  const act = (path, id, text, done) => btn(text, (e) => busy(e.currentTarget, async () => {
+    S.system.cpu = await api('POST', `/admin/v1/cpu/${path}/${encodeURIComponent(id)}`);
+    showSystem(S.system);
+    draw(true);
+  }, done), '', { 'data-k': `cpu-${path}:${id}` });
+  // The last two slots of a line: Slowed (by the guard) or Slowed by you,
+  // then Full speed; or, while busy, Slow it (macOS only). Programs and the
+  // deck leave them empty.
+  const slots = (u) => {
+    let c1 = null, c2 = null;
+    if (u.kind === 'agent' && slowed.includes(u.agent)) {
+      c1 = byYou(u.agent)
+        ? chip('Slowed by you', 'acc', null, { title: `You slowed this agent. It goes back to full speed when the ${machine()} is calm, or with Full speed` })
+        : chip('Slowed', 'acc', null, { title: 'Slowed by the CPU guard: it was using the most CPU' });
+      c2 = act('full-speed', u.agent, 'Full speed', 'Back to full speed');
+    } else if (c.busy && u.kind === 'agent' && machine() === 'Mac') c2 = act('slow', u.agent, 'Slow it', 'Running it in the background until the Mac is calm');
+    return [h('span', { class: 'act' }, h('span', { class: 'cs' }, c1), h('span', { class: 'bs' }, c2))];
+  };
+  return [rule, h('div', { class: 'blk cputop' }, users.map((u) => cpuUserRow(u, slots(u))))];
+}
+
+// ---- the schedule for the limit ------------------------------------------------------------
+
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const LIMITS = [60, 65, 70, 75, 80, 85, 90, 95];
+const HALF_HOURS = Array.from({ length: 49 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`); // 00:00 to 24:00
+const minsOf = (t) => { const m = /^(\d\d):(\d\d)$/.exec(t || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+// schedDraft: the blocks being edited, from the saved ones until you change one.
+function schedDraft(g) {
+  if (!S.sched?.dirty) S.sched = { blocks: (g.schedule?.blocks || []).map((b) => ({ ...b, days: [...b.days] })), dirty: false, err: '' };
+  return S.sched;
+}
+const editSched = (fn) => { fn(S.sched.blocks); S.sched.dirty = true; S.sched.err = ''; draw(true); };
+
+// timeSel, limitSel: a block's pickers (styled selects).
+function smallSel(label, options, current, onChange, key) {
+  return h('select', { class: 'pick sm', 'aria-label': label, 'data-k': key, onchange: (e) => onChange(e.target.value) },
+    ...options.map((o) => h('option', { value: o.value, selected: o.value === current }, o.text)));
+}
+
+// blockRow: one block, edited in place: days, from, to, limit, remove.
+function blockRow(b, i) {
+  const n = `Block ${i + 1}`;
+  const days = h('div', { class: 'days', role: 'group', 'aria-label': `${n}: days` }, DAYS.map((d, j) => h('button', {
+    type: 'button', class: 'day', 'aria-pressed': b.days.includes(d) ? 'true' : 'false', 'aria-label': DAY_NAMES[j], title: DAY_NAMES[j], 'data-k': `sched-day:${i}:${d}`,
+    onclick: () => editSched((bl) => { const on = new Set(bl[i].days); if (on.has(d)) on.delete(d); else on.add(d); bl[i].days = DAYS.filter((x) => on.has(x)); }),
+  }, 'MTWTFSS'[j])));
+  const f = minsOf(b.from), t = minsOf(b.to);
+  const field = (label, el) => h('div', { class: 'field' }, h('span', { class: 'kl' }, label), el);
+  return h('div', { class: 'sblk', 'data-row': `block-${i}` },
+    field('Days', days),
+    field('From', smallSel(`${n}: from`, HALF_HOURS.slice(0, 48).map((v) => ({ value: v, text: v })), b.from, (v) => editSched((bl) => { bl[i].from = v; }), `sched-from:${i}`)),
+    field('To', smallSel(`${n}: to`, HALF_HOURS.slice(1).map((v) => ({ value: v, text: v })), b.to, (v) => editSched((bl) => { bl[i].to = v; }), `sched-to:${i}`)),
+    field('Limit', smallSel(`${n}: limit`, LIMITS.map((v) => ({ value: String(v), text: `${v}%` })), String(b.limit), (v) => editSched((bl) => { bl[i].limit = Number(v); }), `sched-limit:${i}`)),
+    h('button', { type: 'button', class: 'btn sm rm', 'aria-label': `Remove ${n.toLowerCase()}`, title: 'Remove', 'data-k': `sched-rm:${i}`, onclick: () => editSched((bl) => { bl.splice(i, 1); }) }, icon('x', 14)),
+    h('span', { class: 'sub nx' }, f !== null && t !== null && t < f ? 'ends the next day' : ''));
+}
+
+// weekPreview: the week as seven tracks, the blocks on them (an unsaved
+// edit too), today marked and a line for now. Read only.
+function weekPreview(blocks, base) {
+  const now = new Date();
+  const today = (now.getDay() + 6) % 7;
+  const segs = DAYS.map(() => []);
+  for (const b of blocks) {
+    const f = minsOf(b.from), t = minsOf(b.to);
+    if (f === null || t === null || f === t) continue;
+    for (const d of b.days) {
+      const j = DAYS.indexOf(d);
+      if (j < 0) continue;
+      if (t > f) segs[j].push([f, t, b]);
+      else { segs[j].push([f, 1440, b]); if (t > 0) segs[(j + 1) % 7].push([0, t, b]); }
+    }
+  }
+  const at = (el, from, to) => { el.style.left = `${(from / 1440) * 100}%`; el.style.width = `${((to - from) / 1440) * 100}%`; return el; };
+  const tracks = DAYS.map((d, j) => {
+    const trk = h('div', { class: 'trk' }, segs[j].map(([f, t, b]) => {
+      const el = at(h('span', { class: 'wb', title: `${b.from}-${b.to} · ${b.limit}%` }, t - f >= 150 ? `${b.limit}%` : ''), f, t);
+      el.style.setProperty('--a', String(Math.max(0.15, (100 - b.limit) / 40)));
+      return el;
+    }));
+    if (j === today) {
+      const line = h('i', { class: 'now' });
+      line.style.left = `${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%`;
+      trk.append(line);
+    }
+    return h('div', { class: `wk${j === today ? ' today' : ''}` }, h('span', { class: 'wd' }, DAY_NAMES[j].slice(0, 3)), trk);
+  });
+  const scale = h('div', { class: 'wk scale' }, h('span', { class: 'wd' }),
+    h('div', { class: 'trk' }, ['00', '06', '12', '18', '24'].map((x, k) => { const el = h('span', {}, x); el.style.left = `${k * 25}%`; return el; })));
+  return h('div', { class: 'week', role: 'img', 'aria-label': `The week: ${blocks.length ? plural(blocks.length, 'block') : 'no blocks'}, ${base}% the rest of the time` },
+    scale, ...tracks, h('span', { class: 'sub' }, `The rest of the week: ${base}%.`));
+}
+
+// limitNow: the limit in use, in one line, with Back to schedule while a
+// limit picked by hand is on.
+function limitNow(c) {
+  if (!c) return null;
+  if (c.limitFrom === 'override') {
+    const back = btn('Back to schedule', async (e) => { await patchSettings({ cpuGuard: { override: null } }, e.currentTarget); await load('system'); draw(true); }, '', { 'data-k': 'cpu-back' });
+    return h('div', { class: 'row thin' }, h('span', { class: 'ttl' }, `Now ${c.limit}%, set by ${c.by || 'hand'}${c.setAt ? ` at ${whenAt(c.setAt)}` : ''}${c.until ? ` · until ${whenAt(c.until)}` : ''}`), h('div', { class: 'r' }, back));
+  }
+  return h('div', { class: 'row thin' }, h('span', { class: 'ttl' }, `Now ${c.limit}%${c.until ? `, until ${whenAt(c.until)} · then ${c.next}%` : ''}`));
+}
+
+async function saveSched(el) {
+  const s = S.sched;
+  el.disabled = true;
+  el.setAttribute('aria-busy', 'true');
+  try {
+    const r = await api('PATCH', '/admin/v1/settings', { cpuGuard: { schedule: { on: true, blocks: s.blocks } } });
+    S.settings = r.settings;
+    S.sched = null;
+    toast('Saved');
+    await load('system');
+  } catch (e) {
+    if (e.status === 401) return;
+    s.err = e.message;
+  }
+  draw(true);
+}
+
+// scheduleRows: the blocks, one row each, Add a block, Save, the week, and
+// the limit now.
+function scheduleRows(g) {
+  const s = schedDraft(g);
+  const out = [];
+  const list = h('div', { class: 'sblks' }, s.blocks.length ? s.blocks.map(blockRow)
+    : h('span', { class: 'sub' }, `No blocks yet: the limit is ${g.limit}% all week.`));
+  const add = btn([icon('plus', 13), 'Add a block'], () => editSched((bl) => { bl.push({ days: DAYS.slice(0, 5), from: '09:00', to: '18:00', limit: 60 }); }), '', { 'data-k': 'sched-add', disabled: s.blocks.length >= 50 });
+  const save = btn('Save', (e) => saveSched(e.currentTarget), 'p', { 'data-k': 'sched-save', disabled: !s.dirty });
+  const discard = s.dirty ? btn('Discard changes', () => { S.sched = null; draw(true); }, 'link small', { 'data-k': 'sched-discard' }) : null;
+  out.push(h('div', { class: 'row top sched' }, h('div', { class: 'grow' },
+    list,
+    s.err ? h('p', { class: 'note err', role: 'alert' }, s.err) : null,
+    h('div', { class: 'actions' }, add, h('div', { class: 'r' }, discard, save)),
+    weekPreview(s.blocks, g.limit))));
+  return out;
+}
+
+// cpuSection: Settings, Agents: what the deck does when the computer is
+// busy, the schedule for the limit, and who uses the CPU.
+function cpuSection() {
+  const g = S.settings?.cpuGuard;
+  if (!g) return null; // an older service
+  const set = (patch, el) => patchSettings({ cpuGuard: patch }, el);
+  const m = machine();
+  const sched = !!g.schedule?.on;
+  const c = S.system?.cpu;
+  const rows = [row('Watch the CPU', `How busy the whole ${m} is, every 5 seconds.`, [toggle('Watch the CPU', g.on, (on, el) => set({ on }, el), { key: 'cpu-on' })])];
+  if (g.on) {
+    // With the schedule on, the Limit row is the limit for the rest of the
+    // week ("schedule" in the same patch says so).
+    rows.push(h('div', { class: 'row top' }, h('div', { class: 'grow' },
+      h('div', { class: 'actions' },
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'Limit'), seg('Limit', LIMITS.map((v) => ({ value: v, text: `${v}%` })), g.limit, (v) => set(sched ? { limit: v, schedule: { on: true } } : { limit: v }), { key: 'cpu-limit', cls: 'even' })),
+        h('div', { class: 'field' }, h('span', { class: 'kl' }, 'For'), seg('For', [{ value: '1m', text: '1 min' }, { value: '2m', text: '2 min' }, { value: '5m', text: '5 min' }], g.for, (v) => set({ for: v }), { key: 'cpu-for', cls: 'even' }))),
+      h('span', { class: 'sub' }, `${sched ? 'Your limit for the rest of the week, outside the blocks below. ' : ''}Over it, then under ${g.limit - 10}% for a minute to clear. 100% is every core.`))));
+    rows.push(row('Follow a schedule', `Other limits for parts of the week, on this ${m}'s clock. It repeats every week.`,
+      [toggle('Follow a schedule', sched, (on, el) => { S.sched = null; return set({ schedule: { on } }, el); }, { key: 'cpu-sched' })]));
+    if (sched) rows.push(...scheduleRows(g));
+    if (sched && c?.available) rows.push(limitNow(c));
+    rows.push(row('Show a warning', `In the log, the bar on top and Home, with who uses the CPU.`, [chip('Always')]));
+    rows.push(row('Hold queued prompts', 'And agents started over MCP. What you type or press still goes at once.', [toggle('Hold queued prompts', g.hold, (on, el) => set({ hold: on }, el), { key: 'cpu-hold' })]));
+    const mac = m === 'Mac';
+    rows.push(row('Slow down the heaviest agent', mac ? 'Runs it in the background (efficiency cores, slower disk) until the Mac is calm. macOS only.' : 'macOS only.',
+      [toggle('Slow down the heaviest agent', mac && g.slow, (on, el) => set({ slow: on }, el), { key: 'cpu-slow', disabled: !mac })]));
+  }
+  const mc = S.cpu?.machine;
+  const parts = [];
+  if (c && !c.available) parts.push(`The CPU can't be read here (${c.why}), so nothing is held.`);
+  else if (c || mc?.available) parts.push(`Now ${pct(c ? c.percent : (mc.last1 ?? mc.now))}`);
+  if (c?.peak) parts.push(`busiest today ${pct(c.peak.percent)} at ${hhmm(new Date(c.peak.at))}`);
+  const self = S.cpu?.last1 || S.cpu?.sinceStart;
+  if (self && mc?.cores) parts.push(`agents deck ${(self.percent / mc.cores).toFixed(1)}%`);
+  if (parts.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'sub' }, parts.join(' · '))));
+  const top = g.on ? usingTheMost() : null;
+  return h('section', { class: 'sec', id: 'cpu', 'data-sec': 'cpu' }, h('div', { class: 'rule' }, h('h2', {}, `When the ${m} is busy`)), blk(...rows),
+    top ? h('div', { class: 'sec', id: 'cpu-top', 'data-sec': 'cpu-top' }, ...top) : null);
 }
 
 // The sidebar folds to an icon rail; the choice is remembered here only.
@@ -588,6 +903,69 @@ function setSprite(el, pose, tool, hat, opts = {}) {
   if (el.dataset.pose === key) return;
   el.dataset.pose = key;
   el.replaceChildren(spriteNode(pose, tool, hat, opts));
+}
+
+// Agent pets can't be turned off for now: Settings hides the switch (the
+// service treats them as on). true brings the switch back.
+const PETS_SWITCH = false;
+
+// Agent pets (pets.js): an agent's pet in place of its critter, while
+// Agent pets is on (the service then sends each agent's "pet"). It does the
+// critter's poses (pet-poses.js), bubble and all.
+const petCache = new Map();
+function petNode(pet, opts) {
+  const k = JSON.stringify([pet.stage, pet.mood, pet.ate >= 30000, !!pet.ready, pet.hat?.shape, pet.hat?.color, opts.hat?.color, opts.pose || '', opts.bubble !== false, !!opts.glow,
+    !!opts.waking, !!opts.mystery, !!opts.hatching, !!opts.born, opts.sil || '', !!opts.still]);
+  let node = petCache.get(k);
+  if (!node) {
+    const doc = new DOMParser().parseFromString(petSVG(pet, opts).replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
+    node = document.importNode(doc.documentElement, true);
+    petCache.set(k, node);
+  }
+  return { k, node: node.cloneNode(true) };
+}
+// setPet fills el with an agent's pet doing its agent's pose, the ice
+// cracking off when it wakes, the egg bursting while it hatches and the new
+// pet popping in. more: waking, mystery ("?" where its hat will be),
+// bubble (false: the pose without its bubble).
+function setPet(el, a, more = {}) {
+  const { k, node } = petNode(a.pet, { hat: a.hat, pose: poseOf(a), ...more,
+    hatching: Date.now() < (hatching.get(a.id) || 0), born: Date.now() < (bornUntil.get(a.id) || 0) });
+  if (el.dataset.pose === `pet${k}`) return;
+  el.dataset.pose = `pet${k}`;
+  el.className = `spr pet dk${el.classList.contains('off') ? ' off' : ''}`;
+  el.replaceChildren(node);
+  watchPet(el);
+}
+// Pets off screen hold still: their motion pauses until they scroll back.
+const petSeen = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
+const petWatched = new WeakSet();
+function watchPet(el) {
+  if (!petSeen || petWatched.has(el)) return;
+  petWatched.add(el);
+  petSeen.observe(el);
+}
+
+// Hatching you witness: an egg that has eaten enough waits, ready, until you
+// open its agent or its pet. Then it bursts (1.4 s) and the service hatches
+// it; every screen sees the new pet. hatching: id → when the burst ends (0
+// once asked, until the state shows it hatched); bornUntil: the pop-in.
+const hatching = new Map();
+const bornUntil = new Map();
+const HATCH_MS = 1400;
+function seeHatch(a) {
+  if (!a?.pet?.ready || hatching.has(a.id) || document.visibilityState !== 'visible') return;
+  hatching.set(a.id, Date.now() + HATCH_MS);
+  setTimeout(async () => {
+    hatching.set(a.id, 0);
+    try {
+      await post(a, 'pet/hatch');
+      bornUntil.set(a.id, Date.now() + 1500);
+    } catch (ex) { if (ex.status !== 409 && ex.status !== 401) toast(ex.message, true); }
+    await load('state');
+    updateDeck();
+  }, HATCH_MS);
 }
 
 const bySlot = () => [...agentsList()].sort((x, y) => (x.slot ?? 999) - (y.slot ?? 999));
@@ -645,15 +1023,17 @@ function tileFor(a) {
     t = { el, ring, ch, qb, spr, tn, tm, sig: '' };
     tileEls.set(a.id, t);
   }
-  const meta = tileMeta(a);
   const cls = tileClass(a);
-  const pct = a.status === 'running' ? ctxPct(a) : 0;
+  const ready = !!a.pet?.ready && cls !== 'wait' && cls !== 'err';
+  const out = outUntil(a) && cls !== 'wait' ? outUntil(a) : '';
+  const meta = ready ? 'ready to hatch' : out ? `out · ${whenText(out)}` : tileMeta(a);
+  const pct = a.status === 'running' && !out ? ctxPct(a) : 0;
   const queued = a.queued || 0;
-  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}`;
+  const sig = `${cls}|${agentName(a)}|${meta}|${pct}|${chipColor(a)}|${queued}|${a.id === S.arg ? 'cur' : ''}|${out}`;
   if (t.sig !== sig) {
     t.sig = sig;
     const cur = a.id === S.arg && S.page === 'home';
-    t.el.className = `tile ${cls}${cur ? ' cur' : ''}`;
+    t.el.className = `tile ${cls}${ready ? ' hatchy' : ''}${out ? ' uout' : ''}${cur ? ' cur' : ''}`;
     t.el.setAttribute('href', cur ? '#home' : `#home/${encodeURIComponent(a.id)}`);
     if (cur) t.el.setAttribute('aria-current', 'true'); else t.el.removeAttribute('aria-current');
     t.tn.textContent = agentName(a);
@@ -667,7 +1047,15 @@ function tileFor(a) {
     t.qb.title = queued ? `${plural(queued, 'prompt')} queued: ${queued === 1 ? 'it goes' : 'they go'} in when this turn ends` : '';
     t.el.setAttribute('aria-label', `${agentName(a)}, ${a.status === 'waiting' ? 'needs you' : meta}${queued ? `, ${queued} queued` : ''}`);
   }
-  setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  if (a.pet) {
+    // Woken from hibernation (it ate): the ice cracks off, once.
+    if (t.mood === 'asleep' && a.pet.mood !== 'asleep') t.wakeUntil = Date.now() + 2000;
+    t.mood = a.pet.mood;
+    setPet(t.spr, a, { waking: Date.now() < (t.wakeUntil || 0) });
+  } else {
+    t.spr.className = 'spr c dk';
+    setSprite(t.spr, poseOf(a), a.tool, a.hat);
+  }
   return t.el;
 }
 
@@ -680,21 +1068,28 @@ function freeSpot(slot, label) {
 }
 
 // Drag a tile onto another (they swap) or onto a free spot: the service
-// keeps the order, so the boards follow.
+// keeps the order, so the boards follow. By project, a tile swaps only with
+// another in its project (there are no free spots there).
 let dragId = null;
+const canDrop = (id) => {
+  if (!dragId || dragId === id) return false;
+  if (!byProject()) return true;
+  const of = (x) => agentsList().find((a) => a.id === x);
+  return !!id && groupKey(of(dragId) || {}) === groupKey(of(id) || {});
+};
 function wireDrag(el, id) {
   el.addEventListener('dragstart', (e) => { dragId = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); });
   el.addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.tile.drop').forEach((x) => x.classList.remove('drop')); });
   wireDrop(el, null, id);
 }
 function wireDrop(el, slot, id) {
-  el.addEventListener('dragover', (e) => { if (dragId && dragId !== id) { e.preventDefault(); el.classList.add('drop'); } });
+  el.addEventListener('dragover', (e) => { if (canDrop(id)) { e.preventDefault(); el.classList.add('drop'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));
   el.addEventListener('drop', async (e) => {
     e.preventDefault();
     el.classList.remove('drop');
     const target = slot ?? agentsList().find((a) => a.id === id)?.slot;
-    if (!dragId || target == null) return;
+    if (!canDrop(id) || target == null) return;
     try { await api('POST', `/v1/agents/${encodeURIComponent(dragId)}/move`, { slot: target }); } catch (ex) { if (ex.status !== 401) toast(ex.message, true); }
     await load('state');
     updateDeck();
@@ -721,6 +1116,104 @@ function reconcile(parent, want) {
   while (parent.children.length > want.length) parent.lastChild.remove();
 }
 
+// ---- Home by project ------------------------------------------------------------------------------
+// Home shows the tiles as the deck has them (All: pages of 16, the default)
+// or under their project (By project: a header per project, No project last,
+// and a chip per project to show only that one). This browser remembers both.
+
+const HOME_PREF = 'settings.home';
+let homePref = { view: 'all', filter: 'all' };
+try {
+  const v = JSON.parse(localStorage.getItem(HOME_PREF) || 'null');
+  if (v && ['all', 'project'].includes(v.view)) homePref = { view: v.view, filter: typeof v.filter === 'string' ? v.filter : 'all' };
+} catch (e) { /* private window */ }
+function setHomePref(patch) {
+  homePref = { ...homePref, ...patch };
+  try { localStorage.setItem(HOME_PREF, JSON.stringify(homePref)); } catch (e) { /* private window */ }
+}
+// byProject: Home's grid is grouped now (the panel view and the agent
+// page's small deck keep their pages).
+const byProject = () => homePref.view === 'project' && S.page === 'home' && !S.panel && hasProjects();
+const NO_PROJECT = 'none';
+const groupKey = (a) => a.project?.id || NO_PROJECT;
+const lastSegment = (p) => p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || p;
+// The switch shows once there are projects, or agents in one.
+const hasProjects = () => (S.projects?.projects || []).length > 0 || agentsList().some((a) => a.project);
+
+// projectGroups: the agents by project, in the Projects list's order (any it
+// doesn't list yet by name), No project last; each in the deck's order.
+function projectGroups() {
+  const list = S.projects?.projects || [];
+  const order = new Map(list.map((p, i) => [p.id, i]));
+  const groups = new Map();
+  for (const a of bySlot()) {
+    const k = groupKey(a);
+    if (!groups.has(k)) groups.set(k, { key: k, name: a.project?.name || 'No project', agents: [], project: list.find((p) => p.id === k) });
+    groups.get(k).agents.push(a);
+  }
+  const rank = (g) => (g.key === NO_PROJECT ? 2e6 : order.get(g.key) ?? 1e6);
+  return [...groups.values()].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
+}
+
+// groupFolders: which of the project's folders its agents are in, with
+// counts, in the project's own order: [{path, n}]. Only when it has more
+// than one folder, or its agents are in more than one.
+function groupFolders(g) {
+  const n = new Map();
+  for (const a of g.agents) if (a.projectFolder) n.set(a.projectFolder, (n.get(a.projectFolder) || 0) + 1);
+  const known = g.project?.paths || g.project?.folders || [];
+  if (known.length < 2 && n.size < 2) return [];
+  const at = (p) => { const i = known.indexOf(p); return i < 0 ? known.length : i; };
+  return [...n].map(([path, c]) => ({ path, n: c })).sort((x, y) => at(x.path) - at(y.path) || y.n - x.n || x.path.localeCompare(y.path));
+}
+
+// The shown filter: a group that is gone shows them all.
+const homeFilter = (groups) => (groups.some((g) => g.key === homePref.filter) ? homePref.filter : 'all');
+
+// homeBar: over the tiles: All or By project, and in By project a chip per
+// project (and No project) with its count.
+function homeBar() {
+  if (!hasProjects()) return null;
+  const view = seg('Show', [{ value: 'all', text: 'All' }, { value: 'project', text: 'By project' }], homePref.view,
+    (v) => { setHomePref({ view: v }); updateDeck(); deck?.bar.querySelector('[aria-checked="true"]')?.focus(); }, { key: 'home-view' });
+  if (homePref.view !== 'project') return [view];
+  const groups = projectGroups();
+  const cur = homeFilter(groups);
+  const chipBtn = (key, text, n) => h('button', {
+    type: 'button', class: `chip fchip${cur === key ? ' fill' : ''}`, 'aria-pressed': cur === key ? 'true' : 'false', 'data-k': `home-filter:${key}`,
+    onclick: () => { setHomePref({ filter: key }); updateDeck(); },
+  }, `${text} ${n}`);
+  return [view, h('div', { class: 'chips', role: 'group', 'aria-label': 'Show the agents of' },
+    chipBtn('all', 'All', agentsList().length), ...groups.map((g) => chipBtn(g.key, g.name, g.agents.length)))];
+}
+
+// fillGroups: a section per project (or only the chosen one), kept per
+// project so the tiles in it move only when they have to.
+const groupEls = new Map();
+function fillGroups() {
+  const groups = projectGroups();
+  const cur = homeFilter(groups);
+  const els = groups.filter((g) => cur === 'all' || g.key === cur).map((g) => {
+    let el = groupEls.get(g.key);
+    if (!el) {
+      el = { head: h('div', { class: 'rule' }), folders: h('p', { class: 'sub pgf' }), grid: h('div', { class: 'grid4' }) };
+      el.sec = h('section', { class: 'pgroup', 'data-group': g.key }, el.head, el.folders, el.grid);
+      groupEls.set(g.key, el);
+    }
+    el.head.replaceChildren(h('h2', {}, g.name), h('span', { class: 'm' }, plural(g.agents.length, 'agent')));
+    const fs = groupFolders(g);
+    el.folders.hidden = !fs.length;
+    put(el.folders, ...fs.flatMap((f, i) => [i ? ' · ' : null, h('span', { title: f.path }, `${lastSegment(f.path)} ${f.n}`)]));
+    el.grid.setAttribute('aria-label', `Agents in ${g.name}`);
+    reconcile(el.grid, g.agents.map(tileFor));
+    return el.sec;
+  });
+  reconcile(deck.groups, els);
+}
+
+// Home's order of agents, for stepping through them with ← →.
+const homeOrder = () => (byProject() ? projectGroups().flatMap((g) => g.agents) : bySlot());
+
 // qrow: an agent that needs you, in the deck's side column.
 function qrow(a) {
   const face = h('span', { class: 'face dk' });
@@ -746,7 +1239,76 @@ function readyRows() {
   for (const d of (S.devices?.devices || []).filter((x) => x.state === 'waiting')) rows.push(rrow(devScreen(d, 'xs'), 'Wants to join', d.name, `#board/${encodeURIComponent(d.id)}`));
   for (const p of (S.ports?.ports || []).filter((x) => x.state === 'new')) rows.push(rrow(icon('usb', 18, 1.8), 'New USB port', p.likely === 'esp32-usb' || p.likelyName ? 'ESP32 board' : p.id, `#new-board/${encodeURIComponent(p.id)}`));
   if (sys.firmware_updates) rows.push(rrow(icon('board', 18, 1.8), 'Board firmware', sys.firmware_updates === 1 ? 'One board can update' : `${say(sys.firmware_updates)} boards can update`, '#updates'));
+  // An egg ready to hatch: opening its agent hatches it.
+  for (const a of agentsList().filter((x) => x.pet?.ready)) {
+    const egg = h('span', { class: 'spr pet' });
+    egg.append(petNode(a.pet, { hat: a.hat, still: true }).node);
+    rows.push(rrow(egg, 'An egg is ready', `${agentName(a)}: open it to see it hatch`, `#home/${encodeURIComponent(a.id)}`));
+  }
   return rows;
+}
+
+// ---- Usage limits -----------------------------------------------------------------------------
+// How much of each account's usage is gone, as Claude Code and Codex report
+// it themselves (state.limits; docs/protocol.md, "Usage limits"): the week,
+// a model's week once it is hit, Codex's buckets. Direct use only, and only
+// as fresh as the last agent that ran in that account.
+
+const limitsList = () => (S.state?.limits || []).filter((l) => (l.windows || []).some((w) => !w.hidden));
+function limitLabel(l, w) {
+  if (w.model) return `${cap(w.model)} · week`;
+  if (l.tool === 'claude' && w.id === 'seven_day') return 'all models · week';
+  return w.label;
+}
+const DAY3 = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+// whenText: "16:40" today, "thu 09:00" within the week, "26 nov" later.
+function whenText(iso) {
+  const d = new Date(iso);
+  if (!+d) return '';
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (d.toDateString() === new Date().toDateString()) return hm;
+  if (d - Date.now() < 6.5 * 86400000) return `${DAY3[d.getDay()]} ${hm}`;
+  return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' }).toLowerCase()}`;
+}
+// outUntil: when an agent whose account (or model) is out can run again.
+const outUntil = (a) => (a.outUntil && new Date(a.outUntil) > Date.now() ? a.outUntil : '');
+// limitsOf: the limits of an agent's account in its tool.
+const limitsOf = (a) => limitsList().find((l) => l.tool === a.tool && (l.account || '') === (a.account?.name || ''));
+function limitColor(l) {
+  if (l.tool !== 'claude' || !l.account) return TOOL_COLORS[l.tool] || '#E8E4DC';
+  const acc = (S.accounts || []).find((x) => x.name === l.account) || agentsList().find((a) => a.account?.name === l.account)?.account;
+  return acc ? acctColor(acc) : TOOL_COLORS.claude;
+}
+function meterEl(used, level, n) {
+  const m = h('span', { class: `umeter ${level}`, 'aria-hidden': 'true' });
+  const lit = Math.round((Math.min(used, 100) / 100) * n);
+  for (let i = 0; i < n; i++) m.append(h('i', { class: i < lit ? 'on' : null }));
+  return m;
+}
+function limitRow(l, w, n = 10) {
+  const out = w.level === 'out' && !w.reset;
+  return h('div', { class: `urow ${w.reset ? 'reset' : w.level}` },
+    h('span', { class: 'k' }, limitLabel(l, w)),
+    meterEl(w.reset ? 0 : w.used, w.level, n),
+    h('span', { class: 'p' }, w.reset ? '–' : out ? 'out' : `${w.used}%`),
+    h('span', { class: 't' }, w.resetsAt ? `${w.reset ? 'reset ' : ''}${whenText(w.resetsAt)}` : ''));
+}
+const staleLimits = (l) => Date.now() - new Date(l.asOf).getTime() > 30 * 60000;
+function limitHead(l) {
+  const sq = h('span', { class: 'sq', 'aria-hidden': 'true' });
+  sq.style.background = limitColor(l);
+  const name = l.tool === 'codex' ? 'Codex' : `${l.account ? `${l.account} · ` : ''}Claude`;
+  return h('div', { class: 'uh' }, sq, h('span', { class: 'nm' }, name), h('span', { class: 'm' }, staleLimits(l) ? `as of ${ago(l.asOf)}` : (l.plan || '')));
+}
+// usageSec: every account's limits, in the deck's side column.
+function usageSec() {
+  const ls = limitsList();
+  if (!ls.length) return null;
+  const hot = ls.filter((l) => l.level !== 'ok').length;
+  return h('section', { class: 'sec usage', id: 'usage' },
+    h('div', { class: 'rule' }, h('h2', {}, 'Usage'), h('span', { class: `m${hot ? ' hot' : ''}` }, hot ? `${say(hot).toLowerCase()} running low` : 'plenty left')),
+    ls.map((l) => h('div', { class: `uacct ${l.level}` }, limitHead(l), (l.windows || []).filter((w) => !w.hidden).map((w) => limitRow(l, w)))),
+    h('p', { class: 'unote' }, 'As Claude Code and Codex report it, for direct use only. It moves while an agent in that account works.'));
 }
 
 function summaryStrip() {
@@ -756,7 +1318,9 @@ function summaryStrip() {
   const nUpd = (appUpdate(u) && S.laterUpdate !== u.version ? 1 : 0) + (sys.firmware_updates || 0);
   const nBoards = boardsWaiting(sys);
   const jump = (id) => (e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
-  return h('nav', { class: 'strip', 'aria-label': 'Summary' },
+  const c = cpuOf();
+  return h('nav', { class: `strip${c ? ' cpu' : ''}`, 'aria-label': 'Summary' },
+    c ? h('a', { href: '#agents/cpu', class: c.busy ? 'hotc' : '' }, h('span', { class: 'n' }, pct(c.percent)), h('span', { class: 'l' }, 'CPU', h('br'), cpuSecond(c))) : null,
     h('a', { href: need ? `#home/${encodeURIComponent(agentsList().find(needsYou).id)}` : '#home', class: need ? 'hotc' : '' }, h('span', { class: 'n' }, String(need)), h('span', { class: 'l' }, need === 1 ? 'agent' : 'agents', h('br'), need === 1 ? 'needs you' : 'need you')),
     h('a', { href: '#updates', onclick: nUpd && S.page === 'home' ? jump('ready') : null }, h('span', { class: 'n' }, String(nUpd)), h('span', { class: 'l' }, nUpd === 1 ? 'update' : 'updates', h('br'), 'ready')),
     h('a', { href: '#boards' }, h('span', { class: 'n' }, String(nBoards)), h('span', { class: 'l' }, nBoards === 1 ? 'board' : 'boards', h('br'), 'waiting')),
@@ -773,11 +1337,13 @@ function drawHome() {
   const list = agentsList();
   if (!list.length && S.state) return drawEmptyDeck();
   const grid = h('div', { class: 'grid4', 'aria-label': 'Agents' });
+  const groups = h('div', { class: 'pgroups' });
+  const bar = h('div', { class: 'homebar' });
   const pager = h('div', { class: 'pager' });
   const side = h('div', { class: 'deckside' });
-  deck = { grid, pager, side, strip: h('div', { class: 'stripwrap' }) };
+  deck = { grid, groups, bar, pager, side, strip: h('div', { class: 'stripwrap' }) };
   fillDeck();
-  return [h('h1', { class: 'sr' }, 'Home'), deck.strip, h('div', { class: 'deckrow' }, h('div', { class: 'deckmain' }, grid, pager), side)];
+  return [h('h1', { class: 'sr' }, 'Home'), deck.strip, h('div', { class: 'deckrow' }, h('div', { class: 'deckmain' }, bar, grid, groups, pager), side)];
 }
 
 function updateDeck() {
@@ -790,21 +1356,35 @@ function updateDeck() {
 
 function fillDeck() {
   const pages = pageCount();
-  S.deckPage = Math.min(S.deckPage || 0, pages - 1);
-  reconcile(deck.grid, cells(S.deckPage));
-  slideIn(deck.grid);
-  const onPage = agentsList().filter((a) => Math.floor((a.slot ?? 0) / SPOTS) === S.deckPage).length;
-  const pageBtns = [];
-  for (let p = 0; p < pages + (onPage === SPOTS && S.deckPage === pages - 1 ? 1 : 0); p++) {
-    const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
-    pageBtns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === S.deckPage ? 'page' : null, 'aria-label': `Page ${p + 1}${hot ? ', an agent there needs you' : ''}`,
-      onclick: () => goPage(p) }, String(p + 1)));
+  S.deckPage = Math.max(0, Math.min(S.deckPage || 0, pages - 1)); // the Needs you screen is Panel view's
+  const grouped = byProject();
+  const bar = homeBar();
+  deck.bar.hidden = !bar;
+  if (bar) put(deck.bar, ...bar);
+  deck.grid.hidden = grouped;
+  deck.groups.hidden = !grouped;
+  const viewSeg = seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' });
+  if (grouped) {
+    reconcile(deck.grid, []);
+    fillGroups();
+    const n = deck.groups.querySelectorAll('.tile').length;
+    deck.pager.replaceChildren(h('span', { class: 'sub' }, `${plural(n, 'agent')}${n < agentsList().length ? ` of ${agentsList().length}` : ''}`), h('span', { class: 'sp' }), viewSeg);
+  } else {
+    reconcile(deck.groups, []);
+    reconcile(deck.grid, cells(S.deckPage));
+    slideIn(deck.grid);
+    const onPage = agentsList().filter((a) => Math.floor((a.slot ?? 0) / SPOTS) === S.deckPage).length;
+    const pageBtns = [];
+    for (let p = 0; p < pages + (onPage === SPOTS && S.deckPage === pages - 1 ? 1 : 0); p++) {
+      const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
+      pageBtns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === S.deckPage ? 'page' : null, 'aria-label': `Page ${p + 1}${hot ? ', an agent there needs you' : ''}`,
+        onclick: () => goPage(p) }, String(p + 1)));
+    }
+    deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
+      h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }), viewSeg);
   }
-  deck.pager.replaceChildren(h('span', { class: 'kl' }, 'Page'), ...pageArrows(pageBtns, pageBtns.length),
-    h('span', { class: 'sub' }, `${plural(onPage, 'agent')}${onPage < SPOTS ? ` · ${SPOTS - onPage} free` : ''}`), h('span', { class: 'sp' }),
-    seg('View', [{ value: 'grid', text: 'Grid' }, { value: 'panel', text: 'Panel' }], 'grid', (v) => { if (v === 'panel') { S.panel = true; draw(true); document.activeElement?.blur(); } }, { key: 'view' }));
   const lost = agentsList().filter((a) => a.lost);
-  put(deck.strip, summaryStrip(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
+  put(deck.strip, summaryStrip(), cpuBlock(), lost.length ? h('div', { class: 'blk lostbar' }, h('div', { class: 'row thin' },
     h('span', { class: 'txt grow' }, `${lost.length === 1 ? 'One agent was' : `${say(lost.length)} agents were`} lost with tmux. Restore brings ${lost.length === 1 ? 'it' : 'them'} back where ${lost.length === 1 ? 'it' : 'they'} stopped.`),
     btn('Restore all', (e) => busy(e.currentTarget, async () => { await api('POST', '/v1/restore', {}); await load('state'); updateDeck(); }, 'Restoring'), 'p', { 'data-k': 'restore-all' }))) : null);
   const need = agentsList().filter(needsYou);
@@ -815,14 +1395,14 @@ function fillDeck() {
     ready.length ? h('div', { class: 'qlist' }, ready) : null);
   const title = need.length ? h('p', { class: 'serif big' }, `${say(need.length)} need`, need.length === 1 ? 's ' : ' ', h('em', {}, 'you.'))
     : h('p', { class: 'serif big' }, 'Nothing needs ', h('em', {}, 'you.'));
-  deck.side.replaceChildren(title, needsSec, readySec);
+  put(deck.side, title, needsSec, readySec, usageSec());
 }
 
 // Turning the deck's pages: the numbers, ‹ ›, and ← → all come here; the
 // tiles slide in from the side you turned to.
 function goPage(p) {
   const cur = S.deckPage || 0;
-  if (p === cur || p < 0 || p >= Math.max(pageCount(), 1) + 1) return;
+  if (p === cur || p < (S.panel ? NEEDS : 0) || p >= Math.max(pageCount(), 1) + 1) return;
   S.slide = p > cur ? 1 : -1;
   S.deckPage = p;
   if (S.panel) updatePanel(); else updateDeck();
@@ -834,36 +1414,102 @@ function slideIn(el) {
   el.classList.add(S.slide > 0 ? 'slide-next' : 'slide-prev');
   S.slide = 0;
 }
-function pageArrows(btns, count) {
+function pageArrows(btns, count, min = 0) {
   const cur = S.deckPage || 0;
-  const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < 0 || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
+  const arr = (dir, label, glyph) => h('button', { type: 'button', class: 'pg arr', 'aria-label': label, disabled: cur + dir < min || cur + dir >= count, onclick: () => goPage(cur + dir) }, glyph);
   return [arr(-1, 'Previous page (←)', '‹'), ...btns, arr(1, 'Next page (→)', '›')];
+}
+// The "Needs you" screen, one step left of the first page in Panel view, as
+// on the wall panel and in the menu bar app: the agents at work, asking or
+// hungry, each in the spot the service gave it (attentionSlot), or in deck
+// order from a service that gives none.
+const NEEDS = -1;
+const onNeedsYou = (a) => ['starting', 'running', 'waiting'].includes(a.status) || hungry(a);
+function needsYouSpots() {
+  const spots = Array(SPOTS).fill(null);
+  let placed = 0;
+  for (const a of agentsList()) {
+    const s = a.attentionSlot || 0;
+    if (s >= 1 && s <= SPOTS && !spots[s - 1]) { spots[s - 1] = a; placed++; }
+  }
+  const wanting = bySlot().filter(onNeedsYou);
+  if (!placed && wanting.length) {
+    wanting.slice(0, SPOTS).forEach((a, i) => { spots[i] = a; });
+    return { spots, count: wanting.length };
+  }
+  return { spots, count: placed + wanting.filter((a) => !a.attentionSlot).length };
+}
+function panelCells(page) {
+  if (page !== NEEDS) return cells(page);
+  return needsYouSpots().spots.map((a) => (a ? tileFor(a) : h('div', { class: 'tile free nyfree', 'aria-hidden': 'true' })));
 }
 function panelPager() {
   const pages = pageCount();
-  const btns = [];
+  const cur = S.deckPage || 0;
+  const { count } = needsYouSpots();
+  // its mark, at the left of the page buttons: how many are there, solid
+  // orange while you are on it
+  const btns = [h('button', { type: 'button', class: 'pg ny', 'aria-current': cur === NEEDS ? 'page' : null, 'aria-label': `Needs you: ${count} ${count === 1 ? 'agent' : 'agents'} (←)`,
+    title: 'Needs you: the agents at work, asking you or hungry', onclick: () => goPage(NEEDS) }, cur === NEEDS ? '' : String(count))];
   for (let p = 0; p < pages; p++) {
     const hot = agentsList().some((a) => needsYou(a) && Math.floor((a.slot ?? 0) / SPOTS) === p);
-    btns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === (S.deckPage || 0) ? 'page' : null, 'aria-label': `Page ${p + 1}`, onclick: () => goPage(p) }, String(p + 1)));
+    btns.push(h('button', { type: 'button', class: `pg${hot ? ' hot' : ''}`, 'aria-current': p === cur ? 'page' : null, 'aria-label': `Page ${p + 1}`, onclick: () => goPage(p) }, String(p + 1)));
   }
-  return pageArrows(btns, pages);
+  return pageArrows(btns, pages, NEEDS);
 }
 // panelHead: the line over the panel's grid, as the panel draws it: how
 // many agents, how many wait for you and how many run.
 function panelHead() {
   const all = agentsList();
   const wait = all.filter(needsYou).length, run = all.filter((a) => a.status === 'running').length;
-  return h('div', { class: 'pvhead mono' }, h('span', { class: 'pvface' }, critter({ pose: 'hi', body: '#FF4D00', cut: '#000' })), h('span', {}, `×${all.length}`), h('span', { class: 'sp' }),
+  return h('div', { class: 'pvhead mono' }, h('span', { class: 'pvface' }, critter({ pose: 'hi', body: '#FF4D00', cut: '#000' })), h('span', {}, `×${all.length}`),
+    (S.deckPage || 0) === NEEDS ? h('span', { class: 'acc' }, ' · needs you') : null, h('span', { class: 'sp' }),
     wait ? h('span', { class: 'acc' }, `${wait} wait`) : null, wait && run ? ' · ' : null, run ? h('span', { class: 'acc' }, `${run} run`) : null);
 }
 function updatePanel() {
   syncBar();
   const g = $('.pgrid');
   if (!g) return draw(true);
-  reconcile(g, cells(S.deckPage || 0));
+  reconcile(g, panelCells(S.deckPage || 0));
   slideIn(g);
   $('.pvhead')?.replaceWith(panelHead());
   $('.pvpager')?.replaceChildren(...panelPager());
+  fitPanel();
+}
+
+// fitPanel sizes Panel view's screen in whole pixels: 4 x 4 tiles of a
+// whole, even width (so a pet centres on whole pixels), rows a little
+// shorter than wide so the head line fits the square (as the wall panel
+// does), even 6 px gaps; the screen lands on whole pixels, and so does
+// every pet. Tiles never overlap or touch.
+const PANEL = { max: 636, pad: 14, gap: 6, head: 26 };
+function fitPanel() {
+  const scr = $('.pvscreen'), g = $('.pgrid');
+  if (!scr || !g) return;
+  const barred = document.documentElement.classList.contains('barred');
+  const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480;
+  const side = window.innerWidth <= 900 ? 28 : barred ? bar + 60 : 380;
+  const avail = Math.floor(Math.min(PANEL.max, window.innerHeight - 150, window.innerWidth - side));
+  const inner = avail - 2 * PANEL.pad - 3 * PANEL.gap;
+  const cell = Math.max(48, Math.floor(inner / 4) & ~1);
+  const row = Math.max(48, Math.floor((inner - PANEL.head) / 4));
+  scr.style.setProperty('--pc', `${cell}px`);
+  scr.style.setProperty('--pr', `${row}px`);
+  scr.style.width = `${4 * cell + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  scr.style.height = `${PANEL.head + 4 * row + 3 * PANEL.gap + 2 * PANEL.pad}px`;
+  // centred in its column: move it back onto whole pixels
+  scr.style.transform = '';
+  const r = scr.getBoundingClientRect();
+  const dx = Math.round(r.left) - r.left, dy = Math.round(r.top) - r.top;
+  if (dx || dy) scr.style.transform = `translate(${dx}px, ${dy}px)`;
+  for (const el of g.querySelectorAll('.spr.pet')) {
+    el.style.transform = '';
+    // against its tile: the page may be sliding in (a transform on the grid)
+    const p = el.getBoundingClientRect(), t = el.closest('.tile')?.getBoundingClientRect() || { left: 0, top: 0 };
+    const ox = p.left - t.left, oy = p.top - t.top;
+    const px = Math.round(ox) - ox, py = Math.round(oy) - oy;
+    if (px || py) el.style.transform = `translate(${px}px, ${py}px)`;
+  }
 }
 
 // Nothing on the deck yet: start one in a project, or add a session.
@@ -888,8 +1534,9 @@ function drawEmptyDeck() {
 // Panel view: the page as the wall panel draws it, for a spare screen.
 function drawPanel() {
   deck = null;
-  const grid = h('div', { class: 'grid4 pgrid' }, cells(S.deckPage || 0));
-  const leave = () => { S.panel = false; history.replaceState(null, '', location.pathname + location.hash); draw(true); };
+  const grid = h('div', { class: 'grid4 pgrid' }, panelCells(S.deckPage || 0));
+  requestAnimationFrame(fitPanel);
+  const leave = () => { S.panel = false; S.deckPage = Math.max(0, S.deckPage || 0); history.replaceState(null, '', location.pathname + location.hash); draw(true); };
   const legend = (cls, text) => h('div', { class: 'lg' }, h('span', { class: `sw4 ${cls}`, 'aria-hidden': 'true' }), h('span', { class: 'kl' }, text));
   return h('div', { class: 'panelview', role: 'dialog', 'aria-label': 'Panel view' },
     h('div', { class: 'pvbar' }, h('h1', { class: 'eyebrow acc' }, 'Panel view'), h('span', { class: 'sub' }, 'as the wall panel shows it'), h('span', { class: 'sp' }),
@@ -897,7 +1544,7 @@ function drawPanel() {
       h('button', { type: 'button', class: 'btn sm', 'data-k': 'pv-leave', onclick: leave }, icon('back', 14), 'Leave · Esc')),
     h('div', { class: 'pvbody' }, h('div', { class: 'pvside' }),
       h('div', { class: 'pvscreen' }, panelHead(), grid),
-      h('div', { class: 'pvside' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
+      h('div', { class: 'pvid' }, legend('w', 'needs you'), legend('r', 'context used'), legend('hg', 'hungry'), legend('i', 'idle'))),
     h('div', { class: 'pager pvpager' }, ...panelPager()));
 }
 
@@ -1035,6 +1682,10 @@ function agentHead(a) {
   const mascot = h('button', { type: 'button', class: `tile ${tileClass(a)} mascot`, 'aria-label': `Change the hat of ${agentName(a)}`, 'aria-expanded': 'false', disabled: !a.cwd });
   const spr = h('span', { class: 'spr c dk' });
   mascot.append(spr);
+  // With Agent pets on, the pet stands here doing its pose, and the hat
+  // can't be changed (the pet wears its own): no button.
+  const petSpr = h('span', { class: 'spr pet' });
+  const petBox = h('div', { class: `tile ${tileClass(a)} mascot`, hidden: true }, petSpr);
   const holder = h('div', {});
   mascot.addEventListener('click', () => {
     const open = mascot.getAttribute('aria-expanded') === 'true';
@@ -1045,11 +1696,17 @@ function agentHead(a) {
   const eyebrow = h('span', { class: 'eyebrow dim' });
   const status = h('span', { class: 'chip st2' });
   const chips = h('div', { class: 'chips' });
-  const el = h('div', { class: 'ahead' }, mascot, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
+  const el = h('div', { class: 'ahead' }, mascot, petBox, h('div', { class: 'grow' }, eyebrow, h('h1', { class: 'sm', tabindex: '-1' }, agentName(a)), chips));
   return {
     el: h('div', {}, el, holder),
     update: (x) => {
-      setSprite(spr, poseOf(x), x.tool, x.hat);
+      mascot.hidden = !!x.pet;
+      petBox.hidden = !x.pet;
+      if (x.pet) {
+        if (mascot.getAttribute('aria-expanded') === 'true') { mascot.setAttribute('aria-expanded', 'false'); holder.replaceChildren(); }
+        setPet(petSpr, x);
+        petBox.className = `tile ${tileClass(x)} mascot`;
+      } else setSprite(spr, poseOf(x), x.tool, x.hat);
       mascot.className = `tile ${tileClass(x)} mascot`;
       eyebrow.replaceChildren(...[TOOL_NAMES[x.tool] || x.tool || '', x.account ? ' · ' : '', x.account ? sw : '', x.account ? x.account.name : ''].filter((v) => v !== ''));
       if (x.account) sw.style.background = acctColor(x.account);
@@ -1073,15 +1730,22 @@ function queuedBy(by) {
 
 // queueBlock: the prompts queued for an agent, each with Cancel. They go in
 // one at a time, as each turn ends; it reads them again when the count or
-// the status changes.
+// the status changes. While the CPU guard holds the queue, they say Held, and
+// Send now sends them anyway.
 function queueBlock(a, note) {
   const list = h('div', { class: 'blk qlist2' });
-  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true },
-    h('div', { class: 'rule' }, h('h2', {}, 'Queued'), h('span', { class: 'm' }, 'each goes in when a turn ends')), list);
+  const rule = h('div', { class: 'rule' });
+  const el = h('section', { class: 'sec', 'data-sec': 'queued', hidden: true }, rule, list);
   let sig = null;
   const show = (items) => {
     el.hidden = !items.length;
-    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`,
+    const held = !!S.system?.cpu?.hold && items.length > 0;
+    put(rule, h('h2', {}, 'Queued'), held
+      ? [h('span', { class: 'm acc2' }, `Held: the ${machine()} is busy`),
+        h('button', { type: 'button', class: 'go', 'data-k': 'cpu-release-queue', onclick: (e) => cpuRelease(e.currentTarget) }, 'Send now →')]
+      : h('span', { class: 'm' }, 'each goes in when a turn ends'));
+    list.replaceChildren(...items.map((it, i) => row(it.text, `${i === 0 ? 'next' : `${i + 1}.`} · ${queuedBy(it.by)} · ${ago(it.queuedAt)}`, [
+      held ? chip('Held', 'acc held', null, { title: `Held until the ${machine()} is calm` }) : null,
       btn('Cancel', (e) => busy(e.currentTarget, async () => {
         let gone = false;
         try {
@@ -1094,11 +1758,12 @@ function queueBlock(a, note) {
         await load('state');
         updateDeck();
         return gone;
-      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` }),
+      }, (gone) => (gone ? 'It was sent already' : 'Cancelled: it won\'t be sent')), '', { 'aria-label': `Cancel the queued prompt: ${it.text.slice(0, 60)}`, 'data-k': `qcancel-${it.id}` })],
       { cls: 'qitem' })));
   };
   const update = async (x) => {
-    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}`;
+    // Read again when the CPU guard starts or stops holding, too.
+    const want = `${x.queued || 0}|${x.status}|${x.statusSince || ''}|${S.system?.cpu?.hold ? 'held' : ''}`;
     if (want === sig) return;
     sig = want;
     if (!x.queued) { show([]); return; }
@@ -1216,6 +1881,7 @@ function buildAgent(a, body, view = agentView) {
   sCtx.append(h('div', { class: 'prog' }, prog));
   const doingBar = h('div', { class: 'bar' });
   const doing = h('div', { class: 'body' });
+  const lastLbl = h('span', { class: 'kl' });
   const last = h('p', { class: 'txt' });
   const lastWhen = h('span', { class: 'sub' });
   const foot = h('p', { class: 'sub' });
@@ -1245,7 +1911,7 @@ function buildAgent(a, body, view = agentView) {
   }
   put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
-    h('div', { class: 'grow' }, h('span', { class: 'kl' }, 'Last prompt'), last, lastWhen), promptBox, qb.el, acts, note, foot);
+    h('div', { class: 'grow' }, lastLbl, last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
@@ -1269,8 +1935,10 @@ function buildAgent(a, body, view = agentView) {
       doingBar.replaceChildren(h('i', {}), 'status');
       doing.replaceChildren(h('div', { class: 'd' }, x.status === 'idle' ? `finished ${rel(x.statusSince)} ago${x.unseen ? ' · nobody has looked yet' : ''}` : x.status === 'starting' ? 'starting…' : `ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`));
     }
-    last.textContent = x.lastPrompt || '–';
-    lastWhen.textContent = lastActive(x);
+    const ls = lastShown(x);
+    lastLbl.textContent = ls.label;
+    last.textContent = ls.text;
+    lastWhen.textContent = ls.label === 'Last answer' ? (ls.at ? `answered ${ageMin(ls.at) < 1 ? 'just now' : `${rel(ls.at)} ago`}` : '') : lastActive(x);
     foot.textContent = [tilde(x.cwd), S.state?.server?.name].filter(Boolean).join(' · ');
   };
 }
@@ -1287,13 +1955,110 @@ let bar = null; // { el, body, id, key, update, answer }
 function barEl() {
   if (bar) return bar;
   const body = h('div', { class: 'abbody' });
-  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body));
+  const pane = h('section', { class: 'abpane', 'aria-label': 'Its pet' });
+  const el = h('aside', { class: 'agentbar', id: 'agentbar', 'aria-label': 'Agent', 'aria-hidden': 'true', inert: '' }, h('div', { class: 'abin' }, body, pane));
   document.body.append(el);
-  bar = { el, body, id: '', key: '', update: null, answer: null };
+  bar = { el, body, pane, id: '', key: '', update: null, answer: null, pet: '', petSig: '' };
   return bar;
 }
 
 function closeBar() { if (S.page === 'home' && S.arg) location.hash = '#home'; }
+
+// openPet shows the agent's pet in the sidebar, widened over the deck, or
+// goes back to the chat. Nothing opens it but you.
+function openPet(on) {
+  const b = barEl();
+  b.pet = on ? b.id : '';
+  b.petSig = '';
+  syncBar();
+  (on ? b.pane.querySelector('[data-k="pet-back"]') : b.body.querySelector('[data-k="bar-pet"]'))?.focus({ preventScroll: true });
+}
+const petOpen = () => !!bar?.pet && bar.pet === bar.id && bar.el.classList.contains('petv');
+
+// fillPet draws the pet's view across the widened sidebar: the pet big on a
+// square stage, beside it its name, what it is and its level bar with the
+// numbers; then its numbers in a row, the stages it grows through and what
+// comes next.
+function fillPet(pane, a) {
+  const p = a.pet;
+  const hatch = Date.now() < (hatching.get(a.id) || 0), born = Date.now() < (bornUntil.get(a.id) || 0);
+  const sig = JSON.stringify([p, a.hat, poseOf(a), a.id, hatch, born, !!S.panel]);
+  if (bar.petSig === sig) return;
+  bar.petSig = sig;
+  const mystery = !p.hat && (p.level || 0) < 5;
+  const big = h('span', { class: 'spr pet' });
+  setPet(big, a, { mystery });
+  const lv = p.level || 0;
+  const egg = p.stage === 'egg';
+  const from = egg ? 0 : (p.levelFrom ?? levelAt(lv, p)), to = p.nextAt || levelAt(lv + 1, p);
+  const pct = Math.max(0, Math.min(100, Math.round(((p.ate - from) / Math.max(1, to - from)) * 100)));
+  const left = Math.max(0, to - p.ate);
+  const N = (n) => Math.round(n).toLocaleString();
+  const hatched = p.hatchedAt ? new Date(p.hatchedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const stat = (name, cls, value, sub, extra) => h('div', { class: `pvstat ${cls}` }, h('span', { class: 'pvk' }, name), h('b', { class: 'pvv' }, value), extra || null, h('span', { class: 'pvs' }, sub));
+  const hearts = h('span', { class: 'pvhearts' });
+  for (let i = 0; i < MAX_HEARTS; i++) hearts.append(svgNode(heartSVG(i < (p.hearts || 0))));
+  // The level bar: where this level started, the tokens now, the next level.
+  const level = h('div', { class: 'pvlevel' },
+    h('div', { class: 'pvlh' },
+      h('span', { class: 'pvk' }, egg ? (p.ready ? 'Ready to hatch' : 'Until it hatches') : `Level ${lv} → ${lv + 1}`),
+      h('b', { class: 'pvpct' }, `${pct}%`)),
+    h('span', { class: 'petbar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct),
+      'aria-label': egg ? 'Food until it hatches' : `Food to level ${lv + 1}` }, barFill(pct)),
+    h('div', { class: 'pvnums' },
+      h('span', {}, h('b', {}, N(p.ate)), ' tokens now'),
+      h('span', { class: 'r' }, h('b', {}, N(to)), egg ? ' to hatch' : ` for level ${lv + 1}`)),
+    h('span', { class: 'pvleft' }, egg && p.ready ? (hatch ? 'Hatching…' : 'It hatches now that you are here.') : `${N(left)} tokens to go${egg ? '' : `, from ${N(from)} where level ${lv} began`}`));
+  const at = STAGES.indexOf(p.stage);
+  // Each stage as this pet looks there: its own hat from a kid on, its aura
+  // from strong on; the "?" of a hat not found yet only on the stage it is
+  // at. Stages not reached are dark shapes.
+  const small = (stage, sil, here) => {
+    const s2 = h('span', { class: 'spr pet' });
+    s2.append(petNode({ stage, mood: 'fed', ate: stage === 'egg' ? p.ate : 0, ready: stage === 'egg' && p.ready, hat: sil ? null : p.hat },
+      { hat: a.hat, still: true, glow: !sil, sil, mystery: here && !p.hat && lv < 5 }).node);
+    return s2;
+  };
+  const growth = h('ol', { class: 'pvgrow' }, STAGES.map((st, i) =>
+    h('li', { class: i === at ? 'on' : i > at ? 'off' : '', 'aria-current': i === at ? 'step' : null },
+      h('span', { class: 'pvst' }, small(st, i > at ? '#3B3A36' : '', i === at)),
+      h('span', { class: 'pvsn' }, STAGE_NAMES[st]), h('span', { class: 'pvsl' }, i > at ? `level ${STAGE_LEVEL[st]}` : i === at ? 'now' : 'done'))));
+  const next = STAGES[at + 1];
+  const nextAt = next ? levelAt(STAGE_LEVEL[next], p) : 0;
+  const nextEl = next
+    ? h('div', { class: 'pvnext' }, h('span', { class: 'pvst' }, small(next, '#55524B')), h('div', {},
+      h('span', { class: 'pvk' }, `Next · level ${STAGE_LEVEL[next]}`), h('b', {}, next === 'baby' ? 'It hatches' : `${STAGE_NAMES[next]}${next === 'kid' ? ': its hat shows' : STAGE_LEVEL[next] >= 20 ? ': a new glow' : ''}`),
+      h('span', { class: 'pvs' }, `at ${N(nextAt)} tokens eaten, ${N(Math.max(0, nextAt - p.ate))} to go`)))
+    : h('div', { class: 'pvnext' }, h('div', {}, h('span', { class: 'pvk' }, 'Next'), h('b', {}, 'Every stage reached'), h('span', { class: 'pvs' }, 'Levels go on: there is no top.')));
+  const hatName = p.hat ? `${p.hat.color} ${p.hat.shape}` : '?';
+  put(pane,
+    h('div', { class: 'pvhd' },
+      h('button', { type: 'button', class: 'pvback', 'data-k': 'pet-back', onclick: () => openPet(false) }, icon('back', 14, 2.2), 'Back to the chat'),
+      h('span', { class: 'pvt' }, `${agentName(a)} · its pet`),
+      h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc closes the pet)', title: 'Close', onclick: closeBar }, icon('x', 16, 2.2))),
+    h('div', { class: 'pvbd' },
+      S.panel ? h('div', { class: 'pvacts' }, h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'pet-back-sq', 'aria-label': 'Back to the agent', title: 'Back to the agent', onclick: () => openPet(false) }, icon('back', 14, 2.2))) : null,
+      h('div', { class: 'pvtop' },
+        h('div', { class: 'pvbox' }, big),
+        h('div', { class: 'petid' },
+          h('div', { class: 'pvinfo' },
+            h('h2', { class: 'serif pvname' }, agentName(a)), // its agent's name: pets' own names aren't shown for now
+            h('span', { class: 'pvkind' }, `${petKind(p)} · level ${lv}`),
+            h('span', { class: 'pvline dim' }, hatched ? `Hatched ${hatched}` : p.ready ? 'Ready to hatch' : `Hatches at ${N(to)} tokens`)),
+          level)),
+      h('div', { class: 'pvstats' },
+        stat('Strength', 'hp', `${p.hearts || 0} of ${MAX_HEARTS}`, MOOD_NAMES[p.mood] || p.mood || '', hearts),
+        stat('Ate', 'ate', N(p.ate), 'tokens, input and output, all time'),
+        stat('Hat', 'hat', hatName, p.hat ? 'found when it hatched' : 'a surprise: it shows at level 5'),
+        stat('Hatched', 'age', hatched || 'not yet', hatched ? `on ${agentName(a)}` : p.ready ? 'open its agent to see it' : `at ${N(to)} tokens`)),
+      h('div', { class: 'pvsec' }, h('span', { class: 'pvk' }, 'Growth'), growth),
+      nextEl));
+}
+const barFill = (pct) => { const i = h('i', {}); i.style.width = `${pct}%`; return i; };
+function svgNode(str) {
+  const doc = new DOMParser().parseFromString(str.replace('<svg ', `<svg xmlns="${NS}" `), 'image/svg+xml');
+  return document.importNode(doc.documentElement, true);
+}
 
 // syncBar opens, fills or closes the sidebar for the page and the state.
 function syncBar() {
@@ -1306,7 +2071,8 @@ function syncBar() {
   b.el.setAttribute('aria-hidden', open ? 'false' : 'true');
   b.el.inert = !open;
   fitDeck(open);
-  if (!a) { b.key = ''; b.answer = null; return; } // the last agent stays while it slides out
+  if (!a) { b.key = ''; b.answer = null; b.pet = ''; b.el.classList.remove('petv'); return; } // the last agent stays while it slides out
+  if (b.pet && b.pet !== a.id) b.pet = ''; // another agent: its chat
   const key = agentKey(a);
   if (b.id !== a.id || b.key !== key) {
     const hadFocus = b.body.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT';
@@ -1316,26 +2082,42 @@ function syncBar() {
     if (swapped) b.el.querySelector('.abin').scrollTop = 0;
     if (hadFocus) b.body.querySelector('h2')?.focus({ preventScroll: true });
   }
+  if (!a.pet?.ready && hatching.get(a.id) === 0) hatching.delete(a.id); // it hatched
+  seeHatch(a); // you see its sidebar: a ready egg hatches
   b.update(a);
+  const pet = !!b.pet && !!a.pet; // pets turned off: back to the chat
+  b.el.classList.toggle('petv', pet);
+  b.body.hidden = pet;
+  b.pane.hidden = !pet;
+  if (pet) fillPet(b.pane, a);
+  fitPanel();
+  fitDeck(open); // again, now that it is the chat or the pet: back to the chat scales the deck back at once
 }
 
-// fitDeck scales the deck down (never up) so it keeps clear of the
-// sidebar: a true scale, so names and critters shrink together.
+// fitDeck narrows the deck (never widens it) so it keeps clear of the
+// sidebar: the tiles get narrower and pets switch to their smaller whole-
+// pixel size, never a fractional scale (that blurs the pixels).
 function fitDeck(open) {
   const m = deck?.grid.isConnected ? deck.grid.parentElement : null;
   if (!m) return;
-  let z = 1;
+  const b = barEl();
+  if (open && b.el.classList.contains('petv')) return; // the pet covers the deck: it keeps its size for the way back
+  let max = '';
   if (open && window.innerWidth > 900) {
-    const room = window.innerWidth - barEl().el.offsetWidth - m.getBoundingClientRect().left - 24;
-    z = Math.max(0.5, Math.min(1, room / m.offsetWidth));
+    // The sidebar's width as it will be, not as it is mid-slide: reading
+    // offsetWidth while the pet view shrinks back gave the old, wide one.
+    const w = Math.min(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar')) || 480, window.innerWidth);
+    const room = window.innerWidth - w - m.getBoundingClientRect().left - 24;
+    max = `${Math.max(280, Math.floor(room))}px`;
   }
-  m.style.setProperty('--dz', z.toFixed(3));
+  m.style.maxWidth = max;
 }
-window.addEventListener('resize', () => fitDeck(document.documentElement.classList.contains('barred')));
+window.addEventListener('resize', () => { fitDeck(document.documentElement.classList.contains('barred')); fitPanel(); });
 
 // buildBar fills the sidebar as the design draws it: the critter, tool and
 // ×; the name in serif with its state; then the question and its answers, or
-// what it does now and the last prompt; the prompt box and the queue; and at
+// what it does now and the last prompt (its last answer once it has
+// finished); the prompt box and the queue; and at
 // the bottom the numbers, Focus / Interrupt and Full page ↗.
 function buildBar(a, body, view) {
   const label = (text, more) => h('span', { class: 'ablbl' }, text, more ? h('span', { class: 'dimx' }, ` · ${more}`) : null);
@@ -1345,11 +2127,21 @@ function buildBar(a, body, view) {
 
   // head
   const spr = h('span', { class: 'spr c dk' });
+  // With pets on, its pet takes the corner, on a black square: a click opens
+  // the pet's view. Beside it two lines (tool · branch; the pet's name, stage
+  // and level), and under them a slim bar to its next level.
+  const petSpr = h('span', { class: 'spr pet' });
+  const petBtn = h('button', { type: 'button', class: 'abpet', hidden: true, 'aria-label': 'Its pet', title: 'Its pet', 'data-k': 'bar-pet', onclick: () => openPet(true) }, petSpr);
   const meta = h('span', { class: 'abmeta' });
+  const petLine = h('span', { class: 'abpetln', hidden: true });
+  const petHearts = h('span', { class: 'abhearts', hidden: true }); // its hearts, as on the menu bar app's agent page
+  const progFill = h('i', {});
+  const progTxt = h('span', { class: 'abptx' });
+  const prog = h('div', { class: 'abprog', hidden: true }, h('span', { class: 'abpbar', 'aria-hidden': 'true' }, progFill), progTxt);
   const tag = h('span', { class: 'abtag' });
   const sum = h('span', { class: 'absum' });
   const head = [
-    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr), meta,
+    h('div', { class: 'abtop' }, h('span', { class: 'abpic' }, spr, petBtn), h('div', { class: 'abhd' }, meta, h('div', { class: 'abpetrow' }, petLine, petHearts), prog),
       h('button', { type: 'button', class: 'abx', 'aria-label': 'Close (Esc)', title: 'Close · Esc', 'data-k': 'bar-close', onclick: closeBar }, icon('x', 16, 2.2))),
     h('div', { class: 'abnmrow' }, h('h2', { class: 'serif abname', tabindex: '-1', title: agentName(a) }, agentName(a)), tag),
     sum,
@@ -1435,7 +2227,7 @@ function buildBar(a, body, view) {
     const plain = h('p', { class: 'abplain' });
     const lastLbl = h('span', { class: 'ablbl' });
     const last = h('p', { class: 'ablast' });
-    // A long prompt shows 20 lines; "Show all" opens the rest.
+    // A long prompt or answer shows 20 lines; "Show all" opens the rest.
     const more = h('button', { type: 'button', class: 'abu abmore', hidden: true, onclick: () => {
       const open = last.classList.toggle('open');
       more.textContent = open ? 'Show less' : 'Show all';
@@ -1469,10 +2261,12 @@ function buildBar(a, body, view) {
             : x.status === 'starting' ? 'Starting…' : `Ended ${rel(x.statusSince)} ago${x.resumable ? ' · it can resume' : ''}`;
         doing.hidden = true; plain.hidden = false;
       }
-      const when = x.lastActive ? rel(x.lastActive) : '';
-      lastLbl.replaceChildren('Last prompt', when ? h('span', { class: 'dimx' }, ` · ${ageMin(x.lastActive) < 1 ? 'just now' : `${when} ago`}`) : '');
-      if (last.textContent !== (x.lastPrompt || '–')) {
-        last.textContent = x.lastPrompt || '–';
+      // Finished or ended: what it answered; else what it was asked.
+      const ls = lastShown(x);
+      const when = ls.at ? rel(ls.at) : '';
+      lastLbl.replaceChildren(ls.label, when ? h('span', { class: 'dimx' }, ` · ${ageMin(ls.at) < 1 ? 'just now' : `${when} ago`}`) : '');
+      if (last.textContent !== ls.text) {
+        last.textContent = ls.text;
         requestAnimationFrame(() => { more.hidden = !last.classList.contains('open') && last.scrollHeight <= last.clientHeight + 2; });
       }
     };
@@ -1481,6 +2275,9 @@ function buildBar(a, body, view) {
   // bottom: numbers, actions, keys
   const nums = barNumbers();
   const acts = h('div', { class: 'abacts' });
+  // Panel view: a square Back first, as on the menu bar app's agent page
+  const back = h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'bar-back', 'aria-label': 'Back to the grid', title: 'Back to the grid · Esc', hidden: !S.panel, onclick: closeBar }, icon('back', 14, 2.2));
+  acts.append(back);
   if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
@@ -1490,7 +2287,30 @@ function buildBar(a, body, view) {
 
   put(body, head, mid, h('div', { class: 'abbottom' }, qEl, low, nums.el, acts, note, hint));
   return (x) => {
-    setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
+    spr.hidden = !!x.pet;
+    petBtn.hidden = petLine.hidden = prog.hidden = !x.pet;
+    if (!x.pet) petHearts.hidden = true;
+    back.hidden = !S.panel;
+    if (x.pet) {
+      const p = x.pet;
+      setPet(petSpr, x, { bubble: false });
+      petLine.textContent = p.stage === 'egg' ? `Egg · ${p.ready ? 'ready to hatch' : 'level 0'}` : `${STAGE_NAMES[p.stage] || p.stage} · Lv ${p.level}`;
+      const hs = `${p.hearts || 0}`;
+      petHearts.hidden = p.stage === 'egg';
+      if (petHearts.dataset.n !== hs) {
+        petHearts.dataset.n = hs;
+        petHearts.replaceChildren(...Array.from({ length: MAX_HEARTS }, (_, i) => svgNode(heartSVG(i < (p.hearts || 0), true))));
+        petHearts.title = `${p.hearts || 0} of ${MAX_HEARTS} hearts`;
+        petHearts.setAttribute('aria-label', petHearts.title);
+      }
+      const from = p.stage === 'egg' ? 0 : (p.levelFrom || 0);
+      const pct = Math.max(0, Math.min(100, ((p.ate - from) / Math.max(1, p.nextAt - from)) * 100));
+      progFill.style.width = `${pct.toFixed(1)}%`;
+      const left = fmtN(Math.max(0, p.nextAt - p.ate));
+      progTxt.textContent = p.stage !== 'egg' ? `${left} to Lv ${p.level + 1}` : p.ready ? 'hatching' : `${left} tokens to hatch`;
+      petBtn.title = p.stage !== 'egg' ? `${agentName(x)}'s pet: open` : `${agentName(x)}'s egg: open`;
+      petBtn.setAttribute('aria-label', petBtn.title);
+    } else setSprite(spr, poseOf(x), x.tool, x.hat, { bubble: false });
     put(meta, TOOL_NAMES[x.tool] || x.tool || '', x.account ? [' · ', h('i', { class: 'sw', style: `background:${acctColor(x.account)}` }), x.account.name] : null,
       x.branch ? h('span', { class: 'dimx' }, ` · ${x.branch}`) : null);
     const since = rel(x.statusSince);
@@ -1516,12 +2336,22 @@ function barNumbers() {
   const cell = (k, extra) => { const v = h('dd', {}); return [h('div', {}, h('dt', {}, k), v), v, extra]; };
   const [cIn, vIn] = cell('Tokens in'), [cOut, vOut] = cell('Tokens out'), [cRd, vRd] = cell('Cache read'),
     [cWr, vWr] = cell('Cache write'), [cCost, vCost] = cell('Cost'), [cTurns, vTurns] = cell('Turns');
-  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' },
+  const usage = h('div', { class: 'abusage', hidden: true });
+  const el = h('section', { class: 'abnums', 'aria-label': 'Numbers' }, usage,
     h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Context'), used), pctEl), ticks,
     h('dl', {}, cIn, cOut, cRd, cWr, cCost, cTurns));
   return {
     el,
     update: (x) => {
+      // Its account's usage, over the context: the week, and a model's week once hit.
+      const l = limitsOf(x);
+      usage.hidden = !l;
+      if (l) {
+        const out = outUntil(x);
+        put(usage, h('div', { class: 'abctxh' }, h('span', {}, h('b', {}, 'Usage'), h('small', {}, l.tool === 'codex' ? 'codex' : (l.account || 'claude'))), h('small', {}, ago(l.asOf))),
+          (l.windows || []).filter((w) => !w.hidden).map((w) => limitRow(l, w, 16)),
+          out ? h('p', { class: 'uhint' }, `Out of usage until ${whenText(out)}. ${x.tool === 'claude' && (S.accounts || []).length > 1 ? 'Continue on another account, or let it wait.' : 'It waits until then.'}`) : null);
+      }
       const pct = ctxPct(x);
       const c = x.context || {};
       used.textContent = c.window ? `${fmtN(c.used)} / ${fmtN(c.window)}` : '';
@@ -1540,7 +2370,7 @@ function barNumbers() {
 
 // barStep: ← and → while the sidebar is open go to the agent before or after.
 function barStep(d) {
-  const list = bySlot();
+  const list = homeOrder();
   const i = list.findIndex((x) => x.id === S.arg);
   if (i < 0 || list.length < 2) return;
   location.hash = `#home/${encodeURIComponent(list[(i + d + list.length) % list.length].id)}`;
@@ -1731,9 +2561,17 @@ function drawGeneral() {
     row('The deck in your browser', 'The same app, on this computer only.', [
       APP ? btn('Open in browser', () => { if (!appPost('dashboard')) location.href = '/'; }) : h('a', { class: 'btn sm', href: '/', target: '_blank', rel: 'noreferrer' }, 'Open in a new tab'),
     ], { name: true, pic: termChip('127.0.0.1') }));
+  const pets = [];
+  if (s.pets !== undefined && PETS_SWITCH) { // an older service has no pets
+    const sampleHat = agentsList().find((a) => a.hat)?.hat || { shape: 'top hat', color: 'yellow' };
+    const pic = h('span', { class: 'face petpic' }, h('span', { class: 'spr pet' }, petNode({ stage: 'grown', mood: 'fed', ate: 400000, hat: sampleHat }, { hat: sampleHat, still: true }).node));
+    pets.push(row('Agent pets', 'Every agent gets a pet in place of its critter. It hatches from an egg, eats the agent\'s tokens and grows a level at a time; left alone it gets hungry, and after a week it hibernates until the agent works again. Pets never use tokens of their own: it is all counted from the agent\'s numbers.',
+      [toggle('Agent pets', s.pets, (on, el) => patchSettings({ pets: on }, el))], { name: true, pic }));
+  }
   return [
     head('General', 'How the deck', 'starts.'),
     sec('Starting', null, null, blk(...start)),
+    pets.length ? sec('Agent pets', 'on by default', null, blk(...pets)) : null,
     sec('Notifications', 'a click opens the agent', null, notify),
     sec('For the terminal and the browser', null, null, term),
   ];
@@ -1783,6 +2621,11 @@ function drawAgents() {
       seg('Put sessions on the deck', [{ value: 'auto', text: 'Automatically' }, { value: 'pick', text: 'I choose' }], S.settings.sessions, (v) => patchSettings({ sessions: v })),
     ], { cls: 'tint' }));
   }
+  if (S.settings?.usageEverySession !== undefined) { // an older service has no such setting
+    rows.push(row('Report usage from every Claude session', 'Adds the deck\'s status line to each Claude account\'s settings, so sessions you start yourself show the weekly usage too. Your own status line still shows. Turning it off puts your settings back.', [
+      toggle('Report usage from every Claude session', S.settings.usageEverySession, (on, el) => patchSettings({ usageEverySession: on }, el)),
+    ], { cls: 'tint' }));
+  }
   if (S.errors.live) rows.push(row(`Couldn't list them: ${S.errors.live.message}`, null, [], { cls: 'thin' }));
   else if (!live.length) rows.push(h('div', { class: 'row thin' }, h('span', { class: 'txt dim' }, 'Nothing: every Claude session on this computer is on the deck.')));
   for (const s of live) {
@@ -1816,6 +2659,7 @@ function drawAgents() {
     h('span', { class: 'mono w' }, h('span', { class: 'p' }, '$'), ' agentctl accounts add')));
   out.push(sec('Accounts', a.accounts.length ? plural(a.accounts.length, 'Claude account') : null, null, blk(...acc)));
   out.push(...mcpSection());
+  out.push(cpuSection());
   return out;
 }
 
@@ -1827,13 +2671,10 @@ try { notProjects = JSON.parse(localStorage.getItem('settings.notProjects') || '
 const sameFolder = (cwd, folder) => !!cwd && (cwd === folder || tilde(cwd) === folder || tilde(cwd) === tilde(folder));
 // A project's folders, in full where the service says (older ones have one).
 const projFolders = (p) => (p.paths?.length ? p.paths : p.folders?.length ? p.folders : [p.path || p.folder]).filter(Boolean);
-// An agent works in a project when its folder is one of the project's, or inside one (a worktree, a package).
-const inFolder = (cwd, folder) => {
-  if (!cwd || !folder) return false;
-  const a = tilde(cwd).replace(/\/+$/, ''), b = tilde(folder).replace(/\/+$/, '');
-  return a === b || a.startsWith(`${b}/`);
-};
-const inProject = (cwd, p) => projFolders(p).some((f) => inFolder(cwd, f));
+// The service says which project each agent works in (agent.project): the one whose folder holds its
+// folder, the deepest winning. Until the deck's state catches up with a project just saved, an agent
+// right in one of its folders counts.
+const inProject = (a, p) => (a.project ? a.project.id === p.id : projFolders(p).some((f) => sameFolder(a.cwd, f)));
 const lastPart = (f) => tilde(f).split('/').filter(Boolean).pop() || f;
 
 function projectForm(accs) {
@@ -1896,6 +2737,47 @@ function projectForm(accs) {
       }, `Removed ${editing}`), 'd') : null));
 }
 
+// ---- a project's day: its folders, the agents in each now, and the time they worked today --------
+
+async function loadToday() {
+  const id = S.today?.id;
+  if (!id) return;
+  try {
+    const day = await api('GET', `/admin/v1/projects/${encodeURIComponent(id)}/today`);
+    if (S.today?.id === id) S.today = { id, day };
+  } catch (e) {
+    if (S.today?.id === id) S.today = { id, day: S.today.day, err: e.message };
+  }
+}
+
+// mins: "45 min", "2 h 5 min".
+const mins = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+const DAY_ST = { running: ['working', 'acc'], waiting: ['needs you', 'fill'], error: ['error', 'bad'], idle: ['idle', 'off'], starting: ['starting', 'off'], exited: ['ended', 'off'] };
+
+function projectDay(p) {
+  const t = S.today;
+  if (!t.day) return t.err ? h('p', { class: 'pday sub err', role: 'alert' }, t.err) : h('p', { class: 'pday sub' }, 'Loading today…');
+  const fs = t.day.folders || [];
+  const top = Math.max(...fs.map((f) => f.activeMin), 1);
+  const total = fs.reduce((n, f) => n + f.activeMin, 0);
+  return h('div', { class: 'pday', role: 'region', 'aria-label': `${p.name} today` },
+    h('p', { class: 'sub' }, `Today since midnight: ${mins(total)} at work. Time counts while an agent is working; waiting for you and idle don't.`),
+    ...fs.map((f) => {
+      const bar = h('div', { class: 'bar', role: 'img', 'aria-label': `${mins(f.activeMin)} today` }, h('div', {}));
+      bar.firstChild.style.width = `${Math.round((f.activeMin / top) * 100)}%`;
+      return h('div', { class: 'pdrow' },
+        h('span', { class: 'pdf', title: f.path }, lastPart(f.folder)),
+        h('div', { class: 'pda' }, f.agents.length ? f.agents.map((a) => {
+          const [word, cls] = DAY_ST[a.status] || [a.status, 'off'];
+          return h('a', { class: 'pdag', href: `#agent/${encodeURIComponent(a.id)}` },
+            h('span', { class: 'pdn' }, h('span', { class: 'nm', title: a.name }, a.name),
+              a.worktree ? h('span', { class: 'sub', title: a.worktree }, `worktree ${a.worktree.split('/').pop()}`) : null),
+            chip(word, cls, 'dot'));
+        }) : h('span', { class: 'sub' }, f.activeMin ? 'no agents now' : 'no agents today')),
+        h('div', { class: 'pdt' }, bar, h('span', { class: 'sub' }, mins(f.activeMin))));
+    }));
+}
+
 function projectsSection(accs) {
   if (S.errors.projects || !S.projects) return null; // an older service has no projects
   const list = S.projects.projects || [];
@@ -1904,20 +2786,23 @@ function projectsSection(accs) {
     S.projForm ? null : h('button', { type: 'button', class: 'btn p', 'data-k': 'pj-add', onclick: () => { S.projForm = { tool: '', account: '' }; S.open.project = 'new'; draw(true); $('#pj-name')?.focus(); } }, icon('plus', 14, 2.2), 'Add a project'))];
   if (S.projForm) content.push(projectForm(accs));
   const rows = list.map((p) => {
-    const n = agents.filter((a) => inProject(a.cwd, p)).length;
+    const n = agents.filter((a) => inProject(a, p)).length;
     const fs = p.folders?.length ? p.folders : [p.folder];
     const acc = accs.find((x) => x.name === p.account);
     const accChip = p.account ? h('span', { class: 'chip st' }, h('i', { 'aria-hidden': 'true' }), p.account) : h('span', { class: 'chip st off' }, 'Default account');
     if (acc) accChip.firstChild.style.background = (HAT_COLORS[acc.color] || HAT_COLORS.ink)[0];
+    const open = S.today?.id === p.id;
     return row(p.name, `${fs.length > 1 ? fs.map(lastPart).join(', ') : p.folder} · ${n ? plural(n, 'agent') : 'no agents'}`, [
       chip(TOOL_NAMES[p.tool || 'claude'], 'st'), !p.tool || p.tool === 'claude' ? accChip : null,
-      link('Start agent', `#start//${encodeURIComponent(p.name)}`, '', { 'aria-label': `Start an agent in ${p.name}` }),
-      btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, '', { 'aria-label': `Edit ${p.name}` }),
-    ], { name: true, pic: projectFace(p) });
+      btn('Today', async () => { S.today = open ? null : { id: p.id }; draw(true); if (!open) { await loadToday(); draw(true); } }, `pjb${open ? ' on' : ''}`,
+        { 'aria-expanded': open ? 'true' : 'false', 'aria-label': `${p.name} today`, 'data-k': `pj-today-${p.id}` }),
+      link('Start agent', `#start//${encodeURIComponent(p.name)}`, 'pjb', { 'aria-label': `Start an agent in ${p.name}` }),
+      btn('Edit', () => { S.projForm = { ...p, folders: [...fs], orig: p.name, hat: p.hat ? { ...p.hat } : null }; S.open.project = p.name; draw(true); $('#pj-name')?.focus(); }, 'pjb', { 'aria-label': `Edit ${p.name}` }),
+    ], { name: true, cls: 'proj', pic: projectFace(p), extra: open ? projectDay(p) : null });
   });
   // Folders agents work in that aren't projects yet.
-  const seen = [...new Set(agents.map((a) => a.cwd).filter(Boolean))]
-    .filter((cwd) => !list.some((p) => inProject(cwd, p)) && !notProjects.includes(cwd)).slice(0, 3);
+  const seen = [...new Set(agents.filter((a) => !list.some((p) => inProject(a, p))).map((a) => a.cwd).filter(Boolean))]
+    .filter((cwd) => !notProjects.includes(cwd)).slice(0, 3);
   for (const cwd of seen) {
     const name = cwd.split('/').filter(Boolean).pop() || cwd;
     rows.push(row(name, `${tilde(cwd)} · seen on the deck`, [
@@ -1940,7 +2825,7 @@ function projectsSection(accs) {
         try { localStorage.setItem('settings.notProjects', JSON.stringify(notProjects)); } catch (e) { /* private window */ }
         draw(true);
       }),
-    ], { name: true, off: true, cls: 'tint', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
+    ], { name: true, off: true, cls: 'tint proj', pic: h('span', { class: 'face' }, critter({ pose: 'idle', body: '#7A776F', cut: '#141412', centre: true })) }));
   }
   if (rows.length) content.push(blk(...rows));
   const s = sec('Projects', list.length ? plural(list.length, 'project') : null, null, ...content);
@@ -3437,6 +4322,8 @@ const DRAW = {
 // alone while you type in it; a redraw after your own action doesn't.
 function draw(force = true) {
   const page = S.page;
+  // Panel view has no menu on the left: the pet's view takes the full width
+  document.documentElement.classList.toggle('panelmode', !!S.panel && page === 'home');
   const [id, fn] = DRAW[page];
   const err = firstError(page);
   if (err) {
@@ -3481,7 +4368,7 @@ async function route(initial) {
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
-  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; }
+  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; }
   if (page !== 'start') S.startForm = null;
   if (page !== 'home') S.panel = false; // Panel view is a way to see Home
   const section = SECTION[page] || page;
@@ -3501,9 +4388,10 @@ async function route(initial) {
     try { S.jobs[arg] = await api('GET', `/admin/v1/jobs/${encodeURIComponent(arg)}`); } catch (e) { S.errors.job = e; }
   }
   await loadAll(...needs(page), ...extras(page));
+  if (page === 'agents') await loadToday();
   draw();
   syncBar();
-  if (page === 'agents' && arg === 'projects') document.getElementById('projects')?.scrollIntoView({ block: 'start' });
+  if (page === 'agents' && ['projects', 'cpu', 'cpu-top'].includes(arg)) document.getElementById(arg)?.scrollIntoView({ block: 'start' });
   if (changed && !initial) {
     const hd = document.querySelector(`.page > section[data-page="${section}"] h1`);
     if (hd) { hd.tabIndex = -1; hd.focus({ preventScroll: true }); }
@@ -3526,6 +4414,7 @@ async function refresh(force) {
   const busyUI = S.open.wifi || S.open.rename || S.open.project || S.pairing || S.confirmLoginOff || (S.mcpNew && !S.mcpNew.token);
   if (!force && (busyUI || ['general', 'about'].includes(page))) return;
   await loadAll(...needs(page), ...extras(page));
+  if (page === 'agents') await loadToday();
   if (page !== S.page) return;
   if ((page === 'home' && deck?.grid.isConnected) || (page === 'agent' && agentView)) updateDeck();
   else draw(false);
@@ -3567,6 +4456,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   if (e.key === 'Escape') {
+    if (S.page === 'home' && S.arg && petOpen()) { openPet(false); return; } // the pet: back to the chat
     if (S.page === 'home' && S.arg && (!typing || bar?.el.contains(document.activeElement))) { document.activeElement?.blur(); closeBar(); return; }
     if (S.page === 'home' && S.panel) { S.panel = false; draw(true); return; }
     if ((S.page === 'agent' || S.page === 'start') && !typing) location.hash = '#home';
@@ -3576,10 +4466,10 @@ document.addEventListener('keydown', (e) => {
   if (!typing && S.page === 'home' && S.arg && bar?.answer && /^[1-9]$/.test(e.key)) { e.preventDefault(); bar.answer(e.key); }
   if (!typing && S.page === 'home' && S.arg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); barStep(e.key === 'ArrowRight' ? 1 : -1); return; }
   const inSwitch = document.activeElement?.getAttribute('role') === 'radio' && !document.activeElement.closest('.pager, .pvbar');
-  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch) {
+  if (!typing && S.page === 'home' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inSwitch && !byProject()) {
     e.preventDefault();
     const next = (S.deckPage || 0) + (e.key === 'ArrowRight' ? 1 : -1);
-    if (next >= 0 && next < pageCount()) goPage(next);
+    if (next >= (S.panel ? NEEDS : 0) && next < pageCount()) goPage(next);
   }
 });
 

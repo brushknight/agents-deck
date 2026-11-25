@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "deck_pet.h"
 #include "lvgl.h"
 
 typedef enum {
@@ -62,11 +63,15 @@ typedef struct {
 	uint32_t hat_color;   // its main colour; the shade is looked up
 	uint32_t body, cut;   // the critter's colour and the background behind it
 	bool bubble;          // the thought bubble beside it
+	deck_pet_t pet;       // the agent's pet while Agent pets is on (pet.has): drawn in its place
+	deck_pet_opts_t pet_opts;
 } critter_t;
 
 // The hat colours (the deck's names): main and shade.
 bool critter_hat_color(const char *name, uint32_t *main, uint32_t *shade);
 
 // Draws the critter with its cell (0, -4) at pixel (x, y), cell size `cell`
-// pixels, at time `ms` (animations).
+// pixels, at time `ms` (animations). With a pet, the pet instead, at the
+// nearest whole cell size: it reaches 6 cells round that box (aura, hat, ice).
 void critter_draw(lv_layer_t *layer, const critter_t *c, int32_t x, int32_t y, float cell, uint32_t ms);
+#define CRITTER_PET_REACH 13 // cells beyond the 18 x 13 box a pet may draw (sparks and flames over a hat, bubbles, the flag)

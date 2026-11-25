@@ -66,6 +66,9 @@ PB_BIND(agentsdeck_link_v1_Hat, agentsdeck_link_v1_Hat, AUTO)
 PB_BIND(agentsdeck_link_v1_Account, agentsdeck_link_v1_Account, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Pet, agentsdeck_link_v1_Pet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Subagent, agentsdeck_link_v1_Subagent, AUTO)
 
 
@@ -90,6 +93,9 @@ PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 PB_BIND(agentsdeck_link_v1_Resume, agentsdeck_link_v1_Resume, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_HatchPet, agentsdeck_link_v1_HatchPet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 
 
@@ -103,6 +109,15 @@ PB_BIND(agentsdeck_link_v1_MagicView, agentsdeck_link_v1_MagicView, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Magic, agentsdeck_link_v1_Magic, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Limits, agentsdeck_link_v1_Limits, 2)
+
+
+PB_BIND(agentsdeck_link_v1_LimitSet, agentsdeck_link_v1_LimitSet, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_LimitWindow, agentsdeck_link_v1_LimitWindow, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_MoveAttention, agentsdeck_link_v1_MoveAttention, AUTO)
@@ -184,6 +199,11 @@ PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO
 
 
 PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Project, agentsdeck_link_v1_Project, AUTO)
+
+
 
 
 

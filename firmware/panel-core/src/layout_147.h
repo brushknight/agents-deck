@@ -91,7 +91,8 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
 
   const Tone tone = toneOf(a);
   // 4 px right of the text margin: a cap's brim reaches 3 units left of the body.
-  drawSprite(c, pad + 4, 8, 4, a.species, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, true, a.hat, a.hatColor);
+  // A pet's hat rises a unit higher than a critter's: it stands a unit lower.
+  drawCritter(c, pad + 4, a.pet.has ? 12 : 8, 4, a, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, true);
 
   // Right of the sprite: name, status, model.
   const int tw = heroW - 4 - textX;
@@ -130,7 +131,11 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
   }
 
   // Turns and cost, each only when the daemon reports one (it sends no cost for Codex threads).
-  if (a.turns || a.costUsd > 0) {
+  // With Agent pets on, the pet's name, stage and level there instead.
+  if (a.pet.has) {
+    petLine(a, buf, sizeof buf);
+    c.text(FONT_S, pad, 124, buf, soft, lw);
+  } else if (a.turns || a.costUsd > 0) {
     const char* unit = a.turns == 1 ? "turn" : "turns";
     if (!a.turns) snprintf(buf, sizeof buf, "$%.2f", (double)a.costUsd);
     else if (a.costUsd <= 0) snprintf(buf, sizeof buf, "%u %s", a.turns, unit);
@@ -185,8 +190,7 @@ static inline void miniBoard(Canvas& c, const ScreenInput& in) {
     const Tone tone = toneOf(a);
     // Room above the head for the hat: up to 5 rows at 2 px.
     // One pixel right of centre, so a cap's brim stays inside the cell.
-    drawSprite(c, cx + 6, cy + 8, 2, a.species, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, false,
-               a.hat, a.hatColor);
+    drawCritter(c, cx + 6, cy + 8, 2, a, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, false);
   }
 }
 

@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/ble"
+	"github.com/brushknight/agents-deck/backend/internal/cpuguard"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/firmware"
 	"github.com/brushknight/agents-deck/backend/internal/flash"
 	"github.com/brushknight/agents-deck/backend/internal/link"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/serial"
 	"github.com/brushknight/agents-deck/backend/internal/service"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -99,6 +101,9 @@ type Admin struct {
 	PairInfo func() (url, ca string)
 
 	ListPorts func() ([]serial.Info, error) // serial.List
+	// UsageEverySession puts the deck's status line in every Claude
+	// account's settings.json, or takes it out (nil: not available here).
+	UsageEverySession func(on bool) error
 	// MagicChanged tells the screens the magic trick's settings changed.
 	MagicChanged func()
 	Flasher      Flasher
@@ -115,6 +120,18 @@ type Admin struct {
 	// Bluetooth: boards over Bluetooth (ble.go; *ble.Uplinks, or the demo's).
 	// nil: this computer has none.
 	Bluetooth Bluetooth
+	// CPU: how much CPU the service and its helpers use (proc.CPUMeter).
+	// nil: 404.
+	CPU func() proc.CPUReport
+	// CPUTop: the n biggest users of the machine's CPU (proc.TopUsers), for
+	// ?top=n. nil: the report says it isn't available.
+	CPUTop func(n int) proc.CPUTop
+	// Guard: the CPU guard (cpuguard), its state in GET /admin/v1/system
+	// and its setting in /admin/v1/settings. nil: neither.
+	Guard *cpuguard.Guard
+	// Slower: background mode for agents while the computer is busy
+	// (Slow it, Full speed). nil: neither.
+	Slower *cpuguard.Slower
 
 	// Tokens are the MCP access tokens (mcp.go); MCPURL is where MCP clients
 	// connect over HTTP (http://127.0.0.1:<port>/mcp). nil: no MCP section.
@@ -139,6 +156,7 @@ type Admin struct {
 
 	cfgMu    sync.Mutex
 	projects projectStore
+	index    projectIndex // which project each agent is in (projectmatch.go)
 	jobs     jobs
 	ports    portHolds
 	catMu    sync.Mutex
@@ -172,6 +190,7 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/projects", a.projectsList)
 	mux.HandleFunc("POST /admin/v1/projects", a.projectsAdd)
 	mux.HandleFunc("POST /admin/v1/projects/{name}/{action}", a.projectAction)
+	mux.HandleFunc("GET /admin/v1/projects/{name}/today", a.projectToday)
 
 	mux.HandleFunc("GET /admin/v1/devices", a.listDevices)
 	mux.HandleFunc("POST /admin/v1/devices/{id}/{action}", a.deviceAction)
@@ -207,6 +226,10 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/v1/mcp/tokens/{name}/{action}", a.mcpAction)
 
 	mux.HandleFunc("GET /admin/v1/diagnostics", a.diagnostics)
+	mux.HandleFunc("GET /admin/v1/cpu", a.cpu)
+	mux.HandleFunc("POST /admin/v1/cpu/release", a.cpuRelease)
+	mux.HandleFunc("POST /admin/v1/cpu/slow/{id}", a.cpuSlow(true))
+	mux.HandleFunc("POST /admin/v1/cpu/full-speed/{id}", a.cpuSlow(false))
 	mux.HandleFunc("/admin/v1/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no such call: see docs/protocol.md, Management API")
 	})

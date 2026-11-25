@@ -321,8 +321,46 @@ static bool working(pose_t pose)
 	}
 }
 
+static void pet_fill(void *user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha)
+{
+	lv_draw_rect_dsc_t d;
+	lv_draw_rect_dsc_init(&d);
+	d.bg_color = lv_color_hex(rgb);
+	d.bg_opa = alpha;
+	d.radius = 0;
+	lv_area_t a = {.x1 = x, .y1 = y, .x2 = x + w - 1, .y2 = y + h - 1};
+	lv_draw_rect((lv_layer_t *)user, &d, &a);
+}
+
+// The agent's pet (the kit's deck_pet.h) where the critter stands: one pet
+// cell per sprite cell, its cell (0, 0) at sprite cell (-1, -5).
+static void pet_draw(lv_layer_t *layer, const critter_t *c, int32_t x0, int32_t y0, int s, uint32_t ms)
+{
+	// The kit's poses, in the order of pose_t.
+	static const uint8_t poses[] = {
+		DECK_PET_POSE_IDLE, DECK_PET_POSE_START, DECK_PET_POSE_RUN, DECK_PET_POSE_THINK, DECK_PET_POSE_READ,
+		DECK_PET_POSE_WRITE, DECK_PET_POSE_BASH, DECK_PET_POSE_WEB, DECK_PET_POSE_PLAN, DECK_PET_POSE_DELEGATE,
+		DECK_PET_POSE_COMPACT, DECK_PET_POSE_WAIT, DECK_PET_POSE_ERR, DECK_PET_POSE_EXIT, DECK_PET_POSE_HUNGRY,
+		DECK_PET_POSE_CELEBRATE,
+	};
+	deck_pet_opts_t o = c->pet_opts;
+	o.pose = (unsigned)c->pose < sizeof poses ? poses[c->pose] : DECK_PET_POSE_NONE;
+	o.ms = ms;
+	o.bubble = c->bubble;
+	static deck_pet_look_t look; // 1.6 KB: off the UI task's stack
+	deck_pet_look(&look, &c->pet, &o);
+	int dx, dy;
+	deck_pet_motion(&look, ms, s, &dx, &dy);
+	deck_pet_draw(&look, (int)x0 - s + dx, (int)y0 - s + dy, s, pet_fill, layer);
+}
+
 void critter_draw(lv_layer_t *layer, const critter_t *c, int32_t x0, int32_t y0, float cell, uint32_t ms)
 {
+	if (c->pet.has) {
+		const int s = (int)lroundf(cell);
+		pet_draw(layer, c, x0, y0, s < 1 ? 1 : s, ms);
+		return;
+	}
 	ctx_t x = {c, ms};
 	pen_t root = {layer, (float)x0, (float)y0 + 4 * cell, cell, 1, 1, 0, 0, LV_OPA_COVER};
 	pose_t pose = c->pose == POSE_WRITE ? POSE_BASH : c->pose; // writing looks like bash for now

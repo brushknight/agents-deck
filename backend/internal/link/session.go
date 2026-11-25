@@ -99,6 +99,8 @@ type Session struct {
 	sent      map[string][]byte // agent id -> the AgentChanged it last got
 	sentMagic []byte            // the Magic it last got…
 	magicSent bool              // …if any since its last snapshot
+	sentLims  []byte            // the Limits it last got (FIELDS_LIMITS)…
+	limsSent  bool              // …if any since its last snapshot
 	ping      uint32
 
 	board     atomic.Pointer[string]       // the board's device name, for status (any goroutine)
@@ -624,10 +626,31 @@ func (s *Session) push(full bool) error {
 		if err := s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotEnd{SnapshotEnd: &linkpb.SnapshotEnd{}}}); err != nil {
 			return err
 		}
-		s.magicSent = false
-		return s.pushMagic(st)
+		s.magicSent, s.limsSent = false, false
+		if err := s.pushMagic(st); err != nil {
+			return err
+		}
 	}
-	return nil
+	return s.pushLimits(st)
+}
+
+// pushLimits sends the accounts' usage limits to a board that subscribed to
+// them, when they changed, and after a snapshot when there are any.
+func (s *Session) pushLimits(st model.State) error {
+	if s.sub == nil || s.sub.Fields&uint32(linkpb.FieldGroup_FIELDS_LIMITS) == 0 {
+		return nil
+	}
+	m := limitsPB(st.Limits)
+	key, _ := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if s.limsSent && bytes.Equal(s.sentLims, key) {
+		return nil
+	}
+	first := !s.limsSent
+	s.sentLims, s.limsSent = key, true
+	if first && len(m.Sets) == 0 { // nothing to say yet
+		return nil
+	}
+	return s.send(&linkpb.Frame{Body: &linkpb.Frame_Limits{Limits: m}})
 }
 
 // pushMagic sends the board its part in the magic trick when that changed,
@@ -674,7 +697,7 @@ func (s *Session) sendAgent(p *linkpb.Agent) error {
 	f := &linkpb.Frame{Body: &linkpb.Frame_AgentChanged{AgentChanged: &linkpb.AgentChanged{Agent: p}}}
 	shrink := []func(){
 		func() { p.Subagents = nil },
-		func() { p.LastPrompt, p.AiTitle, p.Cwd = "", "", "" },
+		func() { p.LastPrompt, p.LastAnswer, p.AiTitle, p.Cwd = "", "", "", "" },
 		func() {
 			if p.Waiting != nil {
 				p.Waiting.Detail = clipString(p.Waiting.Detail, 128)
@@ -744,6 +767,7 @@ var Routes = map[string]string{
 	"set_hat":        "POST /v1/agents/{id}/hat | POST /v1/hats",
 	"add_live":       "POST /v1/live/{session}/add",
 	"handoff":        "POST /v1/agents/{id}/handoff",
+	"hatch_pet":      "POST /v1/agents/{id}/pet/hatch",
 
 	"list_accounts": "GET /v1/accounts",
 }
@@ -874,6 +898,8 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path = http.MethodPost, agentPath(b.Interrupt.AgentId, "interrupt")
 	case *linkpb.Frame_Dismiss:
 		method, path = http.MethodPost, agentPath(b.Dismiss.AgentId, "dismiss")
+	case *linkpb.Frame_HatchPet:
+		method, path = http.MethodPost, agentPath(b.HatchPet.AgentId, "pet/hatch")
 	case *linkpb.Frame_Resume:
 		method, path = http.MethodPost, agentPath(b.Resume.AgentId, "resume")
 	case *linkpb.Frame_Handoff:

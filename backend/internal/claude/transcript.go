@@ -28,6 +28,7 @@ type line struct {
 	AITitle   string `json:"aiTitle"`
 	Custom    string `json:"customTitle"`
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
+	ErrKind   string `json:"error"`  // on an API error: rate_limit, server_error, …
 	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
 	Timestamp string `json:"timestamp"`
 	IsMeta    bool   `json:"isMeta"`                    // text Claude Code adds for itself (command caveats, reminders)
@@ -48,6 +49,11 @@ type line struct {
 	} `json:"message"`
 }
 
+// LimitHit, when set, gets each usage limit hit a transcript records ("You've
+// hit your Fable limit · resets …"): the transcript, the message and when it
+// was written. Set once, before transcripts are read.
+var LimitHit func(transcript, text string, at time.Time)
+
 // Tail reads transcript lines appended since the last call and folds usage,
 // model, branch, Claude's own title and API errors into the agent.
 func Tail(e *store.Entry) bool {
@@ -61,6 +67,7 @@ func Tail(e *store.Entry) bool {
 	defer f.Close()
 	if st, err := f.Stat(); err != nil || st.Size() < e.Offset {
 		e.Offset, e.Usage, e.Pending = 0, nil, "" // truncated or replaced
+		e.Answer, e.AnswerID = "", ""
 	} else if st.Size() == e.Offset {
 		return false
 	}
@@ -104,6 +111,9 @@ func Tail(e *store.Entry) bool {
 			}
 			if decides, ends := l.turnState(); decides {
 				over = ends
+				if followAnswer(e, l, ends) {
+					changed = true
+				}
 			}
 			if l.GitBranch != "" && l.GitBranch != e.A.Branch {
 				e.A.Branch, changed = l.GitBranch, true
@@ -128,6 +138,11 @@ func Tail(e *store.Entry) bool {
 				}
 				if l.IsAPIErr {
 					lastErr = l.Message.Content
+					if l.ErrKind == "rate_limit" && LimitHit != nil {
+						if at, err := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil {
+							LimitHit(e.Transcript, blockText(l.Message.Content), at)
+						}
+					}
 					continue
 				}
 				if l.Message.Usage == nil || l.Message.ID == "" || l.Message.Model == "<synthetic>" {
@@ -176,6 +191,73 @@ func Tail(e *store.Entry) bool {
 	return changed
 }
 
+// followAnswer follows the reply of the turn in progress, for a line of the main
+// conversation: the text of the latest API message, which becomes the
+// agent's LastAnswer when the line ends the turn. A message that only calls
+// tools leaves no text, so what counts is the text after the last tool call.
+// Any message sent to it (your prompt, a tool's result, an interrupt) starts
+// over: an interrupted turn leaves no answer, and the one before it stays. It reports whether LastAnswer
+// changed.
+func followAnswer(e *store.Entry, l line, ends bool) bool {
+	if l.Type == "user" { // your prompt, a tool's result or an interrupt
+		e.Answer, e.AnswerID = "", ""
+		return false
+	}
+	if l.IsAPIErr || l.Message.Model == "<synthetic>" {
+		return false
+	}
+	text := replyText(l.Message.Content)
+	switch {
+	case l.Message.ID == "" || l.Message.ID != e.AnswerID:
+		e.Answer, e.AnswerID = text, l.Message.ID
+	case text != "":
+		e.Answer = strings.TrimSpace(e.Answer + "\n\n" + text) // one message, written a block per line
+	}
+	if t, err := time.Parse(time.RFC3339Nano, l.Timestamp); err == nil && text != "" {
+		e.AnswerAt = t
+	}
+	if !ends {
+		return false
+	}
+	return CommitAnswer(e)
+}
+
+// CommitAnswer makes the reply of the turn that just ended the agent's
+// LastAnswer, when it has any text. It reports whether that changed.
+func CommitAnswer(e *store.Entry) bool {
+	text := model.AnswerText(e.Answer)
+	e.Answer, e.AnswerID = "", ""
+	if text == "" || text == e.A.LastAnswer && e.AnswerAt.Equal(e.A.LastAnswerAt) {
+		return false
+	}
+	e.A.LastAnswer, e.A.LastAnswerAt = text, e.AnswerAt
+	if e.A.LastAnswerAt.IsZero() {
+		e.A.LastAnswerAt = Now()
+	}
+	return true
+}
+
+// replyText is the text of an assistant message's text blocks (thinking and
+// tool calls left out).
+func replyText(content json.RawMessage) string {
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		var s string
+		_ = json.Unmarshal(content, &s)
+		return strings.TrimSpace(s)
+	}
+	var parts []string
+	for _, b := range blocks {
+		if t := strings.TrimSpace(b.Text); b.Type == "text" && t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // activeAt is when a line counts as the agent's activity: a message sent to
 // it (your prompt, a tool's result) or received from it (a reply, a tool
 // call). Everything else in a transcript does not count: titles, summaries,
@@ -222,6 +304,20 @@ func interruptText(content json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// blockText is the first text block of a message's content.
+func blockText(content json.RawMessage) string {
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(content, &blocks)
+	for _, b := range blocks {
+		if t := strings.TrimSpace(b.Text); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func apiErrorText(content json.RawMessage) string {

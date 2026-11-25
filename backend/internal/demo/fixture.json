@@ -116,6 +116,7 @@
       "modelLabel": "codex",
       "activity": null,
       "lastPrompt": "rewrite the install guide for the new cli",
+      "lastAnswer": "Rewrote the install guide for the new CLI: one Homebrew command on macOS, a script for Linux, and a short section on upgrading from the old tool. The old flags page now links to the new one.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -325,6 +326,7 @@
       "modelLabel": "opus 5.5",
       "activity": null,
       "lastPrompt": "rebuild the product search index with typo tolerance",
+      "lastAnswer": "Rebuilt the product index with typo tolerance on names and brands: one typo allowed from 5 letters, two from 9. A search for hedphones now finds headphones. The reindex took 4 minutes.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -405,6 +407,7 @@
       "modelLabel": "haiku 4.5",
       "activity": null,
       "lastPrompt": "regex for semver with prerelease",
+      "lastAnswer": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?$ matches 1.2.3 and 1.2.3-rc.1 and refuses 01.2.3.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -480,6 +483,7 @@
       "modelLabel": "opus 5.5",
       "activity": null,
       "lastPrompt": "draft the notes for the next release from the merged pull requests",
+      "lastAnswer": "Drafted the notes for v2.4 from 31 merged pull requests, in three parts: new, fixed and changed. Two pull requests had no description, so I left them out and listed them at the end.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -518,6 +522,7 @@
       "modelLabel": "opus 5.5",
       "activity": null,
       "lastPrompt": "list the storage buckets nothing reads from and remove them",
+      "lastAnswer": "Found 6 buckets with no reads in 90 days. I removed the 4 empty ones and left logs-archive and old-exports, which still hold data: say if they can go too.",
       "waiting": null,
       "error": null,
       "tokens": {

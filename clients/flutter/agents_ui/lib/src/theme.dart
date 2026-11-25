@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 /// The deck's design tokens: near-black surfaces, warm ink, one accent, and
-/// two monospace faces (Share Tech Mono for labels, Roboto Mono for values).
+/// two monospace faces (Share Tech Mono for labels, Roboto Mono for values)
+/// and a serif for names (Instrument Serif).
 abstract final class DeckHud {
   static const bg = Color(0xFF0A0A0A);
   static const panel = Color(0xFF141412);
@@ -28,6 +29,17 @@ abstract final class DeckHud {
     height: 1.0,
     letterSpacing: spacing,
     fontVariations: [FontVariation('wght', weight)],
+  );
+
+  /// Names and questions on an agent's page: Instrument Serif, always from
+  /// this package (hosts that set [fontPackage] to null don't register it).
+  static TextStyle serif(double size, Color color) => TextStyle(
+    fontFamily: 'InstrumentSerif',
+    package: 'agents_deck_ui',
+    fontSize: size,
+    color: color,
+    height: 1.0,
+    letterSpacing: size * -0.015,
   );
 
   /// Labels and status lines: Share Tech Mono, slightly tracked.
