@@ -96,6 +96,11 @@ abstract class AgentsSource {
   /// previous conversation.
   Future<AgentsResult> resume(String agentId);
 
+  /// `POST /v1/agents/{id}/pet/hatch`: hatches the agent's pet egg that is
+  /// ready ([AgentPet.ready]); a conflict when it isn't (or has hatched, or
+  /// Agent pets is off).
+  Future<AgentsResult> hatch(String agentId);
+
   /// `POST /v1/agents/{id}/move` — puts the agent at board position [slot]
   /// (free or not; an agent already there swaps into the old position).
   Future<AgentsResult> move(String agentId, int slot);
@@ -128,6 +133,10 @@ abstract class AgentsSource {
 
   /// One-off `GET /v1/state` (after a 409, so the new prompt shows at once).
   Future<void> refresh();
+
+  /// `POST /v1/magic/view {"ids"}`: as the magic trick's giver, the agents
+  /// this screen shows now, in order (what the next take takes).
+  Future<AgentsResult> magicView(List<String> ids);
 
   void dispose();
 }
@@ -560,8 +569,16 @@ class HttpAgentsClient implements AgentsSource {
   Future<AgentsResult> resume(String agentId) => _post(agentId, 'resume');
 
   @override
+  Future<AgentsResult> hatch(String agentId) =>
+      _postPath(['v1', 'agents', agentId, 'pet', 'hatch']);
+
+  @override
   Future<AgentsResult> move(String agentId, int slot) =>
       _postPath(['v1', 'agents', agentId, 'move'], {'slot': slot});
+
+  @override
+  Future<AgentsResult> magicView(List<String> ids) =>
+      _postPath(['v1', 'magic', 'view'], {'ids': ids});
 
   /// `GET` [path] and the list under [field] of its JSON object; empty on
   /// any failure.

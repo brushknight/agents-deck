@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -203,6 +204,105 @@ func TestSessionApprovalSnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+// The "Needs you" spot comes with TILE, and MoveAttention moves it like the
+// web API does, with the same scope as Move.
+func TestSessionAttentionSlot(t *testing.T) {
+	srv, _ := testDeck(t)
+	b := start(t, srv, Binary)
+	b.send(hi("board-3"))
+	b.next() // welcome (pending)
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Subscribe{Subscribe: &linkpb.Subscribe{}}})
+	_ = srv.Devices.Approve("oled-tile-board3")
+	b.next() // welcome (approved, view)
+	b.next() // snapshot begin
+	got := map[string]uint32{}
+	for {
+		f := b.next()
+		if f.GetSnapshotEnd() != nil {
+			break
+		}
+		a := f.GetAgentChanged().GetAgent()
+		got[a.GetId()] = a.GetAttentionSlot()
+	}
+	if got["a1"] != 1 || got["b2"] != 2 || got["c3"] != 0 {
+		t.Fatalf("attention slots in the snapshot: %v", got)
+	}
+	move := &linkpb.Frame{Seq: 3, Body: &linkpb.Frame_MoveAttention{MoveAttention: &linkpb.MoveAttention{AgentId: "a1", Slot: 7}}}
+	b.send(move)
+	if r := b.next().GetResult(); r.GetCode() != 403 {
+		t.Fatalf("move with view scope: %+v", r)
+	}
+	_ = srv.Devices.SetScope("oled-tile-board3", devices.Act)
+	b.next() // welcome (act)
+	b.send(move)
+	var moved, done bool
+	for !moved || !done {
+		f := b.next()
+		if r := f.GetResult(); r != nil {
+			if f.Seq != 3 || r.Code != 204 {
+				t.Fatalf("move: %+v", f)
+			}
+			done = true
+		}
+		if a := f.GetAgentChanged().GetAgent(); a != nil && a.Id == "a1" && a.AttentionSlot == 7 {
+			moved = true
+		}
+	}
+	b.send(&linkpb.Frame{Seq: 4, Body: &linkpb.Frame_MoveAttention{MoveAttention: &linkpb.MoveAttention{AgentId: "c3", Slot: 2}}})
+	if r := b.next().GetResult(); r.GetCode() != 409 {
+		t.Fatalf("move of an agent not on the grid: %+v", r)
+	}
+}
+
+// A board that subscribes with FIELDS_LIMITS gets the usage limits after
+// the snapshot and when they change; agents out of usage carry until when.
+func TestSessionLimits(t *testing.T) {
+	srv, _ := testDeck(t)
+	var mu sync.Mutex
+	used := 86
+	srv.Store.Limits = func() []model.Limits {
+		mu.Lock()
+		defer mu.Unlock()
+		lv := map[bool]string{false: "near", true: "out"}[used >= 100]
+		return []model.Limits{{Tool: "codex", Level: lv, Windows: []model.LimitWindow{
+			{ID: "seven_day", Label: "week", Used: used, Level: lv, ResetsAt: time.Now().Add(time.Hour)}}}}
+	}
+	b := start(t, srv, Binary)
+	b.send(hi("board-4"))
+	b.next() // welcome (pending)
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Subscribe{Subscribe: &linkpb.Subscribe{Fields: uint32(linkpb.FieldGroup_FIELDS_TILE | linkpb.FieldGroup_FIELDS_LIMITS)}}})
+	_ = srv.Devices.Approve("oled-tile-board4")
+	b.next() // welcome (approved)
+	b.next() // snapshot begin
+	for {
+		f := b.next()
+		if f.GetSnapshotEnd() != nil {
+			break
+		}
+		if a := f.GetAgentChanged().GetAgent(); a.GetId() == "b2" && a.OutUntilMs != 0 {
+			t.Fatalf("b2 isn't out: %+v", a)
+		}
+	}
+	l := b.next().GetLimits()
+	if len(l.GetSets()) != 1 || l.Sets[0].Level != linkpb.LimitLevel_LIMIT_NEAR || l.Sets[0].Windows[0].Used != 86 {
+		t.Fatalf("limits after the snapshot: %+v", l)
+	}
+	mu.Lock()
+	used = 100
+	mu.Unlock()
+	srv.Store.Touch()
+	var out, sent bool
+	for !out || !sent {
+		f := b.next()
+		if a := f.GetAgentChanged().GetAgent(); a.GetId() == "b2" && a.OutUntilMs > 0 {
+			out = true
+		}
+		if l := f.GetLimits(); l != nil && l.Sets[0].Level == linkpb.LimitLevel_LIMIT_OUT {
+			sent = true
+		}
+	}
+}
+
 // A board decodes Welcome into fixed buffers: a development build's version
 // (v0.1.1-20-gbbfc910-dirty is 24 bytes) or a long host name must be clipped,
 // or the board drops the whole Welcome and never gets past Hello.
@@ -290,5 +390,40 @@ func TestSmallFramesAndNoise(t *testing.T) {
 	a := b.next().GetAgentChanged().GetAgent()
 	if a.GetId() != "a1" || a.Waiting == nil || len(a.Waiting.Detail) > 128 {
 		t.Fatalf("shrunk agent: detail %d bytes", len(a.GetWaiting().GetDetail()))
+	}
+}
+
+type restoringCtl struct {
+	fakeCtl
+	asked []string
+}
+
+func (r *restoringCtl) RestoreJSON(ids []string) any {
+	r.asked = ids
+	out := []map[string]string{}
+	for _, id := range ids {
+		out = append(out, map[string]string{"id": id, "title": "t", "action": "resumed"})
+	}
+	return out
+}
+
+// Restore with agent ids restores only those.
+func TestSessionRestoreSome(t *testing.T) {
+	srv, _ := testDeck(t)
+	ctl := &restoringCtl{}
+	srv.Ctl = ctl
+	b := start(t, srv, Binary)
+	b.send(hi("board-3"))
+	b.next()
+	_ = srv.Devices.Approve("oled-tile-board3")
+	_ = srv.Devices.SetScope("oled-tile-board3", devices.Admin)
+	b.next()
+	b.send(&linkpb.Frame{Seq: 2, Body: &linkpb.Frame_Restore{Restore: &linkpb.Restore{AgentIds: []string{"a1"}}}})
+	r := b.next()
+	if rr := r.GetRestoreResult(); r.Seq != 2 || len(rr.GetResults()) != 1 || rr.Results[0].Id != "a1" {
+		t.Fatalf("restore a1: %+v", r)
+	}
+	if len(ctl.asked) != 1 || ctl.asked[0] != "a1" {
+		t.Fatalf("asked: %q", ctl.asked)
 	}
 }

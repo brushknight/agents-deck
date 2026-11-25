@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -80,5 +81,68 @@ func TestTailStartsNearTheEndOfHugeRollouts(t *testing.T) {
 	}
 	if e.Offset != int64(b.Len()) || e.Pending != "" {
 		t.Fatalf("offset %d of %d, pending %q", e.Offset, b.Len(), e.Pending)
+	}
+}
+
+func TestRolloutLastActive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	lines := []string{
+		`{"timestamp":"2026-11-02T09:00:00Z","type":"session_meta","payload":{"id":"x"}}`,
+		`{"timestamp":"2026-11-02T09:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]}}`,
+		`{"timestamp":"2026-11-02T09:04:00Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}`,
+		`{"timestamp":"2026-11-02T09:09:00Z","type":"event_msg","payload":{"type":"token_count"}}`,
+		`{"timestamp":"2026-11-02T09:10:00Z","type":"response_item","payload":{"type":"message","role":"developer","content":[]}}`,
+		`not json`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &store.Entry{Transcript: path}
+	Tail(e)
+	if want := time.Date(2026, 11, 2, 9, 4, 0, 0, time.UTC); !e.A.LastActive.Equal(want) {
+		t.Fatalf("last active %v, want %v", e.A.LastActive, want)
+	}
+}
+
+func TestTailLastAnswer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	write := func(lines ...string) {
+		f, _ := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		f.WriteString(strings.Join(lines, "\n") + "\n")
+		f.Close()
+	}
+	e := &store.Entry{Transcript: path}
+	write(
+		`{"timestamp":"2026-03-02T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"add a health check"}]}}`,
+		`{"timestamp":"2026-03-02T10:00:01Z","type":"event_msg","payload":{"type":"task_started"}}`,
+		`{"timestamp":"2026-03-02T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Looking at the router."}]}}`,
+		`{"timestamp":"2026-03-02T10:00:05Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Added **/healthz** in `+"`server.go`"+`."}]}}`,
+	)
+	Tail(e)
+	if e.A.LastAnswer != "" {
+		t.Fatalf("turn still running: %q", e.A.LastAnswer)
+	}
+	write(`{"timestamp":"2026-03-02T10:00:06Z","type":"event_msg","payload":{"type":"task_complete"}}`)
+	Tail(e)
+	if e.A.LastAnswer != "Added /healthz in server.go." || e.A.LastAnswerAt.Format(time.RFC3339) != "2026-03-02T10:00:06Z" {
+		t.Fatalf("answer %q at %v", e.A.LastAnswer, e.A.LastAnswerAt)
+	}
+	// task_complete's own final message wins; an aborted turn keeps the answer before.
+	write(
+		`{"timestamp":"2026-03-02T10:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"and a readiness check"}]}}`,
+		`{"timestamp":"2026-03-02T10:01:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working on it."}]}}`,
+		`{"timestamp":"2026-03-02T10:01:03Z","type":"event_msg","payload":{"type":"turn_aborted"}}`,
+	)
+	Tail(e)
+	if e.A.LastAnswer != "Added /healthz in server.go." {
+		t.Fatalf("aborted turn replaced the answer: %q", e.A.LastAnswer)
+	}
+	write(
+		`{"timestamp":"2026-03-02T10:02:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"go on"}]}}`,
+		`{"timestamp":"2026-03-02T10:02:09Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Added /readyz too.\n\nBoth return 200."}}`,
+	)
+	Tail(e)
+	if e.A.LastAnswer != "Added /readyz too. Both return 200." {
+		t.Fatalf("answer %q", e.A.LastAnswer)
 	}
 }

@@ -1,10 +1,13 @@
 #pragma once
 // The whole 320 x 172 frame. This is the only file that knows where things
 // are on the screen: a hero panel on the left (one agent, with details) and
-// a 2 x 4 mini-board of the fleet on the right.
+// a 2 x 4 mini-board of the fleet on the right. Holding the button swaps the
+// mini-board for the "Needs you" screen (attention.h): the same 2 x 4 cells,
+// the deck's lowest spots first, under a thin orange line.
 #include <stdio.h>
 #include <string.h>
 
+#include "attention.h"
 #include "canvas.h"
 #include "model.h"
 #include "sprites.h"
@@ -28,6 +31,8 @@ struct ScreenInput {
   uint32_t ms;          // animation clock
   int64_t nowEpoch;     // the daemon's time, now
   bool held;            // the button has pinned the hero
+  const Attention* att = nullptr;   // the "Needs you" spots
+  bool needsYou = false;            // the mini-board shows them
 };
 
 namespace layout {
@@ -36,7 +41,7 @@ constexpr int pad = 10;
 constexpr int textX = 90;                  // title column, right of the sprite
 constexpr int miniX = 240, miniY = 6;
 constexpr int cellW = 38, cellH = 40, stepX = 40, stepY = 41;
-constexpr int miniCells = 8;
+constexpr int miniCells = 8;              // also the "Needs you" screen's spots
 }  // namespace layout
 
 namespace screen_detail {
@@ -86,7 +91,8 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
 
   const Tone tone = toneOf(a);
   // 4 px right of the text margin: a cap's brim reaches 3 units left of the body.
-  drawSprite(c, pad + 4, 8, 4, a.species, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, true, a.hat, a.hatColor);
+  // A pet's hat rises a unit higher than a critter's: it stands a unit lower.
+  drawCritter(c, pad + 4, a.pet.has ? 12 : 8, 4, a, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, true);
 
   // Right of the sprite: name, status, model.
   const int tw = heroW - 4 - textX;
@@ -125,7 +131,11 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
   }
 
   // Turns and cost, each only when the daemon reports one (it sends no cost for Codex threads).
-  if (a.turns || a.costUsd > 0) {
+  // With Agent pets on, the pet's name, stage and level there instead.
+  if (a.pet.has) {
+    petLine(a, buf, sizeof buf);
+    c.text(FONT_S, pad, 124, buf, soft, lw);
+  } else if (a.turns || a.costUsd > 0) {
     const char* unit = a.turns == 1 ? "turn" : "turns";
     if (!a.turns) snprintf(buf, sizeof buf, "$%.2f", (double)a.costUsd);
     else if (a.costUsd <= 0) snprintf(buf, sizeof buf, "%u %s", a.turns, unit);
@@ -151,11 +161,18 @@ static inline void hero(Canvas& c, const ScreenInput& in) {
 static inline void miniBoard(Canvas& c, const ScreenInput& in) {
   using namespace layout;
   const Fleet& f = *in.fleet;
+  const bool spots = in.needsYou && in.att;
   c.rect(heroW, 6, 1, kScreenH - 12, col::line);
-  const bool overflow = f.total > miniCells;
-  for (int i = 0; i < miniCells; i++) {
-    const int cx = miniX + (i % 2) * stepX, cy = miniY + (i / 2) * stepY;
-    if (overflow && i == miniCells - 1) {
+  if (spots) c.rect(miniX, 1, stepX + cellW, 3, col::accent);   // the "Needs you" screen: an orange line over it
+  const bool overflow = !spots && f.total > miniCells;
+  for (int k = 0; k < miniCells; k++) {
+    const int cx = miniX + (k % 2) * stepX, cy = miniY + (k / 2) * stepY;
+    const int i = spots ? attAgent(*in.att, f, k) : k;
+    if (spots && i < 0) {
+      dashedFrame(c, cx, cy, cellW, cellH, col::line);
+      continue;
+    }
+    if (overflow && k == miniCells - 1) {
       char more[8];
       snprintf(more, sizeof more, "+%u", (unsigned)(f.total - (miniCells - 1)));
       c.frame(cx, cy, cellW, cellH, col::line);
@@ -173,8 +190,7 @@ static inline void miniBoard(Canvas& c, const ScreenInput& in) {
     const Tone tone = toneOf(a);
     // Room above the head for the hat: up to 5 rows at 2 px.
     // One pixel right of centre, so a cap's brim stays inside the cell.
-    drawSprite(c, cx + 6, cy + 8, 2, a.species, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, false,
-               a.hat, a.hatColor);
+    drawCritter(c, cx + 6, cy + 8, 2, a, poseOf(a, in.nowEpoch), tone.body, tone.cut, in.ms, false);
   }
 }
 

@@ -22,6 +22,10 @@ import (
 
 const caKeyName = "ca-key"
 
+// CAKeyName is the CA key's name in a Keystore (a file of that name in a
+// FileKeystore's folder).
+const CAKeyName = caKeyName
+
 // CA is the deck's certificate authority. Its certificate is public (every
 // client pins it); its key stays in a Keystore.
 type CA struct {
@@ -47,10 +51,16 @@ func LoadOrCreateCA(certPath string, ks Keystore, name string) (*CA, error) {
 		return nil, keyErr
 	case certErr == nil:
 		return nil, fmt.Errorf("the CA key is missing from the %s: run `agentctl devices reset` to start over (every device must pair again)", ks.Where())
-	default: // a key but no certificate: make a fresh pair
-		return createCA(certPath, ks, name)
+	default:
+		// A key but no certificate. The key may be the one every paired
+		// device trusts (ca.pem deleted by hand, or another data folder that
+		// shares the store): never replace it with a new one.
+		return nil, fmt.Errorf("%s is missing but the %s still holds a CA key: put ca.pem back, or run `agentctl devices reset` to start over (every device must pair again)", certPath, ks.Where())
 	}
 }
+
+// ErrCAExists: another process made the CA first.
+var ErrCAExists = errors.New("another agentctl made the certificate authority at the same time: start the service again")
 
 func createCA(certPath string, ks Keystore, name string) (*CA, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -75,14 +85,44 @@ func createCA(certPath string, ks Keystore, name string) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ks.Save(caKeyName, kb); err != nil {
+	// Claim ca.pem first, and only if nobody has it: of two services
+	// starting at once on a new data folder, only one saves a key.
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := createFile(certPath, certPEM, 0o644); errors.Is(err, os.ErrExist) {
+		return nil, ErrCAExists
+	} else if err != nil {
 		return nil, err
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	if err := writeFile(certPath, certPEM, 0o644); err != nil {
+	if err := ks.Save(caKeyName, kb); err != nil {
+		_ = os.Remove(certPath) // ours, and nothing was signed with it
 		return nil, err
 	}
 	return parseCA(certPEM, kb)
+}
+
+// createFile writes path whole, and only if it doesn't exist yet: the
+// content goes to a temporary file that is then linked into place, which
+// fails when path is already there.
+func createFile(path string, b []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".new-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return err
+	}
+	return os.Link(tmp.Name(), path)
 }
 
 func parseCA(certPEM, keyDER []byte) (*CA, error) {

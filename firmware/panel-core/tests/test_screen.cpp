@@ -103,5 +103,24 @@ int main() {
       for (int x = 0; x < kScreenW; x++) assert(c.px[y * kScreenW + x] == bare[y * kScreenW + x]);
   }
 
+  // The "Needs you" mini-board: the same 2 x 4 cells by spot, under an orange line.
+  {
+    static Attention att;
+    attSync(att, f, layout::miniCells, 0);
+    assert(att.cap == 8 && att.count > 0);
+    const int hero = autoHero(f);
+    drawScreen(c, {&f, hero, LinkState::Live, "x", 0, f.serverTime, false, &att, true});
+    assert(guards());
+    assert(c.px[2 * kScreenW + layout::miniX + 10] == col::accent);
+    for (int k = 0; k < layout::miniCells; k++) {
+      const int cx = layout::miniX + (k % 2) * layout::stepX, cy = layout::miniY + (k / 2) * layout::stepY;
+      const int i = attAgent(att, f, k);
+      if (i < 0) assert(c.px[cy * kScreenW + cx] == col::line);   // a dashed free cell
+      else assert(wantsYou(f.agents[i]));
+    }
+    drawScreen(c, {&f, hero, LinkState::Live, "x", 0, f.serverTime, false, &att, false});
+    assert(c.px[2 * kScreenW + layout::miniX + 10] == col::bg);
+  }
+
   return 0;
 }

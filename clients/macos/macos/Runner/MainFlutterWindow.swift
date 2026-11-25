@@ -5,6 +5,8 @@ import FlutterMacOS
 /// on every Space. AppDelegate positions it under the menu bar icon.
 class MainFlutterWindow: NSWindow {
   static let side: CGFloat = 440
+  /// The status line under the deck (statusLineHeight in lib/status_line.dart).
+  static let statusLine: CGFloat = 32
 
   override func awakeFromNib() {
     let flutter = FlutterViewController()
@@ -12,7 +14,7 @@ class MainFlutterWindow: NSWindow {
     contentViewController = flutter
 
     styleMask = [.borderless, .fullSizeContentView]
-    setContentSize(NSSize(width: Self.side, height: Self.side))
+    setContentSize(NSSize(width: Self.side, height: Self.side + Self.statusLine))
     isOpaque = false
     backgroundColor = .clear
     hasShadow = true

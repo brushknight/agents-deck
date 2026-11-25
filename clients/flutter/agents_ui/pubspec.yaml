@@ -25,3 +25,8 @@ flutter:
     - family: RobotoMono
       fonts:
         - asset: fonts/RobotoMono.ttf
+    # Names and questions on an agent's page (SIL OFL 1.1, see
+    # fonts/OFL-instrumentserif.txt).
+    - family: InstrumentSerif
+      fonts:
+        - asset: fonts/InstrumentSerif-Regular.ttf

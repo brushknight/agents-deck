@@ -1,5 +1,5 @@
 // Package orca reads the Orca agent orchestrator (github.com/stablyai/orca)
-// through its CLI: the agents running in Orca's terminals, with the status
+// through its CLI (polled over the app's socket the CLI uses, rpc.go): the agents running in Orca's terminals, with the status
 // Orca gets from their own hooks, and the terminal actions the deck needs
 // (switch, send). Only the documented `orca … --json` commands are used.
 package orca
@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // BundleID is the macOS app, for bringing it to the front.
@@ -140,7 +142,8 @@ func (c Client) call(out any, args ...string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, c.Bin, append(args, "--json")...)
 	cmd.Dir = os.TempDir()
-	raw, err := cmd.Output()
+	proc.Tidy(cmd) // the CLI is the Orca app itself: on a timeout, its helpers go too
+	raw, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	var env envelope
 	if jerr := json.Unmarshal(raw, &env); jerr != nil {
 		if err != nil {
@@ -160,18 +163,19 @@ func (c Client) call(out any, args ...string) error {
 	return json.Unmarshal(env.Result, out)
 }
 
-// Read polls the workspaces (with their agents) and the terminals.
+// Read polls the workspaces (with their agents) and the terminals, over
+// the app's socket when it can (rpc.go).
 func (c Client) Read() (Snapshot, error) {
 	var ps struct {
 		Worktrees []Worktree `json:"worktrees"`
 	}
-	if err := c.call(&ps, "worktree", "ps"); err != nil {
+	if err := c.poll(&ps, "worktree.ps", nil, "worktree", "ps"); err != nil {
 		return Snapshot{}, err
 	}
 	var tl struct {
 		Terminals []Terminal `json:"terminals"`
 	}
-	if err := c.call(&tl, "terminal", "list"); err != nil {
+	if err := c.poll(&tl, "terminal.list", map[string]any{"includeVisualLayouts": false}, "terminal", "list"); err != nil {
 		return Snapshot{}, err
 	}
 	return Snapshot{Worktrees: ps.Worktrees, Terminals: tl.Terminals}, nil

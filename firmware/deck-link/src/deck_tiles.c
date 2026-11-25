@@ -51,6 +51,7 @@ static void fill(deck_tile_t *d, const agentsdeck_link_v1_Agent *a)
 	memset(d, 0, sizeof *d);
 	copy_str(d->id, sizeof d->id, a->id);
 	d->slot = a->slot;
+	d->attention_slot = a->attention_slot > 16 ? 0 : (uint8_t)a->attention_slot;
 	copy_str(d->title, sizeof d->title, a->title);
 	d->status = a->status;
 	d->tool = a->tool;
@@ -66,6 +67,7 @@ static void fill(deck_tile_t *d, const agentsdeck_link_v1_Agent *a)
 	d->unseen = a->unseen;
 	d->focused = a->focused;
 	d->lost = a->lost;
+	d->queued = a->queued > 255 ? 255 : (uint8_t)a->queued;
 	if (a->has_waiting) {
 		const agentsdeck_link_v1_Prompt *p = &a->waiting;
 		d->has_prompt = true;

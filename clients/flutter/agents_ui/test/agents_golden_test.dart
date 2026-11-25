@@ -78,9 +78,10 @@ void main() {
               ...base[i % base.length],
               'id': 'a${i.toString().padLeft(5, '0')}',
               'slot': i,
+              'attentionSlot': 0, // given again, as the service would
             },
         ],
-      }),
+      }, attention: true),
     );
     await expectLater(
       find.byType(AgentsApp),
@@ -138,6 +139,81 @@ void main() {
     await expectLater(
       find.byType(AgentsApp),
       matchesGoldenFile('goldens/agents-accounts-detail.png'),
+    );
+  });
+
+  // The "Needs you" screen, one step left of the first page: the demo
+  // fleet's busy agents after api-tests finished and left its spot empty.
+  testWidgets('agents attention golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    final source = FakeAgentsSource.demo();
+    await pumpBoard(tester, source);
+    final json = source.toJson();
+    for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['id'] == 't3st5a') a['status'] = 'idle';
+    }
+    source.load(json); // the demo, like the service, frees its spot
+    await tester.pump(const Duration(seconds: 5));
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-deck-count.png'),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-attention.png'),
+    );
+  });
+
+  testWidgets('agents attention empty golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    final json = FakeAgentsSource.demo().toJson();
+    for (final a in (json['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['status'] != 'error') a['status'] = 'idle';
+      a['waiting'] = null;
+      a['attentionSlot'] = 0; // given again, as the service would
+    }
+    await pumpBoard(tester, FakeAgentsSource.fromState(json, attention: true));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-attention-empty.png'),
+    );
+  });
+
+  testWidgets('agents attention full golden', skip: !autoUpdateGoldenFiles, (
+    tester,
+  ) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final base = (fixture['agents'] as List).cast<Map<String, dynamic>>();
+    final busy = [
+      for (final a in base)
+        if (a['status'] == 'running' || a['status'] == 'waiting') a,
+    ];
+    await pumpBoard(
+      tester,
+      FakeAgentsSource.fromState({
+        ...fixture,
+        'agents': [
+          for (var i = 0; i < 19; i++)
+            {
+              ...busy[i % busy.length],
+              'id': 'a${i.toString().padLeft(5, '0')}',
+              'slot': i,
+              'attentionSlot': 0, // given again, as the service would
+            },
+        ],
+      }, attention: true),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(AgentsApp),
+      matchesGoldenFile('goldens/agents-attention-full.png'),
     );
   });
 

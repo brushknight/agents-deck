@@ -1,0 +1,8 @@
+# A self-contained Flutter app: the bundle keeps its own libraries next to it,
+# found through RUNPATH $ORIGIN/lib, under /opt like other third-party apps.
+agents-deck: dir-or-file-in-opt *
+agents-deck: custom-library-search-path *
+# agentctl is a static Go binary on purpose: it runs on any distribution.
+agents-deck: statically-linked-binary [opt/agents-deck/agentctl]
+# postinst only prints how to start the per-user service; it never runs systemctl.
+agents-deck: maintainer-script-calls-systemctl *

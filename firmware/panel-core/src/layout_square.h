@@ -22,6 +22,14 @@
 //           network not found, deck not reachable, certificate rejected)
 //   Wi-Fi   on Wi-Fi a small mark: in the list's header after "agents"; the
 //           grid keeps the page bars' row for it, at the right
+//   attn    the "Needs you" screen (attention.h): on a grid, a page left of
+//           the first, its mark at the left of the page bars; on a list, one
+//           screen of what the list shows at once, left of the list, with
+//           two small marks at the top of the header
+//   slide   on a list the two are pages side by side: a sideways drag moves
+//           both with the finger, and on release they settle on the nearer
+//           one, or on the one a flick points at. The header stays; its two
+//           marks follow the slide. The grid changes page at once.
 //
 // Back from a card or a prompt: swipe right, or BOOT. A tile's icons (tool
 // chip, subagent critter) keep to a band above the critter, so they never
@@ -31,6 +39,7 @@
 // boards draw.
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "canvas.h"
@@ -40,6 +49,7 @@
 #include "font_round.h"
 #include "font_square.h"
 #include "model.h"
+#include "page_slide.h"
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "sprites.h"
@@ -53,6 +63,8 @@ enum class HomeKind : uint8_t { Grid, List };
 struct SquareSpec {
   const char* name;
   int w, h, cornerR, m;        // panel, glass corner radius, margin
+  float diagIn;                // the glass's diagonal in inches: physical distances (the drawer's 5 mm)
+  bool imu;                    // a motion sensor on the board (set by its firmware): the tricks in fun_motion.h
   bool trueBlack;
   // Type: label / body / question / value / name.
   const Font *label, *body, *question, *value, *title;
@@ -81,7 +93,7 @@ struct SquareSpec {
 static inline SquareSpec specAmoled18() {
   SquareSpec s{};
   s.name = "amoled18";
-  s.w = 368; s.h = 448; s.cornerR = 44; s.m = 16; s.trueBlack = true;
+  s.w = 368; s.h = 448; s.cornerR = 44; s.m = 16; s.trueBlack = true; s.diagIn = 1.8f;
   s.label = &FONT_XL; s.body = &FONT_Q22; s.question = &FONT_Q24B; s.value = &FONT_Q28B; s.title = &FONT_Q28B;
   s.home = HomeKind::List; s.cols = 2; s.rows = 0; s.pad = 8; s.gap = 8; s.barsH = 0;
   s.tileW = 172; s.tileH = 192; s.headerH = 50;
@@ -102,7 +114,7 @@ static inline SquareSpec specAmoled18() {
 static inline SquareSpec specT4S3() {
   SquareSpec s = specAmoled18();
   s.name = "t4s3";
-  s.w = 450; s.h = 600; s.cornerR = 0;
+  s.w = 450; s.h = 600; s.cornerR = 0; s.diagIn = 2.41f;
   s.tileW = 213; s.tileH = 178;           // 2 x 3 on screen: 50 + 3 x 178 + 2 x 8 = 600
   s.tileScale = 6;                        // critters 108 x 78
   s.cardScale = 6; s.promptScale = 3; s.noticeScale = 7;
@@ -117,7 +129,7 @@ static inline SquareSpec specT4S3() {
 static inline SquareSpec specLcd4() {
   SquareSpec s{};
   s.name = "lcd4";
-  s.w = 480; s.h = 480; s.cornerR = 0; s.m = 24; s.trueBlack = false;
+  s.w = 480; s.h = 480; s.cornerR = 0; s.m = 24; s.trueBlack = false; s.diagIn = 4.0f;
   s.label = &FONT_Q16; s.body = &FONT_XL; s.question = &FONT_Q24B; s.value = &FONT_Q28B; s.title = &FONT_R30B;
   s.home = HomeKind::Grid; s.cols = 4; s.rows = 4; s.pad = 8; s.gap = 8; s.barsH = 30;
   s.tileW = 0; s.tileH = 0; s.headerH = 0;
@@ -226,6 +238,85 @@ static inline int posBarAlpha(const PanelUi& ui, uint32_t ms) {
   if (t < kPosBarHoldMs) return 15;
   if (t >= kPosBarHoldMs + kPosBarFadeMs) return 0;
   return (int)(15 - (t - kPosBarHoldMs) * 15 / kPosBarFadeMs);
+}
+
+// ---------------------------------------------------------------- the "Needs you" screen
+
+// Its spots: one page of the grid, or what the list shows at once (2 x 2 on
+// the 1.8", 2 x 3 on the T4-S3).
+static inline int squareSpots(const SquareSpec& S) {
+  const int n = S.home == HomeKind::Grid ? perPage(S) : S.cols * ((S.h - S.headerH + S.gap) / rowPitch(S));
+  return n < kAttMaxSpots ? n : kAttMaxSpots;
+}
+
+static inline bool onNeedsYou(const PanelUi& ui) { return ui.needsYou && ui.att; }
+
+// Home's pages slide sideways under the finger (page_slide.h): on a list
+// home "Needs you" (0) and the list (1) when the board has both, on a grid
+// "Needs you" (when there is one) and every page.
+static inline bool hasPager(const SquareSpec& S, const PanelUi& ui, const Fleet& f) {
+  return ui.screen == Screen::Home && pagerCount(ui, pageCount(S, f)) > 1;
+}
+
+// A list home's pages: 0 = "Needs you" on screen, 1 = the list, between the
+// two while they slide (a little past either end while a finger pulls there).
+static inline float pagerPos(const PanelUi& ui) {
+  if (ui.att && (ui.sliding || ui.slideAnim)) return ui.slide;
+  return onNeedsYou(ui) ? 0.f : 1.f;
+}
+
+// The settle animations' curve: fast at first, slowing into place.
+static inline float easeOut(float p) { return 1 - (1 - p) * (1 - p) * (1 - p); }
+
+// The grid's row under the cells stays with one page on Wi-Fi (the mark's)
+// and with the "Needs you" screen (its mark at the left).
+static inline GridGeom gridGeomFor(const SquareSpec& S, const PanelUi& ui, int pages) {
+  return gridGeom(S, pages, ui.wifi || ui.att);
+}
+
+// The page bars: the "Needs you" mark (with a board that has the screen),
+// then a bar per page. r[0] is the mark when `mark`. Hits go to the nearest.
+struct SquareBars {
+  int n = 0;
+  bool mark = false;
+  Rect r[20];
+  int countX = -1;             // the count before the mark, -1 for none
+};
+
+static inline SquareBars squareBars(const SquareSpec& S, const GridGeom& g, const PanelUi& ui, int pages) {
+  SquareBars b;
+  if (!g.bars.w || (pages < 2 && !ui.att)) return b;
+  if (pages > 19) pages = 19;
+  const bool here = onNeedsYou(ui);
+  const int page = here ? -1 : ui.page;
+  const int cur = 56, other = 30, h = 8, gap = 12, mh = 10, mw = here ? cur : other;
+  const int count = ui.att ? ui.att->count : 0;
+  const int countW = ui.att && !here && count > 0 ? (count > 9 ? 2 : 1) * S.label->cellW + 7 : 0;
+  int total = 0;
+  if (ui.att) total += countW + mw + gap;
+  for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + (p ? gap : 0);
+  int x = (S.w - total) / 2;
+  if (ui.att) {
+    if (countW) b.countX = x;
+    b.r[b.n++] = Rect{x + countW, g.bars.y + (g.bars.h - mh) / 2, mw, mh};
+    b.mark = true;
+    x += countW + mw + gap;
+  }
+  for (int p = 0; p < pages; p++) {
+    const int w = p == page ? cur : other;
+    b.r[b.n++] = Rect{x, g.bars.y + (g.bars.h - h) / 2, w, h};
+    x += w + gap;
+  }
+  return b;
+}
+
+static inline int squareBarAt(const SquareBars& b, int x) {
+  int best = -1, bestD = 0;
+  for (int i = 0; i < b.n; i++) {
+    const int c = b.r[i].x + b.r[i].w / 2, d = x > c ? x - c : c - x;
+    if (best < 0 || d < bestD) { best = i; bestD = d; }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------- card and prompt geometry
@@ -344,18 +435,55 @@ static inline PromptGeom promptGeom(const SquareSpec& S, const Agent& a) {
 
 // ---------------------------------------------------------------- hit-testing
 
+// "Interrupt?" over a card: the whole screen, the agent's name and what
+// interrupting does, and two wide buttons well apart (interrupt, orange;
+// cancel under it), so a stray tap can't stop an agent at work.
+struct ConfirmGeom {
+  Rect sheet, yes, no;
+  int titleY, lineY;
+};
+
+static inline ConfirmGeom confirmGeom(const SquareSpec& S) {
+  ConfirmGeom g{};
+  const bool big = S.h >= 560;
+  const int bh = big ? 80 : 68, gap = big ? 52 : 44, m = S.m + (S.cornerR ? S.cornerR / 3 : 8);
+  g.no = Rect{m, S.h - S.m - (S.cornerR ? S.cornerR / 2 : 12) - bh, S.w - 2 * m, bh};
+  g.yes = Rect{m, g.no.y - gap - bh, S.w - 2 * m, bh};
+  const int block = S.question->cellH + 6 + S.body->cellH;   // the name and the line, in the middle of what is above
+  g.titleY = (g.yes.y - block) / 2;
+  g.lineY = g.titleY + S.question->cellH + 6;
+  g.sheet = Rect{0, 0, S.w, S.h};
+  return g;
+}
+
 static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const Fleet& f, int x, int y, DeckScope scope) {
   PanelHit h;
   if (ui.screen == Screen::Home) {
     if (S.home == HomeKind::Grid) {
       const int pages = pageCount(S, f);
-      const GridGeom g = gridGeom(S, pages, ui.wifi);
-      if (pages > 1 && g.bars.contains(x, y)) { h.kind = Hit::PageBar; h.index = x * pages / S.w; return h; }
-      const int i = agentAt(S, f, ui.page < pages ? ui.page : 0, cellAt(S, g, x, y));
+      const GridGeom g = gridGeomFor(S, ui, pages);
+      const SquareBars bars = squareBars(S, g, ui, pages);
+      if (bars.n && g.bars.contains(x, y)) {
+        const int k = squareBarAt(bars, x);
+        if (bars.mark && k == 0) h.kind = Hit::NeedsYou;
+        else { h.kind = Hit::PageBar; h.index = k - (bars.mark ? 1 : 0); }
+        return h;
+      }
+      const int cell = cellAt(S, g, x, y);
+      const int i = onNeedsYou(ui) ? attAgent(*ui.att, f, cell) : agentAt(S, f, ui.page < pages ? ui.page : 0, cell);
       if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
       return h;
     }
     if (y < S.headerH) return h;
+    if (onNeedsYou(ui)) {                          // the list's first screen, spot by spot
+      for (int s = 0; s < squareSpots(S); s++)
+        if (listTile(S, s, 0).contains(x, y)) {
+          const int i = attAgent(*ui.att, f, s);
+          if (i >= 0) { h.kind = Hit::Tile; h.agent = i; }
+          return h;
+        }
+      return h;
+    }
     for (int i = 0; i < f.count; i++)
       if (listTile(S, i, ui.scroll).contains(x, y)) { h.kind = Hit::Tile; h.agent = i; return h; }
     return h;
@@ -364,14 +492,22 @@ static inline PanelHit squareHit(const SquareSpec& S, const PanelUi& ui, const F
   if (i < 0) return h;
   const Agent& a = f.agents[i];
   if (ui.screen == Screen::Card) {
+    if (ui.confirm) {                              // only its two buttons answer
+      const ConfirmGeom g = confirmGeom(S);
+      if (g.yes.contains(x, y)) { h.kind = Hit::ConfirmYes; h.agent = i; }
+      else if (g.no.contains(x, y)) { h.kind = Hit::ConfirmNo; h.agent = i; }
+      return h;
+    }
+    // The buttons answer for the whole band under the card's rule, split
+    // evenly between them left to right (a corner of the glass counts): the
+    // round buttons are drawn as they were.
     const CardButtons b = cardButtons(S, a, scope);
-    for (int k = 0; k < b.n; k++) {
-      const int dx = x - b.cx[k], dy = y - b.cy;
-      if (dx * dx + dy * dy <= (S.btnR + 4) * (S.btnR + 4)) {
-        h.kind = b.kind[k] == IconKind::Focus ? Hit::Focus : b.kind[k] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
-        h.agent = i;
-        return h;
-      }
+    if (b.n && y >= b.cy - S.btnR - 10) {
+      int k = x * b.n / S.w;
+      if (k < 0) k = 0;
+      if (k >= b.n) k = b.n - 1;
+      h.kind = b.kind[k] == IconKind::Focus ? Hit::Focus : b.kind[k] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
+      h.agent = i;
     }
     return h;
   }
@@ -395,6 +531,7 @@ static inline void squareOpen(PanelUi& ui, const Fleet& f, int i) {
 
 static inline void squareHome(PanelUi& ui) {
   ui.screen = Screen::Home;
+  ui.confirm = false;
   ui.openId[0] = '\0';
   ui.backAfterToast = false;
 }
@@ -417,6 +554,15 @@ static inline void squareFix(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
     if (ui.scroll > mx) ui.scroll = mx;
     if (ui.scroll < 0) ui.scroll = 0;
   }
+  if (!hasPager(S, ui, f)) ui.sliding = ui.slideAnim = false;   // a card opened, or the screen is gone
+}
+
+// Lets the list come to rest on a row from where it is.
+static inline void listRest(PanelUi& ui, const SquareSpec& S, const Fleet& f, float velocity, uint32_t ms) {
+  ui.scrollFrom = ui.scroll;
+  ui.scrollTo = settleTarget(S, f, ui.scroll, velocity);
+  ui.animStart = ms;
+  ui.animating = true;
 }
 
 static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Fleet& f, const PanelHit& h, DeckScope scope,
@@ -424,14 +570,23 @@ static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Flee
   DeckCommand out;
   switch (h.kind) {
     case Hit::Tile: squareOpen(ui, f, h.agent); break;
-    case Hit::PageBar: ui.page = h.index; break;
+    case Hit::PageBar: ui.page = h.index; ui.needsYou = false; break;
+    case Hit::NeedsYou: ui.needsYou = ui.att != nullptr; break;
     case Hit::Focus:
       out = commandFor(DeckCmd::Focus, f.agents[h.agent]);
       uiToast(ui, "focus", ms, 1200);
       break;
-    case Hit::Interrupt:
+    case Hit::Interrupt:                           // asks first: interrupting loses the agent's turn
+      ui.confirm = true;
+      break;
+    case Hit::ConfirmYes:
+      ui.confirm = false;
+      if (f.agents[h.agent].status != Status::Running) { uiToast(ui, "not running any more", ms, 1500); break; }
       out = commandFor(DeckCmd::Interrupt, f.agents[h.agent]);
       uiToast(ui, "interrupted", ms, 1200);
+      break;
+    case Hit::ConfirmNo:
+      ui.confirm = false;
       break;
     case Hit::Stop:
       if (!ui.holdFired) uiToast(ui, "hold to stop", ms, 1500);
@@ -454,39 +609,57 @@ static inline DeckCommand squareTap(PanelUi& ui, const SquareSpec& S, const Flee
 }
 
 static inline void squareSwipe(PanelUi& ui, const SquareSpec& S, const Fleet& f, Swipe s) {
+  if (ui.confirm) return;                          // answer it first (or BOOT)
   if (ui.screen != Screen::Home) {
     if (s == Swipe::Right) squareHome(ui);
     return;
   }
+  if (s == Swipe::Up || s == Swipe::Down) return;  // only a sideways move changes the page
+  const bool next = s == Swipe::Left;
+  if (onNeedsYou(ui)) {                            // back to the first page (the top of the list)
+    if (next) { ui.needsYou = false; ui.page = 0; }
+    return;
+  }
   if (S.home == HomeKind::Grid) {
     const int pages = pageCount(S, f);
-    if ((s == Swipe::Left || s == Swipe::Up) && ui.page < pages - 1) ui.page++;
-    else if ((s == Swipe::Right || s == Swipe::Down) && ui.page > 0) ui.page--;
+    if (next && ui.page < pages - 1) ui.page++;
+    else if (!next && ui.page > 0) ui.page--;
+    else if (!next && ui.att) ui.needsYou = true;  // left of the first page
+  } else if (s == Swipe::Right && ui.att) {        // the list scrolls up and down; "Needs you" is to its left
+    ui.needsYou = true;
   }
 }
 
 static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fleet& f, bool touching, int x, int y,
                                       DeckScope scope, uint32_t ms) {
   DeckCommand out;
-  const bool list = S.home == HomeKind::List && ui.screen == Screen::Home;
+  if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);   // the spots the finger lands on are the ones drawn
+  const bool list = S.home == HomeKind::List && ui.screen == Screen::Home && !onNeedsYou(ui);   // "Needs you" doesn't scroll
+  const bool pager = hasPager(S, ui, f);
+  const int pages = pageCount(S, f);
   if (touching) {
     if (!ui.down) {
+      const bool sliding = pager && ui.slideAnim;  // the pages are still settling
       ui.down = true;
       ui.dragging = false;
       ui.x0 = ui.x = x;
       ui.y0 = ui.y = y;
       ui.downMs = ui.lastMs = ms;
+      ui.lastX = x;
       ui.lastY = y;
       ui.velocity = 0;
       ui.holdFired = false;
-      ui.caught = list && ui.animating;
-      if (ui.caught) {                             // catch the moving list
+      ui.caught = (list && ui.animating) || sliding;
+      if (list && ui.animating) {                  // catch the moving list
         ui.animating = false;
         ui.settledMs = ms ? ms : 1;
-        ui.pressed = PanelHit();
-      } else {
-        ui.pressed = squareHit(S, ui, f, x, y, scope);
       }
+      // Catch the sliding pages where they are: this touch moves them on.
+      ui.slide0 = pagerAt(ui);
+      ui.slideAnim = false;
+      ui.sliding = sliding;
+      if (ui.caught) ui.pressed = PanelHit();
+      else ui.pressed = squareHit(S, ui, f, x, y, scope);
       ui.scroll0 = ui.scroll;
       if (ui.pressed.kind == Hit::Stop && scope != DeckScope::Admin) ui.pressed = PanelHit();
       return out;
@@ -495,8 +668,14 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
     ui.y = y;
     const int dx = x - ui.x0, dy = y - ui.y0;
     if (dx * dx + dy * dy > kSlop * kSlop) ui.pressed = PanelHit();   // it became a drag
-    if (list && !ui.dragging && (dy > kSlop || dy < -kSlop) && (dy < 0 ? -dy : dy) >= (dx < 0 ? -dx : dx))
-      ui.dragging = true;
+    // One direction to a touch, chosen when it leaves the slop: up and down
+    // scrolls the list, sideways slides the pages.
+    const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if (list && !ui.dragging && !ui.sliding && ady > kSlop && ady >= adx) ui.dragging = true;
+    if (pager && !ui.dragging && !ui.sliding && adx > kSlop && swipeAcross(adx, ady)) {
+      pagerGrab(ui, x, ms);
+    }
+    if (ui.sliding) pagerFollow(ui, pages, S.w, x - ui.x0, x, ms);   // the pages follow the finger
     if (ui.dragging) {
       const float mx = maxScroll(S, f);
       float s = ui.scroll0 - dy;
@@ -523,27 +702,26 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
   ui.down = false;
   const PanelHit pressed = ui.pressed;
   ui.pressed = PanelHit();
+  if (ui.sliding) {                                // the pages: on to the one they settle on
+    pagerRelease(ui, pages, S.w, pagerCommitPx(S.w, S.h, S.diagIn), ms);   // past the commit point: the next page
+    if (ui.scroll != settleTarget(S, f, ui.scroll, 0)) listRest(ui, S, f, 0, ms);   // a list caught between rows
+    return out;
+  }
   if (ui.dragging) {
     ui.dragging = false;
     if (ms - ui.lastMs > 80) ui.velocity = 0;       // it stopped before letting go
-    ui.scrollFrom = ui.scroll;
-    ui.scrollTo = settleTarget(S, f, ui.scroll, ui.velocity);
-    ui.animStart = ms;
-    ui.animating = true;
+    listRest(ui, S, f, ui.velocity, ms);
     return out;
   }
   const int dx = ui.x - ui.x0, dy = ui.y - ui.y0;
   const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   if (ui.caught) {                                 // it only stopped the list: rest on a row
-    ui.scrollFrom = ui.scroll;
-    ui.scrollTo = settleTarget(S, f, ui.scroll, 0);
-    ui.animStart = ms;
-    ui.animating = true;
+    listRest(ui, S, f, 0, ms);
   } else if (adx <= kSlop && ady <= kSlop) {
     if (pressed.kind != Hit::None || (uint32_t)(ms - ui.downMs) <= kTapMaxMs)
       out = squareTap(ui, S, f, pressed.kind != Hit::None ? pressed : squareHit(S, ui, f, ui.x0, ui.y0, scope), scope, ms);
   } else if (adx >= kSwipeMin || ady >= kSwipeMin) {
-    squareSwipe(ui, S, f, adx >= ady ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down));
+    squareSwipe(ui, S, f, swipeAcross(adx, ady) ? (dx < 0 ? Swipe::Left : Swipe::Right) : (dy < 0 ? Swipe::Up : Swipe::Down));
   }
   return out;
 }
@@ -551,6 +729,8 @@ static inline DeckCommand squareTouch(PanelUi& ui, const SquareSpec& S, const Fl
 // Animations and timeouts. True while something moves.
 static inline bool squareTick(PanelUi& ui, const SquareSpec& S, const Fleet& f, uint32_t ms) {
   squareFix(ui, S, f);
+  if (ui.att) attSync(*ui.att, f, squareSpots(S), ms);
+  else ui.needsYou = false;
   if (ui.backAfterToast && (int32_t)(ui.toastUntil - ms) <= 0) squareHome(ui);
   if (ui.animating) {
     const uint32_t t = ms - ui.animStart;
@@ -559,11 +739,11 @@ static inline bool squareTick(PanelUi& ui, const SquareSpec& S, const Fleet& f, 
       ui.animating = false;
       ui.settledMs = ms ? ms : 1;
     } else {
-      const float p = (float)t / kSettleMs, e = 1 - (1 - p) * (1 - p) * (1 - p);   // ease out
-      ui.scroll = ui.scrollFrom + (ui.scrollTo - ui.scrollFrom) * e;
+      ui.scroll = ui.scrollFrom + (ui.scrollTo - ui.scrollFrom) * easeOut((float)t / kSettleMs);
     }
   }
-  return ui.dragging || ui.animating || posBarAlpha(ui, ms) > 0 || (ui.down && ui.pressed.kind == Hit::Stop);
+  pagerTick(ui, ms);                               // released pages settling
+  return ui.dragging || ui.animating || ui.sliding || ui.slideAnim || posBarAlpha(ui, ms) > 0 || (ui.down && ui.pressed.kind == Hit::Stop);
 }
 
 static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) {
@@ -580,12 +760,23 @@ static inline void squareResult(PanelUi& ui, uint32_t seq, uint32_t code, uint32
   ui.backAfterToast = false;   // stay: show what went wrong
 }
 
-// BOOT: back from a card or a prompt; on a grid, the next page.
+// BOOT: back from a card or a prompt. On a grid, the next page, round to the
+// "Needs you" screen after the last one, then the first page again; on a
+// list, the "Needs you" screen and back.
 static inline void squareButton(PanelUi& ui, const SquareSpec& S, const Fleet& f) {
+  if (ui.confirm) { ui.confirm = false; return; }   // BOOT is cancel first
   if (ui.screen != Screen::Home) { squareHome(ui); return; }
+  if (ui.sliding || ui.slideAnim) {                // pressed while the pages slide: the page changes at once,
+    ui.sliding = ui.slideAnim = false;             // and a finger still down does nothing more
+    if (ui.down) { ui.caught = true; ui.x0 = ui.x; ui.y0 = ui.y; ui.pressed = PanelHit(); }
+  }
+  if (onNeedsYou(ui)) { ui.needsYou = false; ui.page = 0; return; }
   if (S.home == HomeKind::Grid) {
     const int pages = pageCount(S, f);
-    ui.page = (ui.page + 1) % pages;
+    if (ui.att && ui.page >= pages - 1) ui.needsYou = true;
+    else ui.page = (ui.page + 1) % pages;
+  } else if (ui.att) {
+    ui.needsYou = true;
   }
 }
 
@@ -599,6 +790,21 @@ static inline int holdPermille(const PanelUi& ui, uint32_t ms) {
 
 namespace square_detail {
 
+// Coverage (0..15) of a corner square of radius r, pixel (i, j) counted out
+// from the corner's centre: the same as fillArc gives a quarter disc.
+constexpr int kCornerMax = 16;
+static inline const uint8_t* cornerCover(int r) {
+  static uint8_t table[kCornerMax + 1][kCornerMax * kCornerMax];
+  static bool made[kCornerMax + 1];
+  if (!made[r]) {
+    for (int j = 0; j < r; j++)
+      for (int i = 0; i < r; i++)
+        table[r][j * kCornerMax + i] = (uint8_t)round_detail::ringCover(sqrtf((i + 0.5f) * (i + 0.5f) + (j + 0.5f) * (j + 0.5f)), 0, (float)r);
+    made[r] = true;
+  }
+  return table[r];
+}
+
 // A rounded rectangle, filled or as a `t`-pixel outline.
 static inline void roundRect(Canvas& c, int x, int y, int w, int h, int r, uint16_t col) {
   if (r * 2 > h) r = h / 2;
@@ -606,10 +812,31 @@ static inline void roundRect(Canvas& c, int x, int y, int w, int h, int r, uint1
   c.rect(x + r, y, w - 2 * r, h, col);
   c.rect(x, y + r, r, h - 2 * r, col);
   c.rect(x + w - r, y + r, r, h - 2 * r, col);
-  fillArc(c, x + r, y + r, 0, r, 270, 90, col);
-  fillArc(c, x + w - r, y + r, 0, r, 0, 90, col);
-  fillArc(c, x + w - r, y + h - r, 0, r, 90, 90, col);
-  fillArc(c, x + r, y + h - r, 0, r, 180, 90, col);
+  // The four corners from one table of coverage per radius, worked out once
+  // (fillArc works out every pixel's distance and angle: most of a list
+  // frame's drawing time when every tile has four).
+  if (r <= 0) return;
+  if (r > kCornerMax) {
+    fillArc(c, x + r, y + r, 0, r, 270, 90, col);
+    fillArc(c, x + w - r, y + r, 0, r, 0, 90, col);
+    fillArc(c, x + w - r, y + h - r, 0, r, 90, 90, col);
+    fillArc(c, x + r, y + h - r, 0, r, 180, 90, col);
+    return;
+  }
+  const uint8_t* cov = cornerCover(r);
+  const uint16_t full = c.enc(col);
+  for (int j = 0; j < r; j++)
+    for (int i = 0; i < r; i++) {
+      const int a = cov[j * kCornerMax + i];
+      if (!a) continue;
+      const int xs[2] = {x + r - 1 - i, x + w - r + i}, ys[2] = {y + r - 1 - j, y + h - r + j};
+      for (int yy : ys)
+        for (int xx : xs) {
+          if (xx < 0 || xx >= c.w || yy < c.top || yy >= c.h) continue;
+          if (a >= 15) c.px[yy * c.w + xx] = full;
+          else round_detail::blendPx(c, xx, yy, col, a);
+        }
+    }
 }
 
 static inline void roundFrame(Canvas& c, int x, int y, int w, int h, int r, int t, uint16_t col) {
@@ -628,13 +855,16 @@ static inline void roundFrame(Canvas& c, int x, int y, int w, int h, int r, int 
 static inline void stripes(Canvas& c, const Rect& r, uint16_t fill, uint16_t accent, uint32_t ms, int period, int clipTop) {
   const uint16_t s = blend565(fill, accent, 3);
   const int shift = (int)((ms / 100) % 6) * period / 6;
+  const uint16_t fe = c.enc(fill), se = c.enc(s);
+  const int half = period / 2;
   for (int yy = 0; yy < r.h; yy++) {
     const int py = r.y + yy;
     if (py < clipTop || py < 0 || py >= c.h) continue;
-    for (int xx = 0; xx < r.w; xx++) {
-      const int u = ((xx + yy - shift) % period + period) % period;
+    uint16_t* row = c.px + (size_t)py * c.w;
+    int u = ((yy - shift) % period + period) % period;   // the phase at xx = 0, stepped along the row
+    for (int xx = 0; xx < r.w; xx++, u = u + 1 == period ? 0 : u + 1) {
       const int px = r.x + xx;
-      if (u < period / 2 && px >= 0 && px < c.w && c.px[py * c.w + px] == fill) c.px[py * c.w + px] = s;
+      if (u < half && px >= 0 && px < c.w && row[px] == fe) row[px] = se;
     }
   }
 }
@@ -713,9 +943,14 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
   Look k = lookOf(T, a);
   if (pressed) { k.fill = T.ink; k.body = k.label = k.meta = k.chip = T.bg; k.stripes = false; }
   const TileParts p = tileParts(S, r, list);
+  SQ_T0(t0);
   if (list) square_detail::roundRect(c, r.x, r.y, r.w, r.h, 8, k.fill);
   else c.rect(r.x, r.y, r.w, r.h, k.fill);
+  SQ_ADD(tileBg, t0);
+  SQ_T0(ts);
   if (k.stripes) stripes(c, r, k.fill, T.accent, ms, list ? 32 : 24, clipTop);
+  SQ_ADD(other, ts);
+  SQ_T0(t1);
   c.rect(p.chip.x, p.chip.y, p.chip.w, p.chip.h, k.chip);
   if (a.subagents) {
     const Pose sp = a.subTool[0] ? poseOfTool(a.subTool) : Pose::Think;
@@ -727,11 +962,14 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
       c.text(*S.tileMeta, p.count.x, p.count.y, n, k.meta, p.count.w);
     }
   }
-  drawSprite(c, p.critter.x, p.critter.y, p.scale, a.species, poseOf(a, now), k.body, k.fill, ms, true, a.hat, a.hatColor);
+  drawCritter(c, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
+  SQ_ADD(sprite, t1);
+  SQ_T0(t2);
   textCentered(c, *S.tileTitle, r.x + r.w / 2, p.name.y, a.title[0] ? a.title : a.id, k.label, p.name.w);
   char meta[80];
   metaLine(a, now, meta, sizeof meta);
   textCentered(c, *S.tileMeta, r.x + r.w / 2, p.meta.y, meta, k.meta, p.meta.w);
+  SQ_ADD(text, t2);
   const int pct = a.ctxWindow ? ctxPct(a) : 0;
   if (list) {
     const bool waiting = a.status == Status::Waiting;
@@ -794,18 +1032,40 @@ static inline void notice(Canvas& c, const SquareSpec& S, const Theme& T, Pose p
 }
 
 // The list home's header: "agents", and who waits and runs (or the link's trouble).
-// The Wi-Fi mark (round_geom.h's), centred on cx, its base at `base`.
-static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base) { drawNetMark(c, (float)cx, (float)base, T.dim); }
+// The Wi-Fi mark, or the Bluetooth one (round_geom.h's), centred on cx, its base at `base`.
+static inline void wifiMark(Canvas& c, const Theme& T, int cx, int base, bool ble = false) {
+  if (ble) drawBleMark(c, (float)cx, (float)base, T.dim);
+  else drawNetMark(c, (float)cx, (float)base, T.dim);
+}
+
+// The list's two views as two small marks over the header, in the middle
+// (the header's text leaves no room for them on the 1.8" on Wi-Fi): "Needs
+// you" (solid orange while you are on it, an orange outline while someone is
+// on it), then the list (bright while you are on it).
+// While the pages slide the marks follow: the wide one narrows as the other
+// widens, the list's brightens, and "Needs you" fills at halfway.
+static inline void listMarks(Canvas& c, const SquareSpec& S, const Theme& T, const PanelUi& ui) {
+  float p = pagerPos(ui);                          // 0 = "Needs you", 1 = the list
+  p = p < 0 ? 0 : p > 1 ? 1 : p;
+  const bool here = p < 0.5f;
+  const int cur = 20, other = 10, h = 6, gap = 5, y = 3;
+  const int lw = other + (int)lroundf((cur - other) * p), mw = cur + other - lw;
+  const int x = (S.w - mw - gap - lw) / 2;
+  if (here) fillPill(c, x, y, mw, h, T.accent);
+  else strokePill(c, x, y, mw, h, 2, ui.att->count ? T.accent : T.ringTrack);
+  fillPill(c, x + mw + gap, y, lw, h, blend565(T.ringTrack, T.ink, (uint8_t)lroundf(p * 15)));
+}
 
 static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, LinkState link,
-                              bool wifi) {
+                              bool wifi, bool ble = false, const PanelUi* ui = nullptr) {
   c.rect(0, 0, S.w, S.headerH, T.bg);
   const Font& hf = *S.question;
   const int x0 = S.m + S.cornerR / 4;
   const int ty = (S.headerH - hf.cellH) / 2 + 2;
   c.text(hf, x0, ty, "agents", T.ink);
   // On Wi-Fi the mark follows the title, its base about on the title's baseline.
-  if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4);
+  if (wifi) wifiMark(c, T, x0 + textW(hf, "agents") + 26, ty + hf.cellH * 3 / 4, ble);
+  if (ui && ui->att) listMarks(c, S, T, *ui);
   char buf[48];
   if (link == LinkState::Lost) snprintf(buf, sizeof buf, "offline");
   else {
@@ -818,16 +1078,38 @@ static inline void listHeader(Canvas& c, const SquareSpec& S, const Theme& T, co
   c.text(rf, S.w - x0 - w, (S.headerH - rf.cellH) / 2 + 3, buf, link == LinkState::Lost || n.waiting ? T.accent : T.dim);
 }
 
-static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
+// A free spot on the list's "Needs you" screen: the grid's empty cell with the list's corners.
+static inline void listEmpty(Canvas& c, const Theme& T, const Rect& r) {
+  roundRect(c, r.x, r.y, r.w, r.h, 8, T.emptyFill);
+  roundFrame(c, r.x, r.y, r.w, r.h, 8, 1, T.emptyOutline);
+}
+
+// The list's "Needs you" page: one screen of spots, no scrolling. dx: how far
+// right of its place it is drawn (the pages sliding).
+static inline void listSpots(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, int dx) {
+  const Fleet& f = *in.fleet;
+  const PanelUi& ui = *in.ui;
+  for (int s = 0; s < squareSpots(S); s++) {
+    Rect r = listTile(S, s, 0);
+    r.x += dx;
+    if (r.x + r.w <= 0 || r.x >= S.w) continue;
+    const int i = attAgent(*ui.att, f, s);
+    if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, S.headerH);
+    else listEmpty(c, T, r);
+  }
+}
+
+// The list itself, and its position bar, dx to the right of its place.
+static inline void listTiles(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, int dx) {
   const Fleet& f = *in.fleet;
   const PanelUi& ui = *in.ui;
   for (int i = 0; i < f.count; i++) {
-    const Rect r = listTile(S, i, ui.scroll);
-    if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+    Rect r = listTile(S, i, ui.scroll);
+    r.x += dx;
+    if (r.y + r.h <= S.headerH || r.y >= S.h || r.x + r.w <= 0 || r.x >= S.w) continue;
     tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, true, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i,
          S.headerH);
   }
-  listHeader(c, S, T, f, in.link, ui.wifi);
   // The position bar while the list moves, fading a second after it settles.
   const int alpha = posBarAlpha(ui, in.ms);
   const float mx = maxScroll(S, f);
@@ -840,25 +1122,103 @@ static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
     float s = ui.scroll < 0 ? 0 : ui.scroll > mx ? mx : ui.scroll;
     const int y = top + (int)((span - len) * s / mx);
     const uint16_t col = blend565(T.bg, blend565(T.bg, T.ink, 10), (uint8_t)alpha);
-    roundRect(c, S.posX, y, S.posW, len, S.posW / 2, col);
+    roundRect(c, S.posX + dx, y, S.posW, len, S.posW / 2, col);
   }
 }
 
+// The list home: the page that shows, or, while the pages slide, both side by
+// side ("Needs you" at the left), each where the slide puts it. Each tile is
+// drawn once into the one frame, and the canvas cuts what leaves the screen.
+// The header stays in place over them.
+// The background of a list home, everywhere but under the tiles (they paint
+// their own), so most pixels are written once a frame, not twice. The rounded
+// corners blend onto what is under them: their squares get the background too.
+static inline void listBackground(Canvas& c, const SquareSpec& S, const Theme& T, const Rect* cov, int n) {
+  constexpr int kR = 8;   // the tiles' corner radius (tile(), listEmpty())
+  int ys[2 + 2 * 32];
+  int ny = 0;
+  ys[ny++] = S.headerH;
+  ys[ny++] = S.h;
+  for (int i = 0; i < n; i++) {
+    if (cov[i].y > S.headerH && cov[i].y < S.h) ys[ny++] = cov[i].y;
+    if (cov[i].y + cov[i].h > S.headerH && cov[i].y + cov[i].h < S.h) ys[ny++] = cov[i].y + cov[i].h;
+  }
+  for (int a = 1; a < ny; a++)
+    for (int b = a; b > 0 && ys[b - 1] > ys[b]; b--) { const int t = ys[b]; ys[b] = ys[b - 1]; ys[b - 1] = t; }
+  for (int k = 0; k + 1 < ny; k++) {
+    const int y0 = ys[k], y1 = ys[k + 1];
+    if (y1 <= y0) continue;
+    int xs[32], xe[32], m = 0;                 // the tiles across this band, by x
+    for (int i = 0; i < n && m < 32; i++)
+      if (cov[i].y <= y0 && cov[i].y + cov[i].h >= y1) {
+        int j = m++;
+        for (; j > 0 && xs[j - 1] > cov[i].x; j--) { xs[j] = xs[j - 1]; xe[j] = xe[j - 1]; }
+        xs[j] = cov[i].x;
+        xe[j] = cov[i].x + cov[i].w;
+      }
+    int x = 0;
+    for (int j = 0; j < m; j++) {
+      if (xs[j] > x) c.rect(x, y0, xs[j] - x, y1 - y0, T.bg);
+      if (xe[j] > x) x = xe[j];
+    }
+    if (x < S.w) c.rect(x, y0, S.w - x, y1 - y0, T.bg);
+  }
+  for (int i = 0; i < n; i++) {
+    const Rect& r = cov[i];
+    c.rect(r.x, r.y, kR, kR, T.bg);
+    c.rect(r.x + r.w - kR, r.y, kR, kR, T.bg);
+    c.rect(r.x, r.y + r.h - kR, kR, kR, T.bg);
+    c.rect(r.x + r.w - kR, r.y + r.h - kR, kR, kR, T.bg);
+  }
+}
+
+static inline void listHome(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
+  const PanelUi& ui = *in.ui;
+  const int listX = S.w - (int)lroundf(pagerPos(ui) * S.w);   // 0 with the list on screen, S.w with "Needs you"
+  {                                            // where the tiles go this frame (as listSpots and listTiles place them)
+    Rect cov[32];
+    int n = 0;
+    if (ui.att && listX > 0)
+      for (int s = 0; s < squareSpots(S) && n < 32; s++) {
+        Rect r = listTile(S, s, 0);
+        r.x += listX - S.w;
+        if (r.x + r.w > 0 && r.x < S.w) cov[n++] = r;
+      }
+    if (listX < S.w)
+      for (int i = 0; i < in.fleet->count && n < 32; i++) {
+        Rect r = listTile(S, i, ui.scroll);
+        r.x += listX;
+        if (r.y + r.h > S.headerH && r.y < S.h && r.x + r.w > 0 && r.x < S.w) cov[n++] = r;
+      }
+    listBackground(c, S, T, cov, n);
+  }
+  if (ui.att && listX > 0) listSpots(c, S, T, in, listX - S.w);
+  if (listX < S.w) listTiles(c, S, T, in, listX);
+  listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, &ui);
+}
+
 static inline void pageBars(Canvas& c, const SquareSpec& S, const Theme& T, const Fleet& f, int page, int pages,
-                            const Rect& area) {
-  if (pages < 2 || !area.w) return;
+                            const GridGeom& g, const PanelUi& ui) {
+  const SquareBars b = squareBars(S, g, ui, pages);
+  if (!b.n) return;
   bool hot[64] = {};
   for (int i = 0; i < f.count; i++)
     if (f.agents[i].status == Status::Waiting && f.agents[i].slot / perPage(S) < 64) hot[f.agents[i].slot / perPage(S)] = true;
-  const int cur = 56, other = 30, h = 8, gap = 12;
-  int total = 0;
-  for (int p = 0; p < pages; p++) total += (p == page ? cur : other) + (p ? gap : 0);
-  int x = (S.w - total) / 2;
-  const int y = area.y + (area.h - h) / 2;
-  for (int p = 0; p < pages; p++) {
-    const int w = p == page ? cur : other;
-    fillPill(c, x, y, w, h, p == page ? T.ink : (p < 64 && hot[p]) ? T.accent : T.ringTrack);
-    x += w + gap;
+  const bool here = onNeedsYou(ui);
+  if (b.mark) {                                    // "Needs you": solid orange while you are on it, an orange
+    const Rect m = b.r[0];                         // outline (and the count) while someone is on it
+    if (here) fillPill(c, m.x, m.y, m.w, m.h, T.accent);
+    else strokePill(c, m.x, m.y, m.w, m.h, 2, ui.att->count ? T.accent : T.ringTrack);
+    if (b.countX >= 0) {
+      char n[4];
+      snprintf(n, sizeof n, "%d", ui.att->count > 99 ? 99 : ui.att->count);
+      c.text(*S.label, b.countX, m.y + m.h / 2 - S.label->cellH / 2, n, T.accent);
+    }
+  }
+  for (int k = b.mark ? 1 : 0; k < b.n; k++) {
+    const int p = k - (b.mark ? 1 : 0);
+    const Rect r = b.r[k];
+    fillPill(c, r.x, r.y, r.w, r.h, !here && p == page ? T.ink : (p < 64 && hot[p]) ? T.accent : T.ringTrack);
   }
 }
 
@@ -867,15 +1227,15 @@ static inline void gridHome(Canvas& c, const SquareSpec& S, const Theme& T, cons
   const PanelUi& ui = *in.ui;
   const int pages = pageCount(S, f);
   const int page = ui.page < pages ? ui.page : pages - 1;
-  const GridGeom g = gridGeom(S, pages, ui.wifi);
+  const GridGeom g = gridGeomFor(S, ui, pages);
   for (int cell = 0; cell < perPage(S); cell++) {
     const Rect r = cellRect(S, g, cell);
-    const int i = agentAt(S, f, page, cell);
+    const int i = onNeedsYou(ui) ? attAgent(*ui.att, f, cell) : agentAt(S, f, page, cell);
     if (i >= 0) tile(c, S, T, f.agents[i], r, in.ms, in.nowEpoch, false, ui.pressed.kind == Hit::Tile && ui.pressed.agent == i, 0);
     else emptyCell(c, T, r);
   }
-  pageBars(c, S, T, f, page, pages, g.bars);
-  if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6);
+  pageBars(c, S, T, f, page, pages, g, ui);
+  if (ui.wifi && g.bars.w) wifiMark(c, T, g.x0 + S.cols * g.cellW + (S.cols - 1) * S.gap - 18, g.bars.y + g.bars.h / 2 + 6, ui.ble);
   if (in.link == LinkState::Lost) {
     const Font& lf = *S.label;
     const char* s = "deck offline" DECK_DOT "retrying";
@@ -949,6 +1309,7 @@ static inline void doingNow(const Agent& a, char* out, size_t cap) {
 struct CardGeom {
   Rect critter;                // the critter's 18 x 13 unit box
   Rect name, pill;             // the header's text block: name, then the pill under it
+  Rect pet;                    // then the pet's name, stage and level (h 0: no pet)
   int doingY, doingValueY;
   int subY, subPitch, subRows; // rows of working subagents (subRows may be fewer than kept)
   int ctxY, statsY;
@@ -967,14 +1328,14 @@ static inline int capTop(const Font& f) { return (f.cellH * 795 + 500) / 1000 - 
 
 // The middle of what a critter draws in its box (scale s), from its hat (or
 // head) to its feet, standing still: the block and the onigiri, with and
-// without a hat, differ. Measured on a small drawing at scale 2.
-static inline int critterMid(const Rect& box, int s, Species sp, uint8_t hat, uint8_t hatColor) {
-  constexpr int kS = 2, kW = 26 * kS, kH = 20 * kS, kX = 4 * kS, kY = 3 * kS;
+// without a hat, differ, and so does a pet. Measured on a small drawing at scale 2.
+static inline int critterMid(const Rect& box, int s, const Agent& a) {
+  constexpr int kS = 2, kW = 26 * kS, kH = 30 * kS, kX = 5 * kS, kY = 12 * kS;
   constexpr uint16_t kBlank = 0x1234;
   static uint16_t px[kW * kH];
   for (int i = 0; i < kW * kH; i++) px[i] = kBlank;
   Canvas c{px, kW, kH};
-  drawSprite(c, kX, kY, kS, sp, Pose::Idle, 0xFFFF, 0x0001, 0, false, hat, hatColor);
+  drawCritter(c, kX, kY, kS, a, Pose::Idle, 0xFFFF, 0x0001, 0, false);
   int top = -1, bot = -1;
   for (int y = 0; y < kH; y++)
     for (int x = 0; x < kW; x++)
@@ -994,12 +1355,14 @@ static inline CardGeom cardGeom(const SquareSpec& S, const Agent& a, DeckScope s
   // The name and the pill as one block, from the name's capitals to the
   // pill's foot, its middle on the drawn critter's.
   const int pillH = lf.cellH + 2, gap = 2;
+  const int petH = a.pet.has ? lf.cellH - 2 : 0;
   const int cap = capTop(nf);
-  const int blockH = nf.cellH - cap + gap + pillH;
-  const int top = critterMid(g.critter, s, a.species, a.hat, a.hatColor) - blockH / 2 - cap;
+  const int blockH = nf.cellH - cap + gap + pillH + (petH ? gap + petH : 0);
+  const int top = critterMid(g.critter, s, a) - blockH / 2 - cap;
   g.name = Rect{tx, top, tw, nf.cellH};
   g.pill = Rect{tx, top + nf.cellH + gap, tw, pillH};
-  int y = g.pill.y + g.pill.h + 14;
+  g.pet = Rect{tx, g.pill.y + g.pill.h + gap, tw, petH};
+  int y = (petH ? g.pet.y + g.pet.h : g.pill.y + g.pill.h) + 14;
   if (y < g.critter.y + g.critter.h + 8) y = g.critter.y + g.critter.h + 8;
 
   g.doingY = y;
@@ -1044,12 +1407,16 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
   // Header: the critter, and beside it the name over the pill, centred on it.
   const Look k = lookOf(T, a);
   const uint16_t body = a.status == Status::Running || hungry(a) ? T.accent : k.body == T.bg ? T.ink : k.body;
-  drawSprite(c, g.critter.x, g.critter.y, s, a.species, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true, a.hat, a.hatColor);
+  drawCritter(c, g.critter.x, g.critter.y, s, a, poseOf(a, in.nowEpoch), body, T.bg, in.ms, true);
   const Font& nf = *S.title;
   c.text(nf, g.name.x, g.name.y, a.title[0] ? a.title : a.id, T.ink, g.name.w);
   pillLabel(a, in.nowEpoch, buf, sizeof buf);
   const bool loud = a.status == Status::Error || hungry(a);
   pillText(c, *S.label, g.pill.x, g.pill.y, buf, loud ? T.accent : T.ink, T.bg, g.pill.w);
+  if (g.pet.h) {
+    petLine(a, buf, sizeof buf);
+    c.text(*S.label, g.pet.x, g.pet.y, buf, T.dim, g.pet.w);
+  }
 
   const Font& lf = *S.label;
   const Font& bf = *S.body;
@@ -1145,7 +1512,6 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 
   // The last prompt, as many lines as fit above the buttons' rule.
   const CardButtons b = cardButtons(S, a, in.scope);
-  const int ruleY = g.ruleY;
   if (g.lastLines > 0) {
     c.text(lf, m, g.lastY, "last prompt", T.dim, lw);
     const int line = bf.cellH - 2;
@@ -1155,7 +1521,6 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
 
   // The buttons.
   if (b.n) {
-    c.rect(m, ruleY, lw, 1, T.line);
     const PanelUi& ui = *in.ui;
     for (int i = 0; i < b.n; i++) {
       const Hit hk = b.kind[i] == IconKind::Focus ? Hit::Focus : b.kind[i] == IconKind::Interrupt ? Hit::Interrupt : Hit::Stop;
@@ -1164,6 +1529,22 @@ static inline void card(Canvas& c, const SquareSpec& S, const Theme& T, const Pa
                  T.accent, T.line);
     }
   }
+}
+
+// The sheet of "interrupt?" (confirmGeom), over the card.
+static inline void confirmSheet(Canvas& c, const SquareSpec& S, const Theme& T, const Agent& a, const PanelUi& ui) {
+  using namespace square_detail;
+  const ConfirmGeom g = confirmGeom(S);
+  c.fill(T.bg);
+  // The agent, and what interrupting does; the orange button says the verb.
+  textCentered(c, *S.question, S.w / 2, g.titleY, a.title[0] ? a.title : a.id, T.ink, S.w - 2 * g.yes.x);
+  textCentered(c, *S.body, S.w / 2, g.lineY, "stops and waits for you", T.dim, S.w - 2 * g.yes.x);
+  const bool yesDown = ui.pressed.kind == Hit::ConfirmYes, noDown = ui.pressed.kind == Hit::ConfirmNo;
+  roundRect(c, g.yes.x, g.yes.y, g.yes.w, g.yes.h, g.yes.h / 2, yesDown ? T.focusedAccent : T.accent);
+  textCentered(c, *S.question, S.w / 2, g.yes.y + (g.yes.h - S.question->cellH) / 2 + 1, "interrupt", T.bg, g.yes.w - 24);
+  roundRect(c, g.no.x, g.no.y, g.no.w, g.no.h, g.no.h / 2, noDown ? T.ringTrack : T.panel);
+  roundFrame(c, g.no.x, g.no.y, g.no.w, g.no.h, g.no.h / 2, 2, T.ringTrack);
+  textCentered(c, *S.question, S.w / 2, g.no.y + (g.no.h - S.question->cellH) / 2 + 1, "cancel", T.ink, g.no.w - 24);
 }
 
 static inline void prompt(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in, const Agent& a) {
@@ -1185,8 +1566,7 @@ static inline void prompt(Canvas& c, const SquareSpec& S, const Theme& T, const 
   // Header: ×2 critter, the name, the age in a pill on the right.
   const int ps = S.promptScale;
   const int hy = 18;
-  drawSprite(c, m + (S.cornerR ? 6 : 0), hy, ps, a.species, Pose::Wait, perm ? T.bg : T.dim, bg, in.ms, false, a.hat,
-             a.hatColor);
+  drawCritter(c, m + (S.cornerR ? 6 : 0), hy, ps, a, Pose::Wait, perm ? T.bg : T.dim, bg, in.ms, false);
   char age[8];
   fmtAge(a.statusSince ? in.nowEpoch - a.statusSince : 0, age, sizeof age);
   const Font& lf = *S.label;
@@ -1277,15 +1657,21 @@ static inline void cornerMask(Canvas& c, int r) {
 // The whole frame.
 static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, const PanelInput& in) {
   using namespace square_detail;
-  c.fill(T.bg);
+  // A list home paints its own background around its tiles (listBackground);
+  // every other screen starts from a cleared frame.
+  const bool listNext = S.home == HomeKind::List && in.link != LinkState::Connecting && in.link != LinkState::Unapproved &&
+                        in.fleet && in.fleet->count > 0 && in.ui && in.ui->screen == Screen::Home;
+  SQ_T0(tf);
+  if (!listNext) c.fill(T.bg);
+  SQ_ADD(fill, tf);
   char buf[96];
   const char* name = in.device && in.device[0] ? in.device : "<name>";
   const PanelUi* tu = in.ui && in.ui->toast[0] && (int32_t)(in.ui->toastUntil - in.ms) > 0 ? in.ui : nullptr;
   switch (in.link) {
     case LinkState::Connecting:
-      if (in.net && in.net->via == NetVia::Wifi) {   // where Wi-Fi is (net_model.h's words)
+      if (in.net && netNoticeShown(*in.net)) {   // where Wi-Fi or Bluetooth is, a passkey (net_model.h's words)
         const NetNotice n = netNotice(*in.net);
-        notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, T.dim, n.title, n.line1, n.problem ? T.accent : T.dim,
+        notice(c, S, T, n.problem ? Pose::Exit : Pose::Think, T.dim, n.title, n.line1, n.problem || n.code ? T.accent : T.dim,
                n.line2, T.dim, nullptr, T.dim, in.ms);
       } else {
         notice(c, S, T, Pose::Think, T.dim, "connecting to the deck", "plugged into the Mac?", T.dim,
@@ -1324,7 +1710,13 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
   }
   const PanelUi& ui = *in.ui;
   const int open = ui.screen != Screen::Home ? findAgent(*in.fleet, ui.openId) : -1;
-  if (open >= 0 && ui.screen == Screen::Card) card(c, S, T, in, in.fleet->agents[open]);
+  if (open >= 0 && ui.screen == Screen::Card) {
+    card(c, S, T, in, in.fleet->agents[open]);
+    if (ui.confirm) {
+      confirmSheet(c, S, T, in.fleet->agents[open], ui);
+      if (S.cornerR) cornerMask(c, S.cornerR);
+    }
+  }
   else if (open >= 0) prompt(c, S, T, in, in.fleet->agents[open]);
   else if (S.home == HomeKind::List) listHome(c, S, T, in);
   else gridHome(c, S, T, in);
@@ -1333,19 +1725,414 @@ static inline void drawSquare(Canvas& c, const SquareSpec& S, const Theme& T, co
 }
 
 // The square boards' PanelLayout.
+#include "control_panel.h"
+#include "fun_motion.h"
+
 class SquarePanel : public PanelLayout {
  public:
-  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)) {}
+  explicit SquarePanel(const SquareSpec& s) : S(s), T(deckTheme(s.trueBlack)), G(controlGeom(s.w, s.h, s.m, s.diagIn, s.imu)) {}
+  ~SquarePanel() override {
+    free(homePic);
+    free(panelPic);
+    free(rowTable);
+    free(edgeRow);
+    free(scratch);
+  }
+  const uint16_t* const* frameRows() const override { return rowsReady ? rowTable : nullptr; }
+  const FrameSplit* frameSplit() const override { return pageSlide.split(); }
+  SquarePanel(const SquarePanel&) = delete;
+  SquarePanel& operator=(const SquarePanel&) = delete;
   int width() const override { return S.w; }
   int height() const override { return S.h; }
   bool trueBlack() const override { return S.trueBlack; }
-  void draw(Canvas& c, const PanelInput& in) const override { drawSquare(c, S, T, in); }
+  // The board's panel (control_panel.h): pulled down from the header on a
+  // list board, from the top strip on a grid (controlEdgeTouch).
+  bool hasPanel() const { return true; }
+  void draw(Canvas& c, const PanelInput& in) const override {
+    if (in.ui && in.fleet && (S.imu || in.ui->fun.role == 1)) {
+      // The trick's empty grid with the board's panel over it (pulled down
+      // or open): drawn whole each frame, the grid stays under it.
+      if (in.ctl && hasPanel() && controlShown(in.ui->ctl) && (magicGrid(in) || giverScreen(in))) {
+        const ControlUi& u = in.ui->ctl;
+        rowsReady = false;
+        if ((u.pulling || u.animating) && slideFromCache(c, in, u)) return;   // moving: slid, as over home
+        cached = false;
+        if (giverScreen(in)) drawGiver(c, in);
+        else drawReveal(c, in);
+        controlDraw(c, G, T, *in.ctl, in.ui->ctl, in.ms);
+        if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+        return;
+      }
+      if (drawFun(c, in)) return;
+    }
+    if (slideHome(c, in)) return;                 // home's pages under the finger: cut from two pictures
+    const ControlUi* u = in.ui && in.ctl && hasPanel() ? &in.ui->ctl : nullptr;
+    // While the panel moves, home and the panel are each drawn once, then slid
+    // (a copy of rows a frame): the motion costs the send, not two drawings.
+    rowsReady = false;
+    if (u && (u->pulling || u->animating) && slideFromCache(c, in, *u)) return;
+    cached = false;
+    const bool covered = u && u->open >= 0.999f && !u->animating && !u->pulling;
+    if (!covered) drawSquare(c, S, T, in);   // all the way down, what is under it doesn't show
+    if (u && controlShown(*u)) {
+      controlDraw(c, G, T, *in.ctl, *u, in.ms);
+      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    }
+  }
+  // The motion tricks (fun_motion.h): a knock reveals the agents when the
+  // trick is armed; a shake on an agent's card makes its critter sick.
+  void motion(PanelUi& ui, float ax, float ay, float az, uint32_t ms) const override {
+    if (!S.imu) return;
+    const Motion m = funDetect(ui.fun, ax, ay, az, ms);
+    if (m == Motion::Knock && ui.fun.magic && !ui.fun.spent && ui.screen == Screen::Home && !funSick(ui.fun, ms) && !controlShown(ui.ctl)) {   // on the grid only: knock 1 takes, knock 2 gives back (a shake on a card starts with a jolt too)
+      funKnock(ui.fun, ms);
+      ui.fun.stashDue = true;                  // every agent leaves the other screens, or comes back
+      if (!ui.fun.taken) {                     // given back: from wherever it was, to the grid the tiles leave
+        ui.screen = Screen::Home;
+        ui.confirm = false;
+      }
+    }
+    else if (m == Motion::Shake && ui.screen == Screen::Card && !funSick(ui.fun, ms) && !ui.confirm && !controlShown(ui.ctl))
+      funSickStart(ui.fun, ui.openId, ms);
+  }
+  bool panelTouch(PanelUi& ui, bool down, int x, int y, uint32_t ms) const override {
+    if (!hasPanel()) return false;
+    if (S.home == HomeKind::Grid) {                // tiles reach the top: a tap there stays the tile's
+      const bool was = ui.ctl.down;
+      const bool took = controlEdgeTouch(ui.ctl, G, down, x, y, ms, S.h / 8);
+      if (took && !was) { ui.down = false; ui.pressed = PanelHit(); }   // the screen lets go of the finger
+      return took;
+    }
+    // From the top edge of any screen: home, an agent's card, a prompt, a notice.
+    const bool mayBegin = !ui.down && y < S.headerH;
+    return controlTouch(ui.ctl, G, down, x, y, ms, mayBegin);
+  }
   DeckCommand touch(PanelUi& ui, const Fleet& f, bool down, int x, int y, DeckScope scope, uint32_t ms) const override {
+    if (S.imu && ui.fun.magic && !ui.fun.taken) return DeckCommand{};   // the empty grid: nothing to touch
+    if (ui.fun.role == 1 && ui.fun.given && ui.screen == Screen::Home) return DeckCommand{};   // the giver's emptied grid
+    if (S.imu && funSick(ui.fun, ms)) return DeckCommand{};
     return squareTouch(ui, S, f, down, x, y, scope, ms);
   }
-  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override { return squareTick(ui, S, f, ms); }
-  void button(PanelUi& ui, const Fleet& f) const override { squareButton(ui, S, f); }
+  bool tick(PanelUi& ui, const Fleet& f, uint32_t ms) const override {
+    bool fun = false;
+    if (S.imu) {
+      (void)f;
+      if (ui.fun.sickAt && !funSick(ui.fun, ms)) ui.fun.sickAt = 0;
+      if (ui.fun.revealAt && !funRevealing(ui.fun, ms)) ui.fun.revealAt = 0;
+      if (ui.fun.returnAt && !funReturning(ui.fun, ms)) ui.fun.returnAt = 0;
+      if (ui.fun.backAt && !funBack(ui.fun, ms)) ui.fun.backAt = 0;
+      if (ui.fun.giveAt && !funGiving(ui.fun, ms)) ui.fun.giveAt = 0;   // given back: the empty grid stays until the drawer switches it off
+      fun = funBusy(ui.fun, ms);
+    }
+    const bool panel = (hasPanel() && controlTick(ui.ctl, ms)) || fun;
+    return squareTick(ui, S, f, ms) || panel;
+  }
+  void button(PanelUi& ui, const Fleet& f) const override {
+    if (S.imu && ui.fun.magic && !ui.fun.taken) return;   // the empty grid: BOOT has nothing to do
+    if (hasPanel() && controlShown(ui.ctl)) {   // BOOT closes the panel first
+      ui.ctl = ControlUi();
+      return;
+    }
+    squareButton(ui, S, f);
+  }
   void result(PanelUi& ui, uint32_t seq, uint32_t code, uint32_t ms) const override { squareResult(ui, seq, code, ms); }
   const SquareSpec S;
   const Theme T;
+  const ControlGeom G;
+
+ private:
+  // The sick critter's pose: from its place on the card to the middle and back.
+  SickPose sickPose(const PanelUi& ui, const Fleet& f, uint32_t ms) const {
+    const int i = findAgent(f, ui.fun.sickId);
+    Rect from{S.w / 2 - 9 * S.cardScale, 20, 0, 0};
+    if (i >= 0) from = square_detail::cardGeom(S, f.agents[i], DeckScope::Act).critter;
+    return funSickPose(ui.fun, S.w, S.h, from.x, from.y, S.cardScale, ms);
+  }
+
+  // The magic trick on a list home: an empty grid while it is armed (no
+  // header, no agents); then the tiles on screen fly in from the top-right
+  // corner one after another, growing from kStart of their size, drawn and
+  // animated as they go (each into a scratch tile, then scaled into place).
+  void drawReveal(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const FunUi& f = in.ui->fun;
+    const PanelUi& ui = *in.ui;
+    c.fill(T.bg);
+    const uint16_t spot = rgb565(0x77, 0x74, 0x6C);   // the empty places: light grey
+    for (int sp = 0; sp < squareSpots(S); sp++) {
+      const Rect r = listTile(S, sp, 0);
+      if (r.y < S.h) roundRect(c, r.x, r.y, r.w, r.h, 8, spot);
+    }
+    listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+    if (f.revealAt || f.returnAt) {
+      const bool out = f.returnAt != 0;           // giving them back: the same flight, backwards
+      const int tw = S.tileW, th = S.tileH;
+      if (!scratch) scratch = (uint16_t*)malloc((size_t)tw * th * 2);
+      constexpr float kStart = 0.55f;
+      int k = 0;
+      for (int i = 0; i < in.fleet->count; i++) {
+        const Rect r = listTile(S, i, ui.scroll);
+        if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+        float t = funRevealT(f, k++, in.ms);
+        if (out) t = 1.f - t;
+        if (t <= 0) continue;
+        if (t >= 1 || !scratch) {
+          tile(c, S, T, in.fleet->agents[i], r, in.ms, in.nowEpoch, true, false, S.headerH);
+          continue;
+        }
+        Canvas sc{scratch, tw, th};
+        sc.be = c.be;
+        sc.fill(T.bg);
+        tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
+        const float scale = kStart + (1.f - kStart) * t;
+        // In from past its arrive corner; given back, out past its leave corner (Settings, Magic trick).
+        float sx0, sy0;
+        flightCorner(out ? f.leave : f.arrive, kStart, sx0, sy0);
+        const float dx = sx0 + (r.x - sx0) * t, dy = sy0 + (r.y - sy0) * t;
+        const int dw = (int)(tw * scale), dh = (int)(th * scale);
+        for (int yy = 0; yy < dh; yy++) {
+          const int py = (int)dy + yy;
+          if (py < 0 || py >= c.h) continue;
+          const uint16_t* src = scratch + (size_t)(yy * th / dh) * tw;
+          uint16_t* dst = c.px + (size_t)py * c.w;
+          for (int xx = 0; xx < dw; xx++) {
+            const int px = (int)dx + xx;
+            if (px >= 0 && px < c.w) dst[px] = src[xx * tw / dw];
+          }
+        }
+      }
+    }
+    if (S.cornerR) cornerMask(c, S.cornerR);
+  }
+
+  // Just past one of the screen's corners, off the glass, for a tile at scale k.
+  void flightCorner(uint8_t corner, float k, float& x, float& y) const {
+    const bool left = corner == 0 || corner == 2, top = corner == 0 || corner == 1;
+    x = left ? -S.tileW * k - 8 : S.w + 8;
+    y = top ? -S.tileH * k - 8 : S.h + 8;
+  }
+
+  // One tile (w x h from src, rows src_stride apart) at scale, its top-left at (dx, dy).
+  static void blitScaled(Canvas& c, const uint16_t* src, int stride, int w, int h, float scale, float dx, float dy) {
+    const int dw = (int)(w * scale), dh = (int)(h * scale);
+    if (dw <= 0 || dh <= 0) return;
+    for (int yy = 0; yy < dh; yy++) {
+      const int py = (int)dy + yy;
+      if (py < 0 || py >= c.h) continue;
+      const uint16_t* s = src + (size_t)(yy * h / dh) * stride;
+      uint16_t* d = c.px + (size_t)py * c.w;
+      for (int xx = 0; xx < dw; xx++) {
+        const int px = (int)dx + xx;
+        if (px >= 0 && px < c.w) d[px] = s[xx * w / dw];
+      }
+    }
+  }
+
+  // The giver's screen while its agents are taken, and their flights: out to
+  // its leave corner from the picture it showed, back in from its arrive
+  // corner as they are now.
+  bool giverScreen(const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    return f.role == 1 && S.home == HomeKind::List && in.ui->screen == Screen::Home && (f.given || funBack(f, in.ms));
+  }
+
+  void drawGiver(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const FunUi& f = in.ui->fun;
+    const PanelUi& ui = *in.ui;
+    c.fill(T.bg);
+    const uint16_t spot = rgb565(0x77, 0x74, 0x6C);
+    for (int sp = 0; sp < squareSpots(S); sp++) {
+      const Rect r = listTile(S, sp, 0);
+      if (r.y < S.h) roundRect(c, r.x, r.y, r.w, r.h, 8, spot);
+    }
+    listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, nullptr);
+    constexpr float kEnd = 0.55f;
+    if (f.given && funGiving(f, in.ms) && f.pic) {           // out, from the picture
+      for (int k = 0; k < f.picN; k++) {
+        const float t = funFlightT(f.giveAt, k, in.ms);
+        if (t >= 1) continue;
+        float ex, ey;
+        flightCorner(f.leave, kEnd, ex, ey);
+        const float x = f.picX[k] + (ex - f.picX[k]) * t, y = f.picY[k] + (ey - f.picY[k]) * t;
+        blitScaled(c, f.pic + (size_t)f.picY[k] * c.w + f.picX[k], c.w, S.tileW, S.tileH, 1.f - (1.f - kEnd) * t, x, y);
+      }
+    } else if (!f.given && funBack(f, in.ms)) {               // back in, as they are now
+      const int tw = S.tileW, th = S.tileH;
+      if (!scratch) scratch = (uint16_t*)malloc((size_t)tw * th * 2);
+      int k = 0;
+      for (int i = 0; i < in.fleet->count; i++) {
+        const Rect r = listTile(S, i, ui.scroll);
+        if (r.y + r.h <= S.headerH || r.y >= S.h) continue;
+        const float t = funFlightT(f.backAt, k++, in.ms);
+        if (t <= 0) continue;
+        if (t >= 1 || !scratch) {
+          tile(c, S, T, in.fleet->agents[i], r, in.ms, in.nowEpoch, true, false, S.headerH);
+          continue;
+        }
+        Canvas sc{scratch, tw, th};
+        sc.be = c.be;
+        sc.fill(T.bg);
+        tile(sc, S, T, in.fleet->agents[i], Rect{0, 0, tw, th}, in.ms, in.nowEpoch, true, false, 0);
+        float sx, sy;
+        flightCorner(f.arrive, kEnd, sx, sy);
+        blitScaled(c, scratch, tw, tw, th, kEnd + (1.f - kEnd) * t, sx + (r.x - sx) * t, sy + (r.y - sy) * t);
+      }
+    }
+    if (S.cornerR) cornerMask(c, S.cornerR);
+  }
+
+  // The tiles on screen now (list home): their agents' indexes and places.
+  int shownTiles(const PanelUi& ui, const Fleet& f, int* idx, int16_t* x, int16_t* y, int max) const override {
+    if (S.home != HomeKind::List || ui.screen != Screen::Home) return 0;
+    int n = 0;
+    for (int i = 0; i < f.count && n < max; i++) {
+      const Rect r = listTile(S, i, ui.scroll);
+      if (r.y < S.headerH || r.y + r.h > S.h) continue;   // whole tiles only
+      idx[n] = i;
+      x[n] = (int16_t)r.x;
+      y[n] = (int16_t)r.y;
+      n++;
+    }
+    return n;
+  }
+
+  // The magic trick's own screen: the grid, empty, or the tiles flying.
+  bool magicGrid(const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    return S.home == HomeKind::List && in.ui->screen == Screen::Home && f.magic && (!f.taken || funRevealing(f, in.ms));
+  }
+
+  // The tricks over the frame: true when this drew the whole frame.
+  bool drawFun(Canvas& c, const PanelInput& in) const {
+    const FunUi& f = in.ui->fun;
+    if (giverScreen(in)) {
+      drawGiver(c, in);
+      return true;
+    }
+    if (magicGrid(in)) {
+      drawReveal(c, in);
+      return true;
+    }
+    if (!funSick(f, in.ms)) return false;
+    const int i = findAgent(*in.fleet, f.sickId);
+    if (i < 0 || in.ui->screen != Screen::Card) return false;
+    const Agent& a = in.fleet->agents[i];
+    const SickPose p = sickPose(*in.ui, *in.fleet, in.ms);
+    drawSquare(c, S, T, in);                   // the card stays under it
+    {                                          // its own place on the card is empty while it is out: body,
+      const square_detail::CardGeom cg = square_detail::cardGeom(S, a, in.scope);   // legs, hat and its bubble,
+      const Rect from = cg.critter;            // up to the name beside it
+      const int k = S.cardScale;
+      int right = from.x + 20 * k;
+      if (cg.name.x > from.x && right > cg.name.x - 2) right = cg.name.x - 2;
+      if (a.pet.has) c.rect(from.x - 7 * k, from.y - 12 * k, right - (from.x - 7 * k), 28 * k, T.bg);   // a pet's reach
+      else c.rect(from.x - k, from.y - 3 * k, right - (from.x - k), 17 * k, T.bg);
+    }
+    c.dim50();                                 // the card behind it at half brightness
+    // Crossed eyes while it is sick (the error pose's), its own colours.
+    drawCritter(c, (int)p.x, (int)p.y, p.scale, a, p.dizzy ? Pose::Err : Pose::Run, T.accent, T.bg, in.ms, false);
+    funPour(c, p, f, T.bg, in.ms);
+    if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    return true;
+  }
+
+  // The two pictures the panel slides between, a frame each (in PSRAM on a
+  // board: malloc puts blocks this big there). Made the first time the panel
+  // moves; nullptr if there is no room (then every frame is drawn).
+  mutable uint16_t* homePic = nullptr;
+  mutable uint16_t* panelPic = nullptr;
+  mutable bool cached = false;
+  mutable uint16_t* scratch = nullptr;   // one tile, for the magic trick's flying tiles
+  // The moving frame as rows of those pictures, for a board that sends rows.
+  mutable const uint16_t** rowTable = nullptr;
+  mutable uint16_t* edgeRow = nullptr;
+  mutable bool rowsReady = false;
+
+  // Home's pages while they slide (page_slide.h): each page drawn once into
+  // a picture, then every frame cut from the two either side of the finger.
+  // The pictures have no glass corners (the seam would show them) and no
+  // toast; on the canvas the list's header, the toast and the corners go on
+  // over the pages each frame.
+  mutable PageSlide pageSlide;
+  bool slideHome(Canvas& c, const PanelInput& in) const {
+    using namespace square_detail;
+    const bool moving = in.ui && in.fleet && in.fleet->count > 0 && pagerMoving(*in.ui) && in.ui->screen == Screen::Home &&
+                        (in.link == LinkState::Live || in.link == LinkState::Lost) && !(in.ctl && controlShown(in.ui->ctl));
+    if (!moving) {
+      pageSlide.reset();
+      return false;
+    }
+    rowsReady = false;
+    const PanelUi& ui = *in.ui;
+    SquareSpec flat = S;
+    flat.cornerR = 0;
+    const int count = pagerCount(ui, pageCount(S, *in.fleet));
+    const bool ok = pageSlide.slide(c, pagerAt(ui), count, in.splitOk, T.bg, [&](Canvas& k, int i) {
+      PanelUi u = ui;
+      u.sliding = u.slideAnim = false;
+      u.toast[0] = '\0';
+      u.pressed = PanelHit();
+      pagerGo(u, i);
+      PanelInput pi = in;
+      pi.ui = &u;
+      drawSquare(k, flat, T, pi);
+    });
+    if (!ok) return false;
+    if (pageSlide.split()) return true;
+    if (S.home == HomeKind::List) listHeader(c, S, T, *in.fleet, in.link, ui.wifi, ui.ble, &ui);
+    if (ui.toast[0] && (int32_t)(ui.toastUntil - in.ms) > 0) toastPill(c, S, T, ui.toast);
+    if (S.cornerR) cornerMask(c, S.cornerR);
+    return true;
+  }
+
+  bool slideFromCache(Canvas& c, const PanelInput& in, const ControlUi& u) const {
+    const size_t n = (size_t)S.w * S.h;
+    if (c.top != 0 || c.w != S.w || c.h != S.h) return false;
+    if (!homePic) homePic = (uint16_t*)malloc(n * 2);
+    if (!panelPic) panelPic = (uint16_t*)malloc(n * 2);
+    if (!homePic || !panelPic) return false;
+    if (!cached) {
+      if (in.ui && giverScreen(in)) drawGiver(c, in);       // under the panel: the trick's grids
+      else if (S.imu && in.ui && magicGrid(in)) drawReveal(c, in);
+      else drawSquare(c, S, T, in);
+      memcpy(homePic, c.px, n * 2);
+      ControlUi full = u;
+      full.open = 1.f;
+      full.pulling = full.animating = full.down = false;
+      full.pressed = ControlHit::None;
+      controlDraw(c, G, T, *in.ctl, full, in.ms);
+      if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+      memcpy(panelPic, c.px, n * 2);
+      cached = true;
+    }
+    const int edge0 = (int)lroundf(u.open * (float)S.h);
+    if (in.rowsOk) {                     // nothing to copy: the board sends these rows as they are
+      if (!rowTable) rowTable = (const uint16_t**)malloc(sizeof(uint16_t*) * S.h);
+      if (!edgeRow) {
+        edgeRow = (uint16_t*)malloc((size_t)S.w * 2);
+        if (edgeRow) for (int x = 0; x < S.w; x++) edgeRow[x] = c.enc(T.ringTrack);
+      }
+      if (rowTable && edgeRow) {
+        for (int y = 0; y < S.h; y++)
+          rowTable[y] = y < edge0 ? panelPic + (size_t)(S.h - edge0 + y) * S.w
+                      : (y < edge0 + 2 && edge0 > 0 && edge0 < S.h) ? edgeRow
+                      : homePic + (size_t)y * S.w;
+        rowsReady = true;
+        return true;
+      }
+    }
+    // The panel's bottom edge at y = edge: above it the panel's last rows, a
+    // 2-pixel line, then home.
+    const int edge = (int)lroundf(u.open * (float)S.h);
+    const size_t row = (size_t)S.w * 2;
+    for (int y = 0; y < S.h; y++) {
+      uint16_t* dst = c.px + (size_t)y * S.w;
+      if (y < edge) memcpy(dst, panelPic + (size_t)(S.h - edge + y) * S.w, row);
+      else if (y < edge + 2 && edge > 0 && edge < S.h) for (int x = 0; x < S.w; x++) dst[x] = c.enc(T.ringTrack);
+      else memcpy(dst, homePic + (size_t)y * S.w, row);
+    }
+    if (S.cornerR) square_detail::cornerMask(c, S.cornerR);
+    return true;
+  }
 };

@@ -1,0 +1,319 @@
+import Foundation
+
+/// The radio as the engine sees it: CoreBluetooth in the helper, a fake in
+/// tests. Every call and callback happens on one queue.
+public protocol Radio: AnyObject {
+    /// Look for boards advertising the Deck Link service (or stop).
+    func scan(_ on: Bool)
+    /// Connect, find the Deck Link service and its characteristics, and read
+    /// Info (Engine.radioInfo). false: this computer doesn't know the
+    /// peripheral (never seen in a scan, never paired).
+    func open(_ id: UUID) -> Bool
+    /// Turn on TX notifications. On a board that needs pairing, this is what
+    /// makes macOS ask for the code (Engine.radioSubscribed or radioClosed).
+    func subscribe(_ id: UUID)
+    /// Read Info again on the open link (Engine.radioInfo). After the
+    /// subscription this read travels over the encrypted link.
+    func readInfo(_ id: UUID)
+    /// Disconnect (Engine.radioClosed follows with .cancelled).
+    func close(_ id: UUID)
+    /// Drop every reference to the peripheral.
+    func forget(_ id: UUID)
+    /// Whether a write without response fits now (canSendWriteWithoutResponse).
+    func canSend(_ id: UUID) -> Bool
+    /// The largest write without response (maximumWriteValueLength).
+    func maxWrite(_ id: UUID) -> Int
+    /// Write to RX without response.
+    func send(_ id: UUID, _ data: Data)
+}
+
+/// Engine is the helper's logic between the line protocol and the radio:
+/// scanning and reading boards' Info, links, the write queue.
+public final class Engine {
+    public let radio: Radio
+    /// Where event lines go (stdout in the helper).
+    public let emit: (String) -> Void
+    /// Runs a block later on the engine's queue (DispatchQueue.asyncAfter in
+    /// the helper; tests run it by hand).
+    public var schedule: (TimeInterval, @escaping () -> Void) -> Void = { _, _ in }
+
+    /// How long reading a board's Info during a scan may take.
+    public var probeTimeout: TimeInterval = 10
+
+    public private(set) var state: RadioState = .unknown
+    public private(set) var scanning = false
+
+    struct Link {
+        /// opening: connecting and reading Info. subscribing: TX asked for
+        /// (macOS pairs here when the board needs it). confirming: TX is on,
+        /// so the link is encrypted; Info is read again over it. ready:
+        /// "connected" went out.
+        enum Stage { case opening, subscribing, confirming, ready }
+        var stage = Stage.opening
+        var info: BoardInfo?
+        var ready: Bool { stage == .ready }
+        var outbox = Data()
+        /// Bytes at the front of outbox already reported in "sent": a write
+        /// the board refused for now goes back there, and isn't counted twice.
+        var reported = 0
+        /// Notifications that came before the subscription was confirmed (the
+        /// board says Hello as soon as TX is on): passed on after "connected".
+        var early = Data()
+    }
+
+    /// How long to wait before sending again a write the board refused
+    /// because its buffer was full (ATT "insufficient resources").
+    public var resendAfter: TimeInterval = 0.05
+    var links: [UUID: Link] = [:]
+    var probeQueue: [UUID] = []
+    var probing: UUID?
+    var probed: Set<UUID> = []
+    var seen: [UUID: (name: String, rssi: Int)] = [:]
+    var probeGen = 0
+
+    public init(radio: Radio, emit: @escaping (String) -> Void) {
+        self.radio = radio
+        self.emit = emit
+    }
+
+    func send(_ e: Event) { emit(e.line()) }
+
+    /// Start: the first line the service reads.
+    public func start() {
+        send(.ready)
+    }
+
+    // MARK: lines from the service
+
+    public func handle(line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return }
+        let cmd: Command
+        do {
+            cmd = try Command.parse(trimmed)
+        } catch let e as ProtocolError {
+            send(.error(id: nil, e.message))
+            return
+        } catch {
+            send(.error(id: nil, "\(error)"))
+            return
+        }
+        handle(cmd)
+    }
+
+    public func handle(_ cmd: Command) {
+        switch cmd {
+        case .state:
+            send(.state(state))
+            send(.scanning(scanning))
+        case .scan(let on):
+            if on && state != .on {
+                send(.error(id: nil, state.message))
+                send(.scanning(false))
+                return
+            }
+            scanning = on
+            radio.scan(on)
+            if on {
+                probed.removeAll()
+                seen.removeAll()
+            } else {
+                probeQueue.removeAll()
+            }
+            send(.scanning(on))
+        case .connect(let id):
+            if state != .on {
+                send(.disconnected(id: id, .bluetoothOff, detail: state.message))
+                return
+            }
+            if let l = links[id] {
+                if l.ready { send(.connected(id: id, mtu: radio.maxWrite(id), info: l.info)) }
+                return // already on its way
+            }
+            links[id] = Link()
+            probeQueue.removeAll { $0 == id }
+            send(.connecting(id: id))
+            if probing == id { return } // the probe's connection carries on as the link
+            if !radio.open(id) {
+                links[id] = nil
+                send(.disconnected(id: id, .unknownPeripheral, detail: ""))
+            }
+        case .write(let id, let data):
+            guard links[id] != nil else {
+                send(.error(id: id, "not connected to that board"))
+                return
+            }
+            links[id]!.outbox.append(data)
+            pump(id)
+        case .disconnect(let id):
+            if links[id] != nil {
+                radio.close(id) // radioClosed reports it
+            } else {
+                send(.disconnected(id: id, .cancelled, detail: ""))
+            }
+        case .forget(let id):
+            if links[id] != nil || probing == id { radio.close(id) }
+            links[id] = nil
+            probeQueue.removeAll { $0 == id }
+            probed.remove(id)
+            radio.forget(id)
+            send(.forgotten(id: id))
+        }
+    }
+
+    // MARK: the write queue
+
+    /// pump sends what is queued for a link while the radio takes it, cut to
+    /// the largest write it allows, and tells the service how much went out.
+    func pump(_ id: UUID) {
+        guard var l = links[id], l.ready else { return }
+        var n = 0
+        while !l.outbox.isEmpty && radio.canSend(id) {
+            let size = max(20, radio.maxWrite(id)) // 20: the smallest ATT payload
+            let chunk = l.outbox.prefix(size)
+            radio.send(id, Data(chunk))
+            l.outbox.removeFirst(chunk.count)
+            let again = min(l.reported, chunk.count)
+            l.reported -= again
+            n += chunk.count - again
+        }
+        links[id] = l
+        if n > 0 { send(.sent(id: id, n)) }
+    }
+
+    // MARK: callbacks from the radio
+
+    public func radioState(_ s: RadioState) {
+        let was = state
+        state = s
+        if s != was { send(.state(s)) }
+        if s != .on {
+            for id in links.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                send(.disconnected(id: id, .bluetoothOff, detail: s.message))
+            }
+            links.removeAll()
+            probeQueue.removeAll()
+            probing = nil
+            if scanning {
+                scanning = false
+                send(.scanning(false))
+            }
+        }
+    }
+
+    public func radioFound(_ id: UUID, name: String, rssi: Int) {
+        guard scanning else { return }
+        let first = seen[id] == nil
+        seen[id] = (name, rssi)
+        if first || links[id] != nil || probed.contains(id) {
+            send(.found(id: id, name: name, rssi: rssi, info: nil))
+        }
+        if links[id] == nil && !probed.contains(id) && probing != id && !probeQueue.contains(id) {
+            probeQueue.append(id)
+            nextProbe()
+        }
+    }
+
+    func nextProbe() {
+        guard probing == nil, scanning, !probeQueue.isEmpty else { return }
+        let id = probeQueue.removeFirst()
+        probing = id
+        probed.insert(id)
+        probeGen += 1
+        let gen = probeGen
+        if !radio.open(id) {
+            probing = nil
+            nextProbe()
+            return
+        }
+        schedule(probeTimeout) { [weak self] in
+            guard let self = self, self.probing == id, self.probeGen == gen else { return }
+            if self.links[id] == nil { self.radio.close(id) }
+            self.probing = nil
+            self.nextProbe()
+        }
+    }
+
+    public func radioInfo(_ id: UUID, _ raw: Data) {
+        let info = BoardInfo.parse(raw)
+        if let l = links[id] {
+            switch l.stage {
+            case .opening:
+                links[id]!.info = info
+                links[id]!.stage = .subscribing
+                // In setup: subscribing makes macOS pair, and the person
+                // types the code the board shows now.
+                if info.paired != true { send(.passkey(id: id)) }
+                radio.subscribe(id)
+                if probing == id { probing = nil; nextProbe() }
+            case .confirming:
+                // Read over the encrypted link: what "connected" reports,
+                // and what the service binds the board by.
+                links[id]!.info = info
+                announce(id)
+            default:
+                break
+            }
+            return
+        }
+        if probing == id {
+            let s = seen[id] ?? ("", 0)
+            send(.found(id: id, name: s.name, rssi: s.rssi, info: info))
+            radio.close(id)
+            probing = nil
+            nextProbe()
+        }
+    }
+
+    public func radioSubscribed(_ id: UUID) {
+        guard let l = links[id], l.stage == .subscribing else { return }
+        links[id]!.stage = .confirming
+        radio.readInfo(id)
+    }
+
+    /// The link is ready: "connected", then what the board sent meanwhile.
+    func announce(_ id: UUID) {
+        guard links[id] != nil else { return }
+        links[id]!.stage = .ready
+        send(.connected(id: id, mtu: radio.maxWrite(id), info: links[id]!.info))
+        let early = links[id]!.early
+        links[id]!.early = Data()
+        if !early.isEmpty { send(.data(id: id, early)) }
+        pump(id)
+    }
+
+    public func radioReceived(_ id: UUID, _ data: Data) {
+        guard let l = links[id], !data.isEmpty else { return }
+        if !l.ready {
+            // The board's Hello can beat the confirmation of the subscription.
+            if links[id]!.early.count + data.count <= maxLine / 2 { links[id]!.early.append(data) }
+            return
+        }
+        send(.data(id: id, data))
+    }
+
+    /// A write with response came back "insufficient resources" (ATT 0x11):
+    /// the board's buffer was full and it took none of it. It goes back to the
+    /// front of the queue and is sent again shortly, in order.
+    public func radioWriteRefused(_ id: UUID, _ data: Data) {
+        guard links[id] != nil else { return }
+        links[id]!.outbox.insert(contentsOf: data, at: links[id]!.outbox.startIndex)
+        links[id]!.reported += data.count
+        schedule(resendAfter) { [weak self] in self?.pump(id) }
+    }
+
+    public func radioReadyToSend(_ id: UUID) {
+        pump(id)
+    }
+
+    public func radioClosed(_ id: UUID, _ why: LinkProblem, detail: String = "") {
+        if links[id] != nil {
+            links[id] = nil
+            send(.disconnected(id: id, why, detail: detail))
+        }
+        if probing == id {
+            probing = nil
+            nextProbe()
+        }
+    }
+}

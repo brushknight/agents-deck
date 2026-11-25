@@ -66,6 +66,9 @@ PB_BIND(agentsdeck_link_v1_Hat, agentsdeck_link_v1_Hat, AUTO)
 PB_BIND(agentsdeck_link_v1_Account, agentsdeck_link_v1_Account, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_Pet, agentsdeck_link_v1_Pet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Subagent, agentsdeck_link_v1_Subagent, AUTO)
 
 
@@ -78,16 +81,46 @@ PB_BIND(agentsdeck_link_v1_Focus, agentsdeck_link_v1_Focus, AUTO)
 PB_BIND(agentsdeck_link_v1_Interrupt, agentsdeck_link_v1_Interrupt, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_SendPrompt, agentsdeck_link_v1_SendPrompt, 2)
+
+
+PB_BIND(agentsdeck_link_v1_Queue, agentsdeck_link_v1_Queue, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Dismiss, agentsdeck_link_v1_Dismiss, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Resume, agentsdeck_link_v1_Resume, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_HatchPet, agentsdeck_link_v1_HatchPet, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Order, agentsdeck_link_v1_Order, 2)
+
+
+PB_BIND(agentsdeck_link_v1_Stash, agentsdeck_link_v1_Stash, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_MagicView, agentsdeck_link_v1_MagicView, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Magic, agentsdeck_link_v1_Magic, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Limits, agentsdeck_link_v1_Limits, 2)
+
+
+PB_BIND(agentsdeck_link_v1_LimitSet, agentsdeck_link_v1_LimitSet, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_LimitWindow, agentsdeck_link_v1_LimitWindow, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_MoveAttention, agentsdeck_link_v1_MoveAttention, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_Restore, agentsdeck_link_v1_Restore, AUTO)
@@ -135,6 +168,12 @@ PB_BIND(agentsdeck_link_v1_AccountList, agentsdeck_link_v1_AccountList, AUTO)
 PB_BIND(agentsdeck_link_v1_AccountInfo, agentsdeck_link_v1_AccountInfo, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_QueueList, agentsdeck_link_v1_QueueList, 2)
+
+
+PB_BIND(agentsdeck_link_v1_QueuedPrompt, agentsdeck_link_v1_QueuedPrompt, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_RestoreResult, agentsdeck_link_v1_RestoreResult, 2)
 
 
@@ -151,6 +190,32 @@ PB_BIND(agentsdeck_link_v1_WifiConfig, agentsdeck_link_v1_WifiConfig, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_NetStatus, agentsdeck_link_v1_NetStatus, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_LinkConfig, agentsdeck_link_v1_LinkConfig, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_FirmwareOffer, agentsdeck_link_v1_FirmwareOffer, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_FirmwareStatus, agentsdeck_link_v1_FirmwareStatus, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_Project, agentsdeck_link_v1_Project, AUTO)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

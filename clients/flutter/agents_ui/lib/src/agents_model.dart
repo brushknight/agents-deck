@@ -254,6 +254,192 @@ class AgentAccount {
   int get hashCode => Object.hash(name, color, isDefault);
 }
 
+/// The stages a pet grows through, from its level.
+const petStages = ['egg', 'baby', 'kid', 'grown', 'strong', 'mighty', 'legend'];
+
+/// What a stage is called on screen.
+const petStageNames = {
+  'egg': 'Egg',
+  'baby': 'Baby',
+  'kid': 'Kid',
+  'grown': 'Grown-up',
+  'strong': 'Strong',
+  'mighty': 'Mighty',
+  'legend': 'Legend',
+};
+
+/// The level each stage starts at.
+const petStageLevel = {
+  'egg': 0,
+  'baby': 1,
+  'kid': 5,
+  'grown': 10,
+  'strong': 20,
+  'mighty': 30,
+  'legend': 40,
+};
+
+/// What a pet's mood is called on screen.
+const petMoodNames = {
+  'fed': 'fed',
+  'hungry': 'hungry',
+  'weak': 'weak',
+  'asleep': 'hibernating',
+};
+
+/// A pet's full hearts.
+const petMaxHearts = 4;
+
+/// The tokens eaten that reach level [n], as the service counts them: level
+/// 1 at 50k, each next one at 1.25 times the one before.
+int petLevelAt(int n) => n < 1 ? 0 : (50000 * _pow(1.25, n - 1)).round();
+
+double _pow(double b, int e) {
+  var r = 1.0;
+  for (var i = 0; i < e; i++) {
+    r *= b;
+  }
+  return r;
+}
+
+/// An agent's pet (`"pet"`, sent only while Agent pets is on): it hatches
+/// from an egg and grows on the agent's tokens.
+class AgentPet {
+  const AgentPet({
+    this.name = '',
+    this.stage = 'egg',
+    this.level = 0,
+    this.ate = 0,
+    this.nextAt = 0,
+    this.hearts = 0,
+    this.mood = 'fed',
+    this.hatchedAt,
+    this.ready = false,
+    this.levelFrom,
+    this.hat,
+  });
+
+  /// Made up when it hatches; "" while an egg.
+  final String name;
+
+  /// One of [petStages].
+  final String stage;
+  final int level;
+
+  /// Tokens eaten, all time (input and output).
+  final int ate;
+
+  /// [ate] that reaches the next level.
+  final int nextAt;
+
+  /// 0..[petMaxHearts].
+  final int hearts;
+
+  /// fed | hungry | weak | asleep.
+  final String mood;
+  final DateTime? hatchedAt;
+
+  /// An egg waiting to be seen: it wobbles.
+  final bool ready;
+
+  /// [ate] where the current level started; null from an older service.
+  final int? levelFrom;
+
+  /// Its own hat, from kid on; null before (or from an older service).
+  final AgentHat? hat;
+
+  bool get isEgg => stage == 'egg';
+
+  /// What it is called: "Egg", "Kid", "Builder", "Strong Builder" (the
+  /// builder is the only grown-up shape so far).
+  String get kind => switch (stage) {
+    'egg' || 'baby' || 'kid' => petStageNames[stage]!,
+    'grown' => 'Builder',
+    _ => '${petStageNames[stage] ?? stage} Builder',
+  };
+
+  /// Where the current level started and where the next one is, in tokens.
+  (int, int) get levelSpan {
+    final from = levelFrom ?? petLevelAt(level);
+    final to = nextAt > 0 ? nextAt : petLevelAt(level + 1);
+    return (from, to);
+  }
+
+  /// The tokens eaten that reach level [n] for this pet. The levels can be
+  /// changed in the service's config.json, so they are worked out from its
+  /// own numbers (as the web does): a hatched pet's [levelFrom] and [nextAt]
+  /// give the step, an egg's [nextAt] the first level.
+  int levelAt(int n) {
+    if (n < 1) return 0;
+    var first = 50000.0, step = 1.25;
+    final from = levelFrom ?? 0;
+    if (level >= 1 && from > 0 && nextAt > from) {
+      step = nextAt / from;
+      first = from / _pow(step, level - 1);
+    } else if (level == 0 && nextAt > 0) {
+      first = nextAt.toDouble();
+    }
+    return (first * _pow(step, n - 1)).round();
+  }
+
+  /// How far it is to the next level, 0..1.
+  double get progress {
+    final (from, to) = levelSpan;
+    if (to <= from) return 0;
+    return ((ate - from) / (to - from)).clamp(0.0, 1.0);
+  }
+
+  static AgentPet? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final m = j.cast<String, dynamic>();
+    final stage = _str(m['stage']);
+    final mood = _str(m['mood']);
+    return AgentPet(
+      name: _str(m['name']),
+      stage: stage.isEmpty ? 'egg' : stage,
+      level: _int(m['level']),
+      ate: _int(m['ate']),
+      nextAt: _int(m['nextAt']),
+      hearts: _int(m['hearts']).clamp(0, petMaxHearts),
+      mood: mood.isEmpty ? 'fed' : mood,
+      hatchedAt: _time(m['hatchedAt']),
+      ready: m['ready'] == true,
+      levelFrom: m['levelFrom'] is num ? _int(m['levelFrom']) : null,
+      hat: AgentHat.fromJson(_map(m['hat'])),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AgentPet &&
+      other.name == name &&
+      other.stage == stage &&
+      other.level == level &&
+      other.ate == ate &&
+      other.nextAt == nextAt &&
+      other.hearts == hearts &&
+      other.mood == mood &&
+      other.hatchedAt == hatchedAt &&
+      other.ready == ready &&
+      other.levelFrom == levelFrom &&
+      other.hat == hat;
+
+  @override
+  int get hashCode => Object.hash(
+    name,
+    stage,
+    level,
+    ate,
+    nextAt,
+    hearts,
+    mood,
+    hatchedAt,
+    ready,
+    levelFrom,
+    hat,
+  );
+}
+
 /// Every hat colour (never the status orange).
 const hatColors = [
   'teal',
@@ -270,6 +456,7 @@ class Agent {
   const Agent({
     required this.id,
     required this.slot,
+    this.attentionSlot = 0,
     required this.title,
     this.aiTitle = '',
     this.tool = 'claude',
@@ -282,6 +469,8 @@ class Agent {
     this.modelLabel = '',
     this.activity,
     this.lastPrompt = '',
+    this.lastAnswer = '',
+    this.lastAnswerAt,
     this.waiting,
     this.errorMessage,
     this.tokensInput = 0,
@@ -300,14 +489,22 @@ class Agent {
     this.external = false,
     this.app = '',
     this.subagents = const [],
+    this.queued = 0,
     this.hat,
     this.account,
+    this.pet,
     this.startedAt,
     this.updatedAt,
+    this.lastActive,
+    this.outUntil,
   });
 
   final String id;
   final int slot;
+
+  /// Its spot on the "Needs you" grid, 1..16 (4 x 4, by rows), or 0 when it
+  /// isn't there. The service decides it, so every screen shows the same.
+  final int attentionSlot;
   final String title;
   final String aiTitle;
 
@@ -322,6 +519,17 @@ class Agent {
   final String modelLabel;
   final AgentActivity? activity;
   final String lastPrompt;
+
+  /// Its reply that ended its latest finished turn, as plain text ("" until
+  /// it has one), and when it gave it.
+  final String lastAnswer;
+  final DateTime? lastAnswerAt;
+
+  /// The agent's page shows [lastAnswer] in place of [lastPrompt]: once it
+  /// has finished (idle) or ended, and has an answer.
+  bool get showsAnswer =>
+      lastAnswer.isNotEmpty &&
+      (status == AgentStatus.idle || status == AgentStatus.exited);
 
   /// Set only while [status] is waiting.
   final AgentPrompt? waiting;
@@ -358,11 +566,18 @@ class Agent {
   /// Subagents still working, oldest first.
   final List<AgentSubagent> subagents;
 
+  /// Prompts waiting to be typed in once its turn ends (sent with
+  /// `"mode": "queue"`).
+  final int queued;
+
   /// The pixel hat for its working folder; null = none.
   final AgentHat? hat;
 
   /// The Claude account it runs in; null while only one is set up.
   final AgentAccount? account;
+
+  /// Its pet; null while Agent pets is off (or from an older service).
+  final AgentPet? pet;
 
   /// The app an external agent runs in ("orca", "herdr"), or "" for
   /// agentctl's own and plain mirrors.
@@ -389,6 +604,13 @@ class Agent {
   final DateTime? startedAt;
   final DateTime? updatedAt;
 
+  /// Its latest message sent or received; null while the deck doesn't know.
+  final DateTime? lastActive;
+
+  /// Its account (or, for a per-model limit, its model) is out of usage
+  /// until then; null when it isn't.
+  final DateTime? outUntil;
+
   static Agent fromJson(Map<String, dynamic> j) {
     final act = _map(j['activity']);
     final wait = _map(j['waiting']);
@@ -398,6 +620,7 @@ class Agent {
     return Agent(
       id: _str(j['id']),
       slot: _int(j['slot']),
+      attentionSlot: _int(j['attentionSlot']),
       title: _str(j['title']),
       aiTitle: _str(j['aiTitle']),
       tool: _str(j['tool']),
@@ -412,6 +635,8 @@ class Agent {
           ? null
           : AgentActivity(tool: _str(act['tool']), detail: _str(act['detail'])),
       lastPrompt: _str(j['lastPrompt']),
+      lastAnswer: _str(j['lastAnswer']),
+      lastAnswerAt: _time(j['lastAnswerAt']),
       waiting: wait == null ? null : AgentPrompt.fromJson(wait),
       errorMessage: err == null ? null : _str(err['message']),
       tokensInput: _int(tokens['input']),
@@ -431,13 +656,17 @@ class Agent {
       app: j['app'] is String ? j['app'] as String : '',
       hat: AgentHat.fromJson(j['hat']),
       account: AgentAccount.fromJson(j['account']),
+      pet: AgentPet.fromJson(j['pet']),
       subagents: [
         if (j['subagents'] case final List l)
           for (final x in l)
             if (x is Map<String, dynamic>) AgentSubagent.fromJson(x),
       ],
+      queued: _int(j['queued']),
       startedAt: _time(j['startedAt']),
       updatedAt: _time(j['updatedAt']),
+      lastActive: _time(j['lastActive']),
+      outUntil: _time(j['outUntil']),
     );
   }
 
@@ -461,17 +690,208 @@ class AgentsServer {
 
 /// One full `state` event. The daemon sends the whole fleet every time
 /// (no deltas), so this is also the unit of UI updates.
+/// This screen's part in the magic trick (docs/features.md): the giver (its
+/// agents are taken) or the receiver, whether they are taken now, and the
+/// corners its tiles fly in from ([arrive]) and out to ([leave]): top-left,
+/// top-right, bottom-left or bottom-right.
+class AgentsMagic {
+  const AgentsMagic({
+    required this.role,
+    required this.taken,
+    required this.arrive,
+    required this.leave,
+  });
+
+  final String role; // giver | receiver
+  final bool taken;
+  final String arrive, leave;
+
+  bool get giver => role == 'giver';
+}
+
+/// One limit of an account's usage: the week, one model's week (known
+/// once it is hit), a spend limit or a Codex bucket (docs/protocol.md,
+/// "Usage limits").
+class LimitWindow {
+  const LimitWindow({
+    required this.id,
+    required this.label,
+    this.model = '',
+    required this.used,
+    this.resetsAt,
+    this.level = 'ok',
+    this.hit = false,
+    this.reset = false,
+    this.hidden = false,
+  });
+
+  final String id, label, model;
+
+  /// Percent used (a spend limit can pass 100).
+  final int used;
+  final DateTime? resetsAt;
+
+  /// ok (under 80) | near (from 80) | low (from 95) | out (100, or hit).
+  final String level;
+  final bool hit;
+
+  /// Reset since the tool's last report: [used] is not known now.
+  final bool reset;
+
+  /// Kept for the record, not shown (the 5-hour window).
+  final bool hidden;
+
+  bool get out => level == 'out' && !reset;
+  bool get hot => !reset && level != 'ok';
+
+  static LimitWindow fromJson(Map<String, dynamic> j) => LimitWindow(
+    id: _str(j['id']),
+    label: _str(j['label']),
+    model: _str(j['model']),
+    used: _int(j['used']),
+    resetsAt: _time(j['resetsAt']),
+    level: j['level'] is String ? j['level'] as String : 'ok',
+    hit: j['hit'] == true,
+    reset: j['reset'] == true,
+    hidden: j['hidden'] == true,
+  );
+}
+
+/// One account's usage limits in one tool, as Claude Code or Codex last
+/// reported them (direct use only).
+class AgentLimits {
+  const AgentLimits({
+    required this.tool,
+    this.account = '',
+    this.plan = '',
+    this.level = 'ok',
+    this.asOf,
+    this.windows = const [],
+  });
+
+  final String tool; // claude | codex
+  final String account; // "" with one account, and for Codex
+  final String plan;
+  final String level;
+  final DateTime? asOf;
+  final List<LimitWindow> windows;
+
+  /// The windows to show: the week first, a model's week once hit.
+  List<LimitWindow> get shown => [
+    for (final w in windows)
+      if (!w.hidden) w,
+  ];
+
+  /// "work", "claude" (one account) or "codex".
+  String get name =>
+      tool == 'codex' ? 'codex' : (account.isEmpty ? 'claude' : account);
+
+  /// "all models · week", "fable · week", "week".
+  String labelOf(LimitWindow w) {
+    if (w.model.isNotEmpty) return '${w.model} · week';
+    if (tool == 'claude' && w.id == 'seven_day') return 'all models · week';
+    return w.label;
+  }
+
+  static AgentLimits fromJson(Map<String, dynamic> j) => AgentLimits(
+    tool: _str(j['tool']),
+    account: _str(j['account']),
+    plan: _str(j['plan']),
+    level: j['level'] is String ? j['level'] as String : 'ok',
+    asOf: _time(j['asOf']),
+    windows: [
+      if (j['windows'] case final List l)
+        for (final w in l)
+          if (_map(w) case final m?) LimitWindow.fromJson(m),
+    ],
+  );
+}
+
+/// When a limit comes back, short: "16:40" today, "thu 09:00" within the
+/// week, "26 nov" later (local time).
+String resetText(DateTime t, [DateTime? now]) {
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const months = [
+    'jan',
+    'feb',
+    'mar',
+    'apr',
+    'may',
+    'jun',
+    'jul',
+    'aug',
+    'sep',
+    'oct',
+    'nov',
+    'dec',
+  ];
+  final l = t.toLocal();
+  final n = (now ?? DateTime.now()).toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final hm = '${two(l.hour)}:${two(l.minute)}';
+  if (l.year == n.year && l.month == n.month && l.day == n.day) return hm;
+  if (l.difference(n) < const Duration(hours: 156)) {
+    return '${days[l.weekday - 1]} $hm';
+  }
+  return '${l.day} ${months[l.month - 1]}';
+}
+
 class AgentsState {
   AgentsState({
     required this.server,
     required List<Agent> agents,
+    this.magic,
+    this.limits = const [],
     DateTime? receivedAt,
   }) : agents = List.unmodifiable(
          [...agents]..sort((a, b) => a.slot.compareTo(b.slot)),
        ),
        receivedAt = receivedAt ?? DateTime.now();
 
+  /// Each account's usage limits (empty: nothing reported yet, or an older
+  /// service). Only the sets with something to show.
+  final List<AgentLimits> limits;
+
+  /// The limits of [a]'s account in its tool, if any were reported.
+  AgentLimits? limitsOf(Agent a) {
+    final name = a.account?.name ?? '';
+    for (final l in limits) {
+      if (l.tool == a.tool && l.account == name) return l;
+    }
+    return null;
+  }
+
+  /// The account and window closest to running out (its week; a model's
+  /// week counts less, the other models still work); null without limits.
+  (AgentLimits, LimitWindow)? get worstLimit {
+    const rank = {'ok': 0, 'near': 1, 'low': 2, 'out': 3};
+    (AgentLimits, LimitWindow)? best;
+    for (final l in limits) {
+      for (final w in l.shown) {
+        if (w.model.isNotEmpty) continue;
+        final r = w.reset ? 0 : rank[w.level] ?? 0;
+        final b = best == null
+            ? -1
+            : (best.$2.reset ? 0 : rank[best.$2.level] ?? 0);
+        if (best == null || r > b || (r == b && w.used > best.$2.used)) {
+          best = (l, w);
+        }
+      }
+    }
+    return best;
+  }
+
+  /// When [a] can run again, while its account or model is out of usage.
+  DateTime? outUntil(Agent a, [DateTime? localNow]) {
+    final t = a.outUntil;
+    if (t == null || !t.isAfter(serverNow(localNow))) return null;
+    return t;
+  }
+
   final AgentsServer server;
+
+  /// This screen's part in the magic trick; null: none, or it is off.
+  final AgentsMagic? magic;
 
   /// Ordered by slot.
   final List<Agent> agents;
@@ -487,7 +907,24 @@ class AgentsState {
       throw const FormatException('not an agents state');
     }
     final s = _map(j['server']) ?? const {};
+    final m = _map(j['magic']);
     return AgentsState(
+      limits: [
+        if (j['limits'] case final List l)
+          for (final x in l)
+            if (_map(x) case final lm?)
+              if (AgentLimits.fromJson(lm) case final lim
+                  when lim.shown.isNotEmpty)
+                lim,
+      ],
+      magic: m == null
+          ? null
+          : AgentsMagic(
+              role: _str(m['role']),
+              taken: m['taken'] == true,
+              arrive: _str(m['arrive']),
+              leave: _str(m['leave']),
+            ),
       server: AgentsServer(
         name: _str(s['name']),
         version: _str(s['version']),
@@ -517,6 +954,28 @@ class AgentsState {
     final t = server.time;
     if (t == null) return now;
     return t.add(now.difference(receivedAt));
+  }
+
+  /// "last active 3h ago" for [a], or "" while the deck doesn't know.
+  String lastActiveText(Agent a, [DateTime? localNow]) {
+    final ago = agoText(a.lastActive, localNow);
+    return ago.isEmpty ? '' : 'last active $ago';
+  }
+
+  /// "answered 3m ago" for [a]'s last answer, or "" when it has none.
+  String answeredText(Agent a, [DateTime? localNow]) {
+    final ago = agoText(a.lastAnswerAt, localNow);
+    return ago.isEmpty ? '' : 'answered $ago';
+  }
+
+  /// "just now", "12m ago", "3h ago", "2d ago" for [at]; "" for null.
+  String agoText(DateTime? at, [DateTime? localNow]) {
+    if (at == null) return '';
+    final d = serverNow(localNow).difference(at);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inHours < 1) return '${d.inMinutes}m ago';
+    if (d.inHours < 48) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
   }
 
   /// How long [a] has been in its current status (zero when unknown).
@@ -560,7 +1019,17 @@ String tildePath(String path) {
 String agentMetaLine(Agent a, AgentsState state, [DateTime? localNow]) {
   switch (a.status) {
     case AgentStatus.running:
-      final verb = a.activity?.verb;
+      // Claude's turn is over and only its subagents work (the service sets
+      // this activity line): "3 subagents", not the main thread at a tool.
+      final n = a.subagents.length;
+      final subsOnly =
+          n > 0 &&
+          RegExp(
+            r'^\d+ subagents? working$',
+          ).hasMatch(a.activity?.detail ?? '');
+      final verb = subsOnly
+          ? '$n subagent${n == 1 ? '' : 's'}'
+          : a.activity?.verb;
       return '${verb == null || verb.isEmpty ? 'working' : verb}'
           ' · ${a.contextPercent}% ctx';
     case AgentStatus.waiting:

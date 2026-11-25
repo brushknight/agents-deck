@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
+	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // Live is a Claude Code session running in some terminal on this machine,
@@ -61,7 +63,8 @@ func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map
 	cmd := exec.CommandContext(ctx, claudeBin, "agents", "--json")
 	cmd.Dir = os.TempDir() // no project folder: nothing to trust or read
 	cmd.Env = ConfigEnv(os.Environ(), configDir)
-	raw, err := cmd.Output()
+	proc.Tidy(cmd) // and on Windows no console window flashing up every few seconds
+	raw, err := proc.Timed(cmd, (*exec.Cmd).Output)
 	if err != nil {
 		return nil, false
 	}
@@ -90,27 +93,69 @@ func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map
 }
 
 // ttysOf maps the interactive sessions' processes to their terminals.
-func ttysOf(list []claudeAgent) map[int]string {
-	var pids []string
+func ttysOf(list []claudeAgent) map[int]string { return knownTTYs.of(list, processTTYs) }
+
+// knownTTYs: a process keeps its terminal for life, so ps is asked only
+// about processes it hasn't told yet. With 50 sessions one ps costs about
+// 0.2 s of CPU, and the sessions are listed every few seconds.
+var knownTTYs ttyCache
+
+// ttyCache remembers each session process's terminal ("" for none).
+type ttyCache struct {
+	mu sync.Mutex
+	m  map[ttyKey]string
+}
+
+// ttyKey is one process: its pid and when it started (a pid can be reused).
+type ttyKey struct {
+	pid     int
+	started int64
+}
+
+// of is the terminals of list's interactive sessions, asking lookup (ps)
+// only about processes not seen before. Processes no longer listed are
+// forgotten; a lookup that failed is tried again next time.
+func (c *ttyCache) of(list []claudeAgent, lookup func([]int) (map[int]string, bool)) map[int]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[ttyKey]string{}
+	}
+	out := map[int]string{}
+	listed := map[ttyKey]bool{}
+	var ask []int
 	for _, a := range list {
-		if a.PID > 0 && a.Kind != "background" {
-			pids = append(pids, strconv.Itoa(a.PID))
+		if a.PID <= 0 || a.Kind == "background" {
+			continue
+		}
+		k := ttyKey{a.PID, a.StartedAt}
+		listed[k] = true
+		if tty, ok := c.m[k]; ok {
+			if tty != "" {
+				out[a.PID] = tty
+			}
+		} else {
+			ask = append(ask, a.PID)
 		}
 	}
-	ttys := map[int]string{}
-	if len(pids) == 0 {
-		return ttys
-	}
-	out, _ := exec.Command("/bin/ps", "-o", "pid=,tty=", "-p", strings.Join(pids, ",")).Output()
-	for _, l := range strings.Split(string(out), "\n") {
-		f := strings.Fields(l)
-		if len(f) == 2 && f[1] != "??" {
-			if pid, err := strconv.Atoi(f[0]); err == nil {
-				ttys[pid] = "/dev/" + f[1]
+	if len(ask) > 0 {
+		if got, ok := lookup(ask); ok {
+			for _, a := range list {
+				if k := (ttyKey{a.PID, a.StartedAt}); listed[k] && slices.Contains(ask, a.PID) {
+					c.m[k] = got[a.PID] // "" when ps didn't list it: no terminal, or gone
+					if got[a.PID] != "" {
+						out[a.PID] = got[a.PID]
+					}
+				}
 			}
 		}
 	}
-	return ttys
+	for k := range c.m {
+		if !listed[k] {
+			delete(c.m, k)
+		}
+	}
+	return out
 }
 
 // ConfigEnv is env with CLAUDE_CONFIG_DIR set to configDir, or removed when
@@ -158,75 +203,6 @@ func ProjectDirFor(cwd string) string {
 func projectName(cwd string) string { return nonAlnum.ReplaceAllString(cwd, "-") }
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
-
-// LiveSessions lists interactive `claude` processes that have a terminal and
-// aren't on one of skipTTYs (agentctl's own tmux panes), each matched to its
-// session transcript. Processes whose transcript can't be found are left out.
-func LiveSessions(skipTTYs map[string]bool) []Live {
-	out, err := exec.Command("/bin/ps", "-axww", "-o", "pid=,lstart=,tty=,args=").Output()
-	if err != nil {
-		return nil
-	}
-	var procs []Live
-	var args = map[int][]string{}
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 8 { // pid, 5 lstart fields, tty, argv0
-			continue
-		}
-		pid, err := strconv.Atoi(f[0])
-		if err != nil {
-			continue
-		}
-		tty, argv := f[6], f[7:]
-		if tty == "??" || tty == "-" || !isInteractiveClaude(argv) {
-			continue
-		}
-		dev := "/dev/" + tty
-		if skipTTYs[dev] {
-			continue
-		}
-		started, _ := time.ParseInLocation("Mon Jan 2 15:04:05 2006", strings.Join(f[1:6], " "), time.Local)
-		procs = append(procs, Live{PID: pid, TTY: dev, Started: started})
-		args[pid] = argv
-	}
-	if len(procs) == 0 {
-		return nil
-	}
-	cwds := processCwds(procs)
-	claimed := map[string]bool{}
-	// Explicit session ids first, then the oldest processes pick first.
-	sort.Slice(procs, func(i, j int) bool { return procs[i].Started.Before(procs[j].Started) })
-	var res []Live
-	for _, explicitPass := range []bool{true, false} {
-		for i := range procs {
-			p := &procs[i]
-			if p.SessionID != "" {
-				continue
-			}
-			p.Cwd = cwds[p.PID]
-			if p.Cwd == "" {
-				continue
-			}
-			id := sessionArg(args[p.PID])
-			if explicitPass != (id != "") {
-				continue
-			}
-			if id == "" {
-				id = newestTranscript(ProjectDirFor(p.Cwd), p.Started, claimed)
-			}
-			if id == "" || claimed[id] {
-				continue
-			}
-			claimed[id] = true
-			p.SessionID = id
-			p.Transcript = filepath.Join(ProjectDirFor(p.Cwd), id+".jsonl")
-			res = append(res, *p)
-		}
-	}
-	sort.Slice(res, func(i, j int) bool { return res[i].Started.Before(res[j].Started) })
-	return res
-}
 
 // isInteractiveClaude: argv of Claude Code's interactive CLI, not one of its
 // helpers (background pty hosts, spares, the daemon) or a one-shot -p run.
@@ -284,26 +260,6 @@ func newestTranscript(dir string, since time.Time, claimed map[string]bool) stri
 		}
 	}
 	return best
-}
-
-// processCwds asks lsof for the working directories of the given processes.
-func processCwds(procs []Live) map[int]string {
-	pids := make([]string, len(procs))
-	for i, p := range procs {
-		pids[i] = strconv.Itoa(p.PID)
-	}
-	out, _ := exec.Command("/usr/sbin/lsof", "-a", "-d", "cwd", "-p", strings.Join(pids, ","), "-Fpn").Output()
-	cwds := map[int]string{}
-	pid := 0
-	for _, l := range strings.Split(string(out), "\n") {
-		switch {
-		case strings.HasPrefix(l, "p"):
-			pid, _ = strconv.Atoi(l[1:])
-		case strings.HasPrefix(l, "n") && pid != 0:
-			cwds[pid] = l[1:]
-		}
-	}
-	return cwds
 }
 
 // FindTranscript looks for a session's transcript in each of projects (see

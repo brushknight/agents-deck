@@ -81,9 +81,10 @@ static inline void critterAt(Canvas& c, int cx, int cy, int s, Species sp, Pose 
   drawSprite(c, cx - 7 * s, cy - 7 * s, s, sp, pose, body, cut, ms, bubble, hat, hatColor);
 }
 
+// An agent's critter, or its pet, by the body centre.
 static inline void agentCritter(Canvas& c, const Agent& a, int cx, int cy, int s, uint16_t body, uint16_t cut,
                                 uint32_t ms, int64_t now, bool bubble) {
-  critterAt(c, cx, cy, s, a.species, poseOf(a, now), body, cut, ms, bubble, a.hat, a.hatColor);
+  drawCritter(c, cx - 7 * s, cy - 7 * s, s, a, poseOf(a, now), body, cut, ms, bubble);
 }
 
 static inline int fontAscent(const Font& f) { return (f.cellH * 795 + 500) / 1000; }   // Roboto Mono: 1.048 of 1.319 em
@@ -198,12 +199,12 @@ static inline void drawNotice(Canvas& c, const RoundTheme& T, const RoundInput& 
   char buf[64];
   switch (in.link) {
     case LinkState::Connecting: {
-      // On USB: "connecting / waiting for the deck / on USB"; on Wi-Fi, where it is.
+      // On USB: "connecting / waiting for the deck / on USB"; on Wi-Fi or Bluetooth, where it is; a passkey.
       const NetNotice n = netNotice(in.net ? *in.net : NetView());
       noticeRing(c, n.problem ? acc : T.t.line, n.problem ? 2 : 6, n.problem ? 12 : 10, n.problem ? 0 : 6000, in.ms);
       critterAt(c, 240, 186, 6, Species::Claude, n.problem ? Pose::Exit : Pose::Run, dim, T.t.bg, in.ms, false);
       textOn(c, FONT_R30, 240, 288, n.title, ink);
-      if (n.line1) textOn(c, FONT_XXL, 240, 326, n.line1, n.problem ? acc : dim);
+      if (n.line1) textOn(c, FONT_XXL, 240, 326, n.line1, n.problem || n.code ? acc : dim);
       if (n.line2) textOn(c, FONT_XXL, 240, 360, n.line2, dim);
       return;
     }
@@ -489,10 +490,12 @@ static inline void drawDetail(Canvas& c, const RoundTheme& T, const DetailStyle&
   const bool loud = a.status == Status::Running || waiting || a.status == Status::Error || hungry(a);
   textOn(c, *S.statusFont, 240, S.statusBase, buf, loud ? T.t.accent : T.t.dim);
 
-  // The third line: model · effort · context; or the prompt's question; or "hold to stop".
+  // The third line: model · effort · context (with Agent pets on, the pet's
+  // name, stage and level instead); or the prompt's question; or "hold to stop".
   uint16_t col = T.t.dim;
   if (ui.pressed.kind == HitKind::Stop) { snprintf(buf, sizeof buf, "hold to stop"); col = T.t.accent; }
   else if (waiting) { snprintf(buf, sizeof buf, "%s", a.waitTitle[0] ? a.waitTitle : "needs you"); col = T.t.accent; }
+  else if (a.pet.has) petLine(a, buf, sizeof buf);
   else {
     buf[0] = '\0';
     auto add = [&](const char* part) {
@@ -720,7 +723,7 @@ static inline bool drawRoundCommon(Canvas& c, const RoundTheme& T, const DetailS
   return true;
 }
 
-// On Wi-Fi, a small Wi-Fi mark under home's middle (on USB, nothing: the
+// On Wi-Fi or Bluetooth, a small Wi-Fi or Bluetooth mark under home's middle (on USB, nothing: the
 // cable says it). The notices say it in words.
 constexpr int kNetBadgeY = 398;   // the mark's base: below home's text, above the ring
 
@@ -728,7 +731,8 @@ constexpr int kNetBadgeY = 398;   // the mark's base: below home's text, above t
 
 // Whether home shows the mark: on Wi-Fi and live.
 static inline bool netMarkShown(const RoundInput& in) {
-  return in.net && in.net->via == NetVia::Wifi && in.link == LinkState::Live && in.fleet && in.fleet->count &&
+  return in.net && (in.net->via == NetVia::Wifi || (in.net->via == NetVia::Ble && in.net->ble.carrying)) &&
+         in.link == LinkState::Live && in.fleet && in.fleet->count &&
          in.ui && in.ui->screen == RoundScreen::Home;
 }
 
@@ -736,7 +740,9 @@ static inline void drawNetBadge(Canvas& c, const RoundTheme& T, const RoundInput
   if (!netMarkShown(in)) return;
   // Dark on an orange face (someone waits on the dial), dim otherwise.
   const uint16_t under = c.px[(size_t)(kNetBadgeY - 8) * (size_t)c.w + (size_t)c.w / 2];
-  drawNetMark(c, kRoundC, kNetBadgeY, under == T.t.accent ? T.t.bg : T.t.dim);
+  const uint16_t col = under == T.t.accent ? T.t.bg : T.t.dim;
+  if (in.net->via == NetVia::Ble) drawBleMark(c, kRoundC, kNetBadgeY, col);
+  else drawNetMark(c, kRoundC, kNetBadgeY, col);
 }
 
 // The finishing touches on any frame: the Wi-Fi mark, the toast, and the round

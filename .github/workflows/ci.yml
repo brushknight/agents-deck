@@ -1,5 +1,6 @@
-# Tests on every push and pull request: the Go daemon/CLI, the deck UI, the
-# Linux tray app and the firmware.
+# Tests on every push and pull request: the Go daemon/CLI (on macOS and
+# Windows), the deck UI, the Linux tray app, the packages (built unsigned and
+# installed on a clean runner) and the firmware.
 name: ci
 
 on:
@@ -12,7 +13,8 @@ permissions:
 
 jobs:
   go:
-    runs-on: macos-14
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -31,15 +33,81 @@ jobs:
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
           PATH="$(go env GOPATH)/bin:$PATH" go generate ./internal/link
           git diff --exit-code -I '^// .protoc  ' -- internal/link/linkpb # the protoc version line may differ
-      - name: cross-compile (targets the release matrix will grow into)
+      - name: cross-compile (every target the release builds)
         working-directory: backend
         run: |
-          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            # Windows joins once the backend has its service package (internal/service).
+            if [ "${t%/*}" = windows ] && [ ! -d internal/service ]; then
+              echo "::warning::$t skipped: the backend doesn't build for Windows yet"
+              continue
+            fi
             GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/agentctl
           done
 
+  # The service on Windows: build, vet, test, and the per-user installer
+  # (installed and removed again on this runner). go test may fail without
+  # failing the run (continue-on-error) while the Windows port is new: parts of
+  # the daemon's tests drive tmux and Unix ptys, which Windows lacks, and those
+  # have to be skipped there one by one first. Build and vet must pass.
+  go-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: does the backend build for Windows yet?
+        id: ready
+        run: |
+          if [ -d backend/internal/service ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "::warning::no backend/internal/service yet: Windows checks skipped"; fi
+      - name: build and vet
+        if: steps.ready.outputs.ok == 'true'
+        working-directory: backend
+        run: |
+          go build ./...
+          go vet ./...
+          mkdir -p ../build/windows
+          CGO_ENABLED=0 go build -ldflags "-X main.version=0.0.0-ci" -o ../build/windows/agentctl.exe ./cmd/agentctl
+          ../build/windows/agentctl.exe version
+      - name: test
+        if: steps.ready.outputs.ok == 'true'
+        continue-on-error: true
+        working-directory: backend
+        run: go test ./...
+      - name: installer (unsigned), silent install and uninstall
+        if: steps.ready.outputs.ok == 'true'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc /DVersion=0.0.0-ci "/DSourceDir=$PWD\build\windows" "/DOutputDir=$PWD\dist" packaging\windows\agents-deck.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed" }
+          $setup = "dist\agents-deck_0.0.0-ci_windows_amd64_setup.exe"
+          # Not Start-Process -Wait: that also waits for everything the installer started,
+          # and the service it leaves running (agentctl serve) never exits.
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/MERGETASKS="!startup"','/LOG=install.log' -PassThru
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); Get-Content install.log; throw "the installer did not finish in 5 minutes" }
+          if ($p.ExitCode -ne 0) { Get-Content install.log; throw "the installer exited with $($p.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\agents deck'
+          $v = & "$dir\agentctl.exe" version
+          if ($v -ne '0.0.0-ci') { Get-Content install.log; throw "installed agentctl says '$v'" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\agents deck.lnk")) { throw "no Start menu entry" }
+          $p = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); throw "the uninstaller did not finish in 5 minutes" }
+          # The uninstaller hands over to a copy of itself in TEMP: wait for the files to go.
+          for ($i = 0; $i -lt 30 -and (Test-Path "$dir\agentctl.exe"); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path "$dir\agentctl.exe") { throw "agentctl.exe left after uninstall" }
+
   flutter:
-    runs-on: macos-14
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -62,13 +130,15 @@ jobs:
 
   tray-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: GTK build tools, and what the smoke test drives the app with
         run: |
           sudo apt-get update -qq # the runner image's package lists go stale: install alone can 404
           sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev \
-            xvfb xauth xdotool dbus libglib2.0-bin python3-gi >/dev/null
+            libwebkit2gtk-4.1-dev xvfb xauth xdotool dbus libglib2.0-bin python3-gi \
+            dpkg-dev desktop-file-utils >/dev/null
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.6
@@ -81,9 +151,78 @@ jobs:
           flutter build linux --release
       - name: smoke test (tray icon, menu, deck window, headless)
         run: xvfb-run -a dbus-run-session -- clients/macos/linux/test/smoke.sh
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: .deb (unsigned), installed here and checked
+        run: |
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=0.0.0-ci" -o ../build/agentctl ./cmd/agentctl)
+          packaging/linux/package.sh --bundle clients/macos/build/linux/x64/release/bundle \
+            --agentctl build/agentctl --version 0.0.0-ci --arch amd64 --out dist
+          packaging/linux/check-deb.sh dist/agents-deck_0.0.0-ci_linux_amd64.deb 0.0.0-ci
+
+  # The macOS app packaged as the release does it, ad hoc signed: .dmg and .zip.
+  package-macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+      - name: build
+        run: |
+          (cd backend && for a in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$a go build -ldflags "-X main.version=0.0.0-ci" -o "../build/agentctl-$a" ./cmd/agentctl
+          done)
+          lipo -create -output build/agentctl build/agentctl-arm64 build/agentctl-amd64
+          # Both architectures, as the release builds it (Release.xcconfig says Apple Silicon only
+          # for Xcode 27 on a developer's Mac); Apple Silicon alone if that fails.
+          cd clients/macos && flutter pub get
+          cfg=macos/Runner/Configs/Release.xcconfig
+          sed -i "" "/^ARCHS = arm64$/d" "$cfg"
+          if ! flutter build macos --release; then
+            echo "::warning::the universal build failed: building for Apple Silicon only"
+            git checkout -- "$cfg"
+            flutter build macos --release
+          fi
+      - name: Bluetooth helper (deck-ble), its tests, then the universal release build
+        working-directory: clients/ble/macos
+        run: |
+          swift test
+          swift build -c release --arch arm64 --arch x86_64
+          bin="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          lipo -archs "$bin/deck-ble"
+          cp "$bin/deck-ble" ../../../build/deck-ble
+      - name: package and check
+        run: |
+          app="clients/macos/build/macos/Build/Products/Release/agents deck.app"
+          lipo -archs "$app/Contents/MacOS/agents deck"
+          packaging/macos/package.sh --app "$app" --agentctl build/agentctl --deck-ble build/deck-ble \
+            --version 0.0.0-ci --arch universal --out dist
+          mnt="$RUNNER_TEMP/dmg"
+          mkdir -p "$mnt"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" dist/agents-deck_0.0.0-ci_macos_universal.dmg
+          test -L "$mnt/Applications"
+          codesign --verify --deep --strict "$mnt/agents deck.app"
+          test "$("$mnt/agents deck.app/Contents/MacOS/agentctl" version)" = 0.0.0-ci
+          test -x "$mnt/agents deck.app/Contents/MacOS/deck-ble"
+          # -dv, not -r-: an ad-hoc signature's designated requirement is a cdhash, without the identifier.
+          codesign -dv "$mnt/agents deck.app/Contents/MacOS/deck-ble" 2>&1 | grep -q '^Identifier=dev.agents-deck.deck-ble$'
+          # macOS reads the app's Info.plist for the helper inside it (clients/ble/README.md).
+          /usr/libexec/PlistBuddy -c "Print :NSBluetoothAlwaysUsageDescription" "$mnt/agents deck.app/Contents/Info.plist"
+          hdiutil detach "$mnt"
 
   firmware:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: tools (nanopb, PlatformIO)
@@ -91,10 +230,12 @@ jobs:
           sudo apt-get update -qq # the runner image's package lists go stale: install alone can 404
           sudo apt-get install -y --no-install-recommends protobuf-compiler >/dev/null # nanopb's generator runs protoc
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet nanopb==0.4.9.1 platformio
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet nanopb==0.4.9.1 platformio esptool==5.6.0
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: generated C matches link.proto
         run: firmware/deck-link/tools/generate.sh --check
+      - name: release script tests (board.json, merge, over-the-air image)
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: host tests
         run: |
           make -C firmware/deck-link/test/host test

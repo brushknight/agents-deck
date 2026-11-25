@@ -170,74 +170,44 @@ func (s SessionInfo) Match(query string) bool {
 	return true
 }
 
-// FindSession resolves a full id or a unique id prefix (≥ 4 chars).
-func FindSession(all []SessionInfo, ref string) (SessionInfo, int) {
-	ref = strings.ToLower(strings.TrimSpace(ref))
-	var hits []SessionInfo
-	for _, s := range all {
-		if s.ID == ref {
-			return s, 1
-		}
-		if len(ref) >= 4 && strings.HasPrefix(s.ID, ref) {
-			hits = append(hits, s)
-		}
-	}
-	if len(hits) == 1 {
-		return hits[0], 1
-	}
-	return SessionInfo{}, len(hits)
-}
-
-// Subagents lists the subagents of the session at transcript that are still
-// working, from their own transcripts (<session>/subagents/agent-*.jsonl):
-// not ended with a final reply, and written within window, or within
-// toolWindow while a tool call is still waiting for its result (a long build
-// or test run writes nothing until it returns). Subagents can keep working
-// while the main loop is idle (background agents, or another process on the
-// same session) and fire no hook of ours.
-func Subagents(transcript string, window, toolWindow time.Duration) []model.Subagent {
+// recentSubagents is the fallback for subagents the main transcript says
+// nothing about (an older Claude Code, a subagent run in the foreground):
+// it guesses from their own transcripts (<session>/subagents/agent-*.jsonl)
+// which are still working: not ended with a final reply, and written within
+// window, or within toolWindow while a tool call is still waiting for its
+// result (a long build or test run writes nothing until it returns).
+// Subagents whose id is in skip are left out: the main transcript knows them.
+func recentSubagents(transcript string, window, toolWindow time.Duration, skip map[string]bool, now time.Time) []found {
 	if transcript == "" {
 		return nil
 	}
 	files, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents", "agent-*.jsonl"))
-	now := time.Now()
-	type found struct {
-		s     model.Subagent
-		since time.Time
-	}
 	var out []found
 	for _, f := range files {
-		st, err := os.Stat(f)
-		if err != nil || now.Sub(st.ModTime()) > max(window, toolWindow) {
-			continue
-		}
-		done, inTool, tool, start := subagentTail(f, st.Size())
-		if done || (!inTool && now.Sub(st.ModTime()) > window) {
-			continue
-		}
 		id := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(f), ".jsonl"), "agent-")
-		s := model.Subagent{ID: id, Tool: tool}
-		var meta struct {
-			Type        string `json:"agentType"`
-			Description string `json:"description"`
+		if skip[id] {
+			continue
 		}
-		if b, err := os.ReadFile(strings.TrimSuffix(f, ".jsonl") + ".meta.json"); err == nil && json.Unmarshal(b, &meta) == nil {
-			s.Title, s.Type = clip(oneLine(meta.Description), 80), meta.Type
+		info, ok := subFile(f)
+		if !ok || now.Sub(info.mod) > max(window, toolWindow) {
+			continue
 		}
+		if info.done || (!info.inTool && now.Sub(info.mod) > window) {
+			continue
+		}
+		s := model.Subagent{ID: id, Tool: info.tool, Title: info.title, Type: info.typ}
 		if s.Title == "" {
 			s.Title = "subagent"
 		}
-		out = append(out, found{s, start})
+		out = append(out, found{s, info.start})
 	}
-	if len(out) == 0 {
-		return nil
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].since.Before(out[j].since) })
-	subs := make([]model.Subagent, len(out))
-	for i, f := range out {
-		subs[i] = f.s
-	}
-	return subs
+	return out
+}
+
+// found is a working subagent and when it started, for the order.
+type found struct {
+	s     model.Subagent
+	since time.Time
 }
 
 // ReadSession reads one session transcript's metadata (title, folder, branch,
@@ -245,19 +215,14 @@ func Subagents(transcript string, window, toolWindow time.Duration) []model.Suba
 func ReadSession(path, id string) (SessionInfo, bool) { return readSession(path, id) }
 
 // TranscriptTurn reads the end of a session transcript: whether a turn is in
-// progress (the last message isn't Claude's final reply, and the file was
-// written within window or a tool call is still out), and the tool of the
-// latest call.
+// progress (the turn isn't over, and its last message came within window or
+// a tool call is still out), and the tool of the latest call.
 func TranscriptTurn(path string, window time.Duration) (running bool, tool string) {
-	st, err := os.Stat(path)
-	if err != nil {
+	t, ok := ReadTurn(path)
+	if !ok || t.Over {
 		return false, ""
 	}
-	done, inTool, tool, _ := subagentTail(path, st.Size())
-	if done {
-		return false, ""
-	}
-	return inTool || time.Since(st.ModTime()) < window, tool
+	return t.InTool || time.Since(t.At) < window, t.Tool
 }
 
 // subagentTail reads the end of a subagent transcript: whether its last

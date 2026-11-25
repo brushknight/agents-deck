@@ -47,6 +47,7 @@ typedef struct {
 typedef struct {
 	char id[12];
 	uint32_t slot;
+	uint8_t attention_slot; /* its spot on the deck's "Needs you" grid, 1..16; 0: not there */
 	char title[DECK_TILE_TITLE_SIZE];
 	agentsdeck_link_v1_Status status;
 	agentsdeck_link_v1_Tool tool;
@@ -57,6 +58,7 @@ typedef struct {
 	bool unseen;
 	bool focused;
 	bool lost;
+	uint8_t queued; /* prompts waiting for its turn to end (Agent.queued, at most 255) */
 	/* The prompt (needs FIELDS_PROMPT in the subscription). */
 	bool has_prompt;
 	char prompt_id[16];

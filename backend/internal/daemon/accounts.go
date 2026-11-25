@@ -6,12 +6,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/tmux"
@@ -60,27 +60,6 @@ func accountForSession(sessionID, cwd string) accounts.Account {
 		}
 	}
 	return accounts.Default()
-}
-
-// activeSessions asks every account's Claude Code for its sessions.
-func activeSessions(bin string, skip map[string]bool) ([]claude.Live, bool) {
-	var all []claude.Live
-	seen := map[string]bool{}
-	ok := false
-	for _, a := range accounts.List() {
-		got, answered := claude.ActiveSessions(bin, a.ConfigDir(), projectsDirs(a), skip)
-		if !answered {
-			continue
-		}
-		ok = true
-		for _, l := range got {
-			if !seen[l.SessionID] {
-				seen[l.SessionID] = true
-				all = append(all, l)
-			}
-		}
-	}
-	return all, ok
 }
 
 // accountsKey changes whenever the account setup does, so the deck can
@@ -160,7 +139,7 @@ func (d *Daemon) Handoff(id, name string) (string, error) {
 // waitGone waits until process pid has exited (or the time is up).
 func waitGone(pid int, limit time.Duration) {
 	for end := time.Now().Add(limit); time.Now().Before(end); {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if !proc.Alive(pid) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)

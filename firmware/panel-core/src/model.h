@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "deck_pet.h"
 #include "timeutil.h"
 
 // Agents kept in memory. The 1.47" board keeps 16; boards with PSRAM and a
@@ -70,6 +71,7 @@ enum class ToolKind : uint8_t { Other, Claude, Codex, Gemini };
 struct Agent {
   char id[12];              // Deck Link ids are at most 11 bytes (link.options)
   uint8_t slot;
+  uint8_t attnSlot;         // its spot on the deck's "Needs you" grid, 1..16; 0 = not there (attention.h)
   char title[40];
   char aiTitle[56];
   Species species;
@@ -105,6 +107,7 @@ struct Agent {
   char promptCtx[96];       // Prompt.context, e.g. "bash · ~/dev/infra"
   uint8_t optCount;
   Option opts[kMaxOptions];
+  deck_pet_t pet;           // its pet while Agent pets is on (pet.has); drawn in place of the critter (sprites.h)
 };
 
 struct Fleet {

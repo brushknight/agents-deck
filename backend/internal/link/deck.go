@@ -18,6 +18,16 @@ type ServerDeck struct{ S *server.Server }
 
 func (d ServerDeck) Snapshot() model.State { return d.S.Store.Snapshot() }
 
+// Motion notes whether a board has a motion sensor (from its Hello).
+func (d ServerDeck) Motion(name string, on bool) {
+	if d.S.Devices != nil {
+		d.S.Devices.SetMotion(name, on)
+	}
+}
+
+// View is the state as this board sees it (without agents another screen took: server.View).
+func (d ServerDeck) View(st model.State, viewer string) model.State { return d.S.View(st, viewer) }
+
 func (d ServerDeck) Changes() (<-chan struct{}, func()) {
 	ch, unsub := d.S.Store.Subscribe()
 	return ch, unsub
@@ -31,6 +41,13 @@ func (d ServerDeck) Device(name string) (devices.Device, bool) { return d.S.Devi
 
 func (d ServerDeck) Do(dev devices.Device, method, path string, body []byte) (int, []byte) {
 	return d.S.Dispatch(dev, method, path, body)
+}
+
+// Audit appends to the deck's audit log (the firmware download).
+func (d ServerDeck) Audit(e devices.AuditEntry) {
+	if d.S.Audit != nil {
+		d.S.Audit.Log(e)
+	}
 }
 
 // AutoApprove approves a new board plugged into a registered USB port, when

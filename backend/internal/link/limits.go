@@ -21,16 +21,18 @@ var limits = map[string]limit{
 	"AgentRemoved.id": {size: 12},
 	"Agent.id":        {size: 12}, "Agent.title": {size: 64}, "Agent.ai_title": {size: 96}, "Agent.cwd": {size: 128},
 	"Agent.folder": {size: 48}, "Agent.branch": {size: 48}, "Agent.model": {size: 40}, "Agent.model_label": {size: 24},
-	"Agent.effort": {size: 12}, "Agent.app": {size: 12}, "Agent.last_prompt": {size: 160}, "Agent.error": {size: 128}, "Agent.subagents": {count: 6},
+	"Agent.effort": {size: 12}, "Agent.app": {size: 12}, "Agent.project_folder": {size: 128}, "Agent.last_prompt": {size: 160}, "Agent.last_answer": {size: 160}, "Agent.error": {size: 128}, "Agent.subagents": {count: 6},
 	"Activity.tool": {size: 24}, "Activity.detail": {size: 128},
 	"Prompt.id": {size: 16}, "Prompt.title": {size: 96}, "Prompt.detail": {size: 512}, "Prompt.context": {size: 96}, "Prompt.options": {count: 6},
 	"Option.key": {size: 8}, "Option.label": {size: 96},
 	"Hat.shape": {size: 16}, "Hat.color": {size: 12},
 	"Account.name": {size: 16}, "Account.color": {size: 12},
+	"Project.id": {size: 12}, "Project.name": {size: 48},
+	"Pet.name": {size: 16}, "Pet.stage": {size: 8}, "Pet.mood": {size: 8},
 	"Subagent.id": {size: 12}, "Subagent.title": {size: 64}, "Subagent.type": {size: 24}, "Subagent.tool": {size: 24},
 	"Answer.agent_id": {size: 12}, "Answer.prompt_id": {size: 16}, "Answer.key": {size: 8},
-	"Focus.agent_id": {size: 12}, "Interrupt.agent_id": {size: 12}, "Dismiss.agent_id": {size: 12}, "Resume.agent_id": {size: 12},
-	"Move.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32},
+	"Focus.agent_id": {size: 12}, "Interrupt.agent_id": {size: 12}, "SendPrompt.agent_id": {size: 12}, "SendPrompt.text": {size: 384}, "Queue.agent_id": {size: 12}, "Queue.cancel_id": {size: 8}, "Dismiss.agent_id": {size: 12}, "Resume.agent_id": {size: 12}, "HatchPet.agent_id": {size: 12},
+	"Move.agent_id": {size: 12}, "MoveAttention.agent_id": {size: 12}, "Order.agent_ids": {size: 12, count: 32}, "Stash.agent_ids": {size: 12, count: 16}, "MagicView.agent_ids": {size: 12, count: 16},
 	"SetHat.agent_id": {size: 12}, "SetHat.folder": {size: 128}, "SetHat.shape": {size: 16}, "SetHat.color": {size: 12},
 	"AddLive.session_id": {size: 40},
 	"Handoff.agent_id":   {size: 12}, "Handoff.account": {size: 16},
@@ -41,6 +43,8 @@ var limits = map[string]limit{
 	"LiveSession.session_id": {size: 40}, "LiveSession.title": {size: 64}, "LiveSession.cwd": {size: 128}, "LiveSession.folder": {size: 48},
 	"AccountList.accounts": {count: 4},
 	"AccountInfo.name":     {size: 16}, "AccountInfo.color": {size: 12},
+	"QueueList.prompts": {count: 4}, "QueuedPrompt.id": {size: 8}, "QueuedPrompt.text": {size: 64}, "QueuedPrompt.by": {size: 24},
+	"Restore.agent_ids":     {size: 12, count: 16},
 	"RestoreResult.results": {count: 16},
 	"Restored.id":           {size: 12}, "Restored.title": {size: 64}, "Restored.action": {size: 12}, "Restored.error": {size: 96},
 	// Pairing and Wi-Fi. For bytes, size is the byte count (no NUL): the deck
@@ -50,6 +54,11 @@ var limits = map[string]limit{
 	"CertIssued.server_fingerprint": {size: 32}, "CertIssued.device_name": {size: 40}, "CertIssued.cert_serial": {size: 40},
 	"WifiConfig.ssid": {size: 33}, "WifiConfig.password": {size: 65},
 	"NetStatus.ssid": {size: 33}, "NetStatus.ip": {size: 40},
+	// Firmware updates over Wi-Fi.
+	"FirmwareOffer.board": {size: 32}, "FirmwareOffer.version": {size: 24}, "FirmwareOffer.sha256": {size: 32},
+	"FirmwareOffer.path": {size: 96}, "FirmwareStatus.error": {size: 96},
+	// Usage limits.
+	"Limits.sets": {count: 4}, "LimitSet.account": {size: 16}, "LimitSet.windows": {count: 4}, "LimitWindow.label": {size: 16},
 }
 
 // clipMessage cuts every string and list in m (recursively) to its limit.

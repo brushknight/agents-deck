@@ -146,6 +146,8 @@
       "modelLabel": "codex",
       "activity": null,
       "lastPrompt": "rewrite the install guide for the new cli",
+      "lastAnswer": "Rewrote the install guide for the new CLI: one Homebrew command on macOS, a script for Linux, and a short section on upgrading from the old tool. The old flags page now links to the new one.",
+      "lastAnswerAt": "2026-10-08T00:51:00Z",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -380,6 +382,8 @@
       "modelLabel": "opus 5.5",
       "activity": null,
       "lastPrompt": "rebuild the product search index with typo tolerance",
+      "lastAnswer": "Rebuilt the product index with typo tolerance on names and brands: one typo allowed from 5 letters, two from 9. A search for hedphones now finds headphones. The reindex took 4 minutes.",
+      "lastAnswerAt": "2026-10-08T00:51:00Z",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -509,6 +513,8 @@
       "modelLabel": "haiku 4.5",
       "activity": null,
       "lastPrompt": "regex for semver with prerelease",
+      "lastAnswer": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?$ matches 1.2.3 and 1.2.3-rc.1 and refuses 01.2.3.",
+      "lastAnswerAt": "2026-10-08T00:51:00Z",
       "waiting": null,
       "error": null,
       "tokens": {

@@ -22,6 +22,9 @@ deck. Scroll up and down for more; let go and it settles on a row. Tap one for i
 - **Card.** What the agent asks, with a button per answer; what it's doing; context, tokens, cost and
   turns; its last prompt; model, folder, branch and account; **focus terminal** and **interrupt**.
   Swipe right or tap **back** to return.
+- **Agent pets.** While Agent pets is on (the deck's Settings, General), each tile and the card
+  show the agent's pet in place of its critter, drawn by the kit's `deck_pet.h`; the card says its
+  name, stage and level.
 - Without a deck it says what to do: run `agentctl link add`, approve it, or wait for the deck to come
   back.
 

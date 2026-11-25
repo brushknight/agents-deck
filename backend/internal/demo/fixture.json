@@ -64,7 +64,7 @@
         "kind": "permission",
         "title": "run this command?",
         "detail": "terraform apply -target=module.staging_net",
-        "context": "bash · ~/dev/infra-network/terraform",
+        "context": "bash \u00b7 ~/dev/infra-network/terraform",
         "options": [
           {
             "key": "1",
@@ -116,6 +116,7 @@
       "modelLabel": "codex",
       "activity": null,
       "lastPrompt": "rewrite the install guide for the new cli",
+      "lastAnswer": "Rewrote the install guide for the new CLI: one Homebrew command on macOS, a script for Linux, and a short section on upgrading from the old tool. The old flags page now links to the new one.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -193,7 +194,7 @@
       "lastPrompt": "plan the new node pool",
       "waiting": null,
       "error": {
-        "message": "api 529 overloaded · retrying"
+        "message": "api 529 overloaded \u00b7 retrying"
       },
       "tokens": {
         "input": 200,
@@ -273,20 +274,20 @@
         "kind": "question",
         "title": "which session strategy should the login flow use?",
         "detail": "",
-        "context": "question · 1 of 1",
+        "context": "question \u00b7 1 of 1",
         "options": [
           {
             "key": "1",
-            "label": "rotating refresh tokens — short access token, refresh rotates on use",
+            "label": "rotating refresh tokens \u2014 short access token, refresh rotates on use",
             "primary": true
           },
           {
             "key": "2",
-            "label": "sliding sessions — server-side session, expiry extends on activity"
+            "label": "sliding sessions \u2014 server-side session, expiry extends on activity"
           },
           {
             "key": "3",
-            "label": "long-lived jwt — simplest, no revocation"
+            "label": "long-lived jwt \u2014 simplest, no revocation"
           }
         ]
       },
@@ -325,6 +326,7 @@
       "modelLabel": "opus 5.5",
       "activity": null,
       "lastPrompt": "rebuild the product search index with typo tolerance",
+      "lastAnswer": "Rebuilt the product index with typo tolerance on names and brands: one typo allowed from 5 letters, two from 9. A search for hedphones now finds headphones. The reindex took 4 minutes.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -405,6 +407,7 @@
       "modelLabel": "haiku 4.5",
       "activity": null,
       "lastPrompt": "regex for semver with prerelease",
+      "lastAnswer": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?$ matches 1.2.3 and 1.2.3-rc.1 and refuses 01.2.3.",
       "waiting": null,
       "error": null,
       "tokens": {
@@ -464,6 +467,83 @@
       "updatedAt": "2026-10-08T00:51:00Z",
       "unseen": false,
       "external": false
+    },
+    {
+      "id": "r3l34s",
+      "slot": 11,
+      "title": "Release Notes v2",
+      "aiTitle": "Draft the release notes",
+      "tool": "claude",
+      "status": "exited",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/release-notes",
+      "folder": "release-notes",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "draft the notes for the next release from the merged pull requests",
+      "lastAnswer": "Drafted the notes for v2.4 from 31 merged pull requests, in three parts: new, fixed and changed. Two pull requests had no description, so I left them out and listed them at the end.",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 900,
+        "output": 30000,
+        "cacheRead": 800000,
+        "cacheWrite": 90000
+      },
+      "context": {
+        "used": 120000,
+        "window": 200000
+      },
+      "costUsd": 1.25,
+      "turns": 9,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false,
+      "resumable": true,
+      "lost": true
+    },
+    {
+      "id": "cl34nx",
+      "slot": 12,
+      "title": "Infra Cleanup",
+      "aiTitle": "Remove unused buckets",
+      "tool": "claude",
+      "status": "exited",
+      "statusSince": "2026-10-08T00:51:00Z",
+      "cwd": "/Users/sam/dev/infra-tf",
+      "folder": "infra-tf",
+      "branch": "main",
+      "model": "claude-opus-5-5",
+      "modelLabel": "opus 5.5",
+      "activity": null,
+      "lastPrompt": "list the storage buckets nothing reads from and remove them",
+      "lastAnswer": "Found 6 buckets with no reads in 90 days. I removed the 4 empty ones and left logs-archive and old-exports, which still hold data: say if they can go too.",
+      "waiting": null,
+      "error": null,
+      "tokens": {
+        "input": 900,
+        "output": 30000,
+        "cacheRead": 800000,
+        "cacheWrite": 90000
+      },
+      "context": {
+        "used": 120000,
+        "window": 200000
+      },
+      "costUsd": 1.25,
+      "turns": 9,
+      "focused": false,
+      "attached": false,
+      "startedAt": "2026-10-08T00:13:00Z",
+      "updatedAt": "2026-10-08T00:51:00Z",
+      "unseen": false,
+      "external": false,
+      "resumable": true
     }
   ]
 }

@@ -132,7 +132,7 @@ static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
 static void onWelcome(deck_link_t* ctx, const char* name, agentsdeck_link_v1_Scope, bool approved) {
   // A deck on USB takes over at once (and pairs the board for Wi-Fi when it needs to).
   if (ctx == deck.core()) net_link::usbWelcome(approved, name);
-  else net_link::wifiWelcome();
+  else net_link::netWelcome(ctx, approved, name);
   if (ctx == link()) snprintf(deviceName, sizeof deviceName, "%s", name);
   dirty = true;
 }
@@ -150,13 +150,13 @@ static void onCertIssued(deck_link_t*, uint32_t seq, const agentsdeck_link_v1_Ce
 
 static void onLink(deck_link_t*) { dirty = true; }
 
-// The screen's link changed (USB ⇄ Wi-Fi): start the fleet over; the new link sends a snapshot.
+// The screen's link changed (USB, Wi-Fi, Bluetooth): start the fleet over; the new link sends a snapshot.
 static void onSwitched(NetVia via) {
   fleet->~DeckFleet();
   new (fleet) DeckFleet();
   roundHome(ui);
   dirty = true;
-  ROUND_LOG("round: now on %s", via == NetVia::Wifi ? "Wi-Fi" : "USB");
+  ROUND_LOG("round: now on %s", via == NetVia::Wifi ? "Wi-Fi" : via == NetVia::Ble ? "Bluetooth" : "USB");
 }
 
 static void onToast(const char* text) {
@@ -195,7 +195,9 @@ static void render() {
 #else
   net = net_link::view();
 #endif
-  RoundInput in{f, shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent, &net};
+  // A firmware update, a passkey or "forget Bluetooth?": its notice (net_model.h's words) instead of the agents.
+  const bool notice = net.ota.phase != OtaPhase::None || netOverlay(net);
+  RoundInput in{f, notice ? LinkState::Connecting : shown, deviceName, scope(), ms, deckNowEpoch(*fleet, ms), &ui, silent, &net};
   in.partial = true;   // the frame keeps the last one
   const uint32_t t0 = micros();
   if (strip && board.layout->drawStrips(in, strip, kStripRows, board.pushStrip)) {
@@ -281,12 +283,26 @@ static const char* gestureName(RoundGesture g) {
 }
 #endif
 
+// A firmware update, a passkey or "forget Bluetooth?" is on the screen: touches wait.
+static bool updating() {
+#ifdef ROUND_BENCH
+  return false;
+#else
+  const NetView nv = net_link::view();
+  return nv.ota.phase != OtaPhase::None || netOverlay(nv);
+#endif
+}
+
 static void touchPump() {
   if (!touchQueue) return;
   TouchSample s;
   while (xQueueReceive(touchQueue, &s, 0) == pdTRUE) {
     lastActiveMs = millis();
-    if (!fleet->have || linkState() != LinkState::Live) { ui.down = false; ui.pinch = PinchTracker(); continue; }
+    const bool onNotice = !fleet->have || linkState() != LinkState::Live || updating();
+#ifndef ROUND_BENCH
+    net_link::touchPressed(onNotice && s.t.n > 0);   // a long press on a notice can forget the Bluetooth bond
+#endif
+    if (onNotice) { ui.down = false; ui.pinch = PinchTracker(); continue; }
     const bool was = ui.down;
     ui.lastGesture = RoundGesture::None;
     const RoundCommand c =
@@ -306,6 +322,9 @@ static void buttonPump() {
   static uint32_t changedAt = 0;
   const bool level = digitalRead(board.bootPin) == LOW;
   const uint32_t now = millis();
+#ifndef ROUND_BENCH
+  net_link::bootPressed(down);                            // held 5 s: "forget Bluetooth?" (ble_model.h)
+#endif
   if (level == down || now - changedAt < 30) return;      // debounce
   down = level;
   changedAt = now;
@@ -366,6 +385,9 @@ static void benchScript() {
 static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
   using namespace round_app;
   board = b;
+#ifndef ROUND_BENCH
+  ota::begin();                             // an update waiting for its confirm? (before anything that could crash)
+#endif
   // The USB serial driver drops what doesn't fit in its RX queue (256 bytes
   // by default) while a frame is drawn: give a snapshot or a busy deck room.
   Serial.setRxBufferSize(kRxBuffer);
@@ -402,6 +424,8 @@ static inline void roundAppSetup(const RoundBoard& b, const char* firmware) {
 #else
   cfg.on_cert_issued = onCertIssued;
   cfg.on_wifi_config = net_link::wifiConfigHook();   // nullptr without Wi-Fi: the core answers 501
+  cfg.on_firmware_offer = net_link::firmwareOfferHook();   // nullptr without Wi-Fi: the core refuses
+  cfg.on_link_config = net_link::linkConfigHook();         // nullptr without Bluetooth: the core answers 501
   deck.begin(Serial, cfg);
   net_link::begin(deck.core(), cfg, net_link::Hooks{onSwitched, onToast});
 #endif
@@ -458,7 +482,7 @@ static inline void roundAppLoop() {
     const NetView nv = net_link::view();
     ROUND_LOG("status: via %s phase %d link %d approved %d agents %u screen %d rx %u bad %u overflow %u heap %u "
               "psram %u",
-              nv.via == NetVia::Wifi ? "wifi" : "usb", (int)nv.phase, (int)deck_link_state(link()),
+              nv.via == NetVia::Wifi ? "wifi" : nv.via == NetVia::Ble ? "ble" : "usb", (int)nv.phase, (int)deck_link_state(link()),
               (int)deck_link_approved(link()), fleet->have ? (unsigned)fleet->fleet.count : 0u, (int)ui.screen,
               (unsigned)st->rx_frames, (unsigned)st->rx_bad, (unsigned)st->rx_overflow, (unsigned)ESP.getFreeHeap(),
               (unsigned)ESP.getFreePsram());

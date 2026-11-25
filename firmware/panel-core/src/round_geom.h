@@ -88,7 +88,7 @@ namespace round_detail {
 static inline void blendPx(Canvas& c, int x, int y, uint16_t col, int a15) {
   if (x < 0 || y < c.top || x >= c.w || y >= c.h || a15 <= 0) return;
   uint16_t& p = c.px[y * c.w + x];
-  p = blend565(p, col, (uint8_t)(a15 > 15 ? 15 : a15));
+  p = c.enc(blend565(c.dec(p), col, (uint8_t)(a15 > 15 ? 15 : a15)));
 }
 
 // Coverage (0..15) of a pixel whose centre is `d` from the centre, for a
@@ -238,6 +238,32 @@ static inline void strokePill(Canvas& c, int x, int y, int w, int h, int t, uint
 static inline void drawNetMark(Canvas& c, float cx, float base, uint16_t col) {
   fillDisc(c, cx, base - 1, 2.5f, col);
   for (int i = 1; i <= 2; i++) strokeArc(c, cx, base, 6.5f * i + 1, 2.5f, -45, 90, col);
+}
+
+// A straight line t wide from (x0, y0) to (x1, y1), round-ended, anti-aliased.
+static inline void strokeSeg(Canvas& c, float x0, float y0, float x1, float y1, float t, uint16_t col) {
+  const float r = t / 2;
+  const int xa = (int)((x0 < x1 ? x0 : x1) - r - 1), xb = (int)((x0 > x1 ? x0 : x1) + r + 2);
+  const int ya = (int)((y0 < y1 ? y0 : y1) - r - 1), yb = (int)((y0 > y1 ? y0 : y1) + r + 2);
+  const float dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy;
+  for (int y = ya; y < yb; y++)
+    for (int x = xa; x < xb; x++) {
+      const float px = x + 0.5f - x0, py = y + 0.5f - y0;
+      float k = len2 > 0 ? (px * dx + py * dy) / len2 : 0;
+      k = k < 0 ? 0 : k > 1 ? 1 : k;
+      const float ex = px - k * dx, ey = py - k * dy;
+      round_detail::blendPx(c, x, y, col, round_detail::ringCover(sqrtf(ex * ex + ey * ey), 0, r));
+    }
+}
+
+// The Bluetooth mark, the size of the Wi-Fi one: centred on cx, its base at `base`.
+static inline void drawBleMark(Canvas& c, float cx, float base, uint16_t col) {
+  const float h = 18, w = 5, top = base - h, t = 2.2f;
+  strokeSeg(c, cx, top, cx, base, t, col);                                   // the stem
+  strokeSeg(c, cx, top, cx + w, top + h / 4, t, col);                        // the upper loop
+  strokeSeg(c, cx + w, top + h / 4, cx - w, top + 3 * h / 4, t, col);
+  strokeSeg(c, cx, base, cx + w, top + 3 * h / 4, t, col);                   // the lower loop
+  strokeSeg(c, cx + w, top + 3 * h / 4, cx - w, top + h / 4, t, col);
 }
 
 // ---------------------------------------------------------------- rim drag

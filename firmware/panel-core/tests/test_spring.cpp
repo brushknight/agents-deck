@@ -248,6 +248,14 @@ static void testPartial(const SpringLayout& lay) {
   Fleet f = crowd(14);
   f.agents[3].unseen = true;
   wait(f.agents[9]);
+  // Agent pets on for some: a pet reaches further than a critter (and bobs).
+  for (int i : {1, 2, 5, 9, 12}) {
+    deck_pet_t& p = f.agents[i].pet;
+    p.has = true;
+    p.stage = (uint8_t)(i % 7);
+    p.mood = i == 12 ? DECK_PET_ASLEEP : DECK_PET_FED;
+    f.agents[i].hat = 2;
+  }
   RoundUi ui;
   uint32_t ms = 1000;
   int64_t now = 2000;

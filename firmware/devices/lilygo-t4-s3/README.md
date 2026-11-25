@@ -12,9 +12,9 @@ icon buttons and gestures, from the same code (`layout_square.h` in
 - on the card, the numbers one to a line: tokens out, cache read, cost (approximate, `~$4.12`), turns;
 - a bigger critter on the card (×6), the prompt's header (×3) and the notices (×7).
 
-| home | scrolling | card | permission | question | approval |
-|---|---|---|---|---|---|
-| <img src="docs/home.png" width="150" alt="2x3 tiles"> | <img src="docs/home-scrolling.png" width="150" alt="mid-scroll with the position bar"> | <img src="docs/card.png" width="150" alt="an agent's card"> | <img src="docs/permission.png" width="150" alt="a permission prompt"> | <img src="docs/question.png" width="150" alt="a question"> | <img src="docs/not-approved.png" width="150" alt="waiting for approval"> |
+| home | scrolling | card | permission | question | approval | needs you | Bluetooth code |
+|---|---|---|---|---|---|---|---|
+| <img src="docs/home.png" width="150" alt="2x3 tiles"> | <img src="docs/home-scrolling.png" width="150" alt="mid-scroll with the position bar"> | <img src="docs/card.png" width="150" alt="an agent's card"> | <img src="docs/permission.png" width="150" alt="a permission prompt"> | <img src="docs/question.png" width="150" alt="a question"> | <img src="docs/not-approved.png" width="150" alt="waiting for approval"> | <img src="docs/needs-you.png" width="150" alt="the Needs you screen"> | <img src="docs/ble-passkey.png" width="150" alt="the code to type on the computer when it pairs over Bluetooth"> |
 
 (Rendered on the host from `docs/fixtures/state.json` by `firmware/panel-core/tools/render_docs.sh`.
 Every screen is in `docs/`.)
@@ -28,6 +28,11 @@ Every screen is in `docs/`.)
   and interrupt need scope `act`; stop needs `admin`.
 - **Prompts.** A waiting agent opens its prompt: the question, the command (for permissions), the
   answers. Answering needs scope `act`.
+- **Needs you.** Swipe right on the list (or press BOOT) for one screen of 2×3 spots with only the
+  agents at work, asking you something, or finished and not checked yet; swipe left (or BOOT) to go
+  back. An agent leaves 5 seconds after it stops needing you, and keeps its spot while it is there.
+  Two small marks at the top of the header say where you are: the left one is solid orange on that
+  screen, an orange outline while someone is on it. The board always starts on the list.
 - **Back.** Swipe right, or press BOOT. There's no back button.
 - **AMOLED.** True black; it dims when every agent is idle and nobody touched it for 30 s.
 
@@ -69,6 +74,15 @@ As on the 1.8″ and the round boards ([the 2.1″ board's README](../waveshare-
 has the whole story): plugged into the Mac and approved, it pairs by itself and gets the deck's default
 network; unplugged, it joins that network and reaches the deck over TLS 1.3 with its own certificate.
 USB wins whenever it's plugged in. Revoke a board you lose (`agentctl devices revoke t4s3-panel-<id>`).
+
+## Bluetooth
+
+The `idf5` build also reaches the deck over Bluetooth LE, through the helper in the macOS app (macOS only for
+now). In Settings, Boards, turn on **Look for boards**, click **Add** next to the board's name (`deck-`
+and six characters, shown on its screen) and type the 6-digit code the board shows into the window
+macOS opens. Over Bluetooth the board shows your agents and can get your Wi-Fi network; firmware
+updates still need Wi-Fi or the cable. To make the board forget the computer, hold BOOT for 5 s and
+press it again when it asks "forget Bluetooth?". Details: [Deck Link, Bluetooth](../../../docs/link/protocol.md#bluetooth).
 
 ## Hardware
 

@@ -1,0 +1,16 @@
+{
+  "name": "Waveshare ESP32-S3-Touch-LCD-2.8C",
+  "chip": "esp32s3",
+  "types": [
+    "waveshare-touch-lcd-28c"
+  ],
+  "usb": [
+    {
+      "vid": "303a",
+      "pid": "1001"
+    }
+  ],
+  "flash_size": 16777216,
+  "wifi": true,
+  "picture": "docs/images/devices/round-28-home.png"
+}

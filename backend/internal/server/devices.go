@@ -66,6 +66,12 @@ func (s *Server) DeviceHandler() http.Handler {
 			s.DeviceLink(w, r, d)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/v1/firmware/") && s.DeviceFirmware != nil {
+			// A board's firmware update (Deck Link FirmwareOffer): boards only.
+			s.Devices.Seen(d.Name)
+			s.DeviceFirmware(w, r, d)
+			return
+		}
 		if need := NeedScope(r.Method, r.URL.Path); !d.Scope.Allows(need) {
 			writeErr(w, http.StatusForbidden, d.Name+" may "+string(d.Scope)+", this needs "+string(need)+": agentctl devices scope "+d.Name+" "+string(need))
 			return
@@ -185,13 +191,15 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // audited logs every request that changes something, under who.
 func (s *Server) audited(who string, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = withCaller(r, who) // the stash knows who asks (stash.go)
 		if r.Method == http.MethodGet || s.Audit == nil {
 			h.ServeHTTP(w, r)
 			return
 		}
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		r, note := withNote(r) // a handler may add a detail (queue.go)
 		h.ServeHTTP(sw, r)
-		s.Audit.Log(devices.AuditEntry{Device: who, Action: r.Method + " " + r.URL.Path, Status: sw.code})
+		s.Audit.Log(devices.AuditEntry{Device: who, Action: r.Method + " " + r.URL.Path, Status: sw.code, Detail: *note})
 	})
 }
 

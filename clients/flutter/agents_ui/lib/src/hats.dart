@@ -4,7 +4,7 @@
 /// [HatFrame.top]) in sprite cells; "a" = the hat's colour, "b" its shade,
 /// "c" a highlight, "d" near-black; extras are single cells. The bandana's
 /// knot and tails sit on the left. Mirrors the web dashboard's HAT_ART
-/// (backend/internal/web/static/app.js): edit both together.
+/// (backend/internal/web/static/deck-core.js): edit both together.
 library;
 
 class HatFrame {

@@ -125,6 +125,77 @@ void main() {
     expect(find.text('doing now'), findsNothing);
   });
 
+  testWidgets('the card says when the agent was last active', (tester) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    final now = DateTime.parse(
+      (fixture['server'] as Map)['time'] as String,
+    ).toUtc();
+    for (final a in (fixture['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['id'] == 'k3f9a2') {
+        a['lastActive'] = now
+            .subtract(const Duration(hours: 3, minutes: 5))
+            .toIso8601String();
+      }
+    }
+    await _pumpApp(tester, FakeAgentsSource.fromState(fixture));
+    await _open(tester, 'checkout-api');
+    expect(find.text('last active 3h ago'), findsOneWidget);
+    expect(find.text('last prompt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Not known: no line at all.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 400));
+    await _open(tester, 'billing-jobs');
+    expect(find.byKey(const Key('agent-last-active')), findsNothing);
+  });
+
+  testWidgets(
+    'a finished agent shows its last answer, a working one its prompt',
+    (tester) async {
+      final fixture = FakeAgentsSource.demo().toJson();
+      final now = DateTime.parse(
+        (fixture['server'] as Map)['time'] as String,
+      ).toUtc();
+      for (final a
+          in (fixture['agents'] as List).cast<Map<String, dynamic>>()) {
+        if (a['id'] == 'd0cs1t' || a['id'] == 'k3f9a2') {
+          a['lastAnswer'] = 'Rewrote the install guide for the new CLI.';
+          a['lastAnswerAt'] = now
+              .subtract(const Duration(minutes: 7))
+              .toIso8601String();
+        }
+      }
+      await _pumpApp(tester, FakeAgentsSource.fromState(fixture));
+      await _open(tester, 'docs-site'); // idle
+      expect(find.text('last answer'), findsOneWidget);
+      expect(find.text('answered 7m ago'), findsOneWidget);
+      expect(
+        find.text('Rewrote the install guide for the new CLI.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('rewrite the install guide for the new cli'),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a working agent shows its prompt, not its answer from before', (
+    tester,
+  ) async {
+    final fixture = FakeAgentsSource.demo().toJson();
+    for (final a in (fixture['agents'] as List).cast<Map<String, dynamic>>()) {
+      if (a['id'] == 'k3f9a2') a['lastAnswer'] = 'Done before.';
+    }
+    await _pumpApp(tester, FakeAgentsSource.fromState(fixture));
+    await _open(tester, 'checkout-api');
+    expect(find.text('last prompt'), findsOneWidget);
+    expect(find.byKey(const Key('agent-last-prompt')), findsOneWidget);
+    expect(find.text('Done before.'), findsNothing);
+  });
+
   testWidgets('no back button on the panel (it closes cards by swiping)', (
     tester,
   ) async {
@@ -806,9 +877,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('16 agents or fewer: one page, no bars', (tester) async {
+  testWidgets('16 agents or fewer: one page bar after the "Needs you" mark', (
+    tester,
+  ) async {
     await _pumpApp(tester, FakeAgentsSource.demo());
-    expect(find.byKey(const Key('agents-pager')), findsNothing);
+    expect(find.byKey(const Key('agents-pager')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-attention')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-0')), findsOneWidget);
+    expect(find.byKey(const Key('agents-page-1')), findsNothing);
   });
 
   testWidgets('the tile chip takes the account colour', (tester) async {

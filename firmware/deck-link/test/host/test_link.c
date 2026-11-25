@@ -7,6 +7,7 @@
 
 #include "cobs.h"
 #include "crc16.h"
+#include "deck_fw.h"
 #include "deck_link.h"
 #include "deck_pair.h"
 #include "deck_store.h"
@@ -179,6 +180,15 @@ static void rec_result(deck_link_t *c, uint32_t seq, uint32_t code, const char *
 static void rec_agent(deck_link_t *c, const agentsdeck_link_v1_Agent *a) { (void)c, (void)a, ev_agents++; }
 static void rec_removed(deck_link_t *c, const char *id) { (void)c, (void)id, ev_removed++; }
 static void rec_sb(deck_link_t *c, const agentsdeck_link_v1_Server *s, uint32_t n) { (void)c, (void)s, (void)n, ev_snap_begin++; }
+static int ev_magic = 0;
+static agentsdeck_link_v1_Magic last_magic;
+static void rec_magic(deck_link_t *ctx, const agentsdeck_link_v1_Magic *m)
+{
+	(void)ctx;
+	ev_magic++;
+	last_magic = *m;
+}
+
 static void rec_se(deck_link_t *c) { (void)c, ev_snap_end++; }
 
 static deck_link_t link;
@@ -206,6 +216,7 @@ static void reset_fake(void)
 	cfg.on_agent_removed = rec_removed;
 	cfg.on_snapshot_begin = rec_sb;
 	cfg.on_snapshot_end = rec_se;
+	cfg.on_magic = rec_magic;
 	deck_link_init(&link, &cfg);
 }
 
@@ -367,6 +378,8 @@ static void test_sizes(void)
 	memset(a->ai_title, 'c', sizeof a->ai_title - 1);
 	memset(a->cwd, 'd', sizeof a->cwd - 1);
 	memset(a->last_prompt, 'e', sizeof a->last_prompt - 1);
+	memset(a->last_answer, 'z', sizeof a->last_answer - 1);
+	a->last_answer_at_ms = -1;
 	memset(a->error, 'f', sizeof a->error - 1);
 #define FILL(field, ch) memset((field), (ch), sizeof(field) - 1)
 	FILL(a->folder, 'j');
@@ -410,12 +423,14 @@ static void test_sizes(void)
 
 	static uint8_t w[8192];
 	size_t m = encode_frame(&f, w, sizeof w);
-	CHECK(m > 3300); /* agentsdeck_link_v1_Frame_size + 5 + COBS */
+	CHECK(m > 3470); /* agentsdeck_link_v1_Frame_size + 5 + COBS */
 
 	reset_fake();
 	deck_link_feed(&link, w, m);
 	CHECK(got_n == 1 && ev_agents == 1);
 	CHECK(strlen(link.frame.body.agent_changed.agent.waiting.detail) == 511);
+	CHECK(strlen(link.frame.body.agent_changed.agent.last_answer) == 159);
+	CHECK(link.frame.body.agent_changed.agent.last_answer_at_ms == -1);
 
 	/* A 5000-byte frame (beyond DECK_LINK_MAX_FRAME) is dropped. */
 	static uint8_t raw[6000], big[6100];
@@ -504,8 +519,9 @@ static void test_handshake(void)
 	uint32_t q4 = deck_set_hat(&link, NULL, "/x/y", "crown", "red", false);
 	uint32_t q5 = deck_add_live(&link, "sess-1", -1);
 	uint32_t q6 = deck_get_state(&link);
-	CHECK(q1 && q2 == q1 + 1 && q3 == q2 + 1 && q4 == q3 + 1 && q5 == q4 + 1 && q6 == q5 + 1);
-	CHECK(sent_frames(s, 16) == 6);
+	uint32_t q7 = deck_move_attention(&link, "k3f9a2", 7);
+	CHECK(q1 && q2 == q1 + 1 && q3 == q2 + 1 && q4 == q3 + 1 && q5 == q4 + 1 && q6 == q5 + 1 && q7 == q6 + 1);
+	CHECK(sent_frames(s, 16) == 7);
 	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_answer_tag && s[0].seq == q1);
 	CHECK(strcmp(s[0].body.answer.prompt_id, "p17") == 0 && strcmp(s[0].body.answer.key, "1") == 0);
 	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_focus_tag && strcmp(s[1].body.focus.agent_id, "k3f9a2") == 0);
@@ -513,6 +529,40 @@ static void test_handshake(void)
 	CHECK(s[3].which_body == agentsdeck_link_v1_Frame_set_hat_tag && strcmp(s[3].body.set_hat.folder, "/x/y") == 0);
 	CHECK(s[4].body.add_live.slot == -1);
 	CHECK(s[5].which_body == agentsdeck_link_v1_Frame_get_state_tag);
+	CHECK(s[6].which_body == agentsdeck_link_v1_Frame_move_attention_tag && s[6].body.move_attention.slot == 7 &&
+	      strcmp(s[6].body.move_attention.agent_id, "k3f9a2") == 0);
+
+	/* Stash: the ids it takes, then none to give them back. */
+	tx_len = 0;
+	const char *two[] = {"a", "b"};
+	uint32_t st1 = deck_stash(&link, two, 2);
+	uint32_t st2 = deck_stash(&link, NULL, 0);
+	CHECK(st1 && st2 == st1 + 1 && sent_frames(s, 16) == 2);
+	CHECK(s[0].which_body == agentsdeck_link_v1_Frame_stash_tag && s[0].body.stash.agent_ids_count == 2 &&
+	      strcmp(s[0].body.stash.agent_ids[1], "b") == 0);
+	CHECK(s[1].which_body == agentsdeck_link_v1_Frame_stash_tag && s[1].body.stash.agent_ids_count == 0 &&
+	      !s[1].body.stash.all);
+	tx_len = 0;
+	deck_stash_all(&link);
+	CHECK(sent_frames(s, 16) == 1 && s[0].body.stash.all && s[0].body.stash.agent_ids_count == 0);
+
+	/* The magic trick: the giver's view goes out; its part comes in. */
+	tx_len = 0;
+	const char *shown[] = {"k1", "k2", "k3"};
+	deck_magic_view(&link, shown, 3);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_magic_view_tag &&
+	      s[0].body.magic_view.agent_ids_count == 3 && strcmp(s[0].body.magic_view.agent_ids[2], "k3") == 0);
+	{
+		agentsdeck_link_v1_Frame m = mk(0, agentsdeck_link_v1_Frame_magic_tag);
+		m.body.magic.role = agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER;
+		m.body.magic.taken = true;
+		m.body.magic.arrive = agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT;
+		m.body.magic.leave = agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT;
+		feed_frame(&m);
+		CHECK(ev_magic == 1 && last_magic.role == agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER && last_magic.taken &&
+		      last_magic.arrive == agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT &&
+		      last_magic.leave == agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT);
+	}
 
 	/* Silence for 15 s: offline, Hello now and every 5 s. */
 	tx_len = 0;
@@ -665,6 +715,93 @@ static void test_pairing_messages(void)
 	      s[0].body.net_status.rssi == -61 && strcmp(s[0].body.net_status.ip, "192.0.2.23") == 0);
 }
 
+/* ---- firmware updates over Wi-Fi ---------------------------------------------- */
+
+static int ev_offer;
+static agentsdeck_link_v1_FirmwareOffer offered;
+static void rec_offer(deck_link_t *c, const agentsdeck_link_v1_FirmwareOffer *o)
+{
+	(void)c;
+	ev_offer++;
+	offered = *o;
+}
+
+static agentsdeck_link_v1_Frame mk_offer(const char *board, uint64_t size)
+{
+	agentsdeck_link_v1_Frame f = mk(0, agentsdeck_link_v1_Frame_firmware_offer_tag);
+	agentsdeck_link_v1_FirmwareOffer *o = &f.body.firmware_offer;
+	snprintf(o->board, sizeof o->board, "%s", board);
+	strcpy(o->version, "0.2.0");
+	o->size = size;
+	o->sha256.size = 32;
+	for (int i = 0; i < 32; i++)
+		o->sha256.bytes[i] = (uint8_t)i;
+	snprintf(o->path, sizeof o->path, "/v1/firmware/%s/0.2.0", board);
+	return f;
+}
+
+static void test_firmware_messages(void)
+{
+	static agentsdeck_link_v1_Frame s[16];
+	char why[96];
+	reset_fake();
+	deck_link_begin(&link);
+
+	/* Firmware without a handler refuses, so the deck knows at once. */
+	tx_len = 0;
+	agentsdeck_link_v1_Frame f = mk_offer("lilygo-t4-s3", 1500000);
+	feed_frame(&f);
+	CHECK(sent_frames(s, 16) == 1 && s[0].which_body == agentsdeck_link_v1_Frame_firmware_status_tag &&
+	      s[0].body.firmware_status.state == agentsdeck_link_v1_FirmwareState_FIRMWARE_REFUSED &&
+	      strstr(s[0].body.firmware_status.error, "can't update") != NULL);
+
+	/* With one: the offer as sent, the largest one the deck can send included. */
+	link.cfg.on_firmware_offer = rec_offer;
+	ev_offer = 0;
+	tx_len = 0;
+	f = mk_offer("waveshare-touch-lcd-28c", 6553600);
+	memset(f.body.firmware_offer.path, 'p', sizeof f.body.firmware_offer.path - 1);
+	feed_frame(&f);
+	CHECK(ev_offer == 1 && tx_len == 0 && offered.size == 6553600 && strcmp(offered.board, "waveshare-touch-lcd-28c") == 0 &&
+	      offered.sha256.size == 32 && offered.sha256.bytes[31] == 31 && strlen(offered.path) == sizeof offered.path - 1);
+
+	/* Status goes out with the percent capped and the error cut to fit. */
+	CHECK(deck_firmware_status(&link, agentsdeck_link_v1_FirmwareState_FIRMWARE_DOWNLOADING, 42, NULL) != 0);
+	char longer[200];
+	memset(longer, 'e', sizeof longer - 1);
+	longer[sizeof longer - 1] = 0;
+	CHECK(deck_firmware_status(&link, agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED, 140, longer) != 0);
+	CHECK(sent_frames(s, 16) == 2 && s[0].body.firmware_status.percent == 42 && s[0].body.firmware_status.error[0] == 0 &&
+	      s[1].body.firmware_status.state == agentsdeck_link_v1_FirmwareState_FIRMWARE_FAILED &&
+	      s[1].body.firmware_status.percent == 100 && strlen(s[1].body.firmware_status.error) == 95);
+
+	/* The checks a board makes before it takes an offer. */
+	agentsdeck_link_v1_FirmwareOffer o = mk_offer("lilygo-t4-s3", 1500000).body.firmware_offer;
+	CHECK(deck_firmware_offer_check(&o, "lilygo-t4-s3", 0x640000, why, sizeof why));
+	CHECK(!deck_firmware_offer_check(&o, "waveshare-touch-lcd-21", 0x640000, why, sizeof why) &&
+	      strcmp(why, "this is waveshare-touch-lcd-21, not lilygo-t4-s3") == 0);
+	CHECK(!deck_firmware_offer_check(&o, NULL, 0, why, sizeof why) && strstr(why, "doesn't know its board"));
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 1000000, why, sizeof why) && strstr(why, "bigger"));
+	o.sha256.size = 31;
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why));
+	o.sha256.size = 32;
+	o.size = 0;
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, NULL, 0));
+	o.size = 10;
+	strcpy(o.path, "/v1/link");
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why) && strstr(why, "path"));
+	strcpy(o.path, "/v1/firmware/../state");
+	CHECK(!deck_firmware_offer_check(&o, "lilygo-t4-s3", 0, why, sizeof why));
+
+	/* Without TLS 1.3 there is no download. */
+	deck_cert_t none;
+	memset(&none, 0, sizeof none);
+	deck_fw_sink_t sink;
+	memset(&sink, 0, sizeof sink);
+	CHECK(deck_fw_download(&none, "deck.local", NULL, &o, &sink, why, sizeof why) == DECK_FW_UNSUPPORTED &&
+	      strstr(why, "TLS 1.3"));
+}
+
 /* A fake key-value store (NVS on the board). */
 #define KV_MAX 8
 static struct {
@@ -813,6 +950,15 @@ static void test_store(void)
 	CHECK(!deck_store_load_wifi(&kv, &wb) && wb.ssid[0] == 0);
 	CHECK(deck_store_clear_wifi(&kv) && !deck_store_load_wifi(&kv, &wb));
 
+	/* The uplink preference: auto until the deck says otherwise; junk reads as auto. */
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_AUTO);
+	CHECK(deck_store_save_uplink(&kv, agentsdeck_link_v1_Uplink_UPLINK_BLE));
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_BLE);
+	CHECK(!deck_store_save_uplink(&kv, (agentsdeck_link_v1_Uplink)7));
+	i = kv_find("dl_uplink");
+	kv_items[i].val[0] = 9;
+	CHECK(deck_store_load_uplink(&kv) == agentsdeck_link_v1_Uplink_UPLINK_AUTO);
+
 	/* Without TLS 1.3 (this host build has no mbedTLS) pairing says so. */
 #if !DECK_LINK_HAS_TLS13
 	size_t n;
@@ -849,6 +995,8 @@ static void test_tiles(void)
 	f.body.agent_changed.agent.has_context = true;
 	f.body.agent_changed.agent.context.used = 50000;
 	f.body.agent_changed.agent.context.window = 200000;
+	f.body.agent_changed.agent.attention_slot = 4;
+	f.body.agent_changed.agent.queued = 300;
 	deck_tiles_handle(&t, &f);
 	f = mk(0, agentsdeck_link_v1_Frame_snapshot_end_tag);
 	deck_tiles_handle(&t, &f);
@@ -858,6 +1006,8 @@ static void test_tiles(void)
 	const deck_tile_t *wt = deck_tiles_first_waiting(&t);
 	CHECK(wt && strcmp(wt->id, "c") == 0 && deck_tile_primary(wt) == 1 && wt->context_permille == 250);
 	CHECK(wt->options[1].selected && !wt->options[0].selected);
+	CHECK(wt->attention_slot == 4 && t.tiles[0].attention_slot == 0);
+	CHECK(wt->queued == 255 && t.tiles[0].queued == 0);
 	CHECK(deck_tiles_count_status(&t, agentsdeck_link_v1_Status_STATUS_RUNNING) == 1);
 
 	/* Move b to slot 0, remove a. */
@@ -898,6 +1048,7 @@ int main(void)
 	test_handshake();
 	test_tiles();
 	test_pairing_messages();
+	test_firmware_messages();
 	test_store();
 	if (failures) {
 		printf("FAIL: %d of %d checks failed\n", failures, checks);

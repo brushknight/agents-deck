@@ -3,7 +3,6 @@
 package tmux
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -16,23 +15,6 @@ import (
 )
 
 var Socket = "agentsterm" // a variable only so tests can use their own server
-
-// Bin is the tmux binary; launchd's PATH is minimal, so look in the usual places.
-var Bin = func() string {
-	for _, p := range []string{"/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return "tmux"
-}()
-
-func run(args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, Bin, append([]string{"-L", Socket}, args...)...).Output()
-	return strings.TrimRight(string(out), "\n"), err
-}
 
 // NewSession starts a detached session running argv in dir with extra env.
 func NewSession(name, dir string, env []string, argv []string) error {
@@ -192,17 +174,41 @@ func describe(err error) error {
 
 // Sessions returns the names of live sessions (empty when the server is down).
 func Sessions() map[string]bool {
-	out, err := run("list-sessions", "-F", "#{session_name}")
 	live := map[string]bool{}
+	for name := range SessionActivity() {
+		live[name] = true
+	}
+	return live
+}
+
+// SessionActivity maps each live session to the last time its window
+// printed anything (tmux's window_activity; zero if tmux didn't say).
+func SessionActivity() map[string]time.Time {
+	out, err := run("list-sessions", "-F", sessionFormat)
+	live := map[string]time.Time{}
 	if err != nil {
 		return live
 	}
 	for _, l := range strings.Split(out, "\n") {
-		if l != "" {
-			live[l] = true
-		}
+		addSession(live, l)
 	}
 	return live
+}
+
+const sessionFormat = "#{session_name} #{window_activity}"
+
+// addSession adds one line of sessionFormat to live.
+func addSession(live map[string]time.Time, l string) {
+	i := strings.LastIndexByte(l, ' ')
+	if i <= 0 {
+		return
+	}
+	name, at := l[:i], l[i+1:]
+	var t time.Time
+	if n, err := strconv.ParseInt(at, 10, 64); err == nil && n > 0 {
+		t = time.Unix(n, 0).UTC()
+	}
+	live[name] = t
 }
 
 // PaneTTYs are the terminals of every pane on our server (agentctl's agents).
@@ -211,6 +217,62 @@ func PaneTTYs() map[string]bool {
 	ttys := map[string]bool{}
 	for _, l := range strings.Fields(out) {
 		ttys[l] = true
+	}
+	return ttys
+}
+
+// State is what the service checks every second, read in one tmux call
+// rather than three.
+type State struct {
+	Running  bool                 // the server answered
+	Activity map[string]time.Time // as SessionActivity
+	Clients  []Client             // as ClientList
+	PaneTTYs map[string]bool      // as PaneTTYs
+}
+
+// Look reads the sessions, the attached clients and the panes' terminals
+// with one tmux call. Each line is tagged with the list it belongs to.
+func Look() State {
+	out, err := run("list-sessions", "-F", "s "+sessionFormat, ";",
+		"list-clients", "-F", "c "+clientFormat, ";",
+		"list-panes", "-a", "-F", "p #{pane_tty}")
+	return parseState(out, err == nil)
+}
+
+func parseState(out string, running bool) State {
+	st := State{Running: running, Activity: map[string]time.Time{}, PaneTTYs: map[string]bool{}}
+	if !running {
+		return st
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if len(l) < 2 || l[1] != ' ' {
+			continue
+		}
+		switch body := l[2:]; l[0] {
+		case 's':
+			addSession(st.Activity, body)
+		case 'c':
+			if c, ok := parseClient(body); ok {
+				st.Clients = append(st.Clients, c)
+			}
+		case 'p':
+			if body != "" {
+				st.PaneTTYs[body] = true
+			}
+		}
+	}
+	sortClients(st.Clients)
+	return st
+}
+
+// SessionTTYs maps each session on our server to its pane's terminal.
+func SessionTTYs() map[string]string {
+	out, _ := run("list-panes", "-a", "-F", "#{session_name} #{pane_tty}")
+	ttys := map[string]string{}
+	for _, l := range strings.Split(out, "\n") {
+		if name, tty, ok := strings.Cut(l, " "); ok && tty != "" {
+			ttys[name] = tty
+		}
 	}
 	return ttys
 }
@@ -234,21 +296,33 @@ type Client struct {
 func ClientList() []Client {
 	// Space-separated: without a UTF-8 locale (launchd) tmux turns tabs into "_".
 	// None of these fields can contain a space.
-	out, err := run("list-clients", "-F", "#{session_name} #{client_tty} #{client_activity} #{client_flags}")
+	out, err := run("list-clients", "-F", clientFormat)
 	if err != nil {
 		return nil
 	}
 	var cs []Client
 	for _, l := range strings.Split(out, "\n") {
-		f := strings.Fields(l)
-		if len(f) != 4 {
-			continue
+		if c, ok := parseClient(l); ok {
+			cs = append(cs, c)
 		}
-		act, _ := strconv.ParseInt(f[2], 10, 64)
-		cs = append(cs, Client{Session: f[0], TTY: f[1], Activity: act, Focused: strings.Contains(","+f[3]+",", ",focused,")})
 	}
-	sort.SliceStable(cs, func(i, j int) bool { return cs[i].Activity > cs[j].Activity })
+	sortClients(cs)
 	return cs
+}
+
+const clientFormat = "#{session_name} #{client_tty} #{client_activity} #{client_flags}"
+
+func parseClient(l string) (Client, bool) {
+	f := strings.Fields(l)
+	if len(f) != 4 {
+		return Client{}, false
+	}
+	act, _ := strconv.ParseInt(f[2], 10, 64)
+	return Client{Session: f[0], TTY: f[1], Activity: act, Focused: strings.Contains(","+f[3]+",", ",focused,")}, true
+}
+
+func sortClients(cs []Client) {
+	sort.SliceStable(cs, func(i, j int) bool { return cs[i].Activity > cs[j].Activity })
 }
 
 // SwitchClient makes the terminal on tty show another session.
@@ -270,6 +344,25 @@ func SendKeys(name string, literal string, keys ...string) error {
 		if _, err := run(append([]string{"send-keys", "-t", name}, keys...)...); err != nil {
 			return describe(err)
 		}
+	}
+	return nil
+}
+
+// Paste types text into the session as one paste: bracketed when the
+// program in it asked for that (Claude Code, Codex and zsh do), so the
+// newlines in it are part of the text and don't submit it early. Newlines go
+// as LF, not as Enter.
+func Paste(name, text string) error {
+	if name == "" {
+		return errors.New("no session to paste into") // tmux would pick its current one
+	}
+	buf := "agentsdeck-" + name
+	if _, err := run("set-buffer", "-b", buf, "--", text); err != nil {
+		return describe(err)
+	}
+	if _, err := run("paste-buffer", "-p", "-r", "-d", "-b", buf, "-t", name); err != nil {
+		_, _ = run("delete-buffer", "-b", buf)
+		return describe(err)
 	}
 	return nil
 }

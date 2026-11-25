@@ -11,18 +11,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/term"
-	"github.com/brushknight/agents-deck/backend/internal/tmux"
 )
 
 // errLive answers actions a watched session can't take from the deck.
@@ -47,15 +48,20 @@ type liveWatch struct {
 	mu         sync.Mutex
 	candidates []LiveCandidate
 	added      map[string]bool // session id -> on the deck (persisted)
+	offDeck    map[string]bool // session id -> you took it off the deck (persisted): `sessions auto` leaves it off
 	loaded     bool
 
-	claudeBin  string        // resolved once from the login shell
-	reported   []claude.Live // last `claude agents --json`
-	reportedAt time.Time
-	reportedOK bool
+	// meta: each found session's transcript metadata, kept while the
+	// transcript's size and time stay the same (sessionMeta).
+	meta map[string]liveMeta
+
+	claudeBin string        // resolved once from the login shell
+	reported  []claude.Live // last `claude agents --json`, all accounts
+	poller    agentsPoller  // when to run it again
 }
 
-func addedPath() string { return filepath.Join(paths.Data(), "watched.json") }
+func addedPath() string   { return filepath.Join(paths.Data(), "watched.json") }
+func offDeckPath() string { return filepath.Join(paths.Data(), "offdeck.json") }
 
 // liveAgentID derives a stable board id ([a-z0-9]{6}) from a session id.
 func liveAgentID(sessionID string) string {
@@ -63,30 +69,69 @@ func liveAgentID(sessionID string) string {
 	return "l" + hex.EncodeToString(sum[:])[:5]
 }
 
+// liveAdded is the set of sessions you put on the deck; the caller holds
+// d.live.mu. It loads the set you took off the deck too.
 func (d *Daemon) liveAdded() map[string]bool {
 	if !d.live.loaded {
 		d.live.loaded = true
-		d.live.added = map[string]bool{}
-		var ids []string
-		if b, err := os.ReadFile(addedPath()); err == nil {
-			_ = json.Unmarshal(b, &ids)
-		}
-		for _, id := range ids {
-			d.live.added[id] = true
-		}
+		d.live.added = readIDs(addedPath())
+		d.live.offDeck = readIDs(offDeckPath())
 	}
 	return d.live.added
 }
 
-func (d *Daemon) saveAdded() {
-	ids := make([]string, 0, len(d.live.added))
-	for id := range d.live.added {
+func (d *Daemon) saveAdded()   { writeIDs(addedPath(), d.live.added) }
+func (d *Daemon) saveOffDeck() { writeIDs(offDeckPath(), d.live.offDeck) }
+
+// readIDs reads a JSON list of session ids (a missing file is an empty set).
+func readIDs(path string) map[string]bool {
+	set := map[string]bool{}
+	var ids []string
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &ids)
+	}
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+func writeIDs(path string, set map[string]bool) {
+	ids := make([]string, 0, len(set))
+	for id := range set {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	if b, err := json.Marshal(ids); err == nil {
-		_ = os.WriteFile(addedPath(), b, 0o600)
+		_ = os.WriteFile(path, b, 0o600)
 	}
+}
+
+type liveMeta struct {
+	size int64
+	mod  time.Time
+	info claude.SessionInfo
+}
+
+// sessionMeta is l's transcript metadata (title, folder). Reading it parses
+// up to half a megabyte of JSON, and syncLive asks for every session every
+// 3 seconds: it is read again only when the transcript changed. Call with
+// d.live.mu held.
+func (d *Daemon) sessionMeta(l claude.Live) claude.SessionInfo {
+	st, err := os.Stat(l.Transcript)
+	if err != nil {
+		info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+		return info
+	}
+	if m, ok := d.live.meta[l.SessionID]; ok && m.size == st.Size() && m.mod.Equal(st.ModTime()) {
+		return m.info
+	}
+	info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+	if d.live.meta == nil {
+		d.live.meta = map[string]liveMeta{}
+	}
+	d.live.meta[l.SessionID] = liveMeta{size: st.Size(), mod: st.ModTime(), info: info}
+	return info
 }
 
 // WatchLive finds hand-started Claude sessions every few seconds and keeps the
@@ -100,7 +145,7 @@ func (d *Daemon) WatchLive() {
 
 func (d *Daemon) syncLive() {
 	// Our own agents run in tmux panes: never list those.
-	skip := tmux.PaneTTYs()
+	skip := d.paneTTYs()
 	ours := map[string]bool{}
 	for _, e := range d.Store.Entries() {
 		if (!e.External || inApp(e)) && e.SessionID != "" {
@@ -108,18 +153,25 @@ func (d *Daemon) syncLive() {
 		}
 	}
 	var found []claude.Live
-	for _, l := range d.discover(skip) {
+	for _, l := range d.discover(skip, ours) {
 		if !ours[l.SessionID] {
 			found = append(found, l)
 		}
 	}
 
+	auto := CurrentSessions() == SessionsAuto
 	d.live.mu.Lock()
 	added := d.liveAdded()
+	joined := false
 	cands := make([]LiveCandidate, 0, len(found))
 	want := map[string]claude.Live{}
 	for _, l := range found {
-		info, _ := claude.ReadSession(l.Transcript, l.SessionID)
+		if auto && !added[l.SessionID] && !d.live.offDeck[l.SessionID] {
+			added[l.SessionID] = true // `sessions auto`: it joins the deck by itself
+			joined = true
+			log.Printf("session %s joined the deck by itself (sessions auto)", l.SessionID)
+		}
+		info := d.sessionMeta(l)
 		title := info.Title()
 		if l.Name != "" && (info.AITitle == "" && info.Custom == "") {
 			title = l.Name
@@ -131,6 +183,14 @@ func (d *Daemon) syncLive() {
 		}
 	}
 	d.live.candidates = cands
+	for id := range d.live.meta { // sessions that ended
+		if !slices.ContainsFunc(found, func(l claude.Live) bool { return l.SessionID == id }) {
+			delete(d.live.meta, id)
+		}
+	}
+	if joined {
+		d.saveAdded()
+	}
 	d.live.mu.Unlock()
 
 	// Sessions that ended (or were taken off the deck) leave the board; they
@@ -152,8 +212,9 @@ func (d *Daemon) syncLive() {
 		d.Store.Update(id, func(e *store.Entry) bool {
 			changed := claude.Tail(e) // tokens, context, model, title
 			e.LiveTTY, e.LiveAttach = l.TTY, l.ShortID
+			changed = setSubagents(e, l.Started) || changed // it is live: its subagents may be too
 			changed = d.liveStatus(e, l) || changed
-			return d.subagents(e) || changed
+			return claude.FollowSubagents(e) || changed
 		})
 	}
 }
@@ -162,10 +223,13 @@ func (d *Daemon) syncLive() {
 // working until Claude's final reply of the turn, then idle (hungry once a
 // turn finishes while we watch).
 func (d *Daemon) liveStatus(e *store.Entry, l claude.Live) bool {
-	running, tool := claude.TranscriptTurn(e.Transcript, 10*time.Minute)
+	turn, tool := claude.TranscriptTurn(e.Transcript, 10*time.Minute)
+	running := turn
 	changed := false
 	if l.Reported { // Claude Code's own report beats reading the transcript
-		running = l.Busy
+		// Busy with the main thread between turns is its subagents at work:
+		// FollowSubagents shows that.
+		running = l.Busy && (turn || len(e.A.Subagents) == 0)
 		if l.Blocked {
 			if e.A.Status != model.Waiting {
 				e.SetStatus(model.Waiting)
@@ -181,11 +245,13 @@ func (d *Daemon) liveStatus(e *store.Entry, l claude.Live) bool {
 		}
 	}
 	switch {
-	case running && e.A.Status != model.Running:
+	case running && (e.A.Status != model.Running || e.Background):
 		e.SetStatus(model.Running)
+		e.Background = false // the main thread is in a turn again
+		e.A.Activity = nil
 		e.A.Unseen = false
 		changed = true
-	case !running && e.A.Status == model.Running:
+	case !running && e.A.Status == model.Running && !e.Background:
 		e.SetStatus(model.Idle) // also clears the activity
 		e.A.Unseen = true       // a turn finished while we watched
 		changed = true
@@ -229,6 +295,10 @@ func (d *Daemon) AddLive(sessionID string, slot int) error {
 	if found {
 		d.liveAdded()[sessionID] = true
 		d.saveAdded()
+		if d.live.offDeck[sessionID] {
+			delete(d.live.offDeck, sessionID)
+			d.saveOffDeck()
+		}
 	}
 	d.live.mu.Unlock()
 	if !found {
@@ -247,14 +317,17 @@ func (d *Daemon) removeLive(e store.Entry) {
 	d.live.mu.Lock()
 	delete(d.liveAdded(), e.SessionID)
 	d.saveAdded()
+	d.live.offDeck[e.SessionID] = true // with `sessions auto` it doesn't come back by itself
+	d.saveOffDeck()
 	d.live.mu.Unlock()
 	d.Store.Remove(e.A.ID)
 }
 
 // discover lists hand-started and background Claude sessions: from Claude
-// Code itself (`claude agents --json`, every 10 s), else by scanning
-// processes (older Claude Code).
-func (d *Daemon) discover(skip map[string]bool) []claude.Live {
+// Code itself (`claude agents --json`, run again only when its session files
+// changed: see agentsPoller), else by scanning processes (older Claude
+// Code). ours are the sessions the deck already follows through their hooks.
+func (d *Daemon) discover(skip, ours map[string]bool) []claude.Live {
 	d.live.mu.Lock()
 	if d.live.claudeBin == "" {
 		d.live.claudeBin = LookPathLogin("claude")
@@ -262,17 +335,25 @@ func (d *Daemon) discover(skip map[string]bool) []claude.Live {
 			d.live.claudeBin = "-" // not installed: don't look again
 		}
 	}
-	bin, fresh := d.live.claudeBin, time.Since(d.live.reportedAt) < 10*time.Second
-	cached, ok := d.live.reported, d.live.reportedOK
+	bin := d.live.claudeBin
 	d.live.mu.Unlock()
-	if !fresh && bin != "-" {
-		cached, ok = activeSessions(bin, skip)
-		d.live.mu.Lock()
-		d.live.reported, d.live.reportedOK, d.live.reportedAt = cached, ok, time.Now()
-		d.live.mu.Unlock()
+	if bin == "-" {
+		return claude.LiveSessions(skip)
 	}
+	all, ok := d.live.poller.sessions(accounts.List(), func(a accounts.Account) ([]claude.Live, bool) {
+		return claude.ActiveSessions(bin, a.ConfigDir(), projectsDirs(a), nil)
+	}, func(id string) bool { return ours[id] })
+	var list []claude.Live // our own tmux panes left out, as the process scan does
+	for _, l := range all {
+		if l.TTY == "" || !skip[l.TTY] {
+			list = append(list, l)
+		}
+	}
+	d.live.mu.Lock()
+	d.live.reported = list
+	d.live.mu.Unlock()
 	if ok {
-		return cached
+		return list
 	}
 	return claude.LiveSessions(skip)
 }

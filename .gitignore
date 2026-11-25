@@ -2,3 +2,7 @@
 /backend/agentctl
 *.test
 .idea/
+__pycache__/
+
+# Local demo datasets (agentctl serve --demo --fixture datasets/<file>.json): not committed
+datasets/

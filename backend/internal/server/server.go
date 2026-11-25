@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -22,7 +23,9 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
+	"github.com/brushknight/agents-deck/backend/internal/queue"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -35,9 +38,31 @@ type Controller interface {
 	Resume(id string) error
 }
 
-// Restorer brings back agents lost with the tmux server (POST /v1/restore).
+// Prompter types a task into an agent's session and presses Enter (POST
+// /v1/agents/{id}/prompt); with interrupt, it stops the current turn first.
+// Queued prompts (queue.go) go in through it too.
+type Prompter interface {
+	Prompt(id, text string, interrupt bool) error
+}
+
+// Typer types a prompt into a session even while the agent works ("mode":
+// "type"): the tool's own queue takes it, as when you type ahead in its
+// chat (Claude Code reads it at its next step). Refused while the agent
+// asks a question, so a typed prompt never answers one.
+type Typer interface {
+	Type(id, text string) error
+}
+
+// Hatcher hatches an agent's pet egg that is ready (POST
+// /v1/agents/{id}/pet/hatch); it returns an error when the egg isn't ready.
+type Hatcher interface {
+	Hatch(id string) error
+}
+
+// Restorer brings back agents lost with the tmux server (POST /v1/restore):
+// the ones listed, or every lost agent when ids is empty.
 type Restorer interface {
-	RestoreJSON() any
+	RestoreJSON(ids []string) any
 }
 
 // Handoffer continues a Claude session in another account (POST
@@ -62,6 +87,12 @@ type LocalController interface {
 	HistoryJSON() any
 }
 
+// StatusLiner takes Claude Code's status line reports (agentctl
+// statusline): the account's config folder and the status line input.
+type StatusLiner interface {
+	StatusLine(dir string, body []byte) error
+}
+
 // CreateOpts is the body of POST /local/agents.
 type CreateOpts struct {
 	Dir      string  `json:"dir"`
@@ -77,6 +108,14 @@ var (
 	ErrNotFound    = errors.New("no such agent")
 	ErrStalePrompt = errors.New("prompt changed")
 	ErrBadKey      = errors.New("not an option of the current prompt")
+	// Sending a prompt (POST /v1/agents/{id}/prompt).
+	ErrBusy     = errors.New("the agent is working on a turn: wait until it is idle, or send with interrupt to stop it first")
+	ErrAsking   = errors.New("the agent is waiting on a question: answer it instead (or send with interrupt to dismiss the question first)")
+	ErrStarting = errors.New("the agent is still starting: try again in a few seconds")
+	ErrExited   = errors.New("the agent has exited: resume it first")
+	// ErrReadOnly: the session can't be typed into from the deck (it runs
+	// in another terminal or app). Errors that wrap it answer 422.
+	ErrReadOnly = errors.New("the deck can't type into this session")
 )
 
 type Server struct {
@@ -87,11 +126,27 @@ type Server struct {
 	LocalAddr  string // e.g. 127.0.0.1:7340
 	// Hats holds the per-folder hat overrides (nil: hats can't be changed).
 	Hats *hats.Book
+	// Pets hatches the agents' eggs that are ready (nil: Agent pets isn't
+	// available, as in tests).
+	Pets Hatcher
 	// Devices and CA: paired devices and the authority that signs their
 	// certificates (nil: no network listener). Audit records their actions.
 	Devices *devices.Registry
 	CA      *pki.CA
 	Audit   *devices.Audit
+	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
+	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
+	Tokens *devices.Tokens
+	// Queue holds prompts sent with "mode": "queue" until their agent is
+	// idle (queue.go; RunQueue types them in). nil: queueing is off.
+	Queue *queue.Queue
+	// Projects is the project list MCP's project tools change (the admin
+	// service; nil: no project tools).
+	Projects ProjectBook
+
+	// Guard holds what can wait while the computer is busy (cpuguard):
+	// queued prompts. Starting agents is never held. nil: nothing is held.
+	Guard Holder
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -103,6 +158,14 @@ type Server struct {
 	// DeviceLink serves GET /v1/link on the network listener: a paired
 	// board's Deck Link session over TLS (link.DeviceUpgradeHandler).
 	DeviceLink func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// DeviceFirmware serves GET /v1/firmware/{board}/{version} on the network
+	// listener: the app image a board on Wi-Fi was offered
+	// (link.FirmwareHandler, which checks and audits it).
+	DeviceFirmware func(w http.ResponseWriter, r *http.Request, d devices.Device)
+	// LinkFirmware offers a board on Wi-Fi an image file (POST
+	// /local/link/firmware, linkfirmware.go); LinkFirmwareStatus is its GET.
+	LinkFirmware       func(device, board, version, file string) (int, string)
+	LinkFirmwareStatus func() any
 	// LinkWifi sends Wi-Fi credentials to a board connected over USB serial
 	// (POST /local/link/wifi); it returns the board's answer.
 	LinkWifi func(device, ssid, password string, forget bool) (int, string)
@@ -117,9 +180,15 @@ type Server struct {
 	// {"ports": serial ports, "boards": connected boards on either transport}.
 	LinkUpgrade http.HandlerFunc
 	LinkStatus  func() any
-	logins      loginCodes
-	apiOnce     sync.Once
-	apiMux      *http.ServeMux
+	// Admin serves the management API, /admin/v1 (internal/admin): on the
+	// unix socket and on the loopback dashboard behind its session, never on
+	// the network listener. nil: not served.
+	Admin   http.Handler
+	logins  loginCodes
+	apiOnce sync.Once
+	held    stash    // the magic trick: what the receiver holds (stash.go)
+	queue   delivery // typing queued prompts in (queue.go)
+	apiMux  *http.ServeMux
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).
@@ -135,9 +204,11 @@ const sessionCookie = "agentsterm_session"
 func (s *Server) api() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, s.Store.Snapshot())
+		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("POST /v1/stash", s.postStash)
+	mux.HandleFunc("POST /v1/magic/view", s.postMagicView)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			PromptID string `json:"promptId"`
@@ -149,6 +220,65 @@ func (s *Server) api() *http.ServeMux {
 		}
 		s.act(w, s.Ctl.Answer(r.PathValue("id"), body.PromptID, body.Key))
 	})
+	mux.HandleFunc("POST /v1/agents/{id}/prompt", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Text      string `json:"text"`
+			Interrupt bool   `json:"interrupt"`
+			Mode      string `json:"mode"`     // now | interrupt | queue | type ("": now, or interrupt with "interrupt": true)
+			Position  string `json:"position"` // queue only: back (default) | front
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 3*MaxPromptBytes)).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, `body must be {"text": "...", "mode": "now"|"interrupt"|"queue"|"type"}`)
+			return
+		}
+		mode := body.Mode
+		switch {
+		case mode == "" && body.Interrupt:
+			mode = "interrupt"
+		case mode == "":
+			mode = "now"
+		case mode != "now" && mode != "interrupt" && mode != "queue" && mode != "type":
+			writeErr(w, http.StatusBadRequest, `"mode" is now, interrupt, queue or type`)
+			return
+		case body.Interrupt && mode != "interrupt":
+			writeErr(w, http.StatusBadRequest, `"interrupt": true goes with "mode": "interrupt" only`)
+			return
+		}
+		if body.Position != "" && body.Position != "back" && body.Position != "front" {
+			writeErr(w, http.StatusBadRequest, `"position" is back or front`)
+			return
+		}
+		text, err := CleanPrompt(body.Text)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		p, ok := s.Ctl.(Prompter)
+		if !ok {
+			writeErr(w, http.StatusNotImplemented, "sending prompts is not available here")
+			return
+		}
+		if mode == "queue" {
+			s.enqueue(w, r, p, r.PathValue("id"), text, body.Position == "front")
+			return
+		}
+		if mode == "type" {
+			t, ok := s.Ctl.(Typer)
+			if !ok {
+				writeErr(w, http.StatusNotImplemented, "typing ahead is not available here")
+				return
+			}
+			id := r.PathValue("id")
+			unlock := s.queue.lock(id)
+			err := t.Type(id, text)
+			unlock()
+			s.act(w, err)
+			return
+		}
+		s.act(w, s.prompt(p, r.PathValue("id"), text, mode == "interrupt"))
+	})
+	mux.HandleFunc("GET /v1/agents/{id}/queue", s.getQueue)
+	mux.HandleFunc("POST /v1/agents/{id}/queue/{qid}/cancel", s.cancelQueued)
 	mux.HandleFunc("POST /v1/agents/{id}/focus", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Focus(r.PathValue("id")))
 	})
@@ -183,6 +313,26 @@ func (s *Server) api() *http.ServeMux {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/attention", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Slot *int `json:"slot"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&body); err != nil || body.Slot == nil ||
+			*body.Slot < 1 || *body.Slot > store.AttentionSpots {
+			writeErr(w, http.StatusBadRequest, "body must be {\"slot\": 1..16}")
+			return
+		}
+		switch err := s.Store.PlaceAttention(r.PathValue("id"), *body.Slot); {
+		case errors.Is(err, store.ErrNoAgent):
+			writeErr(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, store.ErrNotNeedsYou):
+			writeErr(w, http.StatusConflict, err.Error())
+		case err != nil:
+			writeErr(w, http.StatusBadRequest, err.Error())
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
 	})
 	mux.HandleFunc("GET /v1/hats", func(w http.ResponseWriter, r *http.Request) {
 		over := map[string]hats.Override{}
@@ -246,10 +396,34 @@ func (s *Server) api() *http.ServeMux {
 			writeErr(w, http.StatusNotImplemented, "restore is not available")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"results": rs.RestoreJSON()})
+		body := struct {
+			IDs []string `json:"ids"`
+		}{}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body) // optional
+		writeJSON(w, http.StatusOK, map[string]any{"results": rs.RestoreJSON(body.IDs)})
 	})
 	mux.HandleFunc("POST /v1/agents/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
 		s.act(w, s.Ctl.Resume(r.PathValue("id")))
+	})
+	mux.HandleFunc("POST /v1/agents/{id}/pet/hatch", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if _, ok := s.Store.Get(id); !ok {
+			writeErr(w, http.StatusNotFound, ErrNotFound.Error())
+			return
+		}
+		if s.Pets == nil {
+			writeErr(w, http.StatusConflict, "Agent pets is off")
+			return
+		}
+		if err := s.Pets.Hatch(id); errors.Is(err, pets.ErrNotReady) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		} else if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.Store.Touch() // every screen sees it hatch
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/accounts", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"accounts": accountList()})
@@ -335,6 +509,10 @@ func (s *Server) act(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrBadKey):
 		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrBusy), errors.Is(err, ErrAsking), errors.Is(err, ErrStarting), errors.Is(err, ErrExited):
+		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrReadOnly):
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}
@@ -355,7 +533,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	rc := http.NewResponseController(w)
 	send := func() bool {
-		b, _ := json.Marshal(s.Store.Snapshot())
+		b, _ := json.Marshal(s.View(s.Store.Snapshot(), callerOf(r)))
 		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b); err != nil {
 			return false
@@ -400,7 +578,7 @@ func (s *Server) LocalHandler() http.Handler {
 	}, func(w http.ResponseWriter, r *http.Request) bool {
 		// The session cookie belongs to 127.0.0.1; send localhost visitors there
 		// so a bookmark on either name works.
-		if strings.HasPrefix(r.Host, "localhost") && r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v1/") {
+		if strings.HasPrefix(r.Host, "localhost") && r.Method == http.MethodGet && !isAPI(r.URL.Path) {
 			http.Redirect(w, r, "http://"+s.LocalAddr+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 			return true
 		}
@@ -418,6 +596,16 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			writeErr(w, http.StatusMisdirectedRequest, "bad host")
 			return
 		}
+		if r.URL.Path == "/mcp" {
+			// MCP clients send a token, not the session cookie. A browser page
+			// on another site can't use it: its Origin is refused.
+			if o := r.Header.Get("Origin"); o != "" && o != "http://"+r.Host {
+				writeErr(w, http.StatusForbidden, "bad origin")
+				return
+			}
+			s.serveMCP(w, r)
+			return
+		}
 		if pre != nil && pre(w, r) {
 			return
 		}
@@ -425,15 +613,19 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			if s.logins.redeem(r.URL.Query().Get("code")) {
 				http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: s.WebSession, Path: "/",
 					HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 30 * 24 * 3600})
-				http.Redirect(w, r, "/", http.StatusSeeOther)
+				http.Redirect(w, r, SafeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 				return
 			}
 			writeErr(w, http.StatusUnauthorized, "login link expired — run `agentctl web` again")
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/v1/") {
-			if r.URL.Path == "/fixture.json" {
+		if !isAPI(r.URL.Path) {
+			switch r.URL.Path {
+			case "/fixture.json":
 				http.NotFound(w, r) // dev-only file never served by the daemon
+				return
+			case "/", "/settings", "/settings/": // one app: the deck (Home) and its settings
+				http.ServeFileFS(w, r, s.Static, "settings.html")
 				return
 			}
 			static.ServeHTTP(w, r)
@@ -448,8 +640,44 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			writeErr(w, http.StatusForbidden, "bad origin")
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/admin/") {
+			if s.Admin == nil {
+				writeErr(w, http.StatusNotFound, "this service has no management API")
+				return
+			}
+			s.audited("web", s.Admin).ServeHTTP(w, r)
+			return
+		}
 		s.audited("web", api).ServeHTTP(w, r)
 	}))
+}
+
+// isAPI: the paths behind the session cookie (everything else is the
+// dashboard's static files).
+func isAPI(path string) bool {
+	return strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/admin/")
+}
+
+// SafeNext is where /login sends you after it set the session: next when it
+// is a path on this dashboard ("/settings"), else "/". Anything that could
+// leave the dashboard (another host, a scheme, "//", backslashes, control
+// characters) is refused.
+func SafeNext(next string) string {
+	if next == "" || len(next) > 512 || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") ||
+		strings.ContainsAny(next, "\\") {
+		return "/"
+	}
+	for _, c := range next {
+		if c < 0x20 || c == 0x7f {
+			return "/"
+		}
+	}
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" || !strings.HasPrefix(u.Path, "/") ||
+		strings.HasPrefix(u.Path, "//") {
+		return "/"
+	}
+	return next
 }
 
 func ServeLocal(addr string, h http.Handler) error {
@@ -463,12 +691,17 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	api := s.api()
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", s.audited("local", api))
+	if s.Admin != nil {
+		mux.Handle("/admin/v1/", s.audited("local", s.Admin))
+	}
 	s.localDevices(mux)
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
+	mux.HandleFunc("/local/mcp", s.serveMCP) // agentctl mcp (stdio): still needs a token
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
+	mux.HandleFunc("/local/link/firmware", s.linkFirmware)
 	mux.HandleFunc("GET /local/link", func(w http.ResponseWriter, r *http.Request) {
 		if s.LinkStatus == nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ports": []any{}, "boards": []any{}})
@@ -479,6 +712,19 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err := lc.Hook(r.URL.Query().Get("agent"), body); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /statusline", func(w http.ResponseWriter, r *http.Request) {
+		sl, ok := lc.(StatusLiner)
+		if !ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err := sl.StatusLine(r.URL.Query().Get("dir"), body); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -543,7 +789,8 @@ func ServeUnix(path string, h http.Handler) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := restrictSocket(path); err != nil {
+		l.Close()
 		return err
 	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second}

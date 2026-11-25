@@ -28,6 +28,8 @@ message Frame {
     AgentChanged agent_changed = 21;    // …and later, one per agent that changed
     AgentRemoved agent_removed = 22;
     SnapshotEnd snapshot_end = 23;
+    Magic magic = 24;                   // its part in the magic trick: after a SnapshotEnd when it has one, and when it changes (before the agent changes that follow)
+    Limits limits = 25;                 // the accounts' usage limits (State.limits), with FIELDS_LIMITS: after a SnapshotEnd when there are any, and when they change
 
     // Commands, board → deck: one per web API endpoint (docs/protocol.md).
     Answer answer = 30;            // POST /v1/agents/{id}/answer
@@ -45,6 +47,11 @@ message Frame {
     GetState get_state = 42;       // GET /v1/state: resend the snapshot
     Handoff handoff = 43;          // POST /v1/agents/{id}/handoff
     ListAccounts list_accounts = 44;  // GET /v1/accounts
+    MoveAttention move_attention = 45;  // POST /v1/agents/{id}/attention
+    Stash stash = 46;              // POST /v1/stash
+    MagicView magic_view = 47;     // POST /v1/magic/view
+    SendPrompt send_prompt = 48;   // POST /v1/agents/{id}/prompt
+    Queue queue = 49;              // GET /v1/agents/{id}/queue, POST /v1/agents/{id}/queue/{qid}/cancel
 
     // Replies, deck → board, with the request's seq.
     Result result = 50;            // every command without a typed reply
@@ -52,6 +59,7 @@ message Frame {
     LiveSessions live_sessions = 52;  // reply to ListLive
     RestoreResult restore_result = 53;  // reply to Restore
     AccountList account_list = 54;  // reply to ListAccounts
+    QueueList queue_list = 55;     // reply to Queue (listing)
 
     // Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
     // web API commands: they set up the board itself.
@@ -59,6 +67,20 @@ message Frame {
     CertIssued cert_issued = 61;    // deck → board: the reply to CertRequest (or a Result on failure)
     WifiConfig wifi_config = 62;    // deck → board, over USB serial only: join this network; the board answers with a Result
     NetStatus net_status = 63;      // board → deck: how it is connected, after each Welcome and whenever that changes
+
+    // Firmware updates over Wi-Fi (docs/link/protocol.md, "Firmware updates
+    // over Wi-Fi"). Board management, not web API commands: the board
+    // downloads the image with GET /v1/firmware/{board}/{version}.
+    FirmwareOffer firmware_offer = 64;    // deck → board, over Wi-Fi only: a new firmware to download
+    FirmwareStatus firmware_status = 65;  // board → deck: how the update is going
+
+    // Which way the board should reach the deck (docs/link/protocol.md,
+    // "Bluetooth"). Board management, not a web API command.
+    LinkConfig link_config = 66;  // deck → board, any transport: the uplink preference; the board answers with a Result
+
+    // More commands, board → deck, once fields 30..49 were taken: one per
+    // web API endpoint, like those.
+    HatchPet hatch_pet = 70;      // POST /v1/agents/{id}/pet/hatch
   }
 }
 
@@ -86,6 +108,7 @@ enum Input {
   INPUT_ENCODER = 2;
   INPUT_TOUCH = 3;
   INPUT_KNOB = 4;  // a motorized/haptic knob
+  INPUT_MOTION = 5;  // a motion sensor: knocks and shakes (it can receive the magic trick)
 }
 
 message Welcome {
@@ -125,10 +148,11 @@ message Subscribe {
 // Bits of Subscribe.fields. id and slot are always sent.
 enum FieldGroup {
   FIELDS_NONE = 0;
-  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count
-  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, account, activity.tool, subagent_count, attention_slot, queued, slowed, slowed_by_you, project, pet, out_until
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, last_answer, last_answer_at, error, resumable, attached, subagents, started_at, updated_at, last_active, project_folder
   FIELDS_PROMPT = 4;     // waiting
-  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
+  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns, cpu
+  FIELDS_LIMITS = 16;    // not an agent field: the board also gets Limits frames
 }
 
 // ---- state ---------------------------------------------------------------
@@ -211,6 +235,18 @@ message Agent {
   int64 updated_at_ms = 32;
   string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
   Account account = 34;  // the Claude account it runs in; unset while only one is set up
+  int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
+  uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there
+  uint32 queued = 37;          // prompts waiting to be typed in once its turn ends (SendPrompt with SEND_QUEUE)
+  bool slowed = 38;            // in background mode while the computer is busy (the CPU guard; macOS)
+  float cpu = 39;              // percent of the whole computer, only while it is busy; 0 otherwise
+  bool slowed_by_you = 40;     // slowed with Slow it, not by the guard's own pick
+  Project project = 41;        // the project its working folder is in; unset for none
+  string project_folder = 42;  // the project folder it matched, in full; "" for none
+  Pet pet = 43;                // its pet; unset while Agent pets is off
+  int64 out_until_ms = 44;     // its account (or its model) is out of usage until then; 0 = not out
+  string last_answer = 45;       // its reply that ended its latest finished turn, as plain text
+  int64 last_answer_at_ms = 46;  // when it gave that reply; 0 = no answer yet
 }
 
 message Activity {
@@ -265,6 +301,21 @@ message Account {
   string color = 2;
 }
 
+// An agent's pet: it eats the agent's input and output tokens and grows.
+message Pet {
+  string name = 1;          // "" until it hatches
+  string stage = 2;         // egg, baby, kid, grown, strong, mighty, legend
+  uint32 level = 3;         // 0 while an egg; never goes down
+  int64 ate = 4;            // tokens eaten, all time
+  int64 next_at = 5;        // ate that reaches the next level
+  uint32 hearts = 6;        // 0..4
+  string mood = 7;          // fed, hungry, weak, asleep (hibernating)
+  int64 hatched_at_ms = 8;  // 0 while an egg
+  bool ready = 9;           // an egg that has eaten enough and waits to be seen hatching (HatchPet)
+  int64 level_from = 10;    // ate where the current level started (0 for an egg), for progress bars
+  Hat hat = 11;             // its mystery hat (shape and color only); unset until it is a kid (level 5)
+}
+
 message Subagent {
   string id = 1;
   string title = 2;
@@ -282,8 +333,39 @@ message Answer {
 
 message Focus { string agent_id = 1; }
 message Interrupt { string agent_id = 1; }
+
+// SendPrompt types a task into the agent's session and presses Enter. text
+// is at most 383 bytes (link.options), so the whole frame fits a board's
+// smallest frame (512 bytes); the web API takes up to 4000.
+//
+// mode SEND_QUEUE keeps the prompt while the agent works or waits on a
+// question and types it in when its turn ends (one queued prompt per turn);
+// the Result is 200 when it went in at once, 202 when it was queued.
+message SendPrompt {
+  string agent_id = 1;
+  string text = 2;
+  bool interrupt = 3;  // the agent is working: press Esc first, then type (same as SEND_INTERRUPT)
+  SendMode mode = 4;
+  bool front = 5;      // SEND_QUEUE: go before the prompts queued earlier
+}
+
+enum SendMode {
+  SEND_NOW = 0;        // only when the agent is idle (409 otherwise), unless interrupt is set
+  SEND_INTERRUPT = 1;  // stop its turn (Esc), then type
+  SEND_QUEUE = 2;      // when its turn ends
+  SEND_TYPE = 3;       // typed in now, also while it works: the tool's own queue takes it (refused while it asks a question)
+}
+
+// Queue lists the prompts queued for an agent (the deck answers QueueList),
+// or, with cancel_id, takes one back (the deck answers a Result: 204, or 404
+// when it was sent or cancelled already).
+message Queue {
+  string agent_id = 1;
+  string cancel_id = 2;  // QueuedPrompt.id
+}
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
+message HatchPet { string agent_id = 1; }  // hatch its pet's egg once it is ready (Pet.ready); Result 409 if it isn't
 
 message Move {
   string agent_id = 1;
@@ -294,7 +376,87 @@ message Order {
   repeated string agent_ids = 1;
 }
 
-message Restore {}
+// The magic trick (docs/features.md): with it switched on in the deck's
+// settings, a knock on the receiver (a board with a motion sensor) takes the
+// agents the giver (any screen) shows, and the next knock gives them back.
+//
+// Stash, from the receiver: take, or give back.
+message Stash {
+  repeated string agent_ids = 1;  // at most 16
+  bool all = 2;                   // the agents the giver shows, whatever agent_ids says
+  // Neither ids nor all: give them back.
+}
+
+// MagicView, from the giver: the agents it shows now (what a take takes).
+message MagicView {
+  repeated string agent_ids = 1;  // at most 16, in the order they are shown
+}
+
+enum MagicRole {
+  MAGIC_NONE = 0;      // not in the trick, or the trick is off
+  MAGIC_GIVER = 1;     // its agents are taken
+  MAGIC_RECEIVER = 2;  // it takes them, with a knock
+}
+
+enum Corner {
+  CORNER_TOP_LEFT = 0;
+  CORNER_TOP_RIGHT = 1;
+  CORNER_BOTTOM_LEFT = 2;
+  CORNER_BOTTOM_RIGHT = 3;
+}
+
+// Magic, deck to board: its part in the trick and where its tiles fly.
+message Magic {
+  MagicRole role = 1;
+  bool taken = 2;      // the receiver holds the agents now
+  Corner arrive = 3;   // tiles fly in from this corner (the receiver on a take, the giver on a give-back)
+  Corner leave = 4;    // and out to this one (the giver on a take, the receiver on a give-back)
+}
+
+// ---- usage limits --------------------------------------------------------
+
+// Limits, deck to board: how much of each account's usage is gone, as
+// Claude Code and Codex last reported it (docs/protocol.md, "Limits").
+message Limits {
+  repeated LimitSet sets = 1;
+}
+
+// LimitSet is one account in one tool.
+message LimitSet {
+  Tool tool = 1;
+  string account = 2;               // the account's name; "" with one account, and for Codex
+  LimitLevel level = 3;             // the worst of its windows (a per-model hit counts as NEAR)
+  int64 as_of_ms = 4;               // when the tool last reported
+  repeated LimitWindow windows = 5; // the ones to show, the week first
+}
+
+message LimitWindow {
+  string label = 1;        // "week", "Fable week", "spend"
+  uint32 used = 2;         // percent used
+  int64 resets_at_ms = 3;  // 0 = not known
+  LimitLevel level = 4;
+  bool hit = 5;            // the tool said it stopped on this limit
+  bool stale = 6;          // it reset since the last report (JSON "reset"): used is not known now
+}
+
+enum LimitLevel {
+  LIMIT_OK = 0;    // under 80%
+  LIMIT_NEAR = 1;  // 80 to 94%
+  LIMIT_LOW = 2;   // 95 to 99%
+  LIMIT_OUT = 3;   // 100%, or hit
+}
+
+// MoveAttention moves an agent on the "Needs you" grid, like Move on the deck.
+message MoveAttention {
+  string agent_id = 1;
+  uint32 slot = 2;  // 1…16
+}
+
+// Restore brings back agents lost with the tmux server: the ones listed, or
+// every lost agent when agent_ids is empty.
+message Restore {
+  repeated string agent_ids = 1;
+}
 
 // A hat for the agent's working folder (agent_id), or for a folder by path.
 message SetHat {
@@ -370,6 +532,20 @@ message AccountInfo {
   bool is_default = 3;  // new agents start in it (JSON API: "default")
 }
 
+// The prompts queued for an agent, next first: the first few (total says how
+// many there are).
+message QueueList {
+  repeated QueuedPrompt prompts = 1;
+  uint32 total = 2;
+}
+
+message QueuedPrompt {
+  string id = 1;       // send it back in Queue.cancel_id
+  string text = 2;     // clipped
+  string by = 3;       // who queued it: "mcp:<token>", a device's name, "web" or "local"
+  int64 queued_at_ms = 4;
+}
+
 message RestoreResult {
   repeated Restored results = 1;
 }
@@ -417,6 +593,7 @@ enum Transport {
   TRANSPORT_UNSPECIFIED = 0;
   TRANSPORT_SERIAL = 1;  // USB serial
   TRANSPORT_WIFI = 2;    // Wi-Fi, TLS 1.3 to the deck's network listener
+  TRANSPORT_BLE = 3;     // Bluetooth LE, an encrypted and bonded link (LE Secure Connections, passkey)
 }
 
 enum WifiState {
@@ -441,4 +618,70 @@ message NetStatus {
   string ip = 4;            // on Wi-Fi
   int32 rssi = 5;           // dBm, 0 = unknown
   bool has_cert = 6;        // it holds a client certificate
+  BleState ble = 7;         // Bluetooth: unset from firmware without it
+  Uplink uplink = 8;        // the preference the board holds (LinkConfig)
+}
+
+enum BleState {
+  BLE_UNSPECIFIED = 0;
+  BLE_UNSUPPORTED = 1;  // this firmware has no Bluetooth
+  BLE_SETUP = 2;        // no bond: it advertises to anyone and pairs with the passkey on its screen
+  BLE_BONDED = 3;       // bonded to a deck, not connected to it now
+  BLE_CONNECTED = 4;    // bonded and connected over an encrypted link (whether or not it carries the session)
+}
+
+// Which way a board reaches the deck when it isn't on USB. USB always wins
+// while a deck answers there.
+enum Uplink {
+  UPLINK_AUTO = 0;  // Wi-Fi when it works, else Bluetooth
+  UPLINK_WIFI = 1;  // Wi-Fi only; Bluetooth only for setup (no Wi-Fi network or certificate yet)
+  UPLINK_BLE = 2;   // Bluetooth only; Wi-Fi stays off
+}
+
+// The deck's uplink preference for this board, kept across restarts. Sent by
+// the deck over any transport; the board answers with a Result (204 kept,
+// 501 the firmware has no Bluetooth) and a NetStatus saying what it uses now.
+message LinkConfig {
+  Uplink uplink = 1;
+}
+
+// ---- firmware updates over Wi-Fi -------------------------------------------
+
+// A new firmware for the board, sent by the deck when you update a board on
+// Wi-Fi. The board checks that board is its own, downloads the app image
+// from path on the deck's network listener (TLS 1.3, its certificate; HTTP
+// Range to resume), writes it to its other firmware slot, checks size and
+// sha256, restarts into it and keeps it only once it reaches the deck again.
+// It answers with FirmwareStatus (REFUSED when it can't take it).
+message FirmwareOffer {
+  string board = 1;    // the board the image is for (firmware/devices/<board>, e.g. "lilygo-t4-s3")
+  string version = 2;  // e.g. "0.2.1": what Hello.firmware says once it runs
+  uint64 size = 3;     // the image's size in bytes
+  bytes sha256 = 4;    // its SHA-256 (32 bytes)
+  string path = 5;     // where to GET it on the network listener: /v1/firmware/{board}/{version}
+}
+
+enum FirmwareState {
+  FIRMWARE_UNSPECIFIED = 0;
+  FIRMWARE_DOWNLOADING = 1;  // percent: how much is written
+  FIRMWARE_VERIFYING = 2;    // the image is in; checking it
+  FIRMWARE_RESTARTING = 3;   // checked: the board restarts into it now
+  FIRMWARE_FAILED = 4;       // error says why; the board keeps its firmware
+  FIRMWARE_REFUSED = 5;      // the board won't take this offer (another board's image, on USB, no second slot, busy)
+}
+
+// How an update is going, board to deck: after the offer, then every few
+// percent while it downloads. The new firmware's Hello (its version) says it
+// started; a Hello with the old version after RESTARTING means it went back.
+message FirmwareStatus {
+  FirmwareState state = 1;
+  uint32 percent = 2;  // 0..100
+  string error = 3;    // for FAILED and REFUSED
+}
+
+// An agent's project (Agent.project): the one whose folder holds its working
+// folder, the deepest such folder winning.
+message Project {
+  string id = 1;
+  string name = 2;
 }

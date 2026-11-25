@@ -1,13 +1,14 @@
 #pragma once
 // The mascots of agents-deck, ported from spriteSVG() and hatSVG() in
-// backend/internal/web/static/app.js: Claude's flat block with arms, the
+// backend/internal/web/static/deck-core.js: Claude's flat block with arms, the
 // Codex onigiri, and the pixel hat of the agent's working folder.
 //
 // All geometry is in the SVG's own units: an 18 x 13 box whose top-left is
 // (0, -4). The body sits at x 0..14, y 0..8; the "bubble" (what the agent is
-// doing) sits at x 14..18. A hat can rise to y -5 and a cap's brim reaches
-// x -3, so leave that much room. One unit is `scale` pixels. Animation timing
-// follows app.css.
+// doing) sits at x 14..18. A still hat can rise to y -5 and a cap's brim
+// reaches x -3; a working hat's frames can rise to y -6. Leave that much
+// room. One unit is `scale` pixels. Animation timing follows settings.css.
+#include <initializer_list>
 #include <math.h>
 #include <stdint.h>
 
@@ -98,41 +99,173 @@ static inline void dots(Pen& p, int shown) {
 }
 
 // ---------------------------------------------------------------- hats
-// Bitmap rows that end on y -1, just above the head. a = the hat's colour,
-// b = its shade, c = highlight, d = near-black. The onigiri wears a narrower
-// version that sits down over its tip. Order as kHatShapes in model.h.
-constexpr int kHatRowsMax = 5;
-static const char* const kHats[kHatShapeCount][kHatRowsMax] = {
-    {"....aaaaa.....", "...acaaaaa....", "..aaaaaaaaa...", ".bbbbbbbbbbbb."},                    // hard hat
-    {"........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"},                                       // cap, from x -3
-    {".....cc.......", "....aaaaaa....", "...aaaaaaaa...", "..babababab..."},                    // beanie
-    {"....aaaaaa....", "...aaaaaaaa...", "..aaaacaaaaa..", "..bbbbbbbbbb.."},                    // helmet
-    {"........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."},  // wizard
-    {"......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."},                    // beret
-    {"...cc.cc.cc...", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."},                    // chef
-    {"...a..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."},                    // crown
-    {"....aaaaaa....", "...a......a...", "..a........a.."},                                        // headphones
-    {"..cccc.aaaa...", ".......d......", "....ababab....", "...aaaaaaaa..."},                    // propeller
-    {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."},  // top hat
-    {".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"},                    // cowboy
-    {"..aaaaaaaaaa.b", "..acacacacac.b"},                                                          // bandana
+// Bitmap rows placed at (x, top) in units; a = the hat's colour, b = its
+// shade, c = highlight, d = near-black. Extras are single cells (x, y, key).
+// Every hat has a still version and the frames it cycles through while its
+// agent works, each shown for `ms`. The onigiri wears a narrower version that
+// sits down over its tip. The bandana's knot and tails sit on the left.
+// Order as kHatShapes in model.h. Mirrors HAT_ART in deck-core.js and hats.dart in
+// the Flutter deck: edit all three together.
+constexpr int kHatRowsMax = 5, kHatExtrasMax = 5, kHatFramesMax = 4;
+struct HatCell { int8_t x, y; char key; };                 // key 0 ends the list
+struct HatFrame {
+  int8_t x, top;
+  const char* rows[kHatRowsMax];
+  HatCell extras[kHatExtrasMax];
 };
-static const char* const kOniHats[kHatShapeCount][kHatRowsMax] = {
-    {".....aaaa.....", "....acaaaa....", "...bbbbbbbb..."},
-    {"......aaaa", ".....aaacaa", "bbbbbbbbbbbb"},                                                  // cap, from x -1
-    {"......cc......", ".....aaaa.....", "....aaaaaa....", "...babababa..."},
-    {".....aaaa.....", "....aacaaa....", "...bbbbbbbb..."},
-    {"......aa......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."},
-    {"......bb......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."},
-    {"....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."},
-    {"....a.aa.a....", "....aaaaaa....", "....acaaca...."},
-    {".....aaaa.....", "....a....a....", "...a......a..."},
-    {"...ccc..aaa...", "......dd......", ".....abab.....", "....aaaaaa...."},
-    {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."},
-    {"......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."},
-    {"...aaaaaaaa.b.", "..acacacacac.b"},
+struct HatArt {
+  uint16_t ms;                                             // how long each working frame shows
+  uint8_t frames;
+  HatFrame still;
+  HatFrame work[kHatFramesMax];
 };
-constexpr int kHatCap = 1, kHatHeadphones = 8, kHatBandana = 12;   // indexes into kHatShapes
+static const HatArt kHats[kHatShapeCount] = {
+    {400, 2,  // hard hat
+     {0, -4, {"....aaaaa.....", "...acaaaaa....", "..aaaaaaaaa...", ".bbbbbbbbbbbb."}, {}},
+     {{0, -4, {"....aaaaa.....", "...acaaaaa....", "..aaaaccaaa...", ".bbbbbbbbbbbb."}, {}},
+      {0, -4, {"....aaaaa.....", "...acaaaaa....", "..aaaabbaaa...", ".bbbbbbbbbbbb."}, {}}}},
+    {300, 4,  // cap
+     {-3, -3, {"........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"}, {}},
+     {{-3, -3, {"........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"}, {}},
+      {-3, -3, {"........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"}, {}},
+      {-3, -3, {"........aaaaaa", ".......aaaaacaa", "...bbbbbbbbbbbb"}, {{-3, 0, 'b'}, {-2, 0, 'b'}}},
+      {-3, -3, {"........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"}, {}}}},
+    {350, 2,  // beanie
+     {0, -4, {".....cc.......", "....aaaaaa....", "...aaaaaaaa...", "..babababab..."}, {}},
+     {{0, -4, {".....cc.......", "....aaaaaa....", "...aaaaaaaa...", "..babababab..."}, {}},
+      {0, -3, {"....aaaaaa....", "...aaaaaaaa...", "..babababab..."}, {{5, -5, 'c'}, {6, -5, 'c'}}}}},
+    {280, 4,  // helmet
+     {0, -4, {"....aaaaaa....", "...aaaaaaaa...", "..aaaacaaaaa..", "..bbbbbbbbbb.."}, {}},
+     {{0, -4, {"....aaaaaa....", "...aaaaaaaa...", "..acaaaaaaaa..", "..bbbbbbbbbb.."}, {}},
+      {0, -4, {"....aaaaaa....", "...aaaaaaaa...", "..aaaaacaaaa..", "..bbbbbbbbbb.."}, {}},
+      {0, -4, {"....aaaaaa....", "...aaaaaaaa...", "..aaaaaaaaca..", "..bbbbbbbbbb.."}, {}},
+      {0, -4, {"....aaaaaa....", "...aaaaaaaa...", "..aaaaaaaaaa..", "..bbbbbbbbbb.."}, {}}}},
+    {300, 4,  // wizard
+     {0, -5, {"........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."}, {}},
+     {{0, -5, {"........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."}, {}},
+      {0, -5, {".........a....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."}, {{11, -6, 'c'}}},
+      {0, -5, {"........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."}, {}},
+      {0, -5, {".......a......", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."}, {}}}},
+    {300, 4,  // beret
+     {0, -4, {"......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."}, {}},
+     {{0, -4, {"......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."}, {}},
+      {0, -4, {".......b......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."}, {}},
+      {0, -4, {"......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."}, {}},
+      {0, -4, {".....b........", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."}, {}}}},
+    {450, 2,  // chef
+     {0, -4, {"...cc.cc.cc...", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."}, {}},
+     {{0, -4, {"...cc.cc.cc...", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."}, {}},
+      {0, -5, {"....cccccc....", "..cccccccccc..", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."}, {}}}},
+    {280, 4,  // crown
+     {0, -4, {"...a..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."}, {}},
+     {{0, -4, {"...c..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."}, {}},
+      {0, -4, {"...a..ca..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."}, {}},
+      {0, -4, {"...a..ac..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."}, {}},
+      {0, -4, {"...a..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."}, {}}}},
+    {320, 4,  // headphones
+     {0, -3, {"....aaaaaa....", "...a......a...", "..a........a.."}, {}},
+     {{0, -3, {"....aaaaaa....", "...a......a...", "..a........a.."}, {{-2, -1, 'c'}, {-1, -2, 'c'}}},
+      {0, -3, {"....aaaaaa....", "...a......a...", "..a........a.."}, {{-2, -2, 'c'}, {-1, -3, 'c'}}},
+      {0, -3, {"....aaaaaa....", "...a......a...", "..a........a.."}, {{-3, -3, 'c'}, {-2, -4, 'c'}, {-1, -1, 'c'}}},
+      {0, -3, {"....aaaaaa....", "...a......a...", "..a........a.."}, {{-2, -2, 'c'}}}}},
+    {120, 4,  // propeller
+     {0, -4, {"..cccc.aaaa...", ".......d......", "....ababab....", "...aaaaaaaa..."}, {}},
+     {{0, -4, {"..cccc.aaaa...", ".......d......", "....ababab....", "...aaaaaaaa..."}, {}},
+      {0, -4, {"....cc.aa.....", ".......d......", "....ababab....", "...aaaaaaaa..."}, {}},
+      {0, -4, {"..aaaa.cccc...", ".......d......", "....ababab....", "...aaaaaaaa..."}, {}},
+      {0, -4, {"....aa.cc.....", ".......d......", "....ababab....", "...aaaaaaaa..."}, {}}}},
+    {450, 4,  // top hat
+     {0, -5, {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."}, {}},
+     {{0, -5, {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."}, {}},
+      {0, -5, {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."}, {}},
+      {0, -6, {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."}, {}},
+      {0, -5, {"...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."}, {}}}},
+    {350, 4,  // cowboy
+     {0, -4, {".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"}, {}},
+     {{0, -4, {".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"}, {}},
+      {0, -4, {".....aaaa.....", "b...aabbaa....", "b...aaaaaa....", ".bbbbbbbbbbbbb"}, {}},
+      {0, -4, {".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"}, {}},
+      {0, -4, {".....aaaa.....", "....aabbaa...b", "....aaaaaa...b", "bbbbbbbbbbbbb."}, {}}}},
+    {200, 3,  // bandana
+     {0, -1, {"..aaaaaaaaaa..", "..acacacacac.."}, {{1, -1, 'b'}, {0, -2, 'b'}, {0, 0, 'b'}, {-1, 0, 'b'}}},
+     {{0, -1, {"..aaaaaaaaaa..", "..acacacacac.."}, {{1, -1, 'b'}, {0, -2, 'b'}, {0, 0, 'b'}, {-1, 0, 'b'}}},
+      {0, -1, {"..aaaaaaaaaa..", "..acacacacac.."}, {{1, -1, 'b'}, {0, -1, 'b'}, {-1, -2, 'b'}, {0, 0, 'b'}, {-1, 1, 'b'}}},
+      {0, -1, {"..aaaaaaaaaa..", "..acacacacac.."}, {{1, -1, 'b'}, {0, -2, 'b'}, {-1, -2, 'b'}, {0, 0, 'b'}, {-1, 0, 'b'}}}}},
+};
+static const HatArt kOniHats[kHatShapeCount] = {
+    {400, 2,  // hard hat
+     {0, -3, {".....aaaa.....", "....acaaaa....", "...bbbbbbbb..."}, {}},
+     {{0, -3, {".....aaaa.....", "....acccaa....", "...bbbbbbbb..."}, {}},
+      {0, -3, {".....aaaa.....", "....acbbaa....", "...bbbbbbbb..."}, {}}}},
+    {300, 4,  // cap
+     {-1, -3, {"......aaaa", ".....aaacaa", "bbbbbbbbbbbb"}, {}},
+     {{-1, -3, {"......aaaa", ".....aaacaa", "bbbbbbbbbbbb"}, {}},
+      {-1, -3, {"......aaaa", ".....aaacaa", "bbbbbbbbbbbb"}, {}},
+      {-1, -3, {"......aaaa", ".....aaacaa", "..bbbbbbbbbb"}, {{-1, 0, 'b'}}},
+      {-1, -3, {"......aaaa", ".....aaacaa", "bbbbbbbbbbbb"}, {}}}},
+    {350, 2,  // beanie
+     {0, -4, {"......cc......", ".....aaaa.....", "....aaaaaa....", "...babababa..."}, {}},
+     {{0, -4, {"......cc......", ".....aaaa.....", "....aaaaaa....", "...babababa..."}, {}},
+      {0, -3, {".....aaaa.....", "....aaaaaa....", "...babababa..."}, {{6, -5, 'c'}, {7, -5, 'c'}}}}},
+    {280, 4,  // helmet
+     {0, -3, {".....aaaa.....", "....aacaaa....", "...bbbbbbbb..."}, {}},
+     {{0, -3, {".....aaaa.....", "....acaaaa....", "...bbbbbbbb..."}, {}},
+      {0, -3, {".....aaaa.....", "....aaacaa....", "...bbbbbbbb..."}, {}},
+      {0, -3, {".....aaaa.....", "....aaaaca....", "...bbbbbbbb..."}, {}},
+      {0, -3, {".....aaaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {}}}},
+    {300, 4,  // wizard
+     {0, -5, {"......aa......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {}},
+     {{0, -5, {"......a.......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {}},
+      {0, -5, {".......a......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {{9, -6, 'c'}}},
+      {0, -5, {"......a.......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {}},
+      {0, -5, {".....a........", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."}, {}}}},
+    {300, 4,  // beret
+     {0, -4, {"......bb......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."}, {}},
+     {{0, -4, {"......b.......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."}, {}},
+      {0, -4, {".......b......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."}, {}},
+      {0, -4, {"......b.......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."}, {}},
+      {0, -4, {".....b........", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."}, {}}}},
+    {450, 2,  // chef
+     {0, -4, {"....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."}, {}},
+     {{0, -4, {"....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."}, {}},
+      {0, -5, {".....cccc.....", "....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."}, {}}}},
+    {280, 4,  // crown
+     {0, -3, {"....a.aa.a....", "....aaaaaa....", "....acaaca...."}, {}},
+     {{0, -3, {"....c.aa.a....", "....aaaaaa....", "....acaaca...."}, {}},
+      {0, -3, {"....a.ca.a....", "....aaaaaa....", "....acaaca...."}, {}},
+      {0, -3, {"....a.ac.a....", "....aaaaaa....", "....acaaca...."}, {}},
+      {0, -3, {"....a.aa.a....", "....aaaaaa....", "....acaaca...."}, {}}}},
+    {320, 4,  // headphones
+     {0, -3, {".....aaaa.....", "....a....a....", "...a......a..."}, {}},
+     {{0, -3, {".....aaaa.....", "....a....a....", "...a......a..."}, {{-1, -1, 'c'}, {0, -2, 'c'}}},
+      {0, -3, {".....aaaa.....", "....a....a....", "...a......a..."}, {{-1, -2, 'c'}, {0, -3, 'c'}}},
+      {0, -3, {".....aaaa.....", "....a....a....", "...a......a..."}, {{-2, -3, 'c'}, {-1, -4, 'c'}, {0, -1, 'c'}}},
+      {0, -3, {".....aaaa.....", "....a....a....", "...a......a..."}, {{-1, -2, 'c'}}}}},
+    {120, 4,  // propeller
+     {0, -4, {"...ccc..aaa...", "......dd......", ".....abab.....", "....aaaaaa...."}, {}},
+     {{0, -4, {"...ccc..aaa...", "......dd......", ".....abab.....", "....aaaaaa...."}, {}},
+      {0, -4, {".....cc.aa....", "......dd......", ".....abab.....", "....aaaaaa...."}, {}},
+      {0, -4, {"...aaa..ccc...", "......dd......", ".....abab.....", "....aaaaaa...."}, {}},
+      {0, -4, {".....aa.cc....", "......dd......", ".....abab.....", "....aaaaaa...."}, {}}}},
+    {450, 4,  // top hat
+     {0, -4, {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."}, {}},
+     {{0, -4, {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."}, {}},
+      {0, -4, {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."}, {}},
+      {0, -5, {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."}, {}},
+      {0, -4, {".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."}, {}}}},
+    {350, 4,  // cowboy
+     {0, -4, {"......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."}, {}},
+     {{0, -4, {"......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."}, {}},
+      {0, -4, {"......aa......", ".b...abba.....", ".b..aaaaaa....", "..bbbbbbbbbbb."}, {}},
+      {0, -4, {"......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."}, {}},
+      {0, -4, {"......aa......", ".....abba...b.", "....aaaaaa..b.", ".bbbbbbbbbbb.."}, {}}}},
+    {200, 3,  // bandana
+     {0, 0, {"...aaaaaaaa...", "..acacacacac.."}, {{2, 0, 'b'}, {1, -1, 'b'}, {1, 1, 'b'}, {0, 1, 'b'}}},
+     {{0, 0, {"...aaaaaaaa...", "..acacacacac.."}, {{2, 0, 'b'}, {1, -1, 'b'}, {1, 1, 'b'}, {0, 1, 'b'}}},
+      {0, 0, {"...aaaaaaaa...", "..acacacacac.."}, {{2, 0, 'b'}, {1, 0, 'b'}, {0, -1, 'b'}, {1, 1, 'b'}, {0, 2, 'b'}}},
+      {0, 0, {"...aaaaaaaa...", "..acacacacac.."}, {{2, 0, 'b'}, {1, -1, 'b'}, {0, -1, 'b'}, {1, 1, 'b'}, {0, 1, 'b'}}}}},
+};
+constexpr int kHatHeadphones = 8;                          // index into kHatShapes
 
 // {main, shade} per colour, order as kHatColors in model.h.
 static const uint16_t kHatPalette[kHatColorCount][2] = {
@@ -142,32 +275,43 @@ static const uint16_t kHatPalette[kHatColorCount][2] = {
     {rgb565(0x5E, 0xC4, 0xD6), rgb565(0x3A, 0x8E, 0x9C)}, {rgb565(0xE8, 0xE4, 0xDC), rgb565(0xA8, 0xA3, 0x9A)},
 };
 
-// `hat` is 1 + the shape index. A faded hat (an exited agent) is mixed with the background.
-static inline void drawHat(Pen& p, bool bot, uint8_t hat, uint8_t color, bool faded) {
+// Poses of a working agent: its hat animates; every other pose keeps it still
+// (WORKING_POSES in deck-core.js).
+static inline bool poseWorking(Pose pose) {
+  switch (pose) {
+    case Pose::Run: case Pose::Think: case Pose::Read: case Pose::Write: case Pose::Bash:
+    case Pose::Web: case Pose::Plan: case Pose::Delegate: case Pose::Compact: return true;
+    default: return false;
+  }
+}
+
+// `hat` is 1 + the shape index. While `working`, the hat shows the frame that
+// `ms` falls in; otherwise its still version. A faded hat (an exited agent)
+// is mixed with the background.
+static inline void drawHat(Pen& p, bool bot, uint8_t hat, uint8_t color, bool faded, bool working, uint32_t ms) {
   if (hat < 1 || hat > kHatShapeCount) return;
   const int shape = hat - 1;
-  const char* const* rows = (bot ? kOniHats : kHats)[shape];
-  int n = 0;
-  while (n < kHatRowsMax && rows[n]) n++;
+  const HatArt& art = (bot ? kOniHats : kHats)[shape];
+  const HatFrame& f = working ? art.work[ms / art.ms % art.frames] : art.still;
   const uint16_t* pal = kHatPalette[color < kHatColorCount ? color : kHatInk];
-  auto tone = [&](uint16_t col) { return faded ? blend565(p.cut, col, 7) : col; };
-  const float x0 = shape == kHatCap ? (bot ? -1 : -3) : 0;
-  const float top = shape == kHatBandana ? (bot ? 0 : -1) : -n;
-  for (int ry = 0; ry < n; ry++)
-    for (int cx = 0; rows[ry][cx]; cx++) {
-      uint16_t col;
-      switch (rows[ry][cx]) {
-        case 'a': col = pal[0]; break;
-        case 'b': col = pal[1]; break;
-        case 'c': col = rgb565(0xF7, 0xF4, 0xEC); break;
-        case 'd': col = rgb565(0x0A, 0x0A, 0x0A); break;
-        default: continue;
-      }
-      p.g(x0 + cx, top + ry, 1, 1, tone(col));
+  auto cell = [&](float x, float y, char key) {
+    uint16_t col;
+    switch (key) {
+      case 'a': col = pal[0]; break;
+      case 'b': col = pal[1]; break;
+      case 'c': col = rgb565(0xF7, 0xF4, 0xEC); break;
+      case 'd': col = rgb565(0x0A, 0x0A, 0x0A); break;
+      default: return;
     }
+    p.g(x, y, 1, 1, faded ? blend565(p.cut, col, 7) : col);
+  };
+  for (int ry = 0; ry < kHatRowsMax && f.rows[ry]; ry++)
+    for (int cx = 0; f.rows[ry][cx]; cx++) cell(f.x + cx, f.top + ry, f.rows[ry][cx]);
+  for (int i = 0; i < kHatExtrasMax && f.extras[i].key; i++) cell(f.extras[i].x, f.extras[i].y, f.extras[i].key);
   if (shape == kHatHeadphones) {                           // ear cups
-    if (bot) { p.g(2, -0.5f, 1, 2, tone(pal[1])); p.g(11, -0.5f, 1, 2, tone(pal[1])); }
-    else     { p.g(0, 0, 1, 2, tone(pal[1]));     p.g(13, 0, 1, 2, tone(pal[1])); }
+    const uint16_t cup = faded ? blend565(p.cut, pal[1], 7) : pal[1];
+    if (bot) { p.g(2, -0.5f, 1, 2, cup); p.g(11, -0.5f, 1, 2, cup); }
+    else     { p.g(0, 0, 1, 2, cup);     p.g(13, 0, 1, 2, cup); }
   }
 }
 
@@ -177,15 +321,19 @@ static inline void drawHat(Pen& p, bool bot, uint8_t hat, uint8_t color, bool fa
 // is 18*scale wide and 13*scale high. `body` is the sprite colour and `cut`
 // the colour behind it (eyes are holes). With bubble = false only the body,
 // the face, the limbs and the hat are drawn, which fits a 14*scale wide cell.
-// `hat` is Agent::hat (0 = none) and `hatColor` is Agent::hatColor.
+// `hat` is Agent::hat (0 = none) and `hatColor` is Agent::hatColor. The hat
+// steps through its frames while the pose is a working one, on the same `ms`.
 static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Pose pose,
                               uint16_t body, uint16_t cut, uint32_t ms, bool bubble,
                               uint8_t hat = 0, uint8_t hatColor = 0) {
   using namespace sprite_detail;
+  // Nothing of it in these rows (a strip of the frame): units -6..9 (hats, a jump, strokes: a margin).
+  if (y + 16 * scale <= c.top || y - 4 * scale >= c.h) return;
   Pen p{c, x, y, scale, body, cut};
   const bool bot = sp == Species::Codex;
   const int half = phase(ms, 500, 2);          // .la / .lb / .bob: two halves of 0.5 s
-  if (pose == Pose::Write) pose = Pose::Bash;  // "writing looks like bash for now" (app.js)
+  const bool working = poseWorking(pose);
+  if (pose == Pose::Write) pose = Pose::Bash;  // "writing looks like bash for now" (deck-core.js)
 
   // Group motion comes first: the body, the arms, the face and the hat share it.
   int legSet = 0;
@@ -368,6 +516,90 @@ static inline void drawSprite(Canvas& c, int x, int y, int scale, Species sp, Po
     }
   }
 
-  drawHat(p, bot, hat, hatColor, pose == Pose::Exit);
+  drawHat(p, bot, hat, hatColor, pose == Pose::Exit, working, ms);
   if (showLegs) legs(p, bot, legSet, legDy);
+}
+
+// ---------------------------------------------------------------- agent pets
+// While Agent pets is on, each agent's pet (Agent::pet, the kit's deck_pet.h)
+// stands where its critter would, at the same scale, and does the critter's
+// pose with its bubble: one pet cell is one sprite unit. Cell (0, 0) sits at
+// unit (-1, -5), so the pet's middle is the body's and a grown-up's feet land
+// on the critter's. With its bubbles, flag, flames and stroke it reaches
+// cells DECK_PET_REACH_* (units -6..23 across, -17..10 down).
+
+namespace sprite_detail {
+
+// The kit's colours (0xRRGGBB and an alpha) into the RGB565 canvas, clipped.
+static inline void petFill(void* user, int x, int y, int w, int h, uint32_t rgb, uint8_t alpha) {
+  Canvas& c = *(Canvas*)user;
+  const uint16_t col = rgb565((uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb);
+  const uint8_t a = (uint8_t)((alpha * 15 + 127) / 255);
+  if (a >= 15) { c.rect(x, y, w, h, col); return; }
+  if (a == 0) return;
+  const int x0 = x < 0 ? 0 : x, x1 = x + w > c.w ? c.w : x + w;
+  const int y0 = y < c.top ? c.top : y, y1 = y + h > c.h ? c.h : y + h;
+  for (int yy = y0; yy < y1; yy++)
+    for (int xx = x0; xx < x1; xx++) {
+      uint16_t& d = c.px[(size_t)yy * c.w + xx];
+      d = c.enc(blend565(c.dec(d), col, a));
+    }
+}
+
+}  // namespace sprite_detail
+
+// The pet's pose for the critter's (the kit's poses follow Pose, after NONE).
+static inline uint8_t petPose(Pose pose) { return (uint8_t)((int)pose + 1); }
+
+// Draws the agent's pet with its cell (0, 0) at pixel (x, y), in `pose` at
+// `ms`, with its bubble or not. The look is kept in static memory: pets are
+// drawn from one task.
+static inline void drawPetCells(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  using namespace sprite_detail;
+  // nothing of it in these rows (a strip of the frame)
+  if (y + (DECK_PET_REACH_Y1 + 1) * scale <= c.top || y + (DECK_PET_REACH_Y0 - 1) * scale >= c.h) return;
+  deck_pet_opts_t o{};
+  o.pose = petPose(pose);
+  o.ms = ms;
+  o.bubble = bubble;
+  o.hat = a.hat;
+  o.hat_color = a.hatColor;
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, &o);
+  int dx, dy;
+  deck_pet_motion(&look, ms, scale, &dx, &dy);
+  deck_pet_draw(&look, x + dx, y + dy, scale, petFill, &c);
+}
+
+// The pet with the sprite box's top-left at (x, y), as drawSprite would its critter.
+static inline void drawPet(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint32_t ms, bool bubble) {
+  drawPetCells(c, x - scale, y - scale, scale, a, pose, ms, bubble);
+}
+
+// The row under the pet's still art (its feet, the egg's foot, the weak one's
+// ground): stand it on a line there.
+static inline int petBottom(const Agent& a) {
+  static const uint8_t kBottom[] = {14, 14, 13, 13, 12, 13};   // per deck_pet_art_t
+  static deck_pet_look_t look;
+  deck_pet_look(&look, &a.pet, nullptr);
+  return look.art < sizeof kBottom ? kBottom[look.art] : 14;
+}
+
+// The agent as the deck shows it: its pet while it has one, else its critter
+// (drawSprite, with its hat); both in `pose`.
+static inline void drawCritter(Canvas& c, int x, int y, int scale, const Agent& a, Pose pose, uint16_t body, uint16_t cut,
+                               uint32_t ms, bool bubble) {
+  if (a.pet.has) drawPet(c, x, y, scale, a, pose, ms, bubble);
+  else drawSprite(c, x, y, scale, a.species, pose, body, cut, ms, bubble, a.hat, a.hatColor);
+}
+
+// "Pip · Kid · level 7", or "Egg": the pet's name, stage and level, for a
+// screen that shows one agent in detail. Empty without a pet.
+static inline void petLine(const Agent& a, char* out, size_t cap) {
+  if (!cap) return;
+  out[0] = '\0';
+  if (!a.pet.has) return;
+  const char* stage = deck_pet_stage_name(a.pet.stage);
+  if (a.pet.stage == DECK_PET_EGG || !a.pet.name[0]) snprintf(out, cap, "%s", stage);
+  else snprintf(out, cap, "%s" DECK_DOT "%s" DECK_DOT "level %u", a.pet.name, stage, (unsigned)a.pet.level);
 }

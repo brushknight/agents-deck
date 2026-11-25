@@ -4,13 +4,13 @@ import (
 	"errors"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/codex"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -38,13 +38,18 @@ func (d *Daemon) codexWindow() time.Duration {
 	return 6 * time.Hour
 }
 
-// WatchCodex polls Codex's state every few seconds (no-op when Codex isn't installed).
+// WatchCodex polls Codex's state every few seconds. Until Codex has made its
+// data folder (it isn't installed, or hasn't run yet) it only looks for the
+// folder, once a minute.
 func (d *Daemon) WatchCodex() {
 	if d.Cfg.Codex != nil && !*d.Cfg.Codex {
 		return
 	}
-	if _, err := os.Stat(codex.Home()); err != nil {
-		return
+	for {
+		if _, err := os.Stat(codex.Home()); err == nil {
+			break
+		}
+		time.Sleep(time.Minute)
 	}
 	logged := false
 	for {
@@ -86,6 +91,9 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 		}
 		d.Store.Update(id, func(e *store.Entry) bool {
 			changed := codex.Tail(e)
+			if t.UpdatedAtMs > 0 && e.MarkActiveStep(time.UnixMilli(t.UpdatedAtMs)) { // Codex's own time
+				changed = true
+			}
 			if title := t.DisplayTitle(); title != e.A.Title {
 				e.A.Title, changed = title, true
 			}
@@ -105,9 +113,10 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 }
 
 // focusExternal opens the thread in the Codex app (codex:// deep link; no Apple events).
+// It needs the Codex app installed: with only the CLI there is nothing to open.
 func (d *Daemon) focusExternal(e store.Entry) error {
 	d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
-	if err := exec.Command("/usr/bin/open", "codex://threads/"+e.SessionID).Run(); err != nil {
+	if err := proc.Open("codex://threads/" + e.SessionID); err != nil {
 		return err
 	}
 	log.Printf("focus %s: opened codex thread", e.A.ID)

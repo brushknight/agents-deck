@@ -21,8 +21,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 )
 
 // StateDir is where cmux keeps its state files.
@@ -80,10 +81,7 @@ func sessions(b []byte, alive func(pid int) bool) ([]Session, error) {
 	return out, nil
 }
 
-func alive(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
+func alive(pid int) bool { return proc.Alive(pid) }
 
 // Socket is the control socket of the cmux that's running (it may not be).
 func Socket() string {
