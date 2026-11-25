@@ -21,6 +21,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/link/linkpb"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/redact"
 )
 
 // Deck is what a session needs from the daemon: the state, its changes, the
@@ -888,7 +889,7 @@ func (s *Session) command(f *linkpb.Frame) error {
 			_ = json.Unmarshal(raw, &r)
 			l := &linkpb.QueueList{Total: uint32(len(r.Queue))}
 			for _, x := range r.Queue {
-				l.Prompts = append(l.Prompts, &linkpb.QueuedPrompt{Id: x.ID, Text: x.Text, By: x.By, QueuedAtMs: ms(x.QueuedAt)})
+				l.Prompts = append(l.Prompts, &linkpb.QueuedPrompt{Id: x.ID, Text: redact.String(x.Text), By: x.By, QueuedAtMs: ms(x.QueuedAt)})
 			}
 			return &linkpb.Frame{Body: &linkpb.Frame_QueueList{QueueList: l}}
 		})

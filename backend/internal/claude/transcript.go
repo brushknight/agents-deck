@@ -11,6 +11,7 @@ import (
 
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/pricing"
+	"github.com/brushknight/agents-deck/backend/internal/redact"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -227,7 +228,8 @@ func followAnswer(e *store.Entry, l line, ends bool) bool {
 func CommitAnswer(e *store.Entry) bool {
 	text := model.AnswerText(e.Answer)
 	e.Answer, e.AnswerID = "", ""
-	if text == "" || text == e.A.LastAnswer && e.AnswerAt.Equal(e.A.LastAnswerAt) {
+	// The store keeps the answer redacted, so compare it so.
+	if text == "" || redact.String(text) == e.A.LastAnswer && e.AnswerAt.Equal(e.A.LastAnswerAt) {
 		return false
 	}
 	e.A.LastAnswer, e.A.LastAnswerAt = text, e.AnswerAt

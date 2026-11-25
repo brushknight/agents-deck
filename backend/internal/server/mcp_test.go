@@ -350,3 +350,22 @@ func TestCleanPrompt(t *testing.T) {
 		}
 	}
 }
+
+// A key pasted into a prompt reaches no MCP client: list_agents and
+// get_agent return the text as the store keeps it, redacted.
+func TestMCPRedactsSecrets(t *testing.T) {
+	s, _, tok := newMCPServer(t)
+	h := s.LocalHandler()
+	key := "pdl" + "_live_apikey_" + strings.Repeat("Zq4Wm8Kd", 4) // made up
+	s.Store.Update("busy", func(e *store.Entry) bool {
+		e.A.LastPrompt, e.A.LastAnswer = "new token "+key, "saved "+key
+		return true
+	})
+	for _, c := range []string{call("list_agents", nil), call("get_agent", map[string]any{"agent_id": "busy"})} {
+		_, out := rpc(h, "/mcp", tok["looker"], c)
+		text, isErr := toolText(t, out)
+		if isErr || strings.Contains(text, key) || !strings.Contains(text, "new token [redacted:paddle]") {
+			t.Errorf("not redacted: %s", text)
+		}
+	}
+}

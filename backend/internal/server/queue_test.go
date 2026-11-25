@@ -469,3 +469,21 @@ func TestQueueHeldWhileBusy(t *testing.T) {
 		t.Fatalf("start_agent after the hold: %v", out)
 	}
 }
+
+// A queued prompt is listed redacted but typed in as it was sent: the agent
+// needs the key, the people and programs that list the queue don't.
+func TestQueueListsRedactedDeliversAsSent(t *testing.T) {
+	s, ctl, _ := newQueueServer(t, "")
+	h := s.UnixHandler(nil)
+	key := "sk" + "_live_" + strings.Repeat("Hq7Rt2Vw", 3) // made up
+	queuePrompt(t, h, "busy", "use "+key, "")
+	w := do(h, "GET", "/v1/agents/busy/queue", "", nil)
+	if strings.Contains(w.Body.String(), key) || !strings.Contains(w.Body.String(), "use [redacted:stripe]") {
+		t.Fatalf("queue list not redacted: %s", w.Body)
+	}
+	finish(s.Store, "busy")
+	s.deliver(time.Now())
+	if got := sentTexts(ctl); len(got) != 1 || !strings.Contains(got[0], key) {
+		t.Fatalf("not typed in as sent: %v", got)
+	}
+}

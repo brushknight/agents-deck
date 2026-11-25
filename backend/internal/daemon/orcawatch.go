@@ -14,6 +14,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/orca"
+	"github.com/brushknight/agents-deck/backend/internal/redact"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -142,8 +143,9 @@ func (d *Daemon) syncOrca(snap orca.Snapshot) {
 			if b := orcaBranch(r.w.Branch); b != "" && b != e.A.Branch {
 				e.A.Branch, changed = b, true
 			}
-			if r.a.Prompt != "" && r.a.Prompt != e.A.LastPrompt {
-				e.A.LastPrompt, changed = clipText(r.a.Prompt, 280), true
+			// The store keeps the prompt clipped and redacted, so compare it so.
+			if p := redact.String(clipText(r.a.Prompt, 280)); r.a.Prompt != "" && p != e.A.LastPrompt {
+				e.A.LastPrompt, changed = p, true
 			}
 			if r.a.UpdatedAt > 0 && e.MarkActiveStep(time.UnixMilli(r.a.UpdatedAt)) { // Orca's own time
 				changed = true
