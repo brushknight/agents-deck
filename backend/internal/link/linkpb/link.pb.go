@@ -2146,6 +2146,7 @@ type Server struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	TimeMs        int64                  `protobuf:"varint,3,opt,name=time_ms,json=timeMs,proto3" json:"time_ms,omitempty"`
+	UtcOffsetS    int32                  `protobuf:"varint,4,opt,name=utc_offset_s,json=utcOffsetS,proto3" json:"utc_offset_s,omitempty"` // the deck's local time minus UTC, in seconds: boards show clock times ("thu 09:00") with it
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2197,6 +2198,13 @@ func (x *Server) GetVersion() string {
 func (x *Server) GetTimeMs() int64 {
 	if x != nil {
 		return x.TimeMs
+	}
+	return 0
+}
+
+func (x *Server) GetUtcOffsetS() int32 {
+	if x != nil {
+		return x.UtcOffsetS
 	}
 	return 0
 }
@@ -5943,11 +5951,13 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x06server\x18\x01 \x01(\v2\x1a.agentsdeck.link.v1.ServerR\x06server\x12\x1f\n" +
 	"\vagent_count\x18\x02 \x01(\rR\n" +
 	"agentCount\"\r\n" +
-	"\vSnapshotEnd\"O\n" +
+	"\vSnapshotEnd\"q\n" +
 	"\x06Server\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x17\n" +
-	"\atime_ms\x18\x03 \x01(\x03R\x06timeMs\"?\n" +
+	"\atime_ms\x18\x03 \x01(\x03R\x06timeMs\x12 \n" +
+	"\futc_offset_s\x18\x04 \x01(\x05R\n" +
+	"utcOffsetS\"?\n" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +

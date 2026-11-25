@@ -289,6 +289,39 @@ static int renderBig(const std::string& dir, const BigSpec& S, const char* devic
     ui.page = 0;
     in.fleet = &f;
   }
+  {                                                // usage limits: the corner readout and the card's row
+    static DeckFleet u;
+    u = deck;
+    Fleet& uf = u.fleet;
+    const Agent& k = uf.agents[findAgent(uf, "k3f9a2")];
+    uf.limitCount = 2;
+    LimitSet& w = uf.limits[0];
+    memset(&w, 0, sizeof w);
+    w.tool = ToolKind::Claude;
+    snprintf(w.account, sizeof w.account, "%s", k.account);
+    w.count = 1;
+    snprintf(w.win[0].label, sizeof w.win[0].label, "week");
+    w.win[0].used = 86;
+    w.win[0].level = LimitLevel::Near;
+    w.win[0].resetsAt = now + 2 * 86400 + 4 * 3600;
+    LimitSet& x = uf.limits[1];
+    memset(&x, 0, sizeof x);
+    x.tool = ToolKind::Codex;
+    x.count = 1;
+    snprintf(x.win[0].label, sizeof x.win[0].label, "week");
+    x.win[0].used = 7;
+    in.fleet = &uf;
+    ui.usage = true;
+    shot("home-usage");
+    bigOpen(ui, uf, findAgent(uf, "k3f9a2"));
+    shot("card-usage");
+    bigHome(ui);
+    w.win[0].used = 100;
+    w.win[0].level = LimitLevel::Out;
+    shot("home-usage-out");
+    ui.usage = false;
+    in.fleet = &f;
+  }
   auto open = [&](const char* id) { bigOpen(ui, f, findAgent(f, id)); };
   open("k3f9a2");
   shot("card");

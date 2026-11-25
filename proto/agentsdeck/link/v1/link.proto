@@ -168,6 +168,7 @@ message Server {
   string name = 1;
   string version = 2;
   int64 time_ms = 3;
+  int32 utc_offset_s = 4;  // the deck's local time minus UTC, in seconds: boards show clock times ("thu 09:00") with it
 }
 
 message AgentChanged {

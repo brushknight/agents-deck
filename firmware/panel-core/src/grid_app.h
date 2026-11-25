@@ -99,6 +99,7 @@ static void onFrame(deck_link_t* ctx, const deck_frame_t* f) {
   lastHeardMs = millis();
   if (f->which_body == agentsdeck_link_v1_Frame_magic_tag) onMagic(f->body.magic);   // before the agent changes it brings
   if (deckApply(*fleet, *f, millis())) dirty = true;
+  ui.usage = fleet->fleet.limitCount > 0;  // the usage readout's row (layout_big.h)
   if (fleet->newWaiting) fleet->newWaiting = false;
 }
 

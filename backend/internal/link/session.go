@@ -591,7 +591,7 @@ func (s *Session) push(full bool) error {
 	if full {
 		s.sent = nil
 		if err := s.send(&linkpb.Frame{Body: &linkpb.Frame_SnapshotBegin{SnapshotBegin: &linkpb.SnapshotBegin{
-			Server:     &linkpb.Server{Name: st.Server.Name, Version: st.Server.Version, TimeMs: st.Server.Time.UnixMilli()},
+			Server:     &linkpb.Server{Name: st.Server.Name, Version: st.Server.Version, TimeMs: st.Server.Time.UnixMilli(), UtcOffsetS: utcOffset()},
 			AgentCount: uint32(len(st.Agents)),
 		}}}); err != nil {
 			return err
@@ -976,3 +976,10 @@ func errText(body []byte) string {
 
 // ErrClosed is returned when the board's stream ends.
 var ErrClosed = errors.New("link closed")
+
+// utcOffset is this computer's local time minus UTC now, in seconds: boards
+// have no time zone of their own.
+func utcOffset() int32 {
+	_, off := time.Now().Zone()
+	return int32(off)
+}

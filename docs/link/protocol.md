@@ -119,7 +119,8 @@ board                                   deck
   windows (the week first, at most 4) with percent used, reset time and level (`LIMIT_OK` under 80%,
   `LIMIT_NEAR` from 80, `LIMIT_LOW` from 95, `LIMIT_OUT` at 100 or hit). `stale` means the window reset
   since the tool's last report. An agent whose account or model is out has `out_until_ms` set (rules in
-  [protocol.md](../protocol.md#usage-limits)).
+  [protocol.md](../protocol.md#usage-limits)). Reset times are Unix ms; to show them as clock times
+  ("thu 09:00") a board adds `Server.utc_offset_s` from `SnapshotBegin`, the deck's local time minus UTC.
 - **Updates.** When an agent changes in a way the board can see (a subscribed field), the deck resends
   that whole agent in `AgentChanged`. An agent that leaves the subscribed slots, or the deck, gets
   `AgentRemoved`.

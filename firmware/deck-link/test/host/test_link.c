@@ -190,6 +190,14 @@ static void rec_magic(deck_link_t *ctx, const agentsdeck_link_v1_Magic *m)
 }
 
 static void rec_se(deck_link_t *c) { (void)c, ev_snap_end++; }
+static int ev_limits = 0;
+static uint32_t last_limits_used;
+static void rec_limits(deck_link_t *c, const agentsdeck_link_v1_Limits *l)
+{
+	(void)c;
+	ev_limits++;
+	last_limits_used = l->sets_count && l->sets[0].windows_count ? l->sets[0].windows[0].used : 0;
+}
 
 static deck_link_t link;
 
@@ -217,6 +225,7 @@ static void reset_fake(void)
 	cfg.on_snapshot_begin = rec_sb;
 	cfg.on_snapshot_end = rec_se;
 	cfg.on_magic = rec_magic;
+	cfg.on_limits = rec_limits;
 	deck_link_init(&link, &cfg);
 }
 
@@ -562,6 +571,17 @@ static void test_handshake(void)
 		CHECK(ev_magic == 1 && last_magic.role == agentsdeck_link_v1_MagicRole_MAGIC_RECEIVER && last_magic.taken &&
 		      last_magic.arrive == agentsdeck_link_v1_Corner_CORNER_TOP_RIGHT &&
 		      last_magic.leave == agentsdeck_link_v1_Corner_CORNER_BOTTOM_RIGHT);
+	}
+
+	/* The accounts' usage limits: their own callback. */
+	{
+		agentsdeck_link_v1_Frame m = mk(0, agentsdeck_link_v1_Frame_limits_tag);
+		m.body.limits.sets_count = 1;
+		m.body.limits.sets[0].tool = agentsdeck_link_v1_Tool_TOOL_CLAUDE;
+		m.body.limits.sets[0].windows_count = 1;
+		m.body.limits.sets[0].windows[0].used = 86;
+		feed_frame(&m);
+		CHECK(ev_limits == 1 && last_limits_used == 86);
 	}
 
 	/* Silence for 15 s: offline, Hello now and every 5 s. */

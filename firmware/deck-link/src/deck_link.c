@@ -229,6 +229,10 @@ static void dispatch(deck_link_t *ctx)
 		if (c->on_magic)
 			c->on_magic(ctx, &f->body.magic);
 		break;
+	case agentsdeck_link_v1_Frame_limits_tag:
+		if (c->on_limits)
+			c->on_limits(ctx, &f->body.limits);
+		break;
 	case agentsdeck_link_v1_Frame_live_sessions_tag:
 		if (c->on_live_sessions)
 			c->on_live_sessions(ctx, f->seq, &f->body.live_sessions);

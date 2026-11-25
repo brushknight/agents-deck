@@ -46,6 +46,7 @@
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "sprites.h"
+#include "usage.h"
 #include "view.h"
 
 struct BigSpec {
@@ -102,9 +103,10 @@ struct BigGrid {
 // DeckGrid: square cells with an 8 px gap inside 8 px padding; with more than
 // one page the bars take 34 px at the bottom and the cells get shorter. On
 // Wi-Fi (wifi) that row stays with one page too: the Wi-Fi mark sits in it.
-static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false) {
+// With usage limits (usage) a 24 px row stays for the usage readout.
+static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false, bool usage = false) {
   BigGrid g{};
-  const int pad = bk(S, 8), barsH = pages > 1 || wifi ? bk(S, 34) : 0;
+  const int pad = bk(S, 8), barsH = pages > 1 || wifi ? bk(S, 34) : usage ? 24 : 0;
   g.gap = bk(S, 8);
   const int availW = S.w - 2 * pad, availH = S.h - pad - (barsH ? 0 : pad) - barsH;
   g.cell = (availW - 3 * g.gap) / 4;
@@ -133,7 +135,9 @@ static inline int bigAgentAt(const Fleet& f, int page, int cell) {
 // "Needs you" screen (its mark at the left).
 static inline bool bigRow(const PanelUi& ui) { return ui.wifi || ui.att; }
 
-static inline BigGrid bigGridFor(const BigSpec& S, const PanelUi& ui, int pages) { return bigGrid(S, pages, bigRow(ui)); }
+static inline BigGrid bigGridFor(const BigSpec& S, const PanelUi& ui, int pages) {
+  return bigGrid(S, pages, bigRow(ui), ui.usage);
+}
 
 // What a home cell holds: the deck's page by slot, or on the "Needs you"
 // screen the agent in that spot. -1 for a free cell.
@@ -919,6 +923,8 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   if (!pressed) ring(c, r, d(4) < 2 ? 2 : d(4), a.ctxWindow ? ctxPct(a) : 0, k.ring, k.ringTrack);
 }
 
+static inline void usageCornerAt(Canvas& c, const Theme& T, const Fleet& f, int x, int cy, int64_t now);
+
 static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in) {
   const Fleet& f = *in.fleet;
   const PanelUi& ui = *in.ui;
@@ -962,6 +968,7 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
       rrect(c, bars.r[k], bk(S, 4), cur ? T.ink : (p < 64 && hot[p]) ? T.accent : kRowOutline);
     }
   }
+  if (g.bars.w) usageCornerAt(c, T, f, 10, g.bars.y + g.bars.h / 2, in.nowEpoch);   // bottom left, beside the page bars
   if (in.link == LinkState::Lost) {                  // _OfflineChip, 22 px off the bottom
     const char* s = "offline" DECK_DOT "retrying";
     const Font& f2 = *S.label;
@@ -1191,6 +1198,78 @@ static inline void segs(Canvas& c, const Theme& T, int x, int y, int w, int h, i
   }
 }
 
+// ---------------------------------------------------------------- usage
+
+// Bold text from a regular font: drawn twice, a pixel apart. Returns its width.
+static inline int boldAt(Canvas& c, const Font& f, int x, int top, const char* s, uint16_t col) {
+  textAt(c, f, x + 1, top, s, col);
+  return textAt(c, f, x, top, s, col) + 1;
+}
+
+// The corner's critter: 7 x 4 cells of 2 px (14 x 8), as on the boards.
+static inline void critterMark(Canvas& c, int x, int y, uint16_t col) {
+  static const char* const rows[] = {".xxxxx.", "xx.x.xx", "xxxxxxx", ".x.x.x."};
+  for (int r = 0; r < 4; r++)
+    for (int k = 0; k < 7; k++)
+      if (rows[r][k] == 'x') c.rect(x + 2 * k, y + 2 * r, 2, 2, col);
+}
+
+// The usage readout (UsageCorner): the account in use as a critter in its
+// colour and its week, then a dot in the second source's colour and its
+// week; 12 px Roboto Mono bold, orange past 80% and when out. `cy` is the
+// row's middle.
+static inline void usageCornerAt(Canvas& c, const Theme& T, const Fleet& f, int x, int cy, int64_t now) {
+  int src[2];
+  const int n = usageCorner(f, src);
+  if (!n) return;
+  const Font& font = FONT_S;
+  const int top = cy - fontPx(font) / 2;
+  auto value = [&](const LimitSet& s, int vx) {
+    const LimitWin* w = usageWeek(s);
+    char v[32] = "-";
+    if (w) usageValue(*w, true, now, f.utcOffset, v, sizeof v);
+    const uint16_t col = !w || w->stale ? T.dim : w->hot() ? T.accent : T.ink;
+    return boldAt(c, font, vx, top, v, col);
+  };
+  critterMark(c, x, cy - 4, usageColor(T, f, f.limits[src[0]]));
+  x += 14 + 7;
+  x += value(f.limits[src[0]], x);
+  if (n < 2) return;
+  x += 7 + 6;
+  fillDisc(c, x + 3.5f, (float)cy, 3.5f, usageColor(T, f, f.limits[src[1]]));
+  x += 7 + 7;
+  value(f.limits[src[1]], x);
+}
+
+// The limits of an agent's account in its tool, if the deck sent any.
+static inline const LimitSet* usageOf(const Fleet& f, const Agent& a) {
+  for (int i = 0; i < f.limitCount; i++)
+    if (f.limits[i].tool == a.tool && !strcmp(f.limits[i].account, a.account)) return &f.limits[i];
+  return nullptr;
+}
+
+// An agent's page, one row (option A): USAGE · <account>, 20 segments of
+// 6 x 9 (orange past 80%), the week's %, and "ctx 41%" at the right.
+static inline void usageRow(Canvas& c, const Theme& T, const LimitSet& l, int x, int right, int y, const Agent& a,
+                            int64_t now, int32_t utcOffset) {
+  using namespace big_ui;
+  char b[48];
+  snprintf(b, sizeof b, "usage" DECK_DOT "%s", usageName(l));
+  x += label(c, x, y, b, kMuted) + 8;
+  const LimitWin* w = usageWeek(l);
+  if (w) {
+    const int n = 20, sw = 6, sh = 9, gap = 2;
+    const int on = w->stale ? 0 : (w->used > 100 ? n : (w->used * n + 50) / 100);
+    const uint16_t ink = w->hot() ? T.accent : T.ink;
+    for (int i = 0; i < n; i++) c.rect(x + i * (sw + gap), y + (kLineXS - sh) / 2, sw, sh, i < on ? ink : kSegOff);
+    x += n * (sw + gap) - gap + 8;
+    usageValue(*w, false, now, utcOffset, b, sizeof b);
+    boldAt(c, FONT_XS, x, y + (kLineXS - fontPx(FONT_XS)) / 2, b, w->stale ? T.dim : w->hot() ? T.accent : T.ink);
+  }
+  snprintf(b, sizeof b, a.ctxWindow ? "ctx %d%%" : "ctx --", ctxPct(a));
+  textAt(c, FONT_XS, right - textW(FONT_XS, b), y + (kLineXS - fontPx(FONT_XS)) / 2, b, kMuted);
+}
+
 // "■ personal": a square in the account's colour, then its name; right-aligned
 // at `right`. Returns its width.
 static inline int accountName(Canvas& c, const Theme& T, const Font& f, int right, int y, int lineH, const Agent& a) {
@@ -1311,7 +1390,9 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
                 g.lastLines, kLineM);
   }
   // Context, and where it runs.
-  {
+  if (const LimitSet* l = usageOf(*in.fleet, a)) {
+    usageRow(c, T, *l, kPadX, right, g.ctxY, a, in.nowEpoch, in.fleet->utcOffset);
+  } else {
     const int lw = label(c, kPadX, g.ctxY, "context", kMuted);
     snprintf(buf, sizeof buf, a.ctxWindow ? "%d%%" : "--", ctxPct(a));
     const int pw = textW(FONT_S, buf);

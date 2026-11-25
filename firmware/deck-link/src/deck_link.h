@@ -112,6 +112,9 @@ typedef struct {
 	 * agents are taken, and its corners: after a snapshot when it has one, and
 	 * whenever it changes, before the agent changes that follow. */
 	void (*on_magic)(deck_link_t *ctx, const agentsdeck_link_v1_Magic *magic);
+	/* The accounts' usage limits (subscribe with FIELDS_LIMITS): after a
+	 * SnapshotEnd when there are any, and whenever they change. */
+	void (*on_limits)(deck_link_t *ctx, const agentsdeck_link_v1_Limits *limits);
 	void (*on_result)(deck_link_t *ctx, uint32_t seq, uint32_t code, const char *error);
 	void (*on_hat_list)(deck_link_t *ctx, uint32_t seq, const agentsdeck_link_v1_HatList *list);
 	void (*on_live_sessions)(deck_link_t *ctx, uint32_t seq, const agentsdeck_link_v1_LiveSessions *live);
