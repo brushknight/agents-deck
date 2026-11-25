@@ -200,6 +200,9 @@ release).
    agentctl link add /dev/cu.usbmodem1101       # once per port
    ```
 
+   The deck remembers the board's USB serial number with the port, so the board still connects when
+   you plug it into another hub port and its path changes.
+
 The image goes at `0x0`: it holds the bootloader, the partition table and the app, and leaves the rest
 of the flash alone, so the board keeps its name, certificate and Wi-Fi network. To start a board from
 nothing, erase it first with [esptool](https://github.com/espressif/esptool)

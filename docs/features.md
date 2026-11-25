@@ -246,6 +246,15 @@ agentctl link add /dev/cu.usbmodem1101   # the daemon only ever opens registered
 agentctl link                            # what's connected
 ```
 
+A registered port keeps its board's USB identity (vendor, product and serial number; an ESP32 on its
+own USB gives its MAC). macOS names a port after its place on the hub, so plugged in one hub level
+further down, the same board comes back as `/dev/cu.usbmodem111401` instead of `…11401`, and Linux
+numbers `ttyACM` ports in plug order. When a registered port's path is gone and exactly one
+plugged-in port has its board's identity, the deck moves the registration there (in `config.json`
+too) and connects; you don't register it again. Ports registered before this learn their identity the
+next time the board is plugged in. A USB adapter with no serial number (some CH340 and CP210x boards)
+stays registered by its path only.
+
 A new board plugged into a registered port is approved at once with scope `act` (it can answer
 prompts): the USB cable on your Mac counts as your consent, and the audit log says so. `admin` is given
 by hand (`agentctl devices scope <name> admin`); `agentctl devices auto-approve usb off` makes new

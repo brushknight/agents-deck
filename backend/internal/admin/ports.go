@@ -62,11 +62,29 @@ type portHolds struct {
 	mu   sync.Mutex
 	held map[string]bool
 	lent map[string]*time.Timer // ports lent to another program (borrow): handed back when it ends
+	// following registered boards by their USB identity (followPorts)
+	looked   time.Time
+	noSerial map[string]bool // registered paths whose device has no serial number
+}
+
+// followEvery is how often, at most, the deck lists the USB ports to follow
+// a registered board that moved (listing runs ioreg on a Mac).
+var followEvery = 10 * time.Second
+
+// usbKey is a USB serial port's identity whatever its path: vendor, product
+// and serial number. "" when the device has no serial number.
+func usbKey(i serial.Info) string {
+	if i.VID == "" || i.Serial == "" {
+		return ""
+	}
+	return i.VID + ":" + i.PID + ":" + i.Serial
 }
 
 // LinkPorts is what the Deck Link manager opens: the registered ports minus
 // the ones the service holds right now (the daemon wires Manager.Ports here).
+// A registered board found on another path is followed there first.
 func (a *Admin) LinkPorts(ps []link.PortConfig) []link.PortConfig {
+	ps = a.followPorts(ps)
 	a.ports.mu.Lock()
 	defer a.ports.mu.Unlock()
 	out := make([]link.PortConfig, 0, len(ps))
@@ -332,7 +350,7 @@ func (a *Admin) portAction(w http.ResponseWriter, r *http.Request) {
 					return ps
 				}
 			}
-			return append(ps, link.PortConfig{Path: p.Path, Baud: b.Baud})
+			return append(ps, link.PortConfig{Path: p.Path, Baud: b.Baud, USB: usbKey(p.info())})
 		})
 		if err == nil {
 			err = a.setIgnored(p.Path, false)
