@@ -58,8 +58,9 @@ type Manager struct {
 	Path       string // machines.json
 	DevicePort string // the port other machines reach this one on, e.g. "7341"
 
-	linkState // link.go
-	outboxes  // outbox.go
+	linkState  // link.go
+	outboxes   // outbox.go
+	indexState // index.go
 
 	mu      sync.Mutex
 	codes   map[string]time.Time  // join code secret → expiry

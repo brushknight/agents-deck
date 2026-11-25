@@ -2371,8 +2371,14 @@ type Agent struct {
 	OutUntilMs     int64                  `protobuf:"varint,44,opt,name=out_until_ms,json=outUntilMs,proto3" json:"out_until_ms,omitempty"`               // its account (or its model) is out of usage until then; 0 = not out
 	LastAnswer     string                 `protobuf:"bytes,45,opt,name=last_answer,json=lastAnswer,proto3" json:"last_answer,omitempty"`                  // its reply that ended its latest finished turn, as plain text
 	LastAnswerAtMs int64                  `protobuf:"varint,46,opt,name=last_answer_at_ms,json=lastAnswerAtMs,proto3" json:"last_answer_at_ms,omitempty"` // when it gave that reply; 0 = no answer yet
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Multi-node: the machine it runs on (card), its tag (the id is <id>@<tag>)
+	// and whether that machine can be reached now (tile): false = show it grey
+	// with its last known state. On a deck without other machines: "", "", true.
+	Machine       string `protobuf:"bytes,47,opt,name=machine,proto3" json:"machine,omitempty"`
+	MachineTag    string `protobuf:"bytes,48,opt,name=machine_tag,json=machineTag,proto3" json:"machine_tag,omitempty"`
+	Reachable     bool   `protobuf:"varint,49,opt,name=reachable,proto3" json:"reachable,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -2725,6 +2731,27 @@ func (x *Agent) GetLastAnswerAtMs() int64 {
 		return x.LastAnswerAtMs
 	}
 	return 0
+}
+
+func (x *Agent) GetMachine() string {
+	if x != nil {
+		return x.Machine
+	}
+	return ""
+}
+
+func (x *Agent) GetMachineTag() string {
+	if x != nil {
+		return x.MachineTag
+	}
+	return ""
+}
+
+func (x *Agent) GetReachable() bool {
+	if x != nil {
+		return x.Reachable
+	}
+	return false
 }
 
 type Activity struct {
@@ -6162,7 +6189,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x9f\f\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xf8\f\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -6214,7 +6241,11 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"outUntilMs\x12\x1f\n" +
 	"\vlast_answer\x18- \x01(\tR\n" +
 	"lastAnswer\x12)\n" +
-	"\x11last_answer_at_ms\x18. \x01(\x03R\x0elastAnswerAtMs\"6\n" +
+	"\x11last_answer_at_ms\x18. \x01(\x03R\x0elastAnswerAtMs\x12\x18\n" +
+	"\amachine\x18/ \x01(\tR\amachine\x12\x1f\n" +
+	"\vmachine_tag\x180 \x01(\tR\n" +
+	"machineTag\x12\x1c\n" +
+	"\treachable\x181 \x01(\bR\treachable\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +

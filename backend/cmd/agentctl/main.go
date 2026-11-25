@@ -73,8 +73,9 @@ const usage = `agentctl: runs and controls agents deck
                                  lists it first, asks before more than 5
   agentctl attach <agent>        show an agent in this terminal (detach: ctrl-q); one that isn't
                                  running is brought back first (it asks)
-  agentctl ls [--sort active]    list agents (ACTIVE: its latest message sent or received);
-                                 --sort active: most recently active first
+  agentctl ls [--sort active] [--on <machine>]
+                                 list agents (ACTIVE: its latest message sent or received);
+                                 --sort active: most recently active first; --on: one machine's
   agentctl rm <agent>            stop and forget an agent
   agentctl move <agent> <n>      put an agent at position n (1 = first tile; free spots ok)
   agentctl sessions [words] [-n N]
@@ -657,7 +658,8 @@ func reopen() error {
 func list(args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	sortBy := fs.String("sort", "position", "order: position (as on the deck) or active (most recently active first)")
-	if err := fs.Parse(args); err != nil {
+	on := fs.String("on", "", "only the agents of this machine (multi-node)")
+	if err := fs.Parse(reorder(args, map[string]bool{"--sort": true, "-sort": true, "--on": true, "-on": true})); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
@@ -666,6 +668,18 @@ func list(args []string) error {
 	s, err := state()
 	if err != nil {
 		return err
+	}
+	if *on != "" {
+		kept := s.Agents[:0]
+		for _, a := range s.Agents {
+			if a.Machine == *on {
+				kept = append(kept, a)
+			}
+		}
+		if len(kept) == 0 {
+			return fmt.Errorf("no agents on %q: agentctl machines lists the machines", *on)
+		}
+		s.Agents = kept
 	}
 	switch *sortBy {
 	case "position", "slot":
@@ -682,12 +696,16 @@ func list(args []string) error {
 	// first, always in the same columns; what a waiting agent asks goes last
 	// so it never pushes the other columns around.
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 3, ' ', 0)
-	acctCol, waitCol := false, false
+	acctCol, waitCol, machineCol := false, false, false
 	for _, a := range s.Agents {
 		acctCol = acctCol || a.Account != nil
 		waitCol = waitCol || a.Waiting != nil
+		machineCol = machineCol || a.Machine != "" // set once another machine has joined
 	}
 	head := []string{"ID", "NAME", "STATUS", "ACTIVE", "CONTEXT", "COST", "FOLDER"}
+	if machineCol {
+		head = append(head, "MACHINE")
+	}
 	if acctCol {
 		head = append(head, "ACCOUNT")
 	}
@@ -702,7 +720,9 @@ func list(args []string) error {
 			ctx = fmt.Sprintf("%d%%", a.Context.Used*100/a.Context.Window)
 		}
 		st := string(a.Status)
-		if a.Lost {
+		if a.MachineTag != "" && !a.Reachable { // another machine's agent, its machine out of reach
+			st = node.AwayWord
+		} else if a.Lost {
 			st = "lost"
 			lost++
 		} else if !a.StatusSince.IsZero() && a.Status != model.Exited {
@@ -713,6 +733,9 @@ func list(args []string) error {
 			cost = "—" // Codex reports no prices
 		}
 		row := []string{a.ID, clip(listName(a.Title), 40), st, activeAgo(a.LastActive), ctx, cost, clip(a.Folder, 24)}
+		if machineCol {
+			row = append(row, a.Machine)
+		}
 		if acctCol {
 			acct := ""
 			if a.Account != nil {
@@ -1391,7 +1414,7 @@ func serve(args []string) error {
 				srv.Audit.Log(devices.AuditEntry{Device: from.Name, Action: "outbox " + c.Method + " " + c.Path, Status: 0, Detail: "key " + c.Key + ", asked by " + c.By})
 				return srv.Dispatch(from, c.Method, c.Path, c.Body)
 			}
-			go srv.Node.Run(machineCtx)
+			srv.RunNode(machineCtx)
 		}
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))

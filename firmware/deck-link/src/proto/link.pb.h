@@ -673,6 +673,12 @@ typedef struct _agentsdeck_link_v1_Agent {
     int64_t out_until_ms; /* its account (or its model) is out of usage until then; 0 = not out */
     char last_answer[160]; /* its reply that ended its latest finished turn, as plain text */
     int64_t last_answer_at_ms; /* when it gave that reply; 0 = no answer yet */
+    /* Multi-node: the machine it runs on (card), its tag (the id is <id>@<tag>)
+ and whether that machine can be reached now (tile): false = show it grey
+ with its last known state. On a deck without other machines: "", "", true. */
+    char machine[33];
+    char machine_tag[9];
+    bool reachable;
 } agentsdeck_link_v1_Agent;
 
 typedef struct _agentsdeck_link_v1_AgentChanged {
@@ -914,7 +920,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_default   {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
-#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_default, "", false, agentsdeck_link_v1_Pet_init_default, 0, "", 0}
+#define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_default, "", false, agentsdeck_link_v1_Pet_init_default, 0, "", 0, "", "", 0}
 #define agentsdeck_link_v1_Activity_init_default {"", ""}
 #define agentsdeck_link_v1_Prompt_init_default   {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default, agentsdeck_link_v1_Option_init_default}}
 #define agentsdeck_link_v1_Option_init_default   {"", "", 0, 0}
@@ -983,7 +989,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
-#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_zero, "", false, agentsdeck_link_v1_Pet_init_zero, 0, "", 0}
+#define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_zero, "", false, agentsdeck_link_v1_Pet_init_zero, 0, "", 0, "", "", 0}
 #define agentsdeck_link_v1_Activity_init_zero    {"", ""}
 #define agentsdeck_link_v1_Prompt_init_zero      {"", _agentsdeck_link_v1_PromptKind_MIN, "", "", "", 0, {agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero, agentsdeck_link_v1_Option_init_zero}}
 #define agentsdeck_link_v1_Option_init_zero      {"", "", 0, 0}
@@ -1272,6 +1278,9 @@ extern "C" {
 #define agentsdeck_link_v1_Agent_out_until_ms_tag 44
 #define agentsdeck_link_v1_Agent_last_answer_tag 45
 #define agentsdeck_link_v1_Agent_last_answer_at_ms_tag 46
+#define agentsdeck_link_v1_Agent_machine_tag     47
+#define agentsdeck_link_v1_Agent_machine_tag_tag 48
+#define agentsdeck_link_v1_Agent_reachable_tag   49
 #define agentsdeck_link_v1_AgentChanged_agent_tag 1
 #define agentsdeck_link_v1_Frame_seq_tag         1
 #define agentsdeck_link_v1_Frame_hello_tag       10
@@ -1545,7 +1554,10 @@ X(a, STATIC,   SINGULAR, STRING,   project_folder,   42) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  pet,              43) \
 X(a, STATIC,   SINGULAR, INT64,    out_until_ms,     44) \
 X(a, STATIC,   SINGULAR, STRING,   last_answer,      45) \
-X(a, STATIC,   SINGULAR, INT64,    last_answer_at_ms,  46)
+X(a, STATIC,   SINGULAR, INT64,    last_answer_at_ms,  46) \
+X(a, STATIC,   SINGULAR, STRING,   machine,          47) \
+X(a, STATIC,   SINGULAR, STRING,   machine_tag,      48) \
+X(a, STATIC,   SINGULAR, BOOL,     reachable,        49)
 #define agentsdeck_link_v1_Agent_CALLBACK NULL
 #define agentsdeck_link_v1_Agent_DEFAULT NULL
 #define agentsdeck_link_v1_Agent_activity_MSGTYPE agentsdeck_link_v1_Activity
@@ -2101,9 +2113,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Project_msg;
 #define agentsdeck_link_v1_Account_size          30
 #define agentsdeck_link_v1_Activity_size         155
 #define agentsdeck_link_v1_AddLive_size          52
-#define agentsdeck_link_v1_AgentChanged_size     3923
+#define agentsdeck_link_v1_AgentChanged_size     3972
 #define agentsdeck_link_v1_AgentRemoved_size     13
-#define agentsdeck_link_v1_Agent_size            3920
+#define agentsdeck_link_v1_Agent_size            3969
 #define agentsdeck_link_v1_Answer_size           39
 #define agentsdeck_link_v1_CertIssued_size       1788
 #define agentsdeck_link_v1_CertRequest_size      603
@@ -2113,7 +2125,7 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Project_msg;
 #define agentsdeck_link_v1_FirmwareOffer_size    200
 #define agentsdeck_link_v1_FirmwareStatus_size   105
 #define agentsdeck_link_v1_Focus_size            13
-#define agentsdeck_link_v1_Frame_size            3933
+#define agentsdeck_link_v1_Frame_size            3982
 #define agentsdeck_link_v1_GetState_size         0
 #define agentsdeck_link_v1_Handoff_size          30
 #define agentsdeck_link_v1_HatList_size          1732

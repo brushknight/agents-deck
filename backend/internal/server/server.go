@@ -193,11 +193,11 @@ type Server struct {
 	apiOnce sync.Once
 	held    stash    // the magic trick: what the receiver holds (stash.go)
 	queue   delivery // typing queued prompts in (queue.go)
-	apiMux  *http.ServeMux
+	apiMux  http.Handler
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).
-func (s *Server) sharedAPI() *http.ServeMux {
+func (s *Server) sharedAPI() http.Handler {
 	s.apiOnce.Do(func() { s.apiMux = s.api() })
 	return s.apiMux
 }
@@ -206,7 +206,7 @@ const sessionCookie = "agentsterm_session"
 
 // ---- shared API --------------------------------------------------------
 
-func (s *Server) api() *http.ServeMux {
+func (s *Server) api() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
@@ -460,7 +460,22 @@ func (s *Server) api() *http.ServeMux {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 	})
-	return mux
+	// Another machine's agent (<id>@<tag>, multi-node) is shown here, but
+	// acting on it from this machine isn't possible yet.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/agents/") {
+			id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/v1/agents/"), "/")
+			if s.Node != nil && strings.Contains(id, "@") {
+				machine := "another machine"
+				if m, _, ok := s.Node.RemoteOwner(id); ok {
+					machine = m
+				}
+				writeErr(w, http.StatusNotImplemented, id+" runs on "+machine+": acting on another machine's agents isn't possible from here yet")
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // AccountInfo is one row of GET /v1/accounts.

@@ -249,6 +249,12 @@ message Agent {
   int64 out_until_ms = 44;     // its account (or its model) is out of usage until then; 0 = not out
   string last_answer = 45;       // its reply that ended its latest finished turn, as plain text
   int64 last_answer_at_ms = 46;  // when it gave that reply; 0 = no answer yet
+  // Multi-node: the machine it runs on (card), its tag (the id is <id>@<tag>)
+  // and whether that machine can be reached now (tile): false = show it grey
+  // with its last known state. On a deck without other machines: "", "", true.
+  string machine = 47;
+  string machine_tag = 48;
+  bool reachable = 49;
 }
 
 message Activity {
