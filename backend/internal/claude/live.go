@@ -45,7 +45,7 @@ type claudeAgent struct {
 	Name      string `json:"name"`
 	State     string `json:"state"` // background: blocked | done | …
 	PID       int    `json:"pid"`
-	Status    string `json:"status"` // idle | busy
+	Status    string `json:"status"` // idle | busy | waiting (on a question or a permission, Claude Code 2.1.3xx)
 }
 
 // ActiveSessions asks Claude Code itself for every active session of one
@@ -79,7 +79,7 @@ func ActiveSessions(claudeBin, configDir string, projects []string, skipTTYs map
 		}
 		l := Live{PID: a.PID, TTY: ttys[a.PID], Cwd: a.Cwd, SessionID: a.SessionID,
 			Name: a.Name, Background: a.Kind == "background", ShortID: a.ID,
-			Busy: a.Status == "busy", Blocked: a.State == "blocked", Done: a.State == "done", Reported: true}
+			Busy: a.Status == "busy", Blocked: a.State == "blocked" || a.Status == "waiting", Done: a.State == "done", Reported: true}
 		if a.StartedAt > 0 {
 			l.Started = time.UnixMilli(a.StartedAt)
 		}
