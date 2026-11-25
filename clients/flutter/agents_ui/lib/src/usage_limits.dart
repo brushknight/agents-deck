@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import 'agents_model.dart';
@@ -186,6 +188,38 @@ class UsageContextRow extends StatelessWidget {
   Widget build(BuildContext ctx) {
     final w = weekOf(limits);
     final model = w == null || w.model.isEmpty ? '' : ' ${w.model}';
+    final label = 'USAGE · ${limits.name}$model'.toUpperCase();
+    final reset = w?.resetsAt == null ? '' : resetText(w!.resetsAt!);
+    final value = w == null ? '' : (w.out ? 'OUT' : limitValue(w));
+    return LayoutBuilder(
+      builder: (_, box) {
+        // Roboto Mono: every character is 0.6 em, so the row can tell what
+        // fits. Narrow (the menu bar): the reset time goes first, then
+        // segments, down to 8.
+        final ch = size * 0.6, gap = size * 0.8;
+        final labelW = math.min(size * 11, label.length * (ch + size * 0.1));
+        // Three gaps: after the label, after the segments, before "ctx".
+        final fixed =
+            labelW + 3 * gap + value.length * ch + ('ctx $context'.length) * ch;
+        var showReset = reset.isNotEmpty;
+        int fit(double room) =>
+            ((room + size * 0.6 / 4.5) / (size * 0.6 * (1 + 1 / 4.5))).floor();
+        var n = 26;
+        if (w != null) {
+          var room =
+              box.maxWidth - fixed - (showReset ? gap + reset.length * ch : 0);
+          if (fit(room) < 26 && showReset) {
+            showReset = false;
+            room = box.maxWidth - fixed;
+          }
+          n = fit(room).clamp(8, 26);
+        }
+        return _row(w, label, showReset ? reset : '', n);
+      },
+    );
+  }
+
+  Widget _row(LimitWindow? w, String label, String reset, int n) {
     return Row(
       key: const Key('agent-usage'),
       children: [
@@ -193,7 +227,7 @@ class UsageContextRow extends StatelessWidget {
         ConstrainedBox(
           constraints: BoxConstraints(maxWidth: size * 11),
           child: Text(
-            'USAGE · ${limits.name}$model'.toUpperCase(),
+            label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             softWrap: false,
@@ -202,13 +236,13 @@ class UsageContextRow extends StatelessWidget {
         ),
         if (w != null) ...[
           SizedBox(width: size * 0.8),
-          _Segments(w, n: 26, width: size * 0.6, height: size * 0.8),
+          _Segments(w, n: n, width: size * 0.6, height: size * 0.8),
           SizedBox(width: size * 0.8),
           _value(w),
-          if (w.resetsAt != null) ...[
+          if (reset.isNotEmpty) ...[
             SizedBox(width: size * 0.8),
             Text(
-              resetText(w.resetsAt!),
+              reset,
               maxLines: 1,
               softWrap: false,
               style: DeckHud.rm(size, _muted),
