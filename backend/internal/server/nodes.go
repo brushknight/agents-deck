@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 )
 
 // serveNode answers /node/v1/ on the device listener. Only the CA and the
@@ -39,7 +40,10 @@ func (s *Server) serveNode(w http.ResponseWriter, r *http.Request, d devices.Dev
 		return
 	}
 	s.Devices.Seen(d.Name)
+	s.Node.Heard(d.Name)
 	switch route {
+	case "POST /outbox":
+		s.Node.ServeOutbox(w, r, d)
 	case "GET /hello":
 		s.Node.ServeHello(w, r, d)
 	case "POST /join/finish":
@@ -53,7 +57,7 @@ func (s *Server) serveNode(w http.ResponseWriter, r *http.Request, d devices.Dev
 
 // MachineRow is one line of `agentctl machines` (GET /local/machines).
 type MachineRow struct {
-	Name     string    `json:"name"`
+	node.State
 	Address  string    `json:"address"`
 	Joined   time.Time `json:"joined"`
 	LastSeen time.Time `json:"lastSeen,omitzero"` // its last request here
@@ -74,8 +78,13 @@ func (s *Server) localMachines(mux *http.ServeMux) {
 			return
 		}
 		rows := []MachineRow{}
+		states := map[string]node.State{}
+		for _, st := range s.Node.States() {
+			states[st.Name] = st
+		}
 		for _, x := range s.Node.List() {
-			row := MachineRow{Name: x.Name, Address: x.Address, Joined: x.Joined, LastSeen: s.Node.LastSeen(x.Name)}
+			row := MachineRow{State: states[x.Name], Address: x.Address, Joined: x.Joined, LastSeen: s.Node.LastSeen(x.Name)}
+			row.Name = x.Name
 			if d, ok := s.Devices.Get(x.Name); ok {
 				row.Scope = string(d.Scope)
 			}

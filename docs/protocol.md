@@ -52,6 +52,7 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 | POST | `/v1/agents/{id}/pet/hatch` | – | `204`: hatches the agent's pet egg that is ready (`pet.ready`), once someone has seen it: the web does this when you open the agent or its pet. It gets its name, level and mystery hat, and every screen sees it. `409` when the egg isn't ready, has hatched already, or Agent pets is off; `404` unknown agent |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
+| GET | `/v1/machines` | – | `200` `{"machines": [{"name": "attic", "reachable": true, "rttMs": 38, "version": "0.6.0", "waiting": 0}]}`: the other machines of a multi-node workspace ([Machines](#machines-multi-node)); one that can't be reached has `"reachable": false` and `"awaySince"`, and screens call it "out of reach". `waiting` is how many calls wait in this machine's outbox for it. Empty without a workspace. `/v1/events` sends `event: machines` with the same body when one changes |
 | POST | `/v1/agents/{id}/handoff` | `{"account": "personal"}` | `200` `{"id": "k3f9a2"}` — continues a Claude session in another account, for when one runs out of usage: its transcript is copied into that account's folder and Claude resumes it there. An agent the deck started stops and comes back in the same slot (same `id`); a watched session keeps running in its own terminal and the copy starts as a new agent (its `id`) |
 | GET | `/v1/firmware/{board}/{version}` | – | `200` the app image (`application/octet-stream`, `ETag` and `X-Firmware-SHA256` its SHA-256); `206` for a `Range` request. **Network listener only, Deck Link boards only**: the board's certificate must belong to a board whose type runs that board's firmware (`403` otherwise), `503` while the service has no firmware catalog, `404` for a version it doesn't have. Every request is audited. A board fetches it after the deck's `FirmwareOffer` ([link/protocol.md](link/protocol.md#firmware-updates-over-wi-fi)); it is board management, not a command, so it has no Deck Link command of its own |
 
@@ -488,6 +489,27 @@ are in `audit.log` (`"action": "join"`, `"remove"`).
 | POST | `/node/v1/join/finish` | the machine that just joined | `{"cert"}`: this machine's certificate there |
 | GET | `/node/v1/hello` | nodes | `{"name", "version", "fingerprint"}` |
 | POST | `/node/v1/leave` | nodes | the caller forgot this machine; it is forgotten here too |
+| POST | `/node/v1/outbox` | nodes | `{"calls": [{"key", "seq", "by", "at", "method", "path", "body"}]}`, oldest first: run in order, each as the caller's `/v1` request (its scope, the audit log with who asked); a key seen before gets its first answer again. Answers `{"answers": [{"key", "code", "body", "at"}]}` |
+
+**The link.** Every machine keeps a connection to every other one: it dials the other's listener
+(the address in `machines.json`, the other's CA pinned, its own node certificate), sends a heartbeat
+(`GET /node/v1/hello`) every 10 seconds and keeps the connection open. Each pair of machines has
+two connections, one per direction; each carries what its dialer sends. A machine is reachable while a
+heartbeat answered, or it called this one, in the last 40 seconds; after that it is "out of reach"
+(the one word every screen uses for it). Reconnecting waits 1 second, doubling up to 60. Nothing on
+a machine waits for the link: its own agents, screens and API go on as before.
+
+**The outbox.** A call for another machine waits on disk (`outbox/<machine>/` in the data folder, in
+order, a key each) until that machine is reachable, then goes out, oldest first, in batches of 50 over
+`POST /node/v1/outbox`. Calls survive a restart; a call can be taken back until it goes. The other
+machine runs each call once: it keeps the keys it ran (and their answers) for 7 days, so a call sent
+again after a dropped connection gets its first answer. Answers are kept for their caller for a day.
+
+**State and events.** `GET /v1/machines` says, per machine, whether it is `reachable` (with `rttMs`),
+since when it isn't (`awaySince`), its version and how many calls wait for it; `/v1/events` sends
+`event: machines` with the same body when that changes. With `"onAway": "ask"` (the default in
+`config.json`; `"nothing"` turns it off), it also sends `event: machine.ask` with `{"machine",
+"since"}` once per absence, 10 minutes after a machine went out of reach.
 
 Every other device (a board, a phone) gets `403` on `/node/v1`; none of it is on `127.0.0.1:7340` or
 the unix socket. On a Linux machine with a firewall, port 7341 must be open for other machines to join

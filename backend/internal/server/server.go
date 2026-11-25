@@ -212,6 +212,13 @@ func (s *Server) api() *http.ServeMux {
 		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("GET /v1/machines", func(w http.ResponseWriter, r *http.Request) {
+		ms := []node.State{}
+		if s.Node != nil {
+			ms = s.Node.States()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"machines": ms})
+	})
 	mux.HandleFunc("POST /v1/stash", s.postStash)
 	mux.HandleFunc("POST /v1/magic/view", s.postMagicView)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
@@ -536,6 +543,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no")
 	ch, unsub := s.Store.Subscribe()
 	defer unsub()
+	var nodes <-chan node.Event // multi-node: "machines" when one's state changed, "machine.ask"
+	if s.Node != nil {
+		c, cancel := s.Node.Subscribe()
+		defer cancel()
+		nodes = c
+	}
 	rc := http.NewResponseController(w)
 	send := func() bool {
 		b, _ := json.Marshal(s.View(s.Store.Snapshot(), callerOf(r)))
@@ -564,6 +577,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if !send() {
 				return
 			}
+		case e := <-nodes:
+			var b []byte
+			if e.Kind == "machines" {
+				b, _ = json.Marshal(map[string]any{"machines": s.Node.States()})
+			} else {
+				b, _ = json.Marshal(e)
+			}
+			_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, b); err != nil {
+				return
+			}
+			fl.Flush()
 		case <-ping.C:
 			_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {

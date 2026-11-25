@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
@@ -94,13 +95,30 @@ func machinesList() error {
 	fmt.Fprintln(tw, "NAME\tSTATUS\tAGENTS\tWAITING\tADDRESS")
 	fmt.Fprintf(tw, "%s\tthis machine\t\t\t\n", r.Name)
 	for _, m := range r.Machines {
-		status := "joined " + m.Joined.Local().Format("Jan 2")
-		if !m.LastSeen.IsZero() {
-			status += " · seen " + humanAgo(time.Since(m.LastSeen)) + " ago"
+		waiting := ""
+		if m.Waiting > 0 {
+			waiting = fmt.Sprint(m.Waiting)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t\t\t%s\n", m.Name, status, m.Address)
+		fmt.Fprintf(tw, "%s\t%s\t\t%s\t%s\n", m.Name, machineStatus(m.State, time.Now()), waiting, m.Address)
 	}
 	return tw.Flush()
+}
+
+// machineStatus is the STATUS column: "online · 38 ms", or the away word
+// with since when ("out of reach since 10:31", or a day for older ones).
+func machineStatus(st node.State, now time.Time) string {
+	if st.Reachable {
+		return fmt.Sprintf("online · %d ms", st.RTTMs)
+	}
+	if st.AwaySince.IsZero() {
+		return node.AwayWord
+	}
+	since := st.AwaySince.Local()
+	when := since.Format("15:04")
+	if now.Sub(since) > 20*time.Hour {
+		when = since.Format("Jan 2 15:04")
+	}
+	return node.AwayWord + " since " + when
 }
 
 // scopeWords says what a scope lets a machine do.

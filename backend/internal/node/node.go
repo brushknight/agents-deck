@@ -58,6 +58,9 @@ type Manager struct {
 	Path       string // machines.json
 	DevicePort string // the port other machines reach this one on, e.g. "7341"
 
+	linkState // link.go
+	outboxes  // outbox.go
+
 	mu      sync.Mutex
 	codes   map[string]time.Time  // join code secret → expiry
 	pending map[string]pendingKey // a joining machine's name → the key this machine sent it a request for
@@ -217,6 +220,20 @@ func (m *Manager) drop(name string) error {
 	defer m.mu.Unlock()
 	ms := m.load()
 	delete(ms, name)
+	return m.save(ms)
+}
+
+// SetAddress changes where a machine is reached (its address changed).
+func (m *Manager) SetAddress(name, address string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ms := m.load()
+	x, ok := ms[name]
+	if !ok {
+		return fmt.Errorf("no machine called %q", name)
+	}
+	x.Address = address
+	ms[name] = x
 	return m.save(ms)
 }
 
