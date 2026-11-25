@@ -10,10 +10,12 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/brushknight/agents-deck/backend/internal/update"
@@ -547,5 +549,92 @@ func TestMissingPackage(t *testing.T) {
 	}
 	if _, err := u.Download(ctx); err == nil {
 		t.Fatal("downloaded a package that isn't there")
+	}
+}
+
+// macOS App Management refuses to let agentctl move the app bundle: the old
+// app stays, nothing restarts, and the error says what to allow.
+func TestApplyMacAppBlockedByAppManagement(t *testing.T) {
+	s := updatetest.New(t)
+	release(t, s, "0.2.0", map[string][]byte{"agents-deck_0.2.0_macos_arm64.zip": zipOf(t, map[string]string{
+		"agents deck.app/Contents/MacOS/agentctl": "agentctl 0.2.0", "agents deck.app/Contents/Info.plist": "<plist/>",
+	})})
+	u, sys := newUpdater(t, s, "0.1.0", update.KindApp)
+	u.GOOS, u.GOARCH = "darwin", "arm64"
+	app := macBundle(t, t.TempDir(), "0.1.0")
+	u.Exe = filepath.Join(app, "Contents", "MacOS", "agentctl")
+	if _, err := u.Download(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer update.FailRename(func(from, _ string) bool { return from == app }, syscall.EPERM)()
+
+	err := u.Apply(ctx)
+	var am *update.AppManagementError
+	if !errors.As(err, &am) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("want an App Management error, got %v", err)
+	}
+	for _, want := range []string{"App Management", "Privacy & Security", "nothing changed", s.Releases(t.TempDir()).PageURL("0.2.0")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message lacks %q: %s", want, err)
+		}
+	}
+	if b, _ := os.ReadFile(u.Exe); string(b) != "agentctl 0.1.0" || len(sys.detached) != 0 {
+		t.Errorf("the old app changed or restarted: %q %v", b, sys.detached)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(app), ".agents-deck-update-*")); len(left) != 0 {
+		t.Errorf("staging left: %v", left)
+	}
+}
+
+// A tray app that can't be swapped puts agentctl back: never half updated.
+func TestApplyArchiveRollsBack(t *testing.T) {
+	s := updatetest.New(t)
+	release(t, s, "0.2.0", map[string][]byte{
+		"agents-deck_0.2.0_linux_amd64.tar.gz": tarGz(t, map[string]string{"agents-deck/agents-deck": "app 0.2.0"}),
+	})
+	u, sys := newUpdater(t, s, "0.1.0", update.KindArchive)
+	u.AppDir = filepath.Join(t.TempDir(), "app")
+	os.MkdirAll(u.AppDir, 0o755)
+	os.WriteFile(filepath.Join(u.AppDir, "agents-deck"), []byte("app 0.1.0"), 0o755)
+	os.WriteFile(u.Exe, []byte("agentctl 0.1.0"), 0o755)
+	if _, err := u.Download(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer update.FailRename(func(from, _ string) bool { return from == u.AppDir }, syscall.EACCES)()
+
+	err := u.Apply(ctx)
+	if err == nil || !strings.Contains(err.Error(), "nothing was changed") {
+		t.Fatalf("want a rollback, got %v", err)
+	}
+	if b, _ := os.ReadFile(u.Exe); string(b) != "agentctl 0.1.0" {
+		t.Errorf("agentctl not put back: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(u.AppDir, "agents-deck")); string(b) != "app 0.1.0" || len(sys.detached) != 0 {
+		t.Errorf("app changed or restarted: %q %v", b, sys.detached)
+	}
+}
+
+// A separate agentctl on a Mac that has the app doesn't update itself: the
+// app does, so the two can't drift apart.
+func TestArchiveBesideMacAppDoesNotUpdate(t *testing.T) {
+	s := updatetest.New(t)
+	release(t, s, "0.2.0", nil)
+	u, sys := newUpdater(t, s, "0.1.0", update.KindArchive)
+	u.GOOS, u.GOARCH = "darwin", "arm64"
+	u.MacApp = macBundle(t, t.TempDir(), "0.1.0")
+	os.WriteFile(u.Exe, []byte("agentctl 0.1.0"), 0o755)
+
+	st, err := u.Check(ctx)
+	if err != nil || st.State != update.StateAvailable || !strings.Contains(st.Message, u.MacApp) || !strings.Contains(st.Message, "The agentctl command") {
+		t.Fatalf("check: %+v %v", st, err)
+	}
+	if _, err := u.Download(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Apply(ctx); !errors.Is(err, update.ErrNotSelfUpdating) {
+		t.Fatalf("apply: %v", err)
+	}
+	if b, _ := os.ReadFile(u.Exe); string(b) != "agentctl 0.1.0" || len(sys.detached) != 0 {
+		t.Errorf("agentctl changed or restarted: %q %v", b, sys.detached)
 	}
 }
