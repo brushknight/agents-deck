@@ -84,22 +84,29 @@ type Agent struct {
 	Slot int    `json:"slot"`
 	// AttentionSlot is its spot on the "Needs you" grid, 1..16 (4 x 4, by
 	// rows), or 0 while it isn't there. The service decides it (store/attention.go).
-	AttentionSlot int        `json:"attentionSlot"`
-	Title         string     `json:"title"`
-	AITitle       string     `json:"aiTitle"`
-	Tool          string     `json:"tool"`
-	Status        Status     `json:"status"`
-	StatusSince   time.Time  `json:"statusSince"`
-	Cwd           string     `json:"cwd"`
-	Folder        string     `json:"folder"`
-	Branch        string     `json:"branch"`
-	Model         string     `json:"model"`
-	ModelLabel    string     `json:"modelLabel"`
-	Effort        string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
-	Activity      *Activity  `json:"activity"`
-	LastPrompt    string     `json:"lastPrompt"`            // up to LastPromptMax characters; boards get the first 160
-	LastAnswer    string     `json:"lastAnswer"`            // its reply that ended its latest finished turn, as plain text; up to LastAnswerMax characters, boards get the first 160
-	LastAnswerAt  time.Time  `json:"lastAnswerAt,omitzero"` // when it gave that reply (zero: no answer yet)
+	AttentionSlot int       `json:"attentionSlot"`
+	Title         string    `json:"title"`
+	AITitle       string    `json:"aiTitle"`
+	Tool          string    `json:"tool"`
+	Status        Status    `json:"status"`
+	StatusSince   time.Time `json:"statusSince"`
+	Cwd           string    `json:"cwd"`
+	Folder        string    `json:"folder"`
+	Branch        string    `json:"branch"`
+	Model         string    `json:"model"`
+	ModelLabel    string    `json:"modelLabel"`
+	Effort        string    `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
+	Activity      *Activity `json:"activity"`
+	LastPrompt    string    `json:"lastPrompt"`            // up to LastPromptMax characters; boards get the first 160
+	LastAnswer    string    `json:"lastAnswer"`            // its reply that ended its latest finished turn, as plain text; up to LastAnswerMax characters, boards get the first 160
+	LastAnswerAt  time.Time `json:"lastAnswerAt,omitzero"` // when it gave that reply (zero: no answer yet)
+	// Multi-node: the machine it runs on and that machine's tag (its id here
+	// is <id>@<tag>); both empty on a deck without other machines.
+	// Reachable is false while that machine is out of reach (its last known
+	// state); always true for this machine's own agents.
+	Machine       string     `json:"machine,omitempty"`
+	MachineTag    string     `json:"machineTag,omitempty"`
+	Reachable     bool       `json:"reachable"`
 	Waiting       *Prompt    `json:"waiting"`
 	Error         *ErrInfo   `json:"error"`
 	Tokens        Tokens     `json:"tokens"`

@@ -253,6 +253,9 @@ func newRig(t *testing.T) *rig {
 	}
 	r.fl.heldNow = func() bool { return r.a.held(newPort) || r.a.held(usbPort) }
 	r.h = r.a.Handler()
+	// Background work (the firmware catalog goes to dir/releases) ends before
+	// the temp folder is removed: cleanups run last-registered first.
+	t.Cleanup(r.a.Wait)
 	return r
 }
 
