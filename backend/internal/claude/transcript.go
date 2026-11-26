@@ -27,6 +27,7 @@ type line struct {
 	GitBranch string `json:"gitBranch"`
 	AITitle   string `json:"aiTitle"`
 	Custom    string `json:"customTitle"`
+	Prompt    string `json:"lastPrompt"` // a "last-prompt" line: the session's latest prompt
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
 	ErrKind   string `json:"error"`  // on an API error: rate_limit, server_error, …
 	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
@@ -55,7 +56,8 @@ type line struct {
 var LimitHit func(transcript, text string, at time.Time)
 
 // Tail reads transcript lines appended since the last call and folds usage,
-// model, branch, Claude's own title and API errors into the agent.
+// model, branch, Claude's own title, a watched session's last prompt and API
+// errors into the agent.
 func Tail(e *store.Entry) bool {
 	if e.Transcript == "" {
 		return false
@@ -127,6 +129,16 @@ func Tail(e *store.Entry) bool {
 			case "ai-title":
 				if l.AITitle != "" && l.AITitle != e.A.AITitle {
 					e.A.AITitle, changed = l.AITitle, true
+				}
+			case "last-prompt":
+				// A watched session runs without the deck's hooks, so the
+				// UserPromptSubmit hook never sets its last prompt: take
+				// Claude's own record of it. Hooked agents keep the hook's.
+				if e.LiveTTY == "" && e.LiveAttach == "" || l.Prompt == "" {
+					continue
+				}
+				if p := clip(oneLine(l.Prompt), model.LastPromptMax); p != e.A.LastPrompt {
+					e.A.LastPrompt, changed = p, true
 				}
 			case "custom-title":
 				if l.Custom != e.CustomTitle {
