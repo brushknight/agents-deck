@@ -162,8 +162,8 @@ While the Mac is busy:
   a limit you picked) instead of "calm".
 - **It holds what can wait** (Hold queued prompts, on by default). Queued prompts wait, and the
   agent's queue marks each one Held. Prompts from an MCP client wait in the queue too, even for an
-  idle agent, and its `start_agent` is refused with "The Mac is busy (92% CPU for 4 minutes); try
-  again in a few minutes". What you type or press on the deck, a board or in the browser still goes
+  idle agent. Starting agents is never held: `start_agent`, `agentctl new` and the deck's **+** start
+  an agent at once, however busy the Mac is. What you type or press on the deck, a board or in the browser still goes
   in at once. **Send them now** on Home, or Send now over an agent's queue, lets the queued prompts
   go for this busy spell; the next one holds them again.
 - **It slows down the heaviest agent** (Slow down the heaviest agent, on by default, macOS only).
