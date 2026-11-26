@@ -23,6 +23,11 @@ import (
 type PortConfig struct {
 	Path string `json:"path"`
 	Baud int    `json:"baud,omitempty"` // default 115200
+	// USB is the board's USB identity, "vid:pid:serial" (an ESP32 on its own
+	// USB gives its MAC as the serial). The deck follows a registered board
+	// to another path by it: macOS names a port after its place on the hub.
+	// Empty for a port with no serial number; filled in when first seen.
+	USB string `json:"usb,omitempty"`
 }
 
 // PortStatus is what `agentctl link` shows for a port.
