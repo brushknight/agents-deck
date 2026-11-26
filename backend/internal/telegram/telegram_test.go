@@ -605,3 +605,16 @@ func TestStandIn(t *testing.T) {
 		}
 	}
 }
+
+// The app shows the code as "ABCD-2345": /start takes it with or without
+// the dash, or with a space.
+func TestPairCodeAsShown(t *testing.T) {
+	for _, typed := range []string{"/start ABCD-2345", "/start abcd 2345", "/start ABCD2345"} {
+		f := newFake(t)
+		h := newHarness(t, f, Config{ID: "default", PairCode: "ABCD2345", PairUntil: time.Now().Add(time.Minute)})
+		must(t, h.handle(context.Background(), msg(1, 42, typed)))
+		if h.Config().UserID != 42 {
+			t.Errorf("%q didn't pair", typed)
+		}
+	}
+}

@@ -19,10 +19,11 @@ import (
 // Config is one bridge's settings and progress. It holds no secret: the bot
 // token is in the keystore.
 type Config struct {
-	ID              string    `json:"id"`                 // a short name: "default", "design"…
-	UserID          int64     `json:"userId,omitempty"`   // the one Telegram account this bridge listens to
-	UserName        string    `json:"userName,omitempty"` // its name, for the prompt's first line
-	Agent           string    `json:"agent,omitempty"`    // the linked agent: every batch goes to it
+	ID              string    `json:"id"`                   // a short name: "default", "design"…
+	UserID          int64     `json:"userId,omitempty"`     // the one Telegram account this bridge listens to
+	UserName        string    `json:"userName,omitempty"`   // its name, for the prompt's first line
+	Agent           string    `json:"agent,omitempty"`      // the linked agent: every batch goes to it
+	AgentTitle      string    `json:"agentTitle,omitempty"` // its title, last known: the app names it after it ended
 	DebounceSeconds int       `json:"debounceSeconds,omitempty"`
 	Offset          int64     `json:"offset,omitempty"` // the next Telegram update to read
 	PairCode        string    `json:"pairCode,omitempty"`
@@ -371,6 +372,17 @@ func (b *Bridge) setErrRetry(s string, wait time.Duration) {
 	b.lastErr = s
 }
 
+// pairDigits is a pairing code as typed, without the dashes and spaces
+// the app shows it with ("8DHV-9PBT").
+func pairDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '-' || unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // handle takes one message: pairing, a command, or part of the open batch
 // (saved before it returns). Anyone but the paired account is ignored
 // without an answer.
@@ -382,7 +394,7 @@ func (b *Bridge) handle(ctx context.Context, m *Message) error {
 	cfg := b.Config()
 	if cfg.UserID == 0 || m.From.ID != cfg.UserID {
 		if cmd == "/start" && cfg.UserID == 0 && cfg.PairCode != "" && b.now().Before(cfg.PairUntil) &&
-			strings.EqualFold(arg, cfg.PairCode) {
+			strings.EqualFold(pairDigits(arg), pairDigits(cfg.PairCode)) {
 			if err := b.Update(func(c *Config) {
 				c.UserID, c.UserName, c.PairCode, c.PairUntil = m.From.ID, m.From.Name(), "", time.Time{}
 			}); err != nil {

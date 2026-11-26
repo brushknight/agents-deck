@@ -31,9 +31,11 @@ import (
 // in the audit log.
 func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore, demo bool) *telegram.Service {
 	who := devices.Device{Name: "telegram", Scope: devices.Act}
-	base := liveAPI()
+	var base string
 	if demo {
 		base, _ = standInAPI()
+	} else {
+		base = liveAPI()
 	}
 	s := &telegram.Service{
 		Keys:  keys,
