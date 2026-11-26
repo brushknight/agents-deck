@@ -360,3 +360,46 @@ func TestServiceRetryRemove(t *testing.T) {
 		t.Errorf("retry with no bridge: %d", code)
 	}
 }
+
+// Offline: the status says since when, and when the next try is.
+func TestServiceErrorSinceRetryAt(t *testing.T) {
+	f := newFake(t)
+	h := newService(t, f)
+	if code, out := h.do(t, "POST", `{"op":"setup","token":"`+testToken+`"}`); code != 200 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	f.srv.Close() // Telegram can't be reached
+	before := time.Now()
+	code, out := h.do(t, "POST", `{"op":"retry"}`)
+	var st BridgeStatus
+	json.Unmarshal([]byte(out), &st)
+	if code != 200 || st.Error == "" || st.ErrorSince.Before(before.Add(-time.Second)) || !st.RetryAt.After(st.ErrorSince) {
+		t.Fatalf("offline: %d %s", code, out)
+	}
+	if code, out := h.do(t, "GET", ""); code != 200 || !strings.Contains(out, `"errorSince"`) || !strings.Contains(out, `"retryAt"`) {
+		t.Fatalf("GET: %d %s", code, out)
+	}
+}
+
+// The linked agent's title is kept, so the app can name it once it has
+// ended or left the deck; unlink forgets it.
+func TestServiceAgentTitle(t *testing.T) {
+	f := newFake(t)
+	h := newService(t, f)
+	if code, out := h.do(t, "POST", `{"op":"setup","token":"`+testToken+`"}`); code != 200 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	if code, out := h.do(t, "POST", `{"op":"link","agent":"q601r3"}`); code != 200 || !strings.Contains(out, `"agentTitle":"Desk q601r3"`) {
+		t.Fatalf("link: %d %s", code, out)
+	}
+	h.Agent = func(id string) (AgentInfo, bool) { return AgentInfo{}, false } // it left the deck
+	if code, out := h.do(t, "GET", ""); code != 200 || !strings.Contains(out, `"agentTitle":"Desk q601r3"`) {
+		t.Fatalf("after it left: %d %s", code, out)
+	}
+	if b, _ := os.ReadFile(h.Path); !strings.Contains(string(b), `"agentTitle": "Desk q601r3"`) {
+		t.Fatalf("telegram.json:\n%s", b)
+	}
+	if code, out := h.do(t, "POST", `{"op":"unlink"}`); code != 200 || strings.Contains(out, "agentTitle") {
+		t.Fatalf("unlink: %d %s", code, out)
+	}
+}

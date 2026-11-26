@@ -19,10 +19,11 @@ import (
 // Config is one bridge's settings and progress. It holds no secret: the bot
 // token is in the keystore.
 type Config struct {
-	ID              string    `json:"id"`                 // a short name: "default", "design"…
-	UserID          int64     `json:"userId,omitempty"`   // the one Telegram account this bridge listens to
-	UserName        string    `json:"userName,omitempty"` // its name, for the prompt's first line
-	Agent           string    `json:"agent,omitempty"`    // the linked agent: every batch goes to it
+	ID              string    `json:"id"`                   // a short name: "default", "design"…
+	UserID          int64     `json:"userId,omitempty"`     // the one Telegram account this bridge listens to
+	UserName        string    `json:"userName,omitempty"`   // its name, for the prompt's first line
+	Agent           string    `json:"agent,omitempty"`      // the linked agent: every batch goes to it
+	AgentTitle      string    `json:"agentTitle,omitempty"` // its title, last known: the app names it after it ended
 	DebounceSeconds int       `json:"debounceSeconds,omitempty"`
 	Offset          int64     `json:"offset,omitempty"` // the next Telegram update to read
 	PairCode        string    `json:"pairCode,omitempty"`
@@ -68,16 +69,18 @@ type Bridge struct {
 	Logf    func(format string, args ...any)
 	Now     func() time.Time
 
-	mu      sync.Mutex
-	cfg     Config
-	open    *Batch
-	queue   []*Batch // ready and held, oldest first
-	timer   *time.Timer
-	retry   *time.Timer
-	ctx     context.Context
-	lastErr string
-	ignored int
-	loaded  bool
+	mu       sync.Mutex
+	cfg      Config
+	open     *Batch
+	queue    []*Batch // ready and held, oldest first
+	timer    *time.Timer
+	retry    *time.Timer
+	ctx      context.Context
+	lastErr  string
+	errSince time.Time // when the current error started
+	retryAt  time.Time // the next try after it
+	ignored  int
+	loaded   bool
 
 	work sync.Mutex // closing and delivering batches, one at a time
 }
@@ -156,6 +159,9 @@ type Status struct {
 	Waiting int    `json:"waiting,omitempty"`
 	Ignored int    `json:"ignored,omitempty"` // messages from accounts that aren't paired, since the service started
 	Error   string `json:"error,omitempty"`
+	// ErrorSince: when the current error started; RetryAt: the next try.
+	ErrorSince time.Time `json:"errorSince,omitzero"`
+	RetryAt    time.Time `json:"retryAt,omitzero"`
 	// HeldSince: when the oldest held batch came in; zero with none held.
 	HeldSince time.Time `json:"heldSince,omitzero"`
 	// HeldMessages: how many messages the held batches hold.
@@ -166,7 +172,7 @@ type Status struct {
 func (b *Bridge) Status() Status {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s := Status{Config: b.cfg, Error: b.lastErr, Ignored: b.ignored}
+	s := Status{Config: b.cfg, Error: b.lastErr, Ignored: b.ignored, ErrorSince: b.errSince, RetryAt: b.retryAt}
 	if b.open != nil {
 		s.Pending = len(b.open.Messages)
 	}
@@ -287,7 +293,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
-			b.setErr(err.Error())
+			b.setErrRetry(err.Error(), backoff)
 			if errors.Is(err, ErrUnauthorized) {
 				b.logf("%v", err)
 				return err
@@ -345,10 +351,36 @@ func (b *Bridge) Run(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bridge) setErr(s string) {
+func (b *Bridge) setErr(s string) { b.setErrRetry(s, 0) }
+
+// setErrRetry keeps an error, when it started and, with wait, when the
+// next try is; "" clears all three.
+func (b *Bridge) setErrRetry(s string, wait time.Duration) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	switch {
+	case s == "":
+		b.errSince, b.retryAt = time.Time{}, time.Time{}
+	case b.lastErr == "" || b.errSince.IsZero():
+		b.errSince = now
+	}
+	b.retryAt = time.Time{}
+	if s != "" && wait > 0 {
+		b.retryAt = now.Add(wait)
+	}
 	b.lastErr = s
-	b.mu.Unlock()
+}
+
+// pairDigits is a pairing code as typed, without the dashes and spaces
+// the app shows it with ("8DHV-9PBT").
+func pairDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '-' || unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // handle takes one message: pairing, a command, or part of the open batch
@@ -362,7 +394,7 @@ func (b *Bridge) handle(ctx context.Context, m *Message) error {
 	cfg := b.Config()
 	if cfg.UserID == 0 || m.From.ID != cfg.UserID {
 		if cmd == "/start" && cfg.UserID == 0 && cfg.PairCode != "" && b.now().Before(cfg.PairUntil) &&
-			strings.EqualFold(arg, cfg.PairCode) {
+			strings.EqualFold(pairDigits(arg), pairDigits(cfg.PairCode)) {
 			if err := b.Update(func(c *Config) {
 				c.UserID, c.UserName, c.PairCode, c.PairUntil = m.From.ID, m.From.Name(), "", time.Time{}
 			}); err != nil {

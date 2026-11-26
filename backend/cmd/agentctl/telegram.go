@@ -29,13 +29,19 @@ import (
 // in like any other: POST /v1/agents/{id}/prompt with "mode": "queue", as
 // the device "telegram" (scope act), so they wait for a busy agent and show
 // in the audit log.
-func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *telegram.Service {
+func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore, demo bool) *telegram.Service {
 	who := devices.Device{Name: "telegram", Scope: devices.Act}
+	var base string
+	if demo {
+		base, _ = standInAPI()
+	} else {
+		base = liveAPI()
+	}
 	s := &telegram.Service{
 		Keys:  keys,
 		Path:  filepath.Join(paths.Data(), "telegram.json"),
 		Dir:   filepath.Join(paths.Data(), "telegram"),
-		Base:  os.Getenv("AGENTS_DECK_TELEGRAM_API"), // tests: a stand-in for the Bot API ("": Telegram's)
+		Base:  base, // tests: a stand-in for the Bot API on this computer ("": Telegram's)
 		Limit: server.MaxPromptBytes,
 		Logf:  log.Printf,
 		Deliver: func(agent, text string) (telegram.Result, error) {
@@ -78,6 +84,36 @@ func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *tele
 		log.Printf("telegram: %v", err)
 	}
 	return s
+}
+
+// standInAPI reads AGENTS_DECK_TELEGRAM_API, a stand-in for the Bot API in
+// tests. Only an address on this computer counts (telegram.StandIn); any
+// other value is ignored, and the log says so. set: a stand-in is in use.
+func standInAPI() (base string, set bool) {
+	v := os.Getenv("AGENTS_DECK_TELEGRAM_API")
+	base, ok := telegram.StandIn(v)
+	if !ok {
+		log.Printf("telegram: AGENTS_DECK_TELEGRAM_API ignored: a stand-in Bot API must be on this computer (http://127.0.0.1:<port>)")
+	}
+	return base, base != ""
+}
+
+// liveAPI is the Bot API a real deck uses: always Telegram's. A real deck
+// never takes AGENTS_DECK_TELEGRAM_API (it would hand a real bot token to
+// whatever listens on that port); only a demo does. Set, it's ignored here
+// with a warning.
+func liveAPI() string {
+	if os.Getenv("AGENTS_DECK_TELEGRAM_API") != "" {
+		log.Printf("telegram: AGENTS_DECK_TELEGRAM_API ignored: only a demo (agentctl serve --demo) uses a stand-in Bot API")
+	}
+	return ""
+}
+
+// telegramInDemo: a demo runs the Telegram bridges only against a stand-in
+// Bot API on this computer, for tests; without one it runs none.
+func telegramInDemo() bool {
+	_, set := standInAPI()
+	return set
 }
 
 // telegramCmd: agentctl telegram [--bridge <id>] [setup | link <agent> | unlink | drop | pair | user <id> | off | status].

@@ -591,3 +591,30 @@ func TestSafeNamesAndClip(t *testing.T) {
 		t.Errorf("clip %q", c)
 	}
 }
+
+// The stand-in Bot API is only ever on this computer.
+func TestStandIn(t *testing.T) {
+	for v, want := range map[string]bool{
+		"": true, "http://127.0.0.1:17399": true, "http://localhost:8081/": true, "https://[::1]:9000": true, "http://127.0.0.2:80": true,
+		"https://api.telegram.org": false, "http://192.0.2.10:8081": false, "http://example.com": false, "junk": false,
+		"127.0.0.1:17399": false, "ftp://127.0.0.1": false, "http://user@127.0.0.1:1": false,
+	} {
+		base, ok := StandIn(v)
+		if ok != want || (!ok && base != "") {
+			t.Errorf("StandIn(%q) = %q, %v; want ok %v", v, base, ok, want)
+		}
+	}
+}
+
+// The app shows the code as "ABCD-2345": /start takes it with or without
+// the dash, or with a space.
+func TestPairCodeAsShown(t *testing.T) {
+	for _, typed := range []string{"/start ABCD-2345", "/start abcd 2345", "/start ABCD2345"} {
+		f := newFake(t)
+		h := newHarness(t, f, Config{ID: "default", PairCode: "ABCD2345", PairUntil: time.Now().Add(time.Minute)})
+		must(t, h.handle(context.Background(), msg(1, 42, typed)))
+		if h.Config().UserID != 42 {
+			t.Errorf("%q didn't pair", typed)
+		}
+	}
+}

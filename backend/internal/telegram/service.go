@@ -69,6 +69,8 @@ type run struct {
 	name   string        // the bot's display name
 	botID  int64
 	err    string
+	since  time.Time // when err started
+	retry  time.Time // the next try after it
 }
 
 type file struct {
@@ -250,7 +252,7 @@ func (s *Service) poll(ctx context.Context, id string, r *run) {
 				return
 			}
 			s.mu.Lock()
-			r.bot, r.name, r.botID, r.err = "@"+me.Username, me.FirstName, me.ID, ""
+			r.bot, r.name, r.botID, r.err, r.since, r.retry = "@"+me.Username, me.FirstName, me.ID, "", time.Time{}, time.Time{}
 			s.mu.Unlock()
 			s.logf("telegram %s: listening as @%s", id, me.Username)
 			break
@@ -260,6 +262,9 @@ func (s *Service) poll(ctx context.Context, id string, r *run) {
 			s.logf("telegram %s: %v", id, err)
 			return
 		}
+		s.mu.Lock()
+		r.retry = time.Now().Add(wait)
+		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return
@@ -286,7 +291,10 @@ func (s *Service) botTaken(id string, bot int64) string {
 
 func (s *Service) setErr(r *run, msg string) {
 	s.mu.Lock()
-	r.err = msg
+	if r.err == "" || r.since.IsZero() {
+		r.since = time.Now()
+	}
+	r.err, r.retry = msg, time.Time{}
 	s.mu.Unlock()
 }
 
@@ -299,14 +307,19 @@ type BridgeStatus struct {
 	UserID   int64  `json:"userId,omitempty"`
 	UserName string `json:"userName,omitempty"`
 	Agent    string `json:"agent,omitempty"`
-	Pending  int    `json:"pending,omitempty"`
-	Held     int    `json:"held,omitempty"`
-	Waiting  int    `json:"waiting,omitempty"`
-	Error    string `json:"error,omitempty"`
-	Inbox    string `json:"inbox"`
-	Ignored  int    `json:"ignored,omitempty"` // messages from other accounts, dropped (since the service started)
+	// AgentTitle: the linked agent's title, last known (kept after it ends or leaves the deck).
+	AgentTitle string `json:"agentTitle,omitempty"`
+	Pending    int    `json:"pending,omitempty"`
+	Held       int    `json:"held,omitempty"`
+	Waiting    int    `json:"waiting,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Inbox      string `json:"inbox"`
+	Ignored    int    `json:"ignored,omitempty"` // messages from other accounts, dropped (since the service started)
 	// PairUntil: while a pairing code waits for /start, when it runs out (the code itself is only in setup's or pair's answer).
 	PairUntil time.Time `json:"pairUntil,omitzero"`
+	// ErrorSince and RetryAt: with error, when it started and when the next try is (zero: none planned).
+	ErrorSince time.Time `json:"errorSince,omitzero"`
+	RetryAt    time.Time `json:"retryAt,omitzero"`
 	// HeldSince and HeldMessages: the held batches' oldest time and message count.
 	HeldSince    time.Time  `json:"heldSince,omitzero"`
 	HeldMessages int        `json:"heldMessages,omitempty"`
@@ -318,7 +331,7 @@ type BridgeStatus struct {
 
 func (s *Service) status(id string) BridgeStatus {
 	cfg, _ := s.config(id)
-	out := BridgeStatus{ID: id, UserID: cfg.UserID, UserName: cfg.UserName, Agent: cfg.Agent, Inbox: s.inbox(id)}
+	out := BridgeStatus{ID: id, UserID: cfg.UserID, UserName: cfg.UserName, Agent: cfg.Agent, AgentTitle: cfg.AgentTitle, Inbox: s.inbox(id)}
 	if cfg.UserID == 0 && cfg.PairCode != "" {
 		out.PairUntil = cfg.PairUntil
 	}
@@ -326,15 +339,18 @@ func (s *Service) status(id string) BridgeStatus {
 	r := s.runs[id]
 	if r != nil {
 		out.On, out.Bot, out.BotName, out.Error = true, r.bot, r.name, r.err
+		if r.err != "" {
+			out.ErrorSince, out.RetryAt = r.since, r.retry
+		}
 	}
 	s.mu.Unlock()
 	if r != nil {
 		st := r.bridge.Status()
-		out.UserID, out.UserName, out.Agent = st.UserID, st.UserName, st.Agent
+		out.UserID, out.UserName, out.Agent, out.AgentTitle = st.UserID, st.UserName, st.Agent, st.AgentTitle
 		out.Pending, out.Held, out.Waiting = st.Pending, st.Held, st.Waiting
 		out.Ignored, out.HeldSince, out.HeldMessages = st.Ignored, st.HeldSince, st.HeldMessages
 		if st.Error != "" {
-			out.Error = st.Error
+			out.Error, out.ErrorSince, out.RetryAt = st.Error, st.ErrorSince, st.RetryAt
 		}
 	} else if all, err := loadBatches(s.inbox(id)); err == nil {
 		for _, bt := range all {
@@ -349,7 +365,28 @@ func (s *Service) status(id string) BridgeStatus {
 			}
 		}
 	}
+	out.AgentTitle = s.refreshTitle(id, out.Agent, out.AgentTitle)
 	return out
+}
+
+// refreshTitle keeps the linked agent's title up to date while it is on
+// the deck and runs, so the app can name it once it has ended or gone.
+func (s *Service) refreshTitle(id, agent, known string) string {
+	if agent == "" || s.Agent == nil {
+		return known
+	}
+	info, ok := s.Agent(agent)
+	if !ok || info.Ended || info.Title == "" || info.Title == known {
+		return known
+	}
+	if err := s.update(id, func(c *Config) {
+		if c.Agent == agent {
+			c.AgentTitle = info.Title
+		}
+	}); err != nil {
+		s.logf("telegram %s: keeping the agent's title: %v", id, err)
+	}
+	return info.Title
 }
 
 // Request is POST /local/telegram.
@@ -499,6 +536,7 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 		if req.Agent == "" {
 			return http.StatusBadRequest, "which agent? agentctl telegram link <agent id>", x
 		}
+		title := ""
 		if s.Agent != nil {
 			info, ok := s.Agent(req.Agent)
 			if !ok {
@@ -507,6 +545,10 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 			if info.Ended {
 				return http.StatusConflict, req.Agent + " has ended: link an agent that runs", x
 			}
+			title = info.Title
+		}
+		if err := s.update(id, func(c *Config) { c.AgentTitle = title }); err != nil {
+			return http.StatusInternalServerError, err.Error(), x
 		}
 		if r := s.runOf(id); r != nil {
 			n, err := r.bridge.Link(req.Agent)
@@ -521,10 +563,13 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 	case "unlink":
 		// Messages from now on are held (and the bot says so) until a link.
 		if r := s.runOf(id); r != nil {
+			if err := r.bridge.Update(func(c *Config) { c.AgentTitle = "" }); err != nil {
+				return http.StatusInternalServerError, err.Error(), x
+			}
 			if _, err := r.bridge.Link(""); err != nil {
 				return http.StatusInternalServerError, err.Error(), x
 			}
-		} else if err := s.update(id, func(c *Config) { c.Agent = "" }); err != nil {
+		} else if err := s.update(id, func(c *Config) { c.Agent, c.AgentTitle = "", "" }); err != nil {
 			return http.StatusInternalServerError, err.Error(), x
 		}
 		s.logf("telegram %s: unlinked", id)
