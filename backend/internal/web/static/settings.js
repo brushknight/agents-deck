@@ -4301,7 +4301,7 @@ function drawAbout() {
     h('div', { class: 'lks' },
       lk('https://github.com/brushknight/agents-deck', 'Source and issues', 'github.com/brushknight/agents-deck · the licence'),
       lk('https://github.com/brushknight/agents-deck/tree/main/docs', 'Documentation', 'How the deck, boards and API work.'),
-      lk('https://brushknight.com/agents-deck', 'The web flasher', 'Firmware on a board from Chrome or Edge.')),
+      lk('https://agents-deck.sh/#boards', 'The web flasher', 'Firmware on a board from Chrome or Edge.')),
     h('div', { class: 'term' }, h('div', { class: 'bar' }, h('i', {}), 'In a terminal'), h('div', { class: 'body' },
       h('div', {}, h('span', { class: 'p' }, '$ '), h('span', { class: 'w' }, 'agentctl version')),
       h('div', { class: 'd' }, `agentctl ${sys.version || ''}`),

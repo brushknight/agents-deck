@@ -150,7 +150,7 @@ Wi-Fi, also in a copy built from source without the release key
 
 ### The web flasher
 
-The [web flasher](https://brushknight.com/agents-deck) flashes these images from the browser (Chrome or Edge, over Web Serial):
+The [web flasher](https://agents-deck.sh/#boards) flashes these images from the browser (Chrome or Edge, over Web Serial):
 pick a board, connect, install. It reads `firmware-manifest.json` from the latest release to list
 the boards, and hands the board's ESP Web Tools manifest to the installer.
 
