@@ -2,6 +2,7 @@
 // prompt and notices; touch, scrolling, holds and hit-testing.
 #include <assert.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "../sim/fixture.h"
@@ -114,7 +115,84 @@ static void checkScreens(const SquareSpec& S) {
     }
 }
 
+// Pets stay inside their tiles: a tall pet (a legend with a crown, hair)
+// draws nothing above or below its tile, in the grid and in the list, on
+// every square board.
+static void testPetStaysInTile() {
+  const uint16_t kGuard = 0xBEEF;
+  const Theme T = deckTheme(true);
+  for (const SquareSpec& S : {specAmoled18(), specLcd4(), specT4S3()}) {
+    const int W = S.w, H = S.h;
+    std::vector<uint16_t> mem((size_t)W * H);
+    Canvas c{mem.data(), W, H};
+    struct Case {
+      Rect r;
+      bool list;
+    };
+    std::vector<Case> cases;
+    if (S.home == HomeKind::Grid) cases.push_back({cellRect(S, gridGeom(S, 1), perPage(S) > 2 ? perPage(S) / 2 : 1), false});
+    else cases.push_back({listTile(S, 2, 0), true});
+    for (const Case& k : cases) {
+      const Rect r = k.r;
+      assert(r.w > 0 && r.h > 0 && r.y > 0 && r.y + r.h < H);
+      for (int stage = DECK_PET_BABY; stage <= DECK_PET_LEGEND; stage++) {
+        Agent a = mk("tall", 0, Status::Running);
+        a.pet = deck_pet_t{};
+        a.pet.has = true;
+        a.pet.stage = (uint8_t)stage;
+        a.pet.mood = DECK_PET_FED;
+        a.pet.level = 41;
+        a.pet.hat = deck_pet_hat_of("crown");
+        a.pet.hat_color = deck_pet_hat_color_of("yellow");
+        for (uint32_t ms = 0; ms < 4000; ms += 250) {
+          std::fill(mem.begin(), mem.end(), kGuard);
+          square_detail::tile(c, S, T, a, r, ms, 1795000000, k.list, false, 0);
+          for (int y = 0; y < H; y++) {
+            if (y >= r.y && y < r.y + r.h) continue;
+            for (int x = 0; x < W; x++) assert(mem[(size_t)y * W + x] == kGuard);
+          }
+        }
+      }
+    }
+  }
+}
+
+// The status square, the subagent badge and its "×3" stay on top of a tall
+// pet: their pixels are the same as on a tile with no pet.
+static void testBadgesOverPet() {
+  const Theme T = deckTheme(true);
+  for (const SquareSpec& S : {specAmoled18(), specLcd4(), specT4S3()}) {
+    const bool list = S.home != HomeKind::Grid;
+    const Rect r = list ? listTile(S, 2, 0) : cellRect(S, gridGeom(S, 1), perPage(S) > 2 ? perPage(S) / 2 : 1);
+    const square_detail::TileParts p = square_detail::tileParts(S, r, list);
+    std::vector<uint16_t> plain((size_t)S.w * S.h), withPet((size_t)S.w * S.h);
+    for (int stage = DECK_PET_KID; stage <= DECK_PET_LEGEND; stage++)
+    for (Status st : {Status::Running, Status::Waiting, Status::Idle}) {
+      Agent a = mk("tall", 0, st);
+      a.subagents = 3;
+      a.unseen = st == Status::Idle;   // an unseen idle tile is striped
+      for (uint32_t ms = 0; ms < 2000; ms += 250) {
+        Canvas c0{plain.data(), S.w, S.h};
+        a.pet = deck_pet_t{};
+        square_detail::tile(c0, S, T, a, r, ms, 1795000000, list, false, 0);
+        a.pet.has = true;
+        a.pet.stage = (uint8_t)stage;
+        a.pet.mood = DECK_PET_FED;
+        a.pet.level = 41;
+        a.pet.hat = deck_pet_hat_of("wizard");
+        Canvas c1{withPet.data(), S.w, S.h};
+        square_detail::tile(c1, S, T, a, r, ms, 1795000000, list, false, 0);
+        for (const Rect& b : {p.chip, p.sub, p.count})
+          for (int y = b.y; y < b.y + b.h; y++)
+            for (int x = b.x; x < b.x + b.w; x++) assert(plain[(size_t)y * S.w + x] == withPet[(size_t)y * S.w + x]);
+      }
+    }
+  }
+}
+
 int main() {
+  testBadgesOverPet();
+  testPetStaysInTile();
   const SquareSpec A = specAmoled18(), L = specLcd4();
 
   // ---- the spec's numbers

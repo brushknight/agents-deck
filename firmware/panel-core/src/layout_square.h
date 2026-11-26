@@ -869,6 +869,27 @@ static inline void stripes(Canvas& c, const Rect& r, uint16_t fill, uint16_t acc
   }
 }
 
+// The tile's background again in part b of tile r: its fill, and the stripes
+// in the same phase as stripes() drew them over the whole tile. It clears
+// what a pet drew there, under the badges.
+static inline void tileBg(Canvas& c, const Rect& r, const Rect& b, uint16_t fill, bool striped, uint16_t accent,
+                          uint32_t ms, int period, int clipTop) {
+  int y0 = b.y < clipTop ? clipTop : b.y;
+  if (y0 < c.top) y0 = c.top;
+  if (y0 >= b.y + b.h) return;
+  c.rect(b.x, y0, b.w, b.y + b.h - y0, fill);
+  if (!striped) return;
+  const uint16_t se = c.enc(blend565(fill, accent, 3));
+  const int shift = (int)((ms / 100) % 6) * period / 6, half = period / 2;
+  for (int py = y0; py < b.y + b.h && py < c.h; py++) {
+    uint16_t* row = c.px + (size_t)py * c.w;
+    for (int px = b.x < 0 ? 0 : b.x; px < b.x + b.w && px < c.w; px++) {
+      const int u = (((py - r.y) - shift) % period + period + (px - r.x)) % period;
+      if (u < half) row[px] = se;
+    }
+  }
+}
+
 // The 4" tile's border as a context gauge: `pct` of the perimeter, clockwise
 // from the top centre, over a faint track (ContextRingPainter).
 static inline void ring(Canvas& c, const Rect& r, int t, int pct, uint16_t color, uint16_t track) {
@@ -951,6 +972,20 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
   if (k.stripes) stripes(c, r, k.fill, T.accent, ms, list ? 32 : 24, clipTop);
   SQ_ADD(other, ts);
   SQ_T0(t1);
+  {
+    // The pet stays inside its tile: a tall one (hair, a crown, a hat) is cut
+    // at the tile's top and bottom instead of drawing over the tile above.
+    // Every primitive clips to rows top..h-1, so a copy narrowed to the
+    // tile's rows does it.
+    Canvas pc = c;
+    if (pc.top < r.y) pc.top = r.y;
+    if (pc.h > r.y + r.h) pc.h = r.y + r.h;
+    if (pc.top < pc.h) drawCritter(pc, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
+  }
+  // The status square, the subagent and its count go on top of the pet, on
+  // their own patch of the tile's background, so a tall one never hides them.
+  for (const Rect& b : {p.chip, p.sub, p.count})
+    tileBg(c, r, b, k.fill, k.stripes, T.accent, ms, list ? 32 : 24, clipTop);
   c.rect(p.chip.x, p.chip.y, p.chip.w, p.chip.h, k.chip);
   if (a.subagents) {
     const Pose sp = a.subTool[0] ? poseOfTool(a.subTool) : Pose::Think;
@@ -962,7 +997,6 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
       c.text(*S.tileMeta, p.count.x, p.count.y, n, k.meta, p.count.w);
     }
   }
-  drawCritter(c, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
   SQ_ADD(sprite, t1);
   SQ_T0(t2);
   textCentered(c, *S.tileTitle, r.x + r.w / 2, p.name.y, a.title[0] ? a.title : a.id, k.label, p.name.w);
