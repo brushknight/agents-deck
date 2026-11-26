@@ -144,6 +144,27 @@ cmux and Orca; sessions started by hand in another terminal stay read-only. Ever
 against the token's scope and audited under its name. [mcp.md](mcp.md) has the tools and the
 security model.
 
+## Telegram: messages to one agent
+
+A Telegram bot can feed one agent. Whatever you send or forward to the bot (text, photos, albums, files,
+video, voice, stickers) goes to its linked agent as one prompt, a few quiet seconds after the last
+message. The agent gets the text, who wrote a forwarded message and when, and the absolute path of every
+file, next to the message it came with. Set it up with `agentctl telegram` ([install.md](install.md#telegram)).
+
+- **One account.** The bot listens to the one Telegram account that paired with it. Anyone else, and any
+  group, gets no answer.
+- **One agent.** `agentctl telegram link <agent>` picks it; every batch goes there, queued while the agent
+  is busy. The bot answers each batch: `Queued for k3f9a2 (2nd in line): 4 messages, 3 images, 1 file`.
+  `/status` in Telegram says where things stand.
+- **Nothing is lost.** Each message is saved in the bridge's inbox (`telegram/<bridge>/inbox/<date>/<batch>/`
+  in the data folder) before Telegram is told it was read. If the linked agent has ended, batches are held
+  there, in order, and the bot says so; linking an agent delivers them.
+- **Files.** Saved in the batch's folder with their own names. Telegram doesn't let bots download files over
+  20 MB: those, and any file that fails after three tries, are named in the prompt and the answer, so you
+  can open them in Telegram.
+- **Several bots.** Each bridge is one bot, one account and one agent; `--bridge <id>` picks one when there
+  are several. One bot can't serve two bridges.
+
 ## When the Mac is busy
 
 The deck watches how busy the whole computer is (100% means every core busy). When the CPU stays

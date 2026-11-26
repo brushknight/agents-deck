@@ -75,6 +75,7 @@ _agentctl() {
     'pair:pair a device'
     'devices:paired devices and boards'
     'machines:the machines of a multi-node workspace'
+    'telegram:messages from a Telegram bot to an agent'
     'doctor:is this computer ready to run agents'
     'link:Deck Link boards (USB or Wi-Fi)'
     'ports:USB ports and what is on them'
@@ -165,6 +166,14 @@ _agentctl() {
           'waiting:calls waiting for a machine' 'cancel:take a waiting call back')
         _describe -t machines 'machines command' sub
       elif (( CURRENT == 4 )) && [[ ${words[3]} == remove ]]; then _agentctl_values machines 'machines'
+      fi ;;
+    telegram)
+      if (( CURRENT == 3 )); then
+        local -a sub; sub=('status:the bridges and where messages go' 'setup:store a bot token and pair'
+          'link:the agent a bridge sends to' 'pair:pair your Telegram account again'
+          'user:pair by Telegram user id' 'off:forget a bridge'"'"'s bot token')
+        _describe -t telegram 'telegram command' sub
+      elif (( CURRENT == 4 )) && [[ ${words[3]} == link ]]; then _agentctl_agents
       fi ;;
     link)
       if (( CURRENT == 3 )); then

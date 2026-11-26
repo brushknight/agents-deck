@@ -152,6 +152,9 @@ type Server struct {
 	// Guard holds what can wait while the computer is busy (cpuguard):
 	// queued prompts. Starting agents is never held. nil: nothing is held.
 	Guard Holder
+	// Telegram answers agentctl telegram on the unix socket only
+	// (/local/telegram, telegram.Service). nil: no bridge.
+	Telegram http.Handler
 	// DeviceURL is how devices reach the network listener (https://host:port).
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
@@ -741,6 +744,9 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
 	mux.HandleFunc("/local/mcp", s.serveMCP) // agentctl mcp (stdio): still needs a token
+	if s.Telegram != nil {
+		mux.Handle("/local/telegram", s.Telegram)
+	}
 	mux.HandleFunc("POST /local/link/wifi", s.linkWifi)
 	mux.HandleFunc("POST /local/link/wifi-default", s.linkWifiDefault)
 	mux.HandleFunc("/local/link/firmware", s.linkFirmware)
