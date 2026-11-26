@@ -328,3 +328,35 @@ func TestServiceUnlinkDropRecent(t *testing.T) {
 		t.Fatalf("recent after drop: %s", out)
 	}
 }
+
+// What the app needs: the bot's name, when the pairing code runs out, a try
+// now, and removing a bridge (its held messages dropped, token and pairing
+// forgotten).
+func TestServiceRetryRemove(t *testing.T) {
+	f := newFake(t)
+	h := newService(t, f)
+	code, out := h.do(t, "POST", `{"op":"setup","token":"`+testToken+`"}`)
+	var st BridgeStatus
+	json.Unmarshal([]byte(out), &st)
+	if code != 200 || st.BotName == "" || st.PairUntil.IsZero() || time.Until(st.PairUntil) > PairTTL {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	if code, out := h.do(t, "POST", `{"op":"user","userId":42}`); code != 200 || strings.Contains(out, "pairUntil") {
+		t.Fatalf("user: %d %s", code, out)
+	}
+	if code, out := h.do(t, "POST", `{"op":"retry"}`); code != 200 || !strings.Contains(out, `"on":true`) {
+		t.Fatalf("retry: %d %s", code, out)
+	}
+	if code, out := h.do(t, "POST", `{"op":"remove"}`); code != 200 || strings.Contains(out, testToken) {
+		t.Fatalf("remove: %d %s", code, out)
+	}
+	if _, err := h.keys.Load(TokenName("default")); err == nil {
+		t.Error("the token is still in the keystore")
+	}
+	if code, out := h.do(t, "GET", ""); code != 200 || strings.Contains(out, `"id":"default"`) {
+		t.Fatalf("after remove: %d %s", code, out)
+	}
+	if code, _ := h.do(t, "POST", `{"op":"retry"}`); code != 400 {
+		t.Errorf("retry with no bridge: %d", code)
+	}
+}

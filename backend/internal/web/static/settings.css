@@ -51,6 +51,7 @@
   --orange2: #FF6A2E;
   --ok: #6FD69A;
   --bad: #F2766B;
+  --wait: #E8B94A;
   --f-text: "Inter", system-ui, -apple-system, sans-serif;
   --f-mono: "Roboto Mono", ui-monospace, Menlo, monospace;
   --f-serif: "Instrument Serif", Georgia, serif;
@@ -1319,3 +1320,64 @@ svg.pet.prdy { animation: pglow 1.6s ease-in-out infinite; }
 .tile.uout { border: 1px dashed var(--orange); --body: var(--dim); }
 .tile.uout .tm { color: var(--orange2); }
 .tile.uout .spr { opacity: 0.55; }
+
+/* ---------- Telegram: bridges from a bot to an agent (new arrangements of the kit's parts) ---------- */
+.tgsteps { display: flex; border: 1px solid var(--rule); list-style: none; margin: 0; padding: 0; flex: none; }
+.tgsteps li { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border-left: 1px solid var(--rule); white-space: nowrap; overflow: hidden; }
+.tgsteps li:first-child { border-left: 0; }
+.tgsteps b { width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--edge); font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.tgsteps li.on { color: var(--ink); background: var(--block); font-weight: 700; }
+.tgsteps li.on b { background: var(--orange); border-color: var(--orange); color: var(--term); }
+.tgsteps li.done b { background: var(--rule); border-color: var(--rule); color: var(--ok); }
+.tgflow { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.tgflow.tight { gap: 10px; }
+.tgflow > .actions { gap: 10px; }
+.tgflow.tight > .actions { margin-top: 4px; }
+.tgbot { background: var(--panel); }
+input.bad, input[type="password"].bad { border-color: var(--bad); }
+.tgwait { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tgwait > .sub { margin-left: auto; }
+.tgwait .btn.link { font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.tgcoderow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tgcode { flex: 1 1 260px; padding: 14px 18px; min-width: 0; }
+.tgcode.old { opacity: 0.5; flex: none; padding: 10px 14px; }
+.tgcode.old .bigcode { font-size: 20px; line-height: 28px; }
+.bigcode { font-family: var(--f-mono); font-size: 30px; line-height: 40px; font-weight: 700; color: var(--ink); letter-spacing: 0.04em; white-space: nowrap; }
+.tgslot { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px dashed var(--rule); color: #8A867D; font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tgslot .pl { font-size: 18px; line-height: 1; }
+.tgslot .sub { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.tgstates { display: flex; flex-direction: column; gap: 14px; }
+.tgcard { background: var(--ground); border: 2px solid var(--term); padding: 22px 26px; display: flex; flex-direction: column; gap: 14px; }
+.tgline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.tgline .nm { flex: 1 0 auto; }
+.eyebrow.bad { color: var(--bad); }
+.eyebrow.wait { color: var(--wait); }
+.eyebrow.mut { color: var(--muted); }
+.chip.wait { color: var(--wait); border-color: rgba(232, 185, 74, 0.5); }
+.btn.linked { border-color: rgba(111, 214, 154, 0.6); color: var(--ok); font-weight: 700; }
+.btn.linked:hover:not(:disabled) { border-color: var(--ok); }
+.btn.link.mut { color: var(--soft); }
+.btn.link.mut:hover:not(:disabled) { color: var(--ink); }
+.tgrow { min-height: 72px; flex-wrap: nowrap; }
+.tgrow > .r { gap: 0; }
+.tgrow > .r > .chip { margin-right: 10px; }
+.tgrow > .r > .btn.link:nth-last-child(2) { margin-left: 20px; }
+.tgrow > .r > .btn.link:last-child { margin-left: 24px; }
+.tgmenu { position: relative; display: inline-flex; }
+.tgmenu-list { position: absolute; z-index: 8; top: calc(100% + 6px); right: 0; width: 260px; background: var(--panel); border: 1px solid var(--edge); box-shadow: 6px 6px 0 var(--term); display: flex; flex-direction: column; }
+.tgmenu-list > * { display: block; width: 100%; text-align: left; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--rule); background: none; font-weight: 500; cursor: pointer; border-radius: 0; }
+.tgmenu-list > *:last-child { border-bottom: 0; }
+.tgmenu-list > *:hover, .tgmenu-list > *:focus-visible { background: var(--block); outline-offset: -3px; }
+.tgmenu-list .bad { color: var(--bad); }
+.face.tgface { width: 54px; height: 40px; background: var(--term); }
+.face.tgface.sm { height: 36px; }
+.opt.p .h { color: var(--term); }
+.face.tgface .spr { width: 30px; }
+.opt.p .face.tgface { border-color: var(--term); }
+.tgopt { display: flex; flex-direction: column; min-width: 0; }
+.opt.p .tgopt .sub { color: var(--term); }
+.tgall { align-self: flex-start; margin-top: 4px; }
+.tgd .tgt { width: 70px; flex: none; color: var(--muted); font-size: 12px; }
+.tgd .nm.tgs { font-weight: 500; }
+.tgd .sub.cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tgd.drop { min-height: 44px; }
