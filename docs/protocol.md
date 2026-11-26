@@ -308,7 +308,9 @@ known shape (Anthropic, OpenAI, GitHub, Slack, AWS, Google, Stripe, Paddle, `adk
 Tokens, private key blocks), the value after `Bearer`, after a password, token, secret or API key name
 (`API_KEY=…`), a password in a URL, and any other long run of letters and digits that looks random.
 So `/v1`, the dashboard, MCP, Deck Link and the saved state only hold the redacted text. A queued
-prompt is listed redacted and typed into the agent as it was sent.
+prompt is listed redacted and typed into the agent as it was sent. Sessions the deck didn't start are
+read the same way: their titles in `/v1/live` and MCP `list_sessions`, and the titles and last prompts
+in `agentctl sessions`.
 
 **Scopes.** Each device has one:
 

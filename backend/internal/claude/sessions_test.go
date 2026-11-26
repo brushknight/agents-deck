@@ -59,6 +59,25 @@ func TestScanSessions(t *testing.T) {
 	}
 }
 
+// The picker never shows a secret typed into a session.
+func TestScanSessionsRedacts(t *testing.T) {
+	dir := t.TempDir()
+	key := "pdl" + "_live_apikey_" + strings.Repeat("Q7mZp2Xk9R", 3) // made up
+	writeSession(t, dir, "-work-api", "11111111-2222-4333-8444-555555555555",
+		`{"type":"user","cwd":"/work/api"}`,
+		`{"type":"ai-title","aiTitle":"Rotate `+key+`"}`,
+		`{"type":"custom-title","customTitle":"key `+key+`"}`,
+		`{"type":"last-prompt","lastPrompt":"new token `+key+`"}`)
+	got, err := ScanSessions(dir)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %+v", err, got)
+	}
+	s := got[0]
+	if s.LastPrompt != "new token [redacted:paddle]" || s.AITitle != "Rotate [redacted:paddle]" || s.Custom != "key [redacted:paddle]" {
+		t.Fatalf("not redacted: %+v", s)
+	}
+}
+
 func TestMatchAndFind(t *testing.T) {
 	all := []SessionInfo{
 		{ID: "11111111-2222-4333-8444-555555555555", AITitle: "Fix refresh token race", Cwd: "/work/api", Branch: "main"},
