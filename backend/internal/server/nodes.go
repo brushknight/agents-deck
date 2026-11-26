@@ -47,6 +47,8 @@ func (s *Server) serveNode(w http.ResponseWriter, r *http.Request, d devices.Dev
 		s.Node.ServeOutbox(w, r, d)
 	case "POST /index":
 		s.Node.ServeIndex(w, r, d)
+	case "POST /act":
+		s.Node.ServeAct(w, r, d)
 	case "GET /hello":
 		s.Node.ServeHello(w, r, d)
 	case "POST /join/finish":
@@ -141,6 +143,34 @@ func (s *Server) localMachines(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"name": b.Name, "told": told})
 	})
+	mux.HandleFunc("GET /local/outbox", func(w http.ResponseWriter, r *http.Request) {
+		if !need(w) {
+			return
+		}
+		rows := []OutboxRow{}
+		for _, x := range s.Node.List() {
+			rows = append(rows, OutboxRow{Machine: x.Name, Waiting: s.Node.Waiting(x.Name), Answers: s.Node.Answers(x.Name)})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"outbox": rows})
+	})
+	mux.HandleFunc("POST /local/outbox/cancel", func(w http.ResponseWriter, r *http.Request) {
+		if !need(w) {
+			return
+		}
+		var b struct{ Key string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&b); err != nil || b.Key == "" {
+			writeErr(w, http.StatusBadRequest, `body must be {"key": "…"}`)
+			return
+		}
+		for _, x := range s.Node.List() {
+			if s.Node.Cancel(x.Name, b.Key) {
+				s.Audit.Log(devices.AuditEntry{Device: "local", Action: "cancel waiting call", Status: http.StatusNoContent, Detail: "for " + x.Name + ", key " + b.Key})
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		writeErr(w, http.StatusNotFound, "no waiting call with that key (it went already, or was cancelled)")
+	})
 	mux.HandleFunc("POST /local/machines/leave", func(w http.ResponseWriter, r *http.Request) {
 		if !need(w) {
 			return
@@ -162,6 +192,14 @@ func (s *Server) RunNode(ctx context.Context) {
 	n := s.Node
 	n.LocalAgents = func() []model.Agent { return s.Store.LocalSnapshot().Agents }
 	n.Changed = s.Store.Touch
+	if n.Exec == nil {
+		// A call from another machine runs as its /v1 API would for that
+		// machine's device: the same scope check and audit, plus who asked.
+		n.Exec = func(from devices.Device, c node.Call) (int, []byte) {
+			s.Audit.Log(devices.AuditEntry{Device: from.Name, Action: c.Method + " " + c.Path, Detail: "from " + from.Name + ", asked by " + c.By + ", key " + c.Key})
+			return s.Dispatch(from, c.Method, c.Path, c.Body)
+		}
+	}
 	s.Store.Machine = func() string {
 		if len(n.List()) == 0 {
 			return ""
@@ -194,4 +232,55 @@ func (s *Server) RunNode(ctx context.Context) {
 		}
 	}()
 	go n.Run(ctx)
+}
+
+// forward sends a call for another machine's agent (<id>@<tag>) to that
+// machine as the same call on its own id: now when it can be reached (the
+// answer comes back as if the agent were here), else into its outbox: 202
+// {"waiting": machine, "position": n, "key"}. Both machines' audit logs say
+// who asked.
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, id string) {
+	machine, localID, ok := s.Node.RemoteOwner(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "no machine of this workspace has the tag in "+id)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	path := "/v1/agents/" + localID + strings.TrimPrefix(r.URL.Path, "/v1/agents/"+id)
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+	by := callerOf(r) + "@" + s.Node.Name
+	a, queued, pos, err := s.Node.Forward(r.Context(), machine, by, r.Method, path, body)
+	entry := devices.AuditEntry{Device: callerOf(r), Action: "forward " + r.Method + " " + r.URL.Path}
+	switch {
+	case err != nil:
+		entry.Status, entry.Detail = http.StatusServiceUnavailable, "to "+machine+": "+err.Error()
+		s.Audit.Log(entry)
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+	case queued != nil:
+		entry.Status, entry.Detail = http.StatusAccepted, "waits for "+machine+", key "+queued.Key
+		s.Audit.Log(entry)
+		writeJSON(w, http.StatusAccepted, map[string]any{"waiting": machine, "position": pos, "key": queued.Key})
+	default:
+		entry.Status, entry.Detail = a.Code, "ran on "+machine
+		s.Audit.Log(entry)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(a.Code)
+		if len(a.Body) > 0 && a.Code != http.StatusNoContent {
+			_, _ = w.Write(a.Body)
+		}
+	}
+}
+
+// OutboxRow is one machine's part of GET /local/outbox: its waiting calls,
+// oldest first, and its recent answers, newest first.
+type OutboxRow struct {
+	Machine string        `json:"machine"`
+	Waiting []node.Call   `json:"waiting"`
+	Answers []node.Answer `json:"answers"`
 }

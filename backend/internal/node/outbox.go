@@ -74,12 +74,16 @@ func (m *Manager) outboxDir(name string) string { return filepath.Join(m.Dir, "o
 // Enqueue keeps a call for a machine and wakes its link. It returns the call
 // with its key and place.
 func (m *Manager) Enqueue(machine, by, method, path string, body []byte) (Call, error) {
-	if _, ok := m.Get(machine); !ok {
-		return Call{}, fmt.Errorf("no machine called %q", machine)
-	}
 	k := make([]byte, 8)
 	if _, err := rand.Read(k); err != nil {
 		return Call{}, err
+	}
+	return m.enqueue(machine, hex.EncodeToString(k), by, method, path, body)
+}
+
+func (m *Manager) enqueue(machine, key, by, method, path string, body []byte) (Call, error) {
+	if _, ok := m.Get(machine); !ok {
+		return Call{}, fmt.Errorf("no machine called %q", machine)
 	}
 	m.omu.Lock()
 	dir := m.outboxDir(machine)
@@ -87,7 +91,7 @@ func (m *Manager) Enqueue(machine, by, method, path string, body []byte) (Call, 
 		m.omu.Unlock()
 		return Call{}, err
 	}
-	c := Call{Key: hex.EncodeToString(k), Seq: m.nextSeq(dir), By: by, At: m.clock().UTC(), Method: method, Path: path, Body: body}
+	c := Call{Key: key, Seq: m.nextSeq(dir), By: by, At: m.clock().UTC(), Method: method, Path: path, Body: body}
 	err := writeJSONFile(filepath.Join(dir, fmt.Sprintf("%012d.json", c.Seq)), c)
 	m.omu.Unlock()
 	if err != nil {
@@ -155,6 +159,21 @@ func (m *Manager) Cancel(machine, key string) bool {
 		}
 	}
 	return false
+}
+
+// Answers is a machine's recent answers to this machine's calls, newest first.
+func (m *Manager) Answers(machine string) []Answer {
+	dir := filepath.Join(m.outboxDir(machine), "results")
+	ents, _ := os.ReadDir(dir)
+	var out []Answer
+	for _, e := range ents {
+		var a Answer
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && json.Unmarshal(b, &a) == nil {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
+	return out
 }
 
 // Result is the other machine's answer to a call, once it came.
@@ -233,23 +252,76 @@ func (m *Manager) ServeOutbox(w http.ResponseWriter, r *http.Request, from devic
 	seen := m.loadSeen(from.Name)
 	var out []Answer
 	for _, c := range in.Calls {
-		if a, ok := seen[c.Key]; ok {
-			out = append(out, a)
-			continue
-		}
-		code, body := http.StatusNotImplemented, []byte(`{"error":"this machine runs no calls from others yet"}`)
-		if m.Exec != nil {
-			code, body = m.Exec(from, c)
-		}
-		a := Answer{Key: c.Key, Code: code, At: m.clock().UTC()}
-		if json.Valid(body) {
-			a.Body = body
-		}
-		seen[c.Key] = a
-		m.saveSeen(from.Name, seen) // before the next call: a crash never runs one twice
-		out = append(out, a)
+		out = append(out, m.runOnce(from, seen, c))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"answers": out})
+}
+
+// ServeAct: POST /node/v1/act from a node: one call, now (the owner was
+// reachable). The same keys as the outbox, so a call that was sent live,
+// timed out, and then went through the outbox runs once.
+func (m *Manager) ServeAct(w http.ResponseWriter, r *http.Request, from devices.Device) {
+	var c Call
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&c); err != nil || c.Key == "" {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	m.rmu.Lock()
+	a := m.runOnce(from, m.loadSeen(from.Name), c)
+	m.rmu.Unlock()
+	writeJSON(w, http.StatusOK, a)
+}
+
+// runOnce runs a call from a machine unless its key ran before, and keeps
+// the answer under the key (before anything else runs: a crash never runs
+// one twice). rmu held.
+func (m *Manager) runOnce(from devices.Device, seen map[string]Answer, c Call) Answer {
+	if a, ok := seen[c.Key]; ok {
+		return a
+	}
+	code, body := http.StatusNotImplemented, []byte(`{"error":"this machine runs no calls from others"}`)
+	if m.Exec != nil {
+		code, body = m.Exec(from, c)
+	}
+	a := Answer{Key: c.Key, Code: code, At: m.clock().UTC()}
+	if json.Valid(body) {
+		a.Body = body
+	}
+	seen[c.Key] = a
+	m.saveSeen(from.Name, seen)
+	return a
+}
+
+// Forward runs a call on another machine: now, over this machine's dial,
+// when it is reachable; else (or when the live call doesn't get through) it
+// waits in the outbox, with the same key so it can't run twice. queued is
+// the waiting call (and its place in line) when it didn't run now.
+func (m *Manager) Forward(ctx context.Context, machine, by, method, path string, body []byte) (a Answer, queued *Call, position int, err error) {
+	k := make([]byte, 8)
+	if _, err := rand.Read(k); err != nil {
+		return Answer{}, nil, 0, err
+	}
+	key := hex.EncodeToString(k)
+	if m.reachable(machine) {
+		c, x, err := m.linkClient(machine)
+		if err == nil {
+			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			call := Call{Key: key, By: by, At: m.clock().UTC(), Method: method, Path: path, Body: body}
+			_, err = post(cctx, c, "https://"+x.Address+"/node/v1/act", call, &a)
+			cancel()
+			if err == nil {
+				return a, nil, 0, nil
+			}
+		}
+	}
+	if method == http.MethodGet { // reading waits for nobody
+		return Answer{}, nil, 0, fmt.Errorf("%s is %s", machine, AwayWord)
+	}
+	c, err := m.enqueue(machine, key, by, method, path, body)
+	if err != nil {
+		return Answer{}, nil, 0, err
+	}
+	return Answer{}, &c, m.Pending(machine), nil
 }
 
 func (m *Manager) seenPath(from string) string {

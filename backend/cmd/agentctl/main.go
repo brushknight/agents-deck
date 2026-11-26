@@ -1408,12 +1408,6 @@ func serve(args []string) error {
 				Path: paths.Machines(), DevicePort: port}
 			srv.Node.Dir = paths.Data()
 			srv.Node.OnAway = func() string { return loadConfig().OnAway }
-			// A call from another machine runs as its /v1 API would for that
-			// machine's device: the same scope check and audit, plus who asked.
-			srv.Node.Exec = func(from devices.Device, c node.Call) (int, []byte) {
-				srv.Audit.Log(devices.AuditEntry{Device: from.Name, Action: "outbox " + c.Method + " " + c.Path, Status: 0, Detail: "key " + c.Key + ", asked by " + c.By})
-				return srv.Dispatch(from, c.Method, c.Path, c.Body)
-			}
 			srv.RunNode(machineCtx)
 		}
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates

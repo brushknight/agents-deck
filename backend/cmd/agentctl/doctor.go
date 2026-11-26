@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/service"
@@ -44,6 +45,7 @@ type doctorEnv struct {
 	writable  func(dir string) error  // can the data folder be written
 	running   func() (string, bool)   // the service's version, and whether it answers
 	portFree  func(addr string) bool  // nothing listens on addr now
+	machines  func() []node.State     // multi-node: the service's view of the other machines (nil: none)
 	login     service.Registration    // what starts the service at login
 	linger    func() (on, known bool) // Linux: systemd keeps the user's services after logout
 	lingerFix string                  // how to turn linger on
@@ -85,6 +87,13 @@ func doctor(args []string) error {
 			}
 			l.Close()
 			return true
+		},
+		machines: func() []node.State {
+			var r struct{ Machines []node.State }
+			if callTimeout("GET", "/v1/machines", nil, &r, 3*time.Second) != nil {
+				return nil
+			}
+			return r.Machines
 		},
 		login: m.Registration(), cfg: loadConfig(), separate: os.Getenv("AGENTSTERM_HOME") != "",
 	}
@@ -183,6 +192,22 @@ func doctorChecks(e doctorEnv) []check {
 		default:
 			add(check{name: "port", level: checkFail, detail: p.addr + " (" + p.name + "): another program listens on it",
 				fix: "stop that program, or give this deck other ports (localAddr, deviceAddr in config.json)"})
+		}
+	}
+
+	// Multi-node: each link, and which way it fails.
+	if up && e.machines != nil {
+		for _, x := range e.machines() {
+			switch {
+			case x.Reachable:
+				add(check{name: "machine", detail: fmt.Sprintf("%s: online · %d ms", x.Name, x.RTTMs)})
+			case x.OneWay:
+				add(check{name: "machine", level: checkWarn, detail: x.Name + " reaches this machine, this machine can't reach it",
+					fix: "open port 7341 on " + x.Name + " (its firewall), or check the address in agentctl machines"})
+			default:
+				add(check{name: "machine", level: checkWarn, detail: x.Name + ": " + node.AwayWord + ", both ways",
+					fix: "is " + x.Name + " on, with agentctl running and port 7341 open?"})
+			}
 		}
 	}
 
