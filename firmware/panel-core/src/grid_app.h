@@ -40,6 +40,7 @@ struct GridBoard {
   int bootPin;                             // the BOOT button (active low), -1 for none
   uint8_t brightActive, brightIdle;
   const char* boardId;                     // Hello.board_id; nullptr: DeckLink::chipId() (the MAC, "AA:BB:...")
+  int (*battery)();                        // percent on battery power, -1 on USB; nullptr: no battery
   // A board that keeps the frames itself (nullptr: grid_app draws into one
   // frame of its own and calls push): the frame to draw the next picture
   // into; push() then gets that same pointer back.
@@ -271,6 +272,7 @@ static void render() {
   dbgFrames++;
   if (controlShown(ui.ctl)) dbgPanelFrames++;
 #endif
+  in.battery = board.battery ? board.battery() : -1;
   drawAndSend(in);
 }
 

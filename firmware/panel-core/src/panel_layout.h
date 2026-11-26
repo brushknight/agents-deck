@@ -242,6 +242,7 @@ struct PanelInput {
   const ControlInfo* ctl = nullptr;   // the board's panel (nullptr: none)
   bool rowsOk = false;         // the board can send a frame as rows from anywhere (frameRows)
   bool splitOk = false;        // the board can send a frame as two pictures side by side (frameSplit)
+  int battery = -1;            // percent on battery power; -1: on USB, or no battery to show
 };
 
 // A moving frame made of two pictures: pixel x of a row comes from `a` at
