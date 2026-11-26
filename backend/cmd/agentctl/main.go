@@ -156,6 +156,9 @@ const usage = `agentctl: runs and controls agents deck
   agentctl machines [invite | join <address> <code> | remove <name> | leave]
                                  the machines of a multi-node workspace: list them, make a one-time
                                  join code, join another machine's workspace, take one out
+  agentctl telegram [--bridge <id>] [setup | link <agent> | pair | user <id> | off]
+                                 Telegram bridges: what you send or forward to a bot goes to its
+                                 linked agent as one prompt; setup stores the bot token and pairs you
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -261,6 +264,8 @@ func main() {
 		err = doctor(args)
 	case "machines", "machine":
 		err = machinesCmd(args)
+	case "telegram":
+		err = telegramCmd(args)
 	case "release-key":
 		err = releaseKeyCmd(args)
 	case "update":
@@ -1294,6 +1299,9 @@ func serve(args []string) error {
 		wifiStore = pki.FileKeystore{Dir: filepath.Join(paths.Data(), "keys")}
 	}
 	wifiDefault := &link.WifiDefault{Store: wifiStore}
+	if !*demoMode { // a demo never reads real messages
+		srv.Telegram = startTelegram(srv, st, wifiStore) // telegram.go
+	}
 	adm := newAdmin(st, srv, self, *logFile)
 	adm.UsageEverySession = usageEverySession
 	// Each agent's project, by its folder.

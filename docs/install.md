@@ -243,6 +243,21 @@ folder) needs its own tmux server, or it would take over the first deck's agents
 `"tmuxSocket": "<a name>"` in its `config.json` (letters, digits, `.`, `_`, `-`). The default is
 `agentsterm`.
 
+## Telegram
+
+To send a Telegram bot's messages to an agent ([what it does](features.md#telegram-messages-to-one-agent)):
+
+1. In Telegram, open **@BotFather**, send `/newbot`, and give the bot a name and a username ending in `bot`.
+   BotFather answers with the bot's token.
+2. Run `agentctl telegram setup` and paste the token. It isn't shown, and it goes into the Keychain on macOS
+   (a 0600 file in the data folder elsewhere), never into a file you might share.
+3. `setup` prints a code. Send `/start <code>` to your bot within 10 minutes; it answers "Paired".
+4. `agentctl telegram link <agent id>` (`agentctl ls` shows the ids).
+
+`agentctl telegram` shows each bridge: its bot, who is paired, the linked agent, and held batches. `agentctl
+telegram off` forgets the token; the inbox and settings stay. For a second bot, add `--bridge <id>` to each
+command (for example `agentctl telegram --bridge design setup`).
+
 ## Only the command line
 
 No app, just `agentctl` and the service, on macOS or Linux:

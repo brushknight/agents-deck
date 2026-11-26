@@ -15,7 +15,16 @@ import (
 	"time"
 )
 
-const testToken = "123456:TEST-token-made-up"
+const (
+	testToken  = "123456:TEST-token-made-up"
+	testToken2 = "654321:TEST-second-made-up"
+)
+
+// bots: the fake API's tokens and the bot each belongs to.
+var bots = map[string]User{
+	testToken:  {ID: 1, IsBot: true, FirstName: "Deck", Username: "test_deck_bot"},
+	testToken2: {ID: 2, IsBot: true, FirstName: "Other", Username: "test_other_bot"},
+}
 
 func init() { retryWait = time.Millisecond }
 
@@ -24,27 +33,33 @@ func init() { retryWait = time.Millisecond }
 // times, or to be too big.
 type fakeAPI struct {
 	mu      sync.Mutex
-	updates []Update
+	updates map[string][]Update // by token
 	sent    []string
-	fails   map[string]int // file id: getFile failures left
+	sentBy  map[string][]string // by token
+	fails   map[string]int      // file id: getFile failures left
 	tooBig  map[string]bool
 	srv     *httptest.Server
 }
 
 func newFake(t *testing.T) *fakeAPI {
-	f := &fakeAPI{fails: map[string]int{}, tooBig: map[string]bool{}}
+	f := &fakeAPI{fails: map[string]int{}, tooBig: map[string]bool{}, updates: map[string][]Update{}, sentBy: map[string][]string{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
 }
 
 func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
-	if p, ok := strings.CutPrefix(r.URL.Path, "/file/bot"+testToken+"/"); ok {
-		w.Write([]byte("made-up bytes of " + p))
-		return
+	var token, method string
+	for tok := range bots {
+		if p, ok := strings.CutPrefix(r.URL.Path, "/file/bot"+tok+"/"); ok {
+			w.Write([]byte("made-up bytes of " + p))
+			return
+		}
+		if m, ok := strings.CutPrefix(r.URL.Path, "/bot"+tok+"/"); ok {
+			token, method = tok, m
+		}
 	}
-	method, ok := strings.CutPrefix(r.URL.Path, "/bot"+testToken+"/")
-	if !ok {
+	if token == "" {
 		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 401, "description": "Unauthorized"})
 		return
 	}
@@ -54,11 +69,11 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	var result any = true
 	switch method {
 	case "getMe":
-		result = User{ID: 1, IsBot: true, FirstName: "Deck", Username: "test_deck_bot"}
+		result = bots[token]
 	case "getUpdates": // like Telegram: everything from the offset on, until confirmed
 		off, _ := strconv.ParseInt(r.Form.Get("offset"), 10, 64)
 		ups := []Update{}
-		for _, u := range f.updates {
+		for _, u := range f.updates[token] {
 			if u.ID >= off {
 				ups = append(ups, u)
 			}
@@ -66,6 +81,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		result = ups
 	case "sendMessage":
 		f.sent = append(f.sent, r.Form.Get("text"))
+		f.sentBy[token] = append(f.sentBy[token], r.Form.Get("text"))
 	case "getFile":
 		id := r.Form.Get("file_id")
 		if f.fails[id] > 0 {
@@ -87,9 +103,11 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
 }
 
-func (f *fakeAPI) push(ups ...Update) {
+func (f *fakeAPI) push(ups ...Update) { f.pushTo(testToken, ups...) }
+
+func (f *fakeAPI) pushTo(token string, ups ...Update) {
 	f.mu.Lock()
-	f.updates = append(f.updates, ups...)
+	f.updates[token] = append(f.updates[token], ups...)
 	f.mu.Unlock()
 }
 
