@@ -20,6 +20,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
+	"github.com/brushknight/agents-deck/backend/internal/redact"
 )
 
 // Timings of delivery, variables so tests can shorten them.
@@ -156,7 +157,8 @@ func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) {
 	out := []QueuedPrompt{}
 	if s.Queue != nil {
 		for _, it := range s.Queue.List(id) {
-			out = append(out, QueuedPrompt{ID: it.ID, Text: it.Text, By: it.By, QueuedAt: it.Queued})
+			out = append(out, QueuedPrompt{ID: it.ID, Text: redact.String(it.Text), // listed redacted; delivered as typed
+				By: it.By, QueuedAt: it.Queued})
 		}
 	}
 	if _, ok := s.Store.Get(id); !ok && len(out) == 0 {

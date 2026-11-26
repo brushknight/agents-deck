@@ -250,7 +250,10 @@ func bodyPrompt(e *store.Entry, p *model.Prompt, body string) *model.Prompt {
 	return p
 }
 
+// samePrompt compares a prompt read from the screen (a) with the one the
+// agent holds (b), which the store keeps redacted: a is redacted first.
 func samePrompt(a, b *model.Prompt) bool {
+	store.CleanPrompt(a)
 	if a == nil || b == nil || a.Title != b.Title || a.Detail != b.Detail || len(a.Options) != len(b.Options) {
 		return false
 	}

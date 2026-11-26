@@ -251,6 +251,7 @@ func (s *Store) Load() {
 	s.mu.Lock()
 	for _, e := range list {
 		e.A.AttentionSlot = 0 // placed again below, at its old spot (AttnHome) when it still needs you
+		scrub(e)              // state saved before redaction came in
 		s.entries[e.A.ID] = e
 	}
 	s.arrange()
@@ -349,6 +350,7 @@ func (s *Store) Add(e *Entry) {
 	e.A.AttentionSlot, e.attnOn = 0, false // arrange places it, at AttnHome when the caller kept one
 	now := time.Now().UTC()
 	e.A.StartedAt, e.A.UpdatedAt, e.A.StatusSince = now, now, now
+	scrub(e)
 	s.entries[e.A.ID] = e
 	s.changed()
 }
@@ -435,6 +437,7 @@ func (s *Store) Update(id string, fn func(*Entry) bool) bool {
 		return false
 	}
 	if fn(e) {
+		scrub(e)
 		e.A.UpdatedAt = time.Now().UTC()
 		s.changed()
 	}
@@ -448,6 +451,7 @@ func (s *Store) Each(fn func(*Entry) bool) {
 	dirty := false
 	for _, e := range s.entries {
 		if fn(e) {
+			scrub(e)
 			e.A.UpdatedAt = time.Now().UTC()
 			dirty = true
 		}

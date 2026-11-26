@@ -99,7 +99,8 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "modelLabel": "opus 5.5",       // short display form
   "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running. Besides
                                   // Claude's tools: "Compact" while compacting, "Task" for subagents at work
-  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160)
+  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160);
+                                  // secrets redacted (see "Secrets in prompts")
   "lastAnswer": "Fixed the race: the token check now runs after login …", // its reply that ended its latest
                                   // finished turn, as plain text (Markdown marks taken out, one line), truncated to
                                   // 1000 chars (boards: 160); "" until it has finished a turn with text. Claude: the
@@ -299,6 +300,15 @@ reissued when the Mac's names or addresses change) and every device's certificat
 **The listener** (`:7341`) accepts TLS 1.3 only. A connection may come without a client certificate,
 but then the only thing it can do is pair. With one, the certificate must chain to the deck's CA and
 belong to an active device in `devices.json`; a revoked device fails the handshake.
+
+**Secrets in prompts.** A key pasted into a prompt stays out of everything the deck sends. Where the
+deck stores an agent's text (`lastPrompt`, `lastAnswer`, `aiTitle`, `activity.detail`, the `waiting`
+prompt, subagent tasks) it replaces each secret it recognises with `[redacted:<kind>]`: keys with a
+known shape (Anthropic, OpenAI, GitHub, Slack, AWS, Google, Stripe, Paddle, `adk_` tokens, JSON Web
+Tokens, private key blocks), the value after `Bearer`, after a password, token, secret or API key name
+(`API_KEY=…`), a password in a URL, and any other long run of letters and digits that looks random.
+So `/v1`, the dashboard, MCP, Deck Link and the saved state only hold the redacted text. A queued
+prompt is listed redacted and typed into the agent as it was sent.
 
 **Scopes.** Each device has one:
 
