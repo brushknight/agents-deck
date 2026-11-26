@@ -352,3 +352,13 @@ func TestHatEndpoints(t *testing.T) {
 		t.Fatalf("unknown agent: %d", c)
 	}
 }
+
+// Every answer over the socket says the service's version (agentctl notes a
+// difference with its own).
+func TestSocketAnswersCarryTheVersion(t *testing.T) {
+	s := &Server{Store: store.New("", "test", "0.5.0")}
+	w := do(s.UnixHandler(nil), "GET", "/v1/state", "", nil)
+	if got := w.Header().Get(VersionHeader); got != "0.5.0" {
+		t.Fatalf("%s: %q", VersionHeader, got)
+	}
+}

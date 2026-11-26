@@ -170,6 +170,7 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	versionQuiet = quietVersion[cmd]
 	if cmd != "hook" && cmd != "statusline" { // they never touch tmux, and run on every Claude event
 		name := loadConfig().TmuxSocket
 		if v := os.Getenv("AGENTSTERM_TMUX_SOCKET"); v != "" {
@@ -341,6 +342,7 @@ func callTimeout(method, path string, in, out any, timeout time.Duration) error 
 		return callErr(err, timeout)
 	}
 	defer resp.Body.Close()
+	noteVersion(resp.Header.Get(server.VersionHeader))
 	if resp.StatusCode >= 300 {
 		var e struct{ Error string }
 		_ = json.NewDecoder(resp.Body).Decode(&e)

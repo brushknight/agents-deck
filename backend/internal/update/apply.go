@@ -119,8 +119,8 @@ func (e *AppManagementError) Error() string {
 
 func (e *AppManagementError) Unwrap() error { return e.Err }
 
-// installedMacApp: the agents deck app in /Applications or ~/Applications, or "".
-func installedMacApp() string {
+// InstalledMacApp: the agents deck app in /Applications or ~/Applications, or "".
+func InstalledMacApp() string {
 	dirs := []string{"/Applications"}
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, "Applications"))
