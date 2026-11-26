@@ -66,6 +66,7 @@ type run struct {
 	cancel context.CancelFunc
 	done   chan struct{} // closed when its poller has returned
 	bot    string        // @username, once the token is checked
+	name   string        // the bot's display name
 	botID  int64
 	err    string
 }
@@ -116,6 +117,25 @@ func (s *Service) saveConfig(c Config) error {
 		s.cfgs = append(s.cfgs, c)
 	}
 	sort.Slice(s.cfgs, func(i, j int) bool { return s.cfgs[i].ID < s.cfgs[j].ID })
+	return s.writeLocked()
+}
+
+// deleteConfig takes a bridge out of the list and writes the file.
+func (s *Service) deleteConfig(id string) error {
+	s.fmu.Lock()
+	defer s.fmu.Unlock()
+	kept := s.cfgs[:0]
+	for _, c := range s.cfgs {
+		if c.ID != id {
+			kept = append(kept, c)
+		}
+	}
+	s.cfgs = kept
+	return s.writeLocked()
+}
+
+// writeLocked writes telegram.json, 0600; s.fmu is held.
+func (s *Service) writeLocked() error {
 	data, err := json.MarshalIndent(file{Bridges: s.cfgs}, "", "  ")
 	if err != nil {
 		return err
@@ -230,7 +250,7 @@ func (s *Service) poll(ctx context.Context, id string, r *run) {
 				return
 			}
 			s.mu.Lock()
-			r.bot, r.botID, r.err = "@"+me.Username, me.ID, ""
+			r.bot, r.name, r.botID, r.err = "@"+me.Username, me.FirstName, me.ID, ""
 			s.mu.Unlock()
 			s.logf("telegram %s: listening as @%s", id, me.Username)
 			break
@@ -275,6 +295,7 @@ type BridgeStatus struct {
 	ID       string `json:"id"`
 	On       bool   `json:"on"` // a token is stored and its poller runs
 	Bot      string `json:"bot,omitempty"`
+	BotName  string `json:"botName,omitempty"` // the bot's display name
 	UserID   int64  `json:"userId,omitempty"`
 	UserName string `json:"userName,omitempty"`
 	Agent    string `json:"agent,omitempty"`
@@ -284,6 +305,8 @@ type BridgeStatus struct {
 	Error    string `json:"error,omitempty"`
 	Inbox    string `json:"inbox"`
 	Ignored  int    `json:"ignored,omitempty"` // messages from other accounts, dropped (since the service started)
+	// PairUntil: while a pairing code waits for /start, when it runs out (the code itself is only in setup's or pair's answer).
+	PairUntil time.Time `json:"pairUntil,omitzero"`
 	// HeldSince and HeldMessages: the held batches' oldest time and message count.
 	HeldSince    time.Time  `json:"heldSince,omitzero"`
 	HeldMessages int        `json:"heldMessages,omitempty"`
@@ -296,10 +319,13 @@ type BridgeStatus struct {
 func (s *Service) status(id string) BridgeStatus {
 	cfg, _ := s.config(id)
 	out := BridgeStatus{ID: id, UserID: cfg.UserID, UserName: cfg.UserName, Agent: cfg.Agent, Inbox: s.inbox(id)}
+	if cfg.UserID == 0 && cfg.PairCode != "" {
+		out.PairUntil = cfg.PairUntil
+	}
 	s.mu.Lock()
 	r := s.runs[id]
 	if r != nil {
-		out.On, out.Bot, out.Error = true, r.bot, r.err
+		out.On, out.Bot, out.BotName, out.Error = true, r.bot, r.name, r.err
 	}
 	s.mu.Unlock()
 	if r != nil {
@@ -328,7 +354,7 @@ func (s *Service) status(id string) BridgeStatus {
 
 // Request is POST /local/telegram.
 type Request struct {
-	Op     string `json:"op"`               // setup, pair, link, unlink, drop, user, off
+	Op     string `json:"op"`               // setup, pair, link, unlink, drop, user, retry, off, remove
 	Bridge string `json:"bridge,omitempty"` // "" = the only bridge ("default" for the first setup)
 	Token  string `json:"token,omitempty"`  // setup
 	Agent  string `json:"agent,omitempty"`  // link
@@ -385,7 +411,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var req Request
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, `body must be {"op": "setup"|"pair"|"link"|"unlink"|"drop"|"user"|"off", "bridge": …}`)
+		writeErr(w, http.StatusBadRequest, `body must be {"op": "setup"|"pair"|"link"|"unlink"|"drop"|"user"|"retry"|"off"|"remove", "bridge": …}`)
 		return
 	}
 	id, err := s.pick(req.Bridge, req.Op)
@@ -396,6 +422,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	code, msg, extra := s.do(r.Context(), id, req)
 	if code != http.StatusOK {
 		writeErr(w, code, msg)
+		return
+	}
+	if req.Op == "remove" {
+		writeJSON(w, http.StatusOK, BridgeStatus{ID: id, Dropped: extra.dropped})
 		return
 	}
 	out := s.status(id)
@@ -499,28 +529,11 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 		}
 		s.logf("telegram %s: unlinked", id)
 	case "drop":
-		r := s.runOf(id)
-		var b *Bridge
-		if r != nil {
-			b = r.bridge
-		} else { // not running: drop what's on disk
-			c, _ := s.config(id)
-			b = NewBridge(c)
-			b.Inbox, b.Logf = s.inbox(id), s.Logf
-			if err := b.Load(); err != nil {
-				return http.StatusInternalServerError, err.Error(), x
-			}
-			b.mu.Lock()
-			if b.timer != nil {
-				b.timer.Stop()
-			}
-			b.mu.Unlock()
-		}
-		_, msgs, err := b.DropHeld()
+		n, err := s.dropHeld(id)
 		if err != nil {
 			return http.StatusInternalServerError, err.Error(), x
 		}
-		x.dropped = msgs
+		x.dropped = n
 	case "user":
 		if req.UserID <= 0 {
 			return http.StatusBadRequest, "a Telegram user id is a positive number", x
@@ -530,6 +543,29 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 		}); err != nil {
 			return http.StatusInternalServerError, err.Error(), x
 		}
+	case "retry":
+		// Try Telegram again now, instead of at the next pause.
+		if t, err := s.Keys.Load(TokenName(id)); err != nil || len(t) == 0 {
+			return http.StatusConflict, "bridge " + id + " has no bot token: agentctl telegram setup", x
+		}
+		s.restart(id)
+		s.waitBot(ctx, id)
+	case "remove":
+		// Drops the held messages, forgets the token and the pairing; the
+		// inbox (what was delivered) stays on disk.
+		n, err := s.dropHeld(id)
+		if err != nil {
+			return http.StatusInternalServerError, err.Error(), x
+		}
+		x.dropped = n
+		s.stop(id)
+		if err := s.Keys.Delete(TokenName(id)); err != nil {
+			return http.StatusInternalServerError, err.Error(), x
+		}
+		if err := s.deleteConfig(id); err != nil {
+			return http.StatusInternalServerError, err.Error(), x
+		}
+		s.logf("telegram %s: removed (token and pairing forgotten)", id)
 	case "off":
 		s.stop(id)
 		if err := s.Keys.Delete(TokenName(id)); err != nil {
@@ -537,9 +573,36 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 		}
 		s.logf("telegram %s: bot token removed, bridge off (its inbox and settings stay)", id)
 	default:
-		return http.StatusBadRequest, `"op" is setup, pair, link, unlink, drop, user or off`, x
+		return http.StatusBadRequest, `"op" is setup, pair, link, unlink, drop, user, retry, off or remove`, x
 	}
 	return http.StatusOK, "", x
+}
+
+// dropHeld drops a bridge's held batches, running or not; it returns how
+// many messages went.
+func (s *Service) dropHeld(id string) (int, error) {
+	r := s.runOf(id)
+	var b *Bridge
+	if r != nil {
+		b = r.bridge
+	} else { // not running: drop what's on disk
+		c, _ := s.config(id)
+		b = NewBridge(c)
+		b.Inbox, b.Logf = s.inbox(id), s.Logf
+		if err := b.Load(); err != nil {
+			return 0, err
+		}
+		b.mu.Lock()
+		if b.timer != nil {
+			b.timer.Stop()
+		}
+		b.mu.Unlock()
+	}
+	_, msgs, err := b.DropHeld()
+	if err != nil {
+		return 0, err
+	}
+	return msgs, nil
 }
 
 // waitBot gives a restarted bridge a moment to learn its bot's name.
