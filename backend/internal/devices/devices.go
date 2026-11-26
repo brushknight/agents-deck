@@ -52,7 +52,14 @@ func ParseScope(v string) (Scope, error) {
 const (
 	Network = "network" // TLS with a client certificate (panel, phone)
 	Serial  = "serial"  // Deck Link over USB serial
+	Node    = "node"    // another machine of the workspace (multi-node): TLS with a client certificate, /node/v1 too
 )
+
+// NodeJoinScope is the scope a machine gets when it joins. Grigorii: "all
+// machines are trusted", read as full control at once (start, stop and move
+// agents). Still an open question ("admin on join"): if the answer is no,
+// this becomes Act and nothing else changes.
+var NodeJoinScope = Admin
 
 // Device is one registry entry.
 type Device struct {
@@ -357,6 +364,24 @@ func (r *Registry) AddNetwork(name string, scope Scope, certSerial, certFingerpr
 		return fmt.Errorf("%q is a %s device: pick another name", name, d.Kind)
 	}
 	r.devices[name] = &Device{Name: name, Kind: Network, Scope: scope, Created: time.Now().UTC(),
+		CertSerial: certSerial, CertFingerprint: certFingerprint}
+	return r.save()
+}
+
+// AddNode records a machine that joined (kind node) with the certificate
+// this machine's CA signed for it. A name already used by another kind of
+// device is refused; joining again replaces the node's certificate.
+func (r *Registry) AddNode(name string, scope Scope, certSerial, certFingerprint string) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.load()
+	if d, ok := r.devices[name]; ok && d.Kind != Node {
+		return fmt.Errorf("a %s device is already called %q here: rename one of them", d.Kind, name)
+	}
+	r.devices[name] = &Device{Name: name, Kind: Node, Scope: scope, Created: time.Now().UTC(),
 		CertSerial: certSerial, CertFingerprint: certFingerprint}
 	return r.save()
 }
