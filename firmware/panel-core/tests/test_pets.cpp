@@ -269,7 +269,29 @@ static void testLayouts() {
   }
 }
 
+// The sim's fixture loader (docs renders) keeps a pet's own hat, its level
+// start and an egg's ready flag, from the /v1 JSON names and the older ones.
+static void testFixturePet() {
+  fixture::Json j;
+  assert(fixture::parse(R"({"id":"c1","pet":{"name":"Momo","stage":"kid","mood":"fed","level":6,"ate":900,)"
+                        R"("levelFrom":500,"nextAt":1200,"hearts":4,"hat":{"shape":"cap","color":"blue"}}})", j));
+  agentsdeck_link_v1_Agent in = agentsdeck_link_v1_Agent_init_zero;
+  fixture::agentToLink(j, in);
+  assert(in.has_pet && in.pet.has_hat && !strcmp(in.pet.hat.shape, "cap") && !strcmp(in.pet.hat.color, "blue"));
+  assert(in.pet.next_at == 1200 && in.pet.level_from == 500);
+  Agent a;
+  agentFromLink(in, a);
+  assert(a.pet.hat == deck_pet_hat_of("cap") && a.pet.hat != 0 && a.pet.hat_color == deck_pet_hat_color_of("blue"));
+
+  fixture::Json old;
+  assert(fixture::parse(R"({"id":"e1","pet":{"stage":"egg","mood":"fed","ate":40,"next_at":50,"ready":true}})", old));
+  agentsdeck_link_v1_Agent egg = agentsdeck_link_v1_Agent_init_zero;
+  fixture::agentToLink(old, egg);
+  assert(egg.pet.next_at == 50 && egg.pet.ready && !egg.pet.has_hat);
+}
+
 int main() {
+  testFixturePet();
   testAdapter();
   testLine();
   testNoPet();
