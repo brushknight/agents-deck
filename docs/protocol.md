@@ -99,7 +99,9 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
   "modelLabel": "opus 5.5",       // short display form
   "activity": { "tool": "Edit", "detail": "src/auth/session.ts" }, // or null; only while running. Besides
                                   // Claude's tools: "Compact" while compacting, "Task" for subagents at work
-  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160)
+  "lastPrompt": "fix the refresh-token race in session.ts …",      // truncated to 1000 chars (boards: 160); a Telegram prompt
+                                  // ("[Telegram] …") names its files only by name here ("file: payments-1105.log"),
+                                  // never the local path the agent itself was given
   "lastAnswer": "Fixed the race: the token check now runs after login …", // its reply that ended its latest
                                   // finished turn, as plain text (Markdown marks taken out, one line), truncated to
                                   // 1000 chars (boards: 160); "" until it has finished a turn with text. Claude: the

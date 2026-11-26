@@ -4598,7 +4598,7 @@ function tgStates(b) {
       out.push(tgCard(/already uses/.test(e) ? 'Bot used by another bridge' : 'Someone else reads this bot', 'bad', h('p', { class: 'txt' }, `${cap(e)}.`),
         tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
     } else {
-      out.push(tgCard('Telegram can\'t be reached', 'wait', tgLine(`${b.bot || b.id}${b.agent ? ` → ${tgName(b.agent)}` : ''}`, chip('offline', 'wait', 'dot')),
+      out.push(tgCard('Telegram can\'t be reached', 'wait', tgLine(b.bot || b.id, chip('offline', 'wait', 'dot')),
         h('p', { class: 'txt' }, tgOffline(b)),
         tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
     }
@@ -4614,7 +4614,7 @@ function tgStates(b) {
   if (n && !c) {
     const ended = b.agent && (!a || a.status === 'exited');
     const when = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
-    out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(`${b.bot} → ${b.agent ? tgName(b.agent) : 'no agent'}`, chip(`held ${n}`, 'wait', 'dot')),
+    out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(b.bot, chip(`held ${n}`, 'wait', 'dot')),
       h('p', { class: 'txt' }, `${ended ? `${tgNameCap(b.agent)} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${tgWaiting(n)}`),
       tgActs(btn('Link to an agent', () => { Object.assign(t, { relink: b.id, all: false, confirm: null }); draw(true); }, 'p', { 'data-k': 'tg-held-link' }),
         btn(n === 1 ? 'Drop it' : 'Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));

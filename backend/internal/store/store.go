@@ -8,6 +8,7 @@ import (
 	mrand "math/rand/v2"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -253,6 +254,7 @@ func (s *Store) Load() {
 		e.A.AttentionSlot = 0 // placed again below, at its old spot (AttnHome) when it still needs you
 		s.entries[e.A.ID] = e
 	}
+	s.shapeText() // state saved before it shaped prompts
 	s.arrange()
 	s.mu.Unlock()
 }
@@ -301,8 +303,20 @@ func (s *Store) Touch() {
 // worked out again (every source of status passes here), then subscribers
 // hear of it and the registry is saved.
 func (s *Store) changed() {
+	s.shapeText()
 	s.arrange()
 	s.notify()
+}
+
+// shapeText keeps what every screen shows of an agent's prompt free of local
+// paths: a Telegram prompt's files by name only (model.PromptFileNames). The
+// agent itself got the full paths. Call with s.mu held.
+func (s *Store) shapeText() {
+	for _, e := range s.entries {
+		if strings.HasPrefix(e.A.LastPrompt, model.TelegramPrefix) {
+			e.A.LastPrompt = model.PromptFileNames(e.A.LastPrompt)
+		}
+	}
 }
 
 func (s *Store) notify() {
