@@ -42,6 +42,9 @@ func (d *Daemon) codexWindow() time.Duration {
 // data folder (it isn't installed, or hasn't run yet) it only looks for the
 // folder, once a minute.
 func (d *Daemon) WatchCodex() {
+	if d.Isolated { // a test deck: never other apps' sessions
+		return
+	}
 	if d.Cfg.Codex != nil && !*d.Cfg.Codex {
 		return
 	}

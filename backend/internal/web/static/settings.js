@@ -8,7 +8,7 @@ import {
 } from './deck-core.js';
 import { petSVG, heartSVG, petKind, levelAt, STAGES, STAGE_NAMES, STAGE_LEVEL, MOOD_NAMES, MAX_HEARTS } from './pets.js';
 
-const PAGES = ['home', 'agents', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
+const PAGES = ['home', 'agents', 'telegram', 'boards', 'network', 'general', 'updates', 'troubleshoot', 'about'];
 const SCOPES = [
   { value: 'view', text: 'Look only', icon: 'eye', title: 'Sees the deck, nothing more' },
   { value: 'act', text: 'Can answer', icon: 'reply', title: 'Sees the deck and answers agents' },
@@ -82,6 +82,8 @@ const S = {
   btFind: {}, // device id -> looking for that board over Bluetooth, to add it from its page
   mcp: null, // MCP tokens and where clients connect
   mcpNew: null, // the new-token form, then the token made (shown once)
+  telegram: null, // the Telegram bridges (GET /admin/v1/telegram)
+  tg: { step: 0, menu: '', confirm: null, relink: '', pick: '', all: false, here: null }, // Telegram: the page's flow, menu and confirms; here: the agent page's row
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -253,6 +255,9 @@ const ICONS = {
   auto: [['path', { d: 'M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M17.5 3v3.6h-3.6M6.5 21v-3.6h3.6' }]],
   power: [['path', { d: 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0' }]],
   gauge: [['path', { d: 'M5.6 18.4a9 9 0 1 1 12.8 0' }], ['path', { d: 'M12 14l4.5-5' }], ['circle', { cx: 12, cy: 14, r: 1.6 }]],
+  send: [['path', { d: 'M20.5 3.5L3.5 10.5l6.5 2.5 2.5 6.5z' }], ['path', { d: 'M10 13l10.5-9.5' }]],
+  link: [['path', { d: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1' }], ['path', { d: 'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1' }]],
+  down: [['path', { d: 'M6 9l6 6 6-6' }]],
 };
 function icon(name, size = 14, width = 2) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -466,7 +471,7 @@ async function load(what) {
   const paths = {
     system: '/admin/v1/system', settings: '/admin/v1/settings', devices: '/admin/v1/devices',
     ports: '/admin/v1/ports', update: '/admin/v1/update', agents: '/admin/v1/agents', diag: '/admin/v1/diagnostics',
-    live: '/v1/live', state: '/v1/state', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs', cpu: '/admin/v1/cpu',
+    live: '/v1/live', state: '/v1/state', telegram: S.page === 'telegram' ? '/admin/v1/telegram?recent=1' : '/admin/v1/telegram', projects: '/admin/v1/projects', accounts: '/v1/accounts', mcp: '/admin/v1/mcp', bt: '/admin/v1/bluetooth', btBoards: '/admin/v1/bluetooth/boards', jobList: '/admin/v1/jobs', cpu: '/admin/v1/cpu',
   };
   try {
     const r = await api('GET', paths[what]);
@@ -483,7 +488,7 @@ const loadAll = (...names) => Promise.all(names.map(load));
 
 function needs(page) {
   return {
-    home: ['update', 'devices', 'ports', 'state'], agent: ['state'], start: ['projects', 'agents', 'state', 'live'], general: ['settings'], agents: ['agents', 'live', 'settings'],
+    home: ['update', 'devices', 'ports', 'state'], agent: ['state'], telegram: ['state'], start: ['projects', 'agents', 'state', 'live'], general: ['settings'], agents: ['agents', 'live', 'settings'],
     boards: ['devices', 'ports', 'settings'], board: ['devices', 'ports', 'settings'], network: ['settings', 'devices'],
     updates: ['update', 'devices'], troubleshoot: ['diag', 'system'], about: ['system', 'update', 'state'],
     newboard: ['ports', 'devices'], flash: ['devices', 'ports'],
@@ -493,7 +498,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
+  return { telegram: ['telegram'], updates: ['jobList'], home: ['projects', 'live', 'telegram'], agent: ['accounts', 'telegram'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
 }
 
 function firstError(page) {
@@ -584,7 +589,7 @@ function cpuFace(u, a) {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#141412');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, a ? poseOf(a) : 'idle', a?.tool || 'claude', a?.hat || null, { bubble: false });
+  setFace(spr, a, a ? poseOf(a) : 'idle');
   face.append(spr);
   return face;
 }
@@ -937,6 +942,29 @@ function setPet(el, a, more = {}) {
   el.replaceChildren(node);
   watchPet(el);
 }
+// setFace draws an agent where a small face of it goes (the Needs you list,
+// the mini deck, the CPU list): its pet while it has one, else its critter.
+// Pets everywhere: never a critter for an agent with a pet.
+function setFace(el, a, pose) {
+  if (a?.pet) {
+    setPet(el, a, { pose, bubble: false });
+    el.style.setProperty('--pb', petFloor(el));
+  } else setSprite(el, pose, a?.tool || 'claude', a?.hat || null, { bubble: false });
+}
+// petFloor: the lowest row the pet's art reaches, in pet pixels (13 for a
+// grown-up, 14 for a baby, 15 for a cracked egg), so a face can stand every
+// pet on the same floor. Measured once per drawing.
+const petFloors = new Map();
+function petFloor(el) {
+  const k = el.dataset.pose;
+  if (!petFloors.has(k)) {
+    let b = 13;
+    for (const p of el.querySelectorAll('path'))
+      for (const m of (p.getAttribute('d') || '').matchAll(/M(-?[\d.]+) (-?[\d.]+)h(-?[\d.]+)v(-?[\d.]+)/g)) b = Math.max(b, +m[2] + +m[4]);
+    petFloors.set(k, b);
+  }
+  return petFloors.get(k);
+}
 // Pets off screen hold still: their motion pauses until they scroll back.
 const petSeen = typeof IntersectionObserver === 'function'
   ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
@@ -1220,7 +1248,7 @@ function qrow(a) {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#0A0A0A');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, 'wait', a.tool, a.hat, { bubble: false });
+  setFace(spr, a, 'wait');
   face.append(spr);
   return h('a', { class: 'qrow', href: `#${S.page === 'home' ? 'home' : 'agent'}/${encodeURIComponent(a.id)}` }, face,
     h('span', { class: 'grow' }, h('span', { class: 'eyebrow', title: agentName(a) }, agentName(a)), h('span', { class: 'mono q' }, askOf(a).q)));
@@ -1245,6 +1273,7 @@ function readyRows() {
     egg.append(petNode(a.pet, { hat: a.hat, still: true }).node);
     rows.push(rrow(egg, 'An egg is ready', `${agentName(a)}: open it to see it hatch`, `#home/${encodeURIComponent(a.id)}`));
   }
+  rows.push(...tgHeldCards());
   return rows;
 }
 
@@ -1626,7 +1655,7 @@ function miniDeck(page, cur, landing) {
       const spr = h('span', { class: 'spr c dk' });
       el.style.setProperty('--body', a.status === 'waiting' ? '#0A0A0A' : ['idle', 'exited', 'starting'].includes(a.status) ? '#7A776F' : '#FF4D00');
       el.style.setProperty('--cut', a.status === 'waiting' ? '#FF4D00' : '#141412');
-      setSprite(spr, a.status === 'waiting' ? 'wait' : 'idle', a.tool, a.hat, { bubble: false });
+      setFace(spr, a, a.status === 'waiting' ? 'wait' : 'idle');
       el.append(spr);
       g.append(el);
     } else g.append(h('a', { href: `#start/${slot}`, class: `f${isCur ? ' cur' : ''}`, 'aria-label': `Free spot ${i + 1}` }));
@@ -1776,6 +1805,7 @@ function queueBlock(a, note) {
 // does, a prompt box) or asking (the question and its answers).
 function buildAgent(a, body, view = agentView) {
   const hd = agentHead(a);
+  const tg = h('div', { class: 'blk tgherewrap', hidden: true });
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
   const external = codexThread(a);
@@ -1870,8 +1900,8 @@ function buildAgent(a, body, view = agentView) {
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
     const qb = queueBlock(a, note);
-    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
-    return (x) => { hd.update(x); qb.update(x); };
+    put(body, hd.el, tg, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
+    return (x) => { hd.update(x); qb.update(x); tgHere(tg, x); };
   }
 
   view.answer = null;
@@ -1909,12 +1939,13 @@ function buildAgent(a, body, view = agentView) {
       h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
       a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
-  put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
+  put(body, hd.el, tg, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
     h('div', { class: 'grow' }, lastLbl, last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
+    tgHere(tg, x);
     const pct = ctxPct(x);
     vCtx.textContent = `${pct}%`;
     prog.style.width = `${pct}%`;
@@ -2535,7 +2566,8 @@ function drawGeneral() {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#141412');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, 'wait', sample?.tool || 'claude', sample?.hat || { shape: 'top hat', color: 'yellow' }, { bubble: false });
+  if (sample) setFace(spr, sample, 'wait');
+  else setSprite(spr, 'wait', 'claude', { shape: 'top hat', color: 'yellow' }, { bubble: false });
   face.append(spr);
   const notify = blk(
     h('div', { class: 'row notif' }, face, h('div', { class: 'grow' }, h('span', { class: 'nm' }, `${sample ? agentName(sample) : 'An agent'} needs you`), h('span', { class: 'sub' }, `${sample ? askOf(sample).q : 'Allow bash?'} · now`))),
@@ -4310,10 +4342,448 @@ function drawAbout() {
   ];
 }
 
+// ---- Telegram: a bot of yours, linked to one agent ---------------------------------------------
+// GET and POST /admin/v1/telegram (docs/protocol.md). A bridge is one bot,
+// paired with one Telegram account and linked to one agent. The token goes
+// to the service once, in setup's body: the page never keeps or shows it.
+
+const TG_PAIR_MIN = 10; // the pairing code's life (telegram.PairTTL)
+const tgBridges = () => (S.telegram?.bridges || []).filter((b) => b.on || b.held);
+const tgAgent = (id) => agentsList().find((a) => a.id === id);
+// tgName: an agent by its title on the deck; once it has ended or gone,
+// by the title its bridge last knew; "the linked agent" if none was known.
+const tgName = (id) => {
+  const a = tgAgent(id);
+  if (a) return agentName(a);
+  return (S.telegram?.bridges || []).find((b) => b.agent === id && b.agentTitle)?.agentTitle || 'the linked agent';
+};
+// tgNameCap: the same at the start of a sentence (an agent's own title is kept as it is).
+const tgNameCap = (id) => { const n = tgName(id); return n === 'the linked agent' ? 'The linked agent' : n; };
+const tgEnded = (b) => !!b.agent && (!tgAgent(b.agent) || tgAgent(b.agent).status === 'exited');
+// tgShowCode: the pairing code in two halves ("8DHV-9PBT"); /start takes it either way.
+const tgShowCode = (c) => (c && c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : c);
+// tgWaiting: "1 message is waiting; …deliver it." / "3 messages are waiting; …deliver them."
+const tgWaiting = (n) => `${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver ${n === 1 ? 'it' : 'them'}.`;
+// tgUser: who the bot is paired with, by name; never a number.
+const tgUser = (b) => (b.userName && b.userName !== 'someone' && !/^\d+$/.test(b.userName) ? b.userName : 'your Telegram account');
+const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
+const tgOpen = (b) => !!b.agent && !!tgAgent(b.agent) && tgAgent(b.agent).status !== 'exited';
+
+// tgPost runs one op; the answer's bridge replaces the one on the page.
+async function tgPost(op, body = {}, btnEl = null, okMsg = null) {
+  const r = await busy(btnEl, () => api('POST', '/admin/v1/telegram', { op, ...body }), okMsg);
+  if (r !== undefined) { await load('telegram'); draw(true); }
+  return r;
+}
+
+// tgMenuBtn: the Linked button (the linked green, an outline) and its menu.
+function tgMenuBtn(key, label, items) {
+  const open = S.tg.menu === key;
+  const menu = h('div', { class: 'tgmenu-list', role: 'menu', hidden: !open },
+    items.map((it) => h(it.href ? 'a' : 'button', {
+      role: 'menuitem', class: `nm${it.bad ? ' bad' : ''}`, href: it.href, type: it.href ? null : 'button', 'data-k': `${key}:${it.text}`,
+      onclick: () => { S.tg.menu = ''; it.run?.(); },
+    }, it.text)));
+  const b = h('button', {
+    type: 'button', class: 'btn sm linked', 'aria-haspopup': 'menu', 'aria-expanded': open ? 'true' : 'false', 'data-k': key,
+    onclick: (e) => {
+      e.stopPropagation();
+      const now = S.tg.menu !== key;
+      document.querySelectorAll('.tgmenu .tgmenu-list').forEach((m) => { m.hidden = true; });
+      document.querySelectorAll('.tgmenu > .linked').forEach((x) => x.setAttribute('aria-expanded', 'false'));
+      S.tg.menu = now ? key : '';
+      menu.hidden = !now;
+      b.setAttribute('aria-expanded', now ? 'true' : 'false');
+      if (now) menu.querySelector('[role="menuitem"]')?.focus();
+    },
+  }, label, icon('down', 12, 2));
+  return h('span', { class: 'tgmenu' }, b, menu);
+}
+document.addEventListener('click', (e) => {
+  if (!S.tg?.menu || e.target.closest?.('.tgmenu')) return;
+  S.tg.menu = '';
+  document.querySelectorAll('.tgmenu .tgmenu-list').forEach((m) => { m.hidden = true; });
+  document.querySelectorAll('.tgmenu > .linked').forEach((x) => x.setAttribute('aria-expanded', 'false'));
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !S.tg?.menu) return;
+  const b = document.querySelector(`.tgmenu > .linked[data-k="${CSS.escape(S.tg.menu)}"]`);
+  S.tg.menu = '';
+  document.querySelectorAll('.tgmenu .tgmenu-list').forEach((m) => { m.hidden = true; });
+  if (b) { b.setAttribute('aria-expanded', 'false'); b.focus(); }
+});
+
+// tgFace: the linked agent's critter, or the paper plane.
+function tgFace(a, cls = '') {
+  if (!a) return h('span', { class: 'ico' }, icon('send', 16, 1.8));
+  const face = h('span', { class: `face dk tgface ${cls}`.trim() });
+  face.style.setProperty('--body', '#FF4D00');
+  face.style.setProperty('--cut', '#0A0A0A');
+  const spr = h('span', { class: a.pet ? 'spr pet' : 'spr c' });
+  setFace(spr, a, poseOf(a)); // its pet, as on its tile; the critter without one
+  face.append(spr);
+  return face;
+}
+
+const tgSteps = (n) => h('ol', { class: 'tgsteps', 'aria-label': 'Steps' }, ['Bot token', 'Pair', 'Pick an agent'].map((s, i) =>
+  h('li', { class: i + 1 < n ? 'done' : i + 1 === n ? 'on' : '', 'aria-current': i + 1 === n ? 'step' : null },
+    h('b', { 'aria-hidden': 'true' }, i + 1 < n ? '✓' : String(i + 1)), s)));
+
+// tgCard: a state where it happens (TG-03): an eyebrow in its colour, then the rest.
+const tgCard = (eyebrow, cls, ...kids) => h('div', { class: 'tgcard', role: cls === 'bad' ? 'alert' : null }, h('span', { class: `eyebrow ${cls}` }, eyebrow), ...kids);
+const tgLine = (name, ch) => h('div', { class: 'tgline' }, h('span', { class: 'nm' }, name), ch);
+const tgActs = (...b) => h('div', { class: 'actions tgacts' }, ...b);
+
+// The token field stays one element, so what you typed survives a redraw.
+function tgInput() {
+  if (!S.tg.input) {
+    S.tg.input = h('input', { type: 'password', id: 'tg-token', autocomplete: 'off', spellcheck: 'false', 'data-k': 'tg-token', 'aria-describedby': 'tg-token-h' });
+    S.tg.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') tgCheck(); });
+  }
+  return S.tg.input;
+}
+
+async function tgCheck(btnEl) {
+  const t = S.tg, input = tgInput();
+  const token = input.value.trim();
+  if (!token || t.checking) { input.focus(); return; }
+  t.checking = true; t.err = '';
+  draw(true);
+  try {
+    const r = await api('POST', '/admin/v1/telegram', { op: 'setup', token });
+    input.value = '•'.repeat(Math.min(token.length, 46)); // dots only: the token is gone from the page
+    t.bot = r; t.code = r.pairCode || ''; t.until = Date.parse(r.pairUntil) || Date.now() + TG_PAIR_MIN * 60000;
+    await load('telegram');
+  } catch (e) {
+    if (e.status === 401) return;
+    t.err = e.status === 400 && /token was refused/.test(e.message) ? 'Telegram doesn\'t know this token. Copy it again from BotFather; it looks like 123456789:AA…'
+      : e.status === 400 && e.message !== 'no token' ? `Telegram can't be reached from this ${machine()}. Check its network, then check again.` : cap(e.message);
+  } finally {
+    t.checking = false;
+    draw(true);
+    if (t.err) tgInput().focus();
+  }
+}
+
+function tgNewToken(clear = true) {
+  Object.assign(S.tg, { step: 1, bot: null, code: '', err: '', relink: '', confirm: null });
+  if (clear) tgInput().value = '';
+}
+
+function tgNewSec() {
+  const t = S.tg, input = tgInput();
+  input.disabled = !!t.bot || t.checking;
+  input.classList.toggle('bad', !!t.err);
+  if (t.err) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+  const field = h('div', { class: 'field' }, h('label', { for: 'tg-token' }, 'Bot token'), input);
+  let rest;
+  if (t.bot) {
+    rest = [
+      h('div', { class: 'blk tgbot' }, row(t.bot.bot, `${t.bot.botName || 'Your bot'} · a bot you made`, chip('token works', 'ok', 'dot'), { name: true, pic: h('span', { class: 'ico acc' }, icon('send', 16, 1.8)) })),
+      tgActs(btn('Next: pair', () => { t.step = 2; draw(true); }, 'p', { 'data-k': 'tg-next' }), btn('Use another token', () => { tgNewToken(); draw(true); setTimeout(() => tgInput().focus()); }, '', { 'data-k': 'tg-another' })),
+    ];
+  } else {
+    rest = [
+      t.checking ? h('div', { class: 'tgwait', role: 'status' }, h('span', { class: 'sq' }), h('span', { class: 'nm' }, 'Checking the token with Telegram…'), h('span', { class: 'sub' }, 'a second or two'))
+        : t.err ? h('span', { class: 'sub err', id: 'tg-token-h' }, t.err)
+          : h('span', { class: 'sub', id: 'tg-token-h' }, 'Make a bot with BotFather in Telegram (/newbot) and paste the token it gives you. It stays on this computer and is not shown again.'),
+      tgActs(btn(t.err ? 'Check again' : 'Check token', (e) => tgCheck(e.currentTarget), 'p', { 'data-k': 'tg-check', disabled: t.checking }),
+        btn('Cancel', () => { tgNewToken(); if (tgBridges().length) t.step = 0; draw(true); }, '', { 'data-k': 'tg-cancel', disabled: t.checking })),
+    ];
+  }
+  return h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, 'New bridge')), tgSteps(1),
+    h('div', { class: 'blk tgflow' }, field, rest));
+}
+
+// Step 2: send /start and the code from the account that will use the bot.
+function tgPairView(b) {
+  const t = S.tg;
+  const out = Date.now() > t.until;
+  const code = h('div', { class: `term tgcode${out ? ' old' : ''}` }, h('span', { class: 'bigcode' }, h('span', { class: 'p' }, '/start'), ` ${tgShowCode(t.code)}`));
+  const fresh = async (e) => {
+    const r = await busy(e.currentTarget, () => api('POST', '/admin/v1/telegram', { op: 'pair', bridge: b.id }));
+    if (r) { t.code = r.pairCode || ''; t.until = Date.parse(r.pairUntil) || Date.now() + TG_PAIR_MIN * 60000; await load('telegram'); draw(true); }
+  };
+  const body = out ? [
+    h('span', { class: 'eyebrow mut' }, 'Pairing code ran out'), code,
+    h('p', { class: 'txt' }, `This code is older than ${TG_PAIR_MIN} minutes. Get a new one and send that instead.`),
+    tgActs(btn('New code', fresh, 'p', { 'data-k': 'tg-newcode' })),
+  ] : [
+    h('p', { class: 'txt' }, 'In Telegram, open ', h('span', { class: 'mono w' }, b.bot), ' and send it this. Only the account that sends it can use the bot.'),
+    h('div', { class: 'tgcoderow' }, code,
+      h('button', { type: 'button', class: 'btn', 'data-k': 'tg-copy', onclick: () => copied(`/start ${tgShowCode(t.code)}`, 'Copied: paste it to the bot') }, icon('copy', 14, 1.8), 'Copy'),
+      h('a', { class: 'btn p', href: `https://t.me/${encodeURIComponent(b.bot.replace(/^@/, ''))}?start=${encodeURIComponent(t.code)}`, target: '_blank', rel: 'noreferrer' }, 'Open in Telegram')),
+    h('div', { class: 'tgwait', role: 'status' }, h('span', { class: 'sq' }), h('span', { class: 'nm' }, 'Waiting for your message…'),
+      h('span', { class: 'sub' }, `the code works for ${TG_PAIR_MIN} minutes · `, h('button', { type: 'button', class: 'btn link', 'data-k': 'tg-newcode', onclick: fresh }, 'new code'))),
+  ];
+  return [head('Telegram', 'Pair', 'your account.'),
+    h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, b.bot), h('span', { class: 'm' }, b.botName || '')), tgSteps(2),
+      h('div', { class: 'blk tgflow' }, body))];
+}
+
+// Step 3, or linking again: one agent, picked like an option.
+function tgPickView(b) {
+  const t = S.tg;
+  const live = bySlot().filter((a) => a.status !== 'exited' && !codexThread(a)); // prompts can't go to the Codex app
+  // The first pick is an agent the deck started: one in another app's window is only ever picked by hand.
+  if (!live.some((a) => a.id === t.pick)) t.pick = (live.find((a) => a.id !== b.agent && !a.external) || live.find((a) => !a.external))?.id || '';
+  const lately = [...live].sort((x, y) => (x.external ? 1 : 0) - (y.external ? 1 : 0) || Date.parse(y.statusSince || 0) - Date.parse(x.statusSince || 0));
+  let shown = t.all ? live : lately.slice(0, 2);
+  if (!t.all && t.pick && !shown.some((a) => a.id === t.pick)) shown = [live.find((a) => a.id === t.pick), ...shown.slice(0, 1)];
+  const group = h('div', { class: 'opts tgopts', role: 'radiogroup', 'aria-label': 'Agent' });
+  shown.forEach((a) => {
+    const on = a.id === t.pick;
+    group.append(h('button', {
+      type: 'button', class: `opt${on ? ' p' : ''}`, role: 'radio', 'aria-checked': on ? 'true' : 'false', tabindex: on ? '0' : '-1', 'data-k': `tg-pick:${a.id}`,
+      onclick: () => { t.pick = a.id; draw(true); },
+      onkeydown: (e) => radioKeys(e, group, null),
+    }, tgFace(a, 'sm'), h('span', { class: 'tgopt' }, h('span', {}, agentName(a)),
+      h('span', { class: 'sub' }, `${a.status === 'running' ? verb(a.activity?.tool) : a.status} · ${ctxPct(a)}% ctx`)),
+    h('span', { class: 'h' }, on ? 'picked' : a.id === b.agent ? 'linked now' : '')));
+  });
+  const pick = live.find((a) => a.id === t.pick);
+  const link = async (e) => {
+    const r = await tgPost('link', { bridge: b.id, agent: t.pick }, e.currentTarget, (x) => `${b.bot} → ${agentName(pick)}${x.delivered ? `: ${plural(x.delivered, 'held batch', 'held batches')} delivered` : ''}`);
+    if (r) { Object.assign(t, { step: 0, relink: '', all: false, bot: null, code: '' }); tgInput().value = ''; draw(true); }
+  };
+  return [head('Telegram', 'Pick', 'one agent.'),
+    h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, b.bot), h('span', { class: 'chip ok sp' }, h('i', { 'aria-hidden': 'true' }), `paired with ${tgUser(b)}`)),
+      t.relink ? null : tgSteps(3),
+      h('div', { class: 'blk tgflow tight' },
+        h('p', { class: 'txt' }, `Everything ${tgUser(b)} sends or forwards to ${b.bot} goes to this agent. To send to another agent later, link it again here or from that agent's page.`),
+        live.length ? group : h('p', { class: 'sub' }, 'No agent is running. Start one, then link the bot to it.'),
+        !t.all && live.length > shown.length ? h('button', { type: 'button', class: 'btn link tgall', 'data-k': 'tg-all', onclick: () => { t.all = true; draw(true); } }, `all ${live.length} agents`) : null,
+        tgActs(pick ? h('button', { type: 'button', class: 'btn p', 'data-k': 'tg-link', onclick: link }, icon('link', 16, 1.8), `Link ${b.bot} → ${agentName(pick)}`) : null,
+          t.relink ? btn('Cancel', () => { t.relink = ''; t.all = false; draw(true); }, '', { 'data-k': 'tg-cancel' }) : null)))];
+}
+
+const tgSummary = (s) => (s || '').replace(/, ([^,]*)$/, ' and $1');
+
+// tgRow: "@bot → agent", who sends and the last delivery; Linked and its menu.
+function tgRow(b) {
+  const a = tgAgent(b.agent);
+  const last = (b.recent || []).find((d) => !d.dropped);
+  const meta = [b.userId ? `from ${tgUser(b)}` : 'not paired yet', !b.userId ? '' : last ? `last: ${ago(last.at)}, ${tgSummary(last.summary)}` : 'nothing sent yet'].filter(Boolean).join(' · ');
+  const relink = () => { Object.assign(S.tg, { relink: b.id, all: false, confirm: null }); draw(true); };
+  const right = [];
+  if (a && !tgEnded(b) && b.userId) {
+    right.push(tgMenuBtn(`tg-linked:${b.id}`, `Linked · ${tgName(b.agent)}`, [
+      { text: 'Link to another agent…', run: relink },
+      a ? { text: `Open ${agentName(a)}`, href: `#agent/${encodeURIComponent(a.id)}` } : null,
+      { text: 'Unlink', bad: true, run: () => { S.tg.confirm = { kind: 'unlink', id: b.id }; draw(true); } },
+    ].filter(Boolean)),
+    h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-else:${b.id}`, onclick: relink }, 'Link elsewhere'),
+    h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-unlink:${b.id}`, onclick: () => { S.tg.confirm = { kind: 'unlink', id: b.id }; draw(true); } }, 'Unlink'));
+  } else if (b.userId) right.push(btn('Link to an agent', relink, '', { 'data-k': `tg-link:${b.id}` }));
+  return row(b.bot || b.id, meta, right, { name: true, cls: 'tgrow', pic: tgFace(tgEnded(b) ? null : a),
+    below: b.held ? h('span', { class: 'tgheld' }, chip(`held ${b.heldMessages || b.held}`, 'wait', 'dot')) : null });
+}
+
+// tgOffline: since when Telegram can't be reached, and when the next try is.
+function tgOffline(b) {
+  const since = Date.parse(b.errorSince || '');
+  const at = Date.parse(b.retryAt || '');
+  const mins = Math.round((at - Date.now()) / 60000);
+  const next = !at ? '' : mins < 1 ? ' Trying again in under a minute.' : ` Trying again in ${mins} min.`;
+  return `No connection to Telegram${since ? ` since ${hhmm(new Date(since))}` : ''}.${next} Telegram keeps what you send for a day.`;
+}
+
+// tgStates: what needs a word under the bridge's row (TG-03).
+function tgStates(b) {
+  const t = S.tg, out = [];
+  const keep = (text) => btn(text, () => { t.confirm = null; draw(true); }, '', { 'data-k': 'tg-keep' });
+  const c = t.confirm?.id === b.id ? t.confirm.kind : '';
+  const n = b.heldMessages || b.held;
+  const a = tgAgent(b.agent);
+  if (c === 'drop') {
+    out.push(tgCard('Drop held messages', 'bad', h('p', { class: 'txt' }, `Drop ${plural(n, 'held message')} from ${b.bot}? ${n === 1 ? 'It is' : 'They are'} deleted from this ${machine()}; ${n === 1 ? 'it stays' : 'they stay'} in your Telegram chat.`),
+      tgActs(keep(n === 1 ? 'Keep it' : 'Keep them'), btn(`Drop ${plural(n, 'message')}`, async (e) => { if (await tgPost('drop', { bridge: b.id }, e.currentTarget, (r) => `Dropped ${plural(r.dropped || 0, 'message')}`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-drop-yes' }))));
+  } else if (c === 'unlink') {
+    out.push(tgCard('Unlink', 'acc2', h('p', { class: 'txt' }, `Unlink ${b.bot} from ${tgName(b.agent)}? The bot stays paired. Until you link it again, what ${tgUser(b)} sends is held and the bot says so.`),
+      tgActs(keep('Keep it'), btn('Unlink', async (e) => { if (await tgPost('unlink', { bridge: b.id }, e.currentTarget, `${b.bot} unlinked`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-unlink-yes' }))));
+  } else if (c === 'remove') {
+    out.push(tgCard('Remove the bridge', 'bad', h('div', { class: 'tgline' }, h('span', { class: 'ico' }, icon('key', 16, 1.8)), h('span', { class: 'nm' }, `Remove ${b.bot || b.id}?`)),
+      h('p', { class: 'txt' }, 'Forgets the token and the pairing on this computer. The bot itself stays in Telegram; held messages are dropped.'),
+      tgActs(keep('Keep it'), btn('Remove', async (e) => { if (await tgPost('remove', { bridge: b.id }, e.currentTarget, `${b.bot || b.id} removed`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-remove-yes' }))));
+  }
+  if (b.on && b.error) {
+    const e = b.error;
+    if (/token was refused/.test(e)) {
+      out.push(tgCard('Token refused', 'bad', h('p', { class: 'txt' }, `Telegram refused ${b.bot || 'the bot'}'s token: it was revoked, or the bot was deleted. Paste a new token from BotFather.`),
+        tgActs(btn('Use another token', () => { tgNewToken(); draw(true); }, 'p', { 'data-k': 'tg-retoken' }))));
+    } else if (/already uses|another program/.test(e)) {
+      out.push(tgCard(/already uses/.test(e) ? 'Bot used by another bridge' : 'Someone else reads this bot', 'bad', h('p', { class: 'txt' }, `${cap(e)}.`),
+        tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
+    } else {
+      out.push(tgCard('Telegram can\'t be reached', 'wait', tgLine(b.bot || b.id, chip('offline', 'wait', 'dot')),
+        h('p', { class: 'txt' }, tgOffline(b)),
+        tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
+    }
+  }
+  if (b.on && !b.userId && !b.error) {
+    out.push(tgCard('Not paired yet', 'mut', tgLine(b.bot || b.id, chip('not paired', 'off', 'dot')),
+      h('p', { class: 'txt' }, 'The token works, but no one has sent the pairing code. Until then the bot answers no one.'),
+      tgActs(btn('Pair', async (e) => {
+        const r = await busy(e.currentTarget, () => api('POST', '/admin/v1/telegram', { op: 'pair', bridge: b.id }));
+        if (r) { Object.assign(t, { step: 2, bot: r, code: r.pairCode || '', until: Date.parse(r.pairUntil) || Date.now() + TG_PAIR_MIN * 60000 }); await load('telegram'); draw(true); }
+      }, 'p', { 'data-k': 'tg-pair' }))));
+  }
+  if (n && !c) {
+    const ended = b.agent && (!a || a.status === 'exited');
+    const when = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
+    out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(b.bot, chip(`held ${n}`, 'wait', 'dot')),
+      h('p', { class: 'txt' }, `${ended ? `${tgNameCap(b.agent)} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${tgWaiting(n)}`),
+      tgActs(btn('Link to an agent', () => { Object.assign(t, { relink: b.id, all: false, confirm: null }); draw(true); }, 'p', { 'data-k': 'tg-held-link' }),
+        btn(n === 1 ? 'Drop it' : 'Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));
+  }
+  return out.length ? h('div', { class: 'tgstates' }, out) : null;
+}
+
+// A delivery's problems: files over the Bot API's 20 MB, downloads that failed.
+function tgProblems(d) {
+  const big = [], failed = [];
+  for (const p of d.problems || []) {
+    let m = /^too big for the Bot API \(([^)]*)\): (.*), open it in Telegram$/.exec(p);
+    if (m) { big.push(`${m[2]} (${m[1]})`); continue; }
+    m = /^failed to download: (.*), open it in Telegram$/.exec(p);
+    failed.push(m ? m[1] : p);
+  }
+  return { big, failed };
+}
+
+function tgDelivery(d, b) {
+  const when = h('span', { class: 'mono tgt' }, hhmm(new Date(d.at)));
+  if (d.dropped) return h('div', { class: 'row tgd drop' }, when, h('span', { class: 'sub' }, `${d.summary} · deleted from this ${machine()}`));
+  const { big, failed } = tgProblems(d);
+  const sub = [d.agent && d.agent !== b.agent ? `to ${tgName(d.agent)}` : '', d.snippet, d.from ? `forwarded from ${d.from}` : '', ...(d.files || []).map((f) => f.replace(/^\d+-/, ''))].filter(Boolean).join(' · ');
+  const missing = [...big.map((x) => `${x.replace(/\)$/, ', over 20 MB)')}`), ...failed];
+  const probs = missing.length ? `${missing.join(', ')} didn't come through; the rest went to ${tgName(d.agent)}` : '';
+  const ch = big.length ? chip(`${plural(big.length, 'file')} left out`, 'bad', 'dot')
+    : failed.length ? chip(`${failed.length} missing`, 'bad', 'dot')
+      : d.queued ? chip(`queued · ${ordinal(d.position || 1)}`, 'wait', 'dot') : chip('one prompt', '', 'dot');
+  return h('div', { class: 'row tgd' }, when,
+    h('div', { class: 'grow' }, h('span', { class: 'nm tgs' }, d.summary), sub ? h('span', { class: 'sub cut', title: sub }, sub) : null, probs ? h('span', { class: 'sub err' }, probs) : null), ch);
+}
+
+function tgRecentSec(b) {
+  if (!b.userId) return null;
+  const list = b.recent || [];
+  return h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, b.bot), b.agent ? h('span', { class: 'm' }, `delivered to ${tgName(b.agent)}`) : null),
+    h('div', { class: 'blk' }, list.length ? list.map((d) => tgDelivery(d, b)) : h('div', { class: 'row' }, h('span', { class: 'sub' }, `Nothing yet. What ${tgUser(b)} sends ${b.bot} shows here.`))),
+    h('div', { class: 'actions' }, h('span', { class: 'sub grow' }, `Only ${tgUser(b)} can send to ${b.bot}. Messages from anyone else are dropped and not shown.`),
+      h('button', { type: 'button', class: 'btn link mut small', 'data-k': `tg-remove:${b.id}`, onclick: () => { S.tg.confirm = { kind: 'remove', id: b.id }; draw(true); } }, 'Remove the bridge')));
+}
+
+function drawTelegram() {
+  const t = S.tg;
+  const err = S.errors.telegram;
+  if (err && !S.telegram) {
+    if (err.status === 404) return [head('Telegram', 'Prompts from', 'your phone.'), note('This service runs no Telegram bridges: it is a demo, or older than this page.')];
+    return [head('Telegram', 'Prompts from', 'your phone.'), errorBox(err.message, () => refresh(true))];
+  }
+  if (!S.telegram) return [];
+  const list = tgBridges();
+  const cur = (id) => (S.telegram.bridges || []).find((x) => x.id === id);
+  if (t.step === 2 && t.bot) {
+    const b = cur(t.bot.id) || t.bot;
+    if (b.userId) { t.step = 3; t.bot = b; } else return tgPairView(b);
+  }
+  if (t.step === 3 && t.bot) return tgPickView(cur(t.bot.id) || t.bot);
+  if (t.relink && cur(t.relink)) return tgPickView(cur(t.relink));
+  t.relink = '';
+  if (!list.length || t.step === 1) {
+    t.step = 1;
+    if (t.bot) return [head('Telegram', 'Prompts from', 'your phone.'), tgNewSec()];
+  }
+  const bridges = h('section', { class: 'sec' }, h('div', { class: 'rule' }, h('h2', {}, 'Bridges'), h('span', { class: 'm' }, list.length ? plural(list.length, 'bridge') : 'none yet')),
+    list.length ? h('div', { class: 'blk' }, list.map(tgRow))
+      : h('div', { class: 'blk' }, row('No bridge yet', 'A bridge is one Telegram bot of yours, linked to one agent. What you send the bot arrives in that agent as one prompt.', null, { name: true, pic: h('span', { class: 'ico' }, icon('send', 16, 1.8)) })),
+    ...list.map(tgStates),
+    list.length ? h('div', { class: 'tgslot', 'aria-disabled': 'true' }, h('span', { class: 'pl', 'aria-hidden': 'true' }, '+'), h('span', {}, 'Add another bridge'), h('span', { class: 'sub' }, 'later: a second bot for a second agent')) : null);
+  return [head('Telegram', 'Prompts from', 'your phone.'), bridges, ...(t.step === 1 ? [tgNewSec()] : list.map(tgRecentSec))];
+}
+
+// ---- Telegram on an agent's page and on Home -------------------------------------------------
+
+// tgHere: the agent page's Telegram row, in TG-02's four states: linked
+// here; no bot sends here; picking the bridge; and the confirm that names
+// both agents when the bot moves.
+const tgPaired = () => tgBridges().filter((b) => b.on && b.userId);
+function tgHere(holder, a) {
+  const list = tgPaired();
+  const st = S.tg.here?.id === a.id ? S.tg.here : null;
+  const key = JSON.stringify([a.id, a.status, list.map((b) => [b.id, b.agent, b.bot, b.userName]), st, S.tg.menu.startsWith('tg-here:') ? S.tg.menu : '']);
+  if (holder.dataset.key === key) return;
+  holder.dataset.key = key;
+  const set = (v) => { S.tg.here = v ? { id: a.id, ...v } : null; tgHere(holder, agentsList().find((x) => x.id === a.id) || a); };
+  if (!list.length || a.status === 'exited') { holder.replaceChildren(); holder.hidden = true; return; }
+  holder.hidden = false;
+  const here = list.find((b) => b.agent === a.id);
+  const link = async (b, el) => {
+    const r = await busy(el, () => api('POST', '/admin/v1/telegram', { op: 'link', bridge: b.id, agent: a.id }), (x) => `${b.bot} → ${agentName(a)}${x.delivered ? `: ${plural(x.delivered, 'held batch', 'held batches')} delivered` : ''}`);
+    if (r) { await load('telegram'); set(null); }
+  };
+  const pickBridge = (b, el) => (b.agent && tgOpen(b) ? set({ mode: 'confirm', bridge: b.id }) : link(b, el));
+  let kids;
+  if (st?.mode === 'confirm') {
+    const b = list.find((x) => x.id === st.bridge);
+    if (!b) { set(null); return; }
+    kids = h('div', { class: 'tgherebox' }, h('span', { class: 'eyebrow acc2' }, `Link ${b.bot} here?`),
+      h('p', { class: 'txt' }, `${b.bot} sends to `, h('b', { class: 'mono w' }, tgName(b.agent)), ` now. After this, what ${tgUser(b)} sends goes to ${agentName(a)} instead. Nothing already sent moves.`),
+      tgActs(btn(`Keep ${tgName(b.agent)}`, () => set(null), '', { 'data-k': 'tg-keep' }), btn('Link here', (e) => link(b, e.currentTarget), 'p', { 'data-k': 'tg-here-yes' })));
+  } else if (st?.mode === 'unlink' && here) {
+    kids = h('div', { class: 'tgherebox' }, h('span', { class: 'eyebrow acc2' }, 'Unlink'),
+      h('p', { class: 'txt' }, `Unlink ${here.bot} from ${agentName(a)}? The bot stays paired. Until you link it again, what ${tgUser(here)} sends is held and the bot says so.`),
+      tgActs(btn('Keep it', () => set(null), '', { 'data-k': 'tg-keep' }), btn('Unlink', async (e) => {
+        if (await busy(e.currentTarget, () => api('POST', '/admin/v1/telegram', { op: 'unlink', bridge: here.id }), `${here.bot} unlinked`)) { await load('telegram'); set(null); }
+      }, 'd', { 'data-k': 'tg-unlink-yes' })));
+  } else if (st?.mode === 'pick') {
+    const group = h('div', { class: 'opts', role: 'radiogroup', 'aria-label': 'Bridge' });
+    list.forEach((b, i) => group.append(h('button', {
+      type: 'button', class: 'opt p', role: 'radio', 'aria-checked': i ? 'false' : 'true', tabindex: i ? '-1' : '0', 'data-k': `tg-bridge:${b.id}`,
+      onclick: (e) => pickBridge(b, e.currentTarget), onkeydown: (e) => radioKeys(e, group, null),
+    }, h('span', { class: 'k' }, String(i + 1)), h('span', {}, b.bot), h('span', { class: 'h' }, b.agent ? `now → ${tgName(b.agent)}` : 'not linked'))));
+    kids = h('div', { class: 'tgherebox tight' },
+      h('div', { class: 'tgline' }, h('span', { class: 'eyebrow mut' }, 'Link Telegram here · pick a bridge'),
+        h('button', { type: 'button', class: 'btn link mut small sp', 'data-k': 'tg-here-cancel', onclick: () => set(null) }, 'Cancel')),
+      group,
+      h('div', { class: 'tgslot sm', 'aria-disabled': 'true' }, h('span', {}, '+ another bot'), h('span', { class: 'sub' }, 'later')));
+  } else if (here) {
+    kids = row(`${here.bot} sends here`, `What ${tgUser(here)} sends arrives as one prompt per burst.`,
+      tgMenuBtn(`tg-here:${here.id}`, `Linked · ${here.bot}`, [
+        { text: 'Link to another agent…', run: () => { Object.assign(S.tg, { relink: here.id, all: false, step: 0 }); location.hash = '#telegram'; } },
+        { text: `Open ${here.bot}`, href: '#telegram' },
+        { text: 'Unlink', bad: true, run: () => set({ mode: 'unlink' }) },
+      ]), { name: true, cls: 'tghere', pic: h('span', { class: 'ico acc' }, icon('send', 16, 1.8)) });
+  } else {
+    const b = list[0];
+    kids = row('No bot sends here', list.length > 1 ? `${plural(list.length, 'bot')} send to other agents.` : b.agent ? `${b.bot} sends to ${tgName(b.agent)} now.` : `${b.bot} isn't linked to an agent.`,
+      h('button', { type: 'button', class: 'btn sm', 'data-k': 'tg-here', onclick: () => set({ mode: 'pick' }) }, icon('link', 16, 1.8), 'Link Telegram here'),
+      { name: true, cls: 'tghere', pic: h('span', { class: 'ico' }, icon('send', 16, 1.8)) });
+  }
+  holder.replaceChildren(kids);
+  const focus = holder.querySelector('[data-k="tg-here-yes"], [data-k^="tg-bridge:"], [data-k="tg-unlink-yes"]');
+  if (st && focus) focus.focus({ preventScroll: true });
+}
+
+// tgHeldCards: Home's Ready for you: a bridge holding messages. Home only
+// offers to link them; dropping is on the Telegram page.
+function tgHeldCards() {
+  return tgBridges().filter((b) => b.held).map((b) => {
+    const n = b.heldMessages || b.held;
+    const a = tgAgent(b.agent);
+    const at = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
+    const why = tgEnded(b) ? `${tgNameCap(b.agent)} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
+    return rcard(icon('send', 16, 1.8), 'Held', `${b.bot} holds ${plural(n, 'message')}`, `${why} Link the bot to an agent to deliver ${n === 1 ? 'it' : 'them'}.`, [
+      btn('Link to an agent', () => { Object.assign(S.tg, { relink: b.id, all: false, step: 0, confirm: null }); location.hash = '#telegram'; }, 'p', { 'data-k': `tg-held:${b.id}` }),
+    ], 'held');
+  });
+}
+
 // ---- pages and routing ------------------------------------------------------------------------
 
 const DRAW = {
-  home: ['home-body', drawHome], agent: ['agent-body', drawAgent], start: ['start-body', drawStart], general: ['general-body', drawGeneral], agents: ['agents-body', drawAgents], boards: ['boards-body', drawBoards],
+  home: ['home-body', drawHome], agent: ['agent-body', drawAgent], start: ['start-body', drawStart], general: ['general-body', drawGeneral], agents: ['agents-body', drawAgents], telegram: ['telegram-body', drawTelegram], boards: ['boards-body', drawBoards],
   board: ['board-body', drawBoard], newboard: ['newboard-body', drawNewBoard], flash: ['newboard-body', drawFlash], network: ['network-body', drawNetwork],
   updates: ['updates-body', drawUpdates], troubleshoot: ['troubleshoot-body', drawTroubleshoot], about: ['about-body', drawAbout],
 };
@@ -4368,7 +4838,7 @@ async function route(initial) {
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
-  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; }
+  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; Object.assign(S.tg, { menu: '', confirm: null, here: null }); if (page !== 'telegram') S.tg.relink = ''; }
   if (page !== 'start') S.startForm = null;
   if (page !== 'home') S.panel = false; // Panel view is a way to see Home
   const section = SECTION[page] || page;
@@ -4411,7 +4881,7 @@ async function refresh(force) {
     return;
   }
   showSystem(sys);
-  const busyUI = S.open.wifi || S.open.rename || S.open.project || S.pairing || S.confirmLoginOff || (S.mcpNew && !S.mcpNew.token);
+  const busyUI = (page === 'telegram' && (S.tg.menu || S.tg.checking)) || S.open.wifi || S.open.rename || S.open.project || S.pairing || S.confirmLoginOff || (S.mcpNew && !S.mcpNew.token);
   if (!force && (busyUI || ['general', 'about'].includes(page))) return;
   await loadAll(...needs(page), ...extras(page));
   if (page === 'agents') await loadToday();

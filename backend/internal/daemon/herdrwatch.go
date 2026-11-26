@@ -45,6 +45,9 @@ func herdrAgentID(socket, terminal string) string {
 // WatchHerdr polls every running herdr session every 2 seconds (no-op with
 // "herdr": false in config.json).
 func (d *Daemon) WatchHerdr() {
+	if d.Isolated { // a test deck: never other apps' sessions
+		return
+	}
 	if d.Cfg.Herdr != nil && !*d.Cfg.Herdr {
 		return
 	}
