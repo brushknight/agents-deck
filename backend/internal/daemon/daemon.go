@@ -56,6 +56,10 @@ type Daemon struct {
 	Store    *store.Store
 	Cfg      Config
 	Agentctl string // absolute path of this binary, used in hook commands
+	// Isolated: a test deck (paths.Separate). It never watches or lists
+	// sessions of other apps (Orca, cmux, herdr, Codex, Claude started
+	// elsewhere), so nothing it does can reach a real one.
+	Isolated bool
 
 	mu        sync.Mutex
 	scans     sync.WaitGroup // screen reads started by Hook, so tests can wait for them

@@ -44,6 +44,9 @@ func cmuxAgentID(surface string) string {
 // WatchCmux reads cmux's Claude sessions every 2 seconds (no-op with
 // "cmux": false in config.json).
 func (d *Daemon) WatchCmux() {
+	if d.Isolated { // a test deck: never other apps' sessions
+		return
+	}
 	if d.Cfg.Cmux != nil && !*d.Cfg.Cmux {
 		return
 	}

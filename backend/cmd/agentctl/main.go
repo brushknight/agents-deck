@@ -1230,6 +1230,10 @@ func serve(args []string) error {
 		if err != nil {
 			return err
 		}
+		d.Isolated = paths.Separate()
+		if d.Isolated {
+			log.Printf("test deck (%s): not watching other apps (Orca, cmux, herdr, Codex, Claude sessions started elsewhere)", paths.Data())
+		}
 		d.Adopt()
 		go d.Run()
 		go d.WatchCodex()
