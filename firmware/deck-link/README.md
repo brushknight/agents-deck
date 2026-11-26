@@ -96,7 +96,8 @@ What the core does for you:
 
 Callbacks (each gets the `deck_link_t *` first): `on_welcome(name, scope, approved)`,
 `on_snapshot_begin(server, agent_count)`, `on_agent(agent)`, `on_agent_removed(id)`, `on_snapshot_end()`,
-`on_result(seq, code, error)`, `on_hat_list`, `on_live_sessions`, `on_restore_result`, `on_online`,
+`on_result(seq, code, error)`, `on_hat_list`, `on_live_sessions`, `on_restore_result`, `on_limits(limits)`
+(with `FIELDS_LIMITS`), `on_online`,
 `on_offline`, `on_ping(seq, time_ms)` and `on_frame(frame)` (every frame, before the others; this is
 where `deck_tiles_handle` goes). Pointers passed to callbacks are valid only during the call. Callbacks
 may send commands.

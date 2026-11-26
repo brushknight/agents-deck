@@ -374,7 +374,7 @@ int main() {
     out = sent();
     assert(out.size() == 2);
     assert(out[0].which_body == agentsdeck_link_v1_Frame_subscribe_tag);
-    assert(out[0].body.subscribe.slot_count == 0 && out[0].body.subscribe.fields == 15);
+    assert(out[0].body.subscribe.slot_count == 0 && out[0].body.subscribe.fields == 31);
     assert(out[1].which_body == agentsdeck_link_v1_Frame_pong_tag && out[1].seq == 9);
 
     // 15 s of silence: deck offline, the fleet stays, and the board only says Hello.

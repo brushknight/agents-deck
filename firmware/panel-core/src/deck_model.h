@@ -25,7 +25,8 @@ constexpr int kMaxKnown = kMaxAgents * 2 > 64 ? kMaxAgents * 2 : 64;   // agent 
 // What the board subscribes to: every field the screen draws.
 constexpr uint32_t kPanelFields =
     agentsdeck_link_v1_FieldGroup_FIELDS_TILE | agentsdeck_link_v1_FieldGroup_FIELDS_CARD |
-    agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT | agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS;
+    agentsdeck_link_v1_FieldGroup_FIELDS_PROMPT | agentsdeck_link_v1_FieldGroup_FIELDS_NUMBERS |
+    agentsdeck_link_v1_FieldGroup_FIELDS_LIMITS;
 
 struct DeckFleet {
   Fleet fleet;                    // what the screen draws
@@ -157,6 +158,31 @@ static inline void agentFromLink(const agentsdeck_link_v1_Agent& in, Agent& a) {
 
 namespace deck_model_detail {
 
+// ---------------------------------------------------------------- usage limits
+
+static inline void limitsFromLink(const agentsdeck_link_v1_Limits& in, Fleet& f) {
+  f.limitCount = 0;
+  for (pb_size_t i = 0; i < in.sets_count && f.limitCount < kMaxLimitSets; i++) {
+    const agentsdeck_link_v1_LimitSet& s = in.sets[i];
+    LimitSet& o = f.limits[f.limitCount++];
+    memset(&o, 0, sizeof o);
+    o.tool = s.tool == agentsdeck_link_v1_Tool_TOOL_CODEX    ? ToolKind::Codex
+             : s.tool == agentsdeck_link_v1_Tool_TOOL_CLAUDE ? ToolKind::Claude
+                                                              : ToolKind::Other;
+    copyLine(o.account, sizeof o.account, s.account);
+    for (pb_size_t k = 0; k < s.windows_count && o.count < kMaxLimitWindows; k++) {
+      const agentsdeck_link_v1_LimitWindow& w = s.windows[k];
+      LimitWin& ow = o.win[o.count++];
+      copyLine(ow.label, sizeof ow.label, w.label);
+      ow.used = w.used > 255 ? 255 : (uint8_t)w.used;
+      ow.resetsAt = w.resets_at_ms > 0 ? w.resets_at_ms / 1000 : 0;
+      ow.level = (LimitLevel)(w.level <= agentsdeck_link_v1_LimitLevel_LIMIT_OUT ? w.level : 0);
+      ow.hit = w.hit;
+      ow.stale = w.stale;
+    }
+  }
+}
+
 static inline int indexOf(const Fleet& f, const char* id) {
   for (int i = 0; i < f.count; i++)
     if (!strcmp(f.agents[i].id, id)) return i;
@@ -225,7 +251,10 @@ static inline bool deckApply(DeckFleet& d, const agentsdeck_link_v1_Frame& f, ui
       copyLine(d.next.server, sizeof d.next.server, b.has_server ? b.server.name : "");
       d.nextKnownCount = 0;
       d.inSnapshot = true;
-      if (b.has_server) deckSetClock(d, b.server.time_ms, nowMillis);
+      if (b.has_server) {
+        deckSetClock(d, b.server.time_ms, nowMillis);
+        d.next.utcOffset = b.server.utc_offset_s;
+      }
       return false;
     }
 
@@ -270,11 +299,17 @@ static inline bool deckApply(DeckFleet& d, const agentsdeck_link_v1_Frame& f, ui
       if (!d.inSnapshot) return false;
       if (d.have && hasNewWaiting(d.fleet, d.next)) d.newWaiting = true;
       d.next.serverTime = d.fleet.serverTime;
+      d.next.limitCount = d.fleet.limitCount;   // limits come in their own frames, after this one
+      memcpy(d.next.limits, d.fleet.limits, sizeof d.next.limits);
       d.fleet = d.next;
       memcpy(d.known, d.nextKnown, sizeof d.known);
       d.knownCount = d.nextKnownCount;
       d.inSnapshot = false;
       d.have = true;
+      return true;
+
+    case agentsdeck_link_v1_Frame_limits_tag:
+      limitsFromLink(f.body.limits, d.fleet);
       return true;
 
     default:

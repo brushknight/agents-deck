@@ -189,6 +189,7 @@ typedef struct _agentsdeck_link_v1_Server {
     char name[48];
     char version[24];
     int64_t time_ms;
+    int32_t utc_offset_s; /* the deck's local time minus UTC, in seconds: boards show clock times ("thu 09:00") with it */
 } agentsdeck_link_v1_Server;
 
 typedef struct _agentsdeck_link_v1_SnapshotBegin {
@@ -917,7 +918,7 @@ extern "C" {
 #define agentsdeck_link_v1_Subscribe_init_default {0, 0, 0}
 #define agentsdeck_link_v1_SnapshotBegin_init_default {false, agentsdeck_link_v1_Server_init_default, 0}
 #define agentsdeck_link_v1_SnapshotEnd_init_default {0}
-#define agentsdeck_link_v1_Server_init_default   {"", "", 0}
+#define agentsdeck_link_v1_Server_init_default   {"", "", 0, 0}
 #define agentsdeck_link_v1_AgentChanged_init_default {false, agentsdeck_link_v1_Agent_init_default}
 #define agentsdeck_link_v1_AgentRemoved_init_default {""}
 #define agentsdeck_link_v1_Agent_init_default    {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_default, "", false, agentsdeck_link_v1_Prompt_init_default, "", false, agentsdeck_link_v1_Tokens_init_default, false, agentsdeck_link_v1_Context_init_default, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_default, 0, {agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default, agentsdeck_link_v1_Subagent_init_default}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_default, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_default, "", false, agentsdeck_link_v1_Pet_init_default, 0, "", 0, "", "", 0}
@@ -986,7 +987,7 @@ extern "C" {
 #define agentsdeck_link_v1_Subscribe_init_zero   {0, 0, 0}
 #define agentsdeck_link_v1_SnapshotBegin_init_zero {false, agentsdeck_link_v1_Server_init_zero, 0}
 #define agentsdeck_link_v1_SnapshotEnd_init_zero {0}
-#define agentsdeck_link_v1_Server_init_zero      {"", "", 0}
+#define agentsdeck_link_v1_Server_init_zero      {"", "", 0, 0}
 #define agentsdeck_link_v1_AgentChanged_init_zero {false, agentsdeck_link_v1_Agent_init_zero}
 #define agentsdeck_link_v1_AgentRemoved_init_zero {""}
 #define agentsdeck_link_v1_Agent_init_zero       {"", 0, "", "", _agentsdeck_link_v1_Tool_MIN, _agentsdeck_link_v1_Status_MIN, 0, "", "", "", "", "", "", false, agentsdeck_link_v1_Activity_init_zero, "", false, agentsdeck_link_v1_Prompt_init_zero, "", false, agentsdeck_link_v1_Tokens_init_zero, false, agentsdeck_link_v1_Context_init_zero, 0, 0, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Hat_init_zero, 0, {agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero, agentsdeck_link_v1_Subagent_init_zero}, 0, 0, 0, "", false, agentsdeck_link_v1_Account_init_zero, 0, 0, 0, 0, 0, 0, false, agentsdeck_link_v1_Project_init_zero, "", false, agentsdeck_link_v1_Pet_init_zero, 0, "", 0, "", "", 0}
@@ -1073,6 +1074,7 @@ extern "C" {
 #define agentsdeck_link_v1_Server_name_tag       1
 #define agentsdeck_link_v1_Server_version_tag    2
 #define agentsdeck_link_v1_Server_time_ms_tag    3
+#define agentsdeck_link_v1_Server_utc_offset_s_tag 4
 #define agentsdeck_link_v1_SnapshotBegin_server_tag 1
 #define agentsdeck_link_v1_SnapshotBegin_agent_count_tag 2
 #define agentsdeck_link_v1_AgentRemoved_id_tag   1
@@ -1493,7 +1495,8 @@ X(a, STATIC,   SINGULAR, UINT32,   agent_count,       2)
 #define agentsdeck_link_v1_Server_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   name,              1) \
 X(a, STATIC,   SINGULAR, STRING,   version,           2) \
-X(a, STATIC,   SINGULAR, INT64,    time_ms,           3)
+X(a, STATIC,   SINGULAR, INT64,    time_ms,           3) \
+X(a, STATIC,   SINGULAR, INT32,    utc_offset_s,      4)
 #define agentsdeck_link_v1_Server_CALLBACK NULL
 #define agentsdeck_link_v1_Server_DEFAULT NULL
 
@@ -2167,9 +2170,9 @@ extern const pb_msgdesc_t agentsdeck_link_v1_Project_msg;
 #define agentsdeck_link_v1_Result_size           103
 #define agentsdeck_link_v1_Resume_size           13
 #define agentsdeck_link_v1_SendPrompt_size       405
-#define agentsdeck_link_v1_Server_size           85
+#define agentsdeck_link_v1_Server_size           96
 #define agentsdeck_link_v1_SetHat_size           175
-#define agentsdeck_link_v1_SnapshotBegin_size    93
+#define agentsdeck_link_v1_SnapshotBegin_size    104
 #define agentsdeck_link_v1_SnapshotEnd_size      0
 #define agentsdeck_link_v1_Stash_size            210
 #define agentsdeck_link_v1_Subagent_size         128

@@ -116,12 +116,37 @@ struct Agent {
   deck_pet_t pet;           // its pet while Agent pets is on (pet.has); drawn in place of the critter (sprites.h)
 };
 
+// Usage limits (Limits frames, FIELDS_LIMITS): one account in one tool, the
+// week first. link.options: 4 sets of 4 windows, names and labels of 16.
+constexpr int kMaxLimitSets = 4, kMaxLimitWindows = 4;
+enum class LimitLevel : uint8_t { Ok, Near, Low, Out };
+
+struct LimitWin {
+  char label[16];           // "week", "Fable week", "spend"
+  uint8_t used;             // percent, at most 255
+  int64_t resetsAt;         // epoch seconds, 0 when unknown
+  LimitLevel level;
+  bool hit, stale;          // stale: reset since the last report, used not known
+  bool out() const { return level == LimitLevel::Out && !stale; }
+  bool hot() const { return !stale && level != LimitLevel::Ok; }
+};
+
+struct LimitSet {
+  ToolKind tool;
+  char account[16];         // "" with one account, and for Codex
+  uint8_t count;
+  LimitWin win[kMaxLimitWindows];
+};
+
 struct Fleet {
   char server[32];
   int64_t serverTime;       // epoch seconds: the deck's clock (deck_model.h keeps it current)
+  int32_t utcOffset;        // the deck's local time minus UTC, seconds (Server.utc_offset_s)
   uint8_t count;            // agents kept, at most kMaxAgents
   uint16_t total;           // agents on the deck
   Agent agents[kMaxAgents]; // ordered by slot
+  uint8_t limitCount;       // usage limits known (0: none reported, or an older deck)
+  LimitSet limits[kMaxLimitSets];
 };
 
 // Bounded copy that never cuts inside a UTF-8 sequence.

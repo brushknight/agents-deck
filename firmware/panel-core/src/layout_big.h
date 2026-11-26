@@ -13,13 +13,13 @@
 //           (pet, status chip, hearts and level, name, session); doing now,
 //           or the status and the account; the last prompt, or the last
 //           answer once it has finished; context and where it runs; back,
-//           focus terminal, then interrupt while running, otherwise stop
+//           open in terminal, then interrupt while running, otherwise stop
 //           ("again" arms it for 3 s), or resume and remove once exited. An
 //           egg ready to hatch sits in a box that says "tap to hatch" (HatchPet).
 //   prompt  a permission on orange, a question dark with an orange edge: the
 //           pet boxed with its "?", what it asks, the command, every answer as
 //           a row (tap one to choose it, tap it again or send to send); back
-//           and focus terminal at the foot
+//           and open in terminal at the foot
 //   states  waiting for approval, connecting, deck offline, no agents; on
 //           Wi-Fi, where it is (joining, connecting, wrong password, network
 //           not found, deck not reachable, certificate rejected)
@@ -29,7 +29,7 @@
 //           the same grid, the deck's spot n in cell n; its mark sits at the left of the
 //           page bars (whose row then stays with one page too)
 //
-// Back: swipe right, or BOOT. Pure C++ (no Arduino).
+// Back: the back button, a swipe right, or BOOT. Pure C++ (no Arduino).
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,6 +46,7 @@
 #include "panel_layout.h"
 #include "round_geom.h"
 #include "sprites.h"
+#include "usage.h"
 #include "view.h"
 
 struct BigSpec {
@@ -102,9 +103,10 @@ struct BigGrid {
 // DeckGrid: square cells with an 8 px gap inside 8 px padding; with more than
 // one page the bars take 34 px at the bottom and the cells get shorter. On
 // Wi-Fi (wifi) that row stays with one page too: the Wi-Fi mark sits in it.
-static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false) {
+// With usage limits (usage) a 24 px row stays for the usage readout.
+static inline BigGrid bigGrid(const BigSpec& S, int pages, bool wifi = false, bool usage = false) {
   BigGrid g{};
-  const int pad = bk(S, 8), barsH = pages > 1 || wifi ? bk(S, 34) : 0;
+  const int pad = bk(S, 8), barsH = pages > 1 || wifi ? bk(S, 34) : usage ? 24 : 0;
   g.gap = bk(S, 8);
   const int availW = S.w - 2 * pad, availH = S.h - pad - (barsH ? 0 : pad) - barsH;
   g.cell = (availW - 3 * g.gap) / 4;
@@ -133,7 +135,9 @@ static inline int bigAgentAt(const Fleet& f, int page, int cell) {
 // "Needs you" screen (its mark at the left).
 static inline bool bigRow(const PanelUi& ui) { return ui.wifi || ui.att; }
 
-static inline BigGrid bigGridFor(const BigSpec& S, const PanelUi& ui, int pages) { return bigGrid(S, pages, bigRow(ui)); }
+static inline BigGrid bigGridFor(const BigSpec& S, const PanelUi& ui, int pages) {
+  return bigGrid(S, pages, bigRow(ui), ui.usage);
+}
 
 // What a home cell holds: the deck's page by slot, or on the "Needs you"
 // screen the agent in that spot. -1 for a free cell.
@@ -200,13 +204,13 @@ static inline int bigBarAt(const BigBars& b, int x) {
 //               column; doing now with the command and two subagents in a box, or
 //               the status with the account on the right; the last prompt, or
 //               the last answer once it has finished; context; where it runs;
-//               back, focus terminal, and interrupt, stop, resume or remove
+//               back, open in terminal, and interrupt, stop, resume or remove
 //   permission  the page orange: the head with the pet boxed, "it asks", the
 //               question, the command, and every answer as a row (tap one to
 //               choose it, tap it again to send); back, "or answer at the
-//               terminal" and focus terminal
+//               terminal" and open in terminal
 //   question    dark with an orange edge: the head, the question, its detail,
-//               the answers as rows; back, send and focus terminal
+//               the answers as rows; back, send and open in terminal
 
 namespace big_ui {   // the desk panel's numbers at 2/3
 constexpr int kPadX = 24, kPadTop = 21, kPadBot = 20;      // the page's padding (36, 32, 30)
@@ -216,7 +220,7 @@ constexpr int kCell = 4;                                    // pet cells (6)
 constexpr int kHeadGap = 15;                                // the zone to the column (22)
 constexpr int kChipH = 20;                                  // (30)
 constexpr int kBtnH = 43, kBtnGap = 9, kSideW = 133;        // buttons (64, 14, 200)
-constexpr int kFocusW = 173, kLinkH = 35;                   // focus terminal beside send (260); a permission's back (52)
+constexpr int kFocusW = 173, kLinkH = 35;                   // open in terminal beside send (260); a permission's back (52)
 constexpr int kRowH = 49, kRowGap = 7;                      // a question's answer rows (74, 10)
 constexpr int kPermRowH = 43;                               // a permission's answer rows (64)
 constexpr int kRadius = 17;                                 // the page's corners (26)
@@ -264,7 +268,7 @@ struct BigButtons {
   Rect r[4];
 };
 
-// The card's: back, then the wide one (focus terminal; resume or remove once
+// The card's: back, then the wide one (open in terminal; resume or remove once
 // it has exited), then interrupt while it runs, stop while it doesn't. What
 // the scope allows: focus and interrupt need act, stop, resume and remove admin.
 static inline BigButtons bigCardButtons(const BigSpec& S, const Agent& a, DeckScope scope) {
@@ -345,7 +349,7 @@ struct BigPrompt {
   int n;
   Rect opt[kMaxOptions];
   bool sub;                    // the rows have room for an answer's second line
-  BigButtons btn;              // back, then send and focus terminal (focus terminal as a link on orange)
+  BigButtons btn;              // back, then send and open in terminal (open in terminal as a link on orange)
   int orY;                     // a permission's "or answer at the terminal"
 };
 
@@ -372,15 +376,15 @@ static inline BigPrompt bigPrompt(const BigSpec& S, const Agent& a) {
   // The foot.
   const int foot = S.h - kPadBot;
   p.n = a.optCount;
-  if (p.orange) {   // back, "or answer at the terminal", and focus terminal as a link
+  if (p.orange) {   // back, "or answer at the terminal", and open in terminal as a link
     p.btn.kind[0] = Hit::Back;
     p.btn.r[0] = Rect{kPadX, foot - kLinkH, kLinkH, kLinkH};
-    const int lw = textW(FONT_XS, "FOCUS TERMINAL") + 12;
+    const int lw = textW(FONT_XS, "OPEN IN TERMINAL") + 12;
     p.btn.kind[1] = Hit::Focus;
     p.btn.r[1] = Rect{S.w - kPadX - lw, foot - kLinkH, lw, kLinkH};
     p.btn.n = 2;
     p.orY = foot - kLinkH + (kLinkH - kLineXS) / 2;
-  } else {          // back, send (with answers), focus terminal
+  } else {          // back, send (with answers), open in terminal
     const int by = foot - kBtnH, x = kPadX + kBtnH + kBtnGap;
     p.btn.kind[p.btn.n] = Hit::Back;
     p.btn.r[p.btn.n++] = Rect{kPadX, by, kBtnH, kBtnH};
@@ -498,7 +502,7 @@ static inline DeckCommand bigTap(PanelUi& ui, const Fleet& f, const PanelHit& h,
     case Hit::Focus:
       if (!canAct(scope)) { uiToast(ui, "view only: needs scope act", ms); break; }
       out = commandFor(DeckCmd::Focus, f.agents[h.agent]);
-      uiToast(ui, "focused", ms, 1200);
+      uiToast(ui, "opened", ms, 1200);
       break;
     case Hit::Interrupt:
       out = commandFor(DeckCmd::Interrupt, f.agents[h.agent]);
@@ -845,6 +849,23 @@ static inline void petFit(Canvas& c, const Rect& box, int most, const Agent& a, 
   drawPetCells(c, x, box.y + box.h - e.y1 * s, s, a, pose, ms, bubble);
 }
 
+// A tile's pet: always at the tiles' one scale, so every pet on the deck is
+// the same size. It stands on the box's foot, centred and pushed in from the
+// sides; whatever reaches over the tile's top (a tall hat, the legend's
+// flames, a bubble) is cut at the tile's edge, never by shrinking the pet.
+static inline void petTile(Canvas& c, const Rect& tileR, const Rect& box, int s, const Agent& a, Pose pose, uint32_t ms,
+                           bool bubble) {
+  const PetExtent e = petExtent(a, pose, bubble);
+  int x = box.x + box.w / 2 - 8 * s;
+  if (x + e.x0 * s < tileR.x) x = tileR.x - e.x0 * s;
+  if (x + e.x1 * s > tileR.x + tileR.w) x = tileR.x + tileR.w - e.x1 * s;
+  Canvas in = c;                                     // the same pixels, rows of the tile only
+  if (in.top < tileR.y) in.top = tileR.y;
+  if (in.h > tileR.y + tileR.h) in.h = tileR.y + tileR.h;
+  if (in.top >= in.h) return;
+  drawPetCells(in, x, box.y + box.h - e.y1 * s, s, a, pose, ms, bubble);
+}
+
 // AgentTile, laid out on the deck's 170 px design cell and scaled to the real one.
 static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent& a, const Rect& r, uint32_t ms,
                         int64_t now, bool pressed) {
@@ -876,8 +897,8 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   // The critter: its body where the deck draws it (92 px wide from y 30; the
   // feet at 30 + 12/13 of its height), at the nearest whole scale.
   const int s = S.tileScale;
-  if (a.pet.has) {                                   // its pet: all it reaches inside the tile, over the name
-    petFit(c, Rect{ox + d(6), oy + d(8), d(158), d(96)}, s, a, poseOf(a, now), ms, true);   // (fit, 158 x 96 at 6, 8)
+  if (a.pet.has) {                                   // its pet: one size on every tile, over the name
+    petTile(c, r, Rect{ox + d(6), oy + d(8), d(158), d(96)}, s, a, poseOf(a, now), ms, true);   // (158 x 96 at 6, 8)
   } else {
     const float unit = 92.f / 18.f;                  // the deck's critter: px per sprite unit
     const int feet = oy + d(30 + 12 * unit);
@@ -901,6 +922,8 @@ static inline void tile(Canvas& c, const BigSpec& S, const Theme& T, const Agent
   SQ_ADD(text, tt);
   if (!pressed) ring(c, r, d(4) < 2 ? 2 : d(4), a.ctxWindow ? ctxPct(a) : 0, k.ring, k.ringTrack);
 }
+
+static inline void usageCornerAt(Canvas& c, const Theme& T, const Fleet& f, int x, int cy, int64_t now);
 
 static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const PanelInput& in) {
   const Fleet& f = *in.fleet;
@@ -945,6 +968,7 @@ static inline void home(Canvas& c, const BigSpec& S, const Theme& T, const Panel
       rrect(c, bars.r[k], bk(S, 4), cur ? T.ink : (p < 64 && hot[p]) ? T.accent : kRowOutline);
     }
   }
+  if (g.bars.w) usageCornerAt(c, T, f, 10, g.bars.y + g.bars.h / 2, in.nowEpoch);   // bottom left, beside the page bars
   if (in.link == LinkState::Lost) {                  // _OfflineChip, 22 px off the bottom
     const char* s = "offline" DECK_DOT "retrying";
     const Font& f2 = *S.label;
@@ -1140,11 +1164,110 @@ static inline int hook(Canvas& c, int x, int y, int lineH, uint16_t col) {
   return 12;
 }
 
-// The context bar (_ContextSegments): 40 segments, 2 px apart.
-static inline void segs(Canvas& c, const Theme& T, int x, int y, int w, int pct, uint16_t off) {
-  const int n = 40, gap = 2, sw = (w - (n - 1) * gap) / n;
+// The one label for raising the agent's terminal, the same on every screen
+// and every deck: "open in terminal" ("open in codex" for a Codex app
+// thread). Pressed, the toast says "opened".
+static inline const char* openLabel(const Agent& a) { return a.external ? "open in codex" : "open in terminal"; }
+
+// The rows a font's digits fill in its cell (top, height): where "42%" is ink.
+static inline void digitRows(const Font& f, int& top, int& h) {
+  uint16_t px[32 * 40];
+  if (f.cellW > 32 || f.cellH > 40) { top = 0; h = f.cellH; return; }
+  Canvas c{px, f.cellW, f.cellH};
+  c.fill(0);
+  c.text(f, 0, 0, "0", 0xFFFF);
+  int y0 = f.cellH, y1 = -1;
+  for (int y = 0; y < f.cellH; y++)
+    for (int x = 0; x < f.cellW; x++)
+      if (px[y * f.cellW + x]) { if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (y1 < y0) { top = 0; h = f.cellH; return; }
+  top = y0;
+  h = y1 - y0 + 1;
+}
+
+// The context bar (_ContextSegments): 40 segments, 2 px apart, from x to
+// x + w exactly (the odd pixels spread over the segments), `h` tall; orange
+// from 85%.
+static inline void segs(Canvas& c, const Theme& T, int x, int y, int w, int h, int pct, uint16_t off) {
+  const int n = 40, gap = 2;
   const int on = (pct * n + 50) / 100;
-  for (int i = 0; i < n; i++) c.rect(x + i * (sw + gap), y, sw, 4, i < on ? T.ink : off);
+  const uint16_t ink = pct >= 85 ? T.accent : T.ink;
+  for (int i = 0; i < n; i++) {
+    const int sx = x + i * (w + gap) / n, ex = x + (i + 1) * (w + gap) / n - gap;
+    c.rect(sx, y, ex - sx, h, i < on ? ink : off);
+  }
+}
+
+// ---------------------------------------------------------------- usage
+
+// Bold text from a regular font: drawn twice, a pixel apart. Returns its width.
+static inline int boldAt(Canvas& c, const Font& f, int x, int top, const char* s, uint16_t col) {
+  textAt(c, f, x + 1, top, s, col);
+  return textAt(c, f, x, top, s, col) + 1;
+}
+
+// The corner's critter: 7 x 4 cells of 2 px (14 x 8), as on the boards.
+static inline void critterMark(Canvas& c, int x, int y, uint16_t col) {
+  static const char* const rows[] = {".xxxxx.", "xx.x.xx", "xxxxxxx", ".x.x.x."};
+  for (int r = 0; r < 4; r++)
+    for (int k = 0; k < 7; k++)
+      if (rows[r][k] == 'x') c.rect(x + 2 * k, y + 2 * r, 2, 2, col);
+}
+
+// The usage readout (UsageCorner): the account in use as a critter in its
+// colour and its week, then a dot in the second source's colour and its
+// week; 12 px Roboto Mono bold, orange past 80% and when out. `cy` is the
+// row's middle.
+static inline void usageCornerAt(Canvas& c, const Theme& T, const Fleet& f, int x, int cy, int64_t now) {
+  int src[2];
+  const int n = usageCorner(f, src);
+  if (!n) return;
+  const Font& font = FONT_S;
+  const int top = cy - fontPx(font) / 2;
+  auto value = [&](const LimitSet& s, int vx) {
+    const LimitWin* w = usageWeek(s);
+    char v[32] = "-";
+    if (w) usageValue(*w, true, now, f.utcOffset, v, sizeof v);
+    const uint16_t col = !w || w->stale ? T.dim : w->hot() ? T.accent : T.ink;
+    return boldAt(c, font, vx, top, v, col);
+  };
+  critterMark(c, x, cy - 4, usageColor(T, f, f.limits[src[0]]));
+  x += 14 + 7;
+  x += value(f.limits[src[0]], x);
+  if (n < 2) return;
+  x += 7 + 6;
+  fillDisc(c, x + 3.5f, (float)cy, 3.5f, usageColor(T, f, f.limits[src[1]]));
+  x += 7 + 7;
+  value(f.limits[src[1]], x);
+}
+
+// The limits of an agent's account in its tool, if the deck sent any.
+static inline const LimitSet* usageOf(const Fleet& f, const Agent& a) {
+  for (int i = 0; i < f.limitCount; i++)
+    if (f.limits[i].tool == a.tool && !strcmp(f.limits[i].account, a.account)) return &f.limits[i];
+  return nullptr;
+}
+
+// An agent's page, one row (option A): USAGE · <account>, 20 segments of
+// 6 x 9 (orange past 80%), the week's %, and "ctx 41%" at the right.
+static inline void usageRow(Canvas& c, const Theme& T, const LimitSet& l, int x, int right, int y, const Agent& a,
+                            int64_t now, int32_t utcOffset) {
+  using namespace big_ui;
+  char b[48];
+  snprintf(b, sizeof b, "usage" DECK_DOT "%s", usageName(l));
+  x += label(c, x, y, b, kMuted) + 8;
+  const LimitWin* w = usageWeek(l);
+  if (w) {
+    const int n = 20, sw = 6, sh = 9, gap = 2;
+    const int on = w->stale ? 0 : (w->used > 100 ? n : (w->used * n + 50) / 100);
+    const uint16_t ink = w->hot() ? T.accent : T.ink;
+    for (int i = 0; i < n; i++) c.rect(x + i * (sw + gap), y + (kLineXS - sh) / 2, sw, sh, i < on ? ink : kSegOff);
+    x += n * (sw + gap) - gap + 8;
+    usageValue(*w, false, now, utcOffset, b, sizeof b);
+    boldAt(c, FONT_XS, x, y + (kLineXS - fontPx(FONT_XS)) / 2, b, w->stale ? T.dim : w->hot() ? T.accent : T.ink);
+  }
+  snprintf(b, sizeof b, a.ctxWindow ? "ctx %d%%" : "ctx --", ctxPct(a));
+  textAt(c, FONT_XS, right - textW(FONT_XS, b), y + (kLineXS - fontPx(FONT_XS)) / 2, b, kMuted);
 }
 
 // "■ personal": a square in the account's colour, then its name; right-aligned
@@ -1267,12 +1390,18 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
                 g.lastLines, kLineM);
   }
   // Context, and where it runs.
-  {
+  if (const LimitSet* l = usageOf(*in.fleet, a)) {
+    usageRow(c, T, *l, kPadX, right, g.ctxY, a, in.nowEpoch, in.fleet->utcOffset);
+  } else {
     const int lw = label(c, kPadX, g.ctxY, "context", kMuted);
     snprintf(buf, sizeof buf, a.ctxWindow ? "%d%%" : "--", ctxPct(a));
     const int pw = textW(FONT_S, buf);
     lineAt(c, FONT_S, kLineXS, right - pw, g.ctxY, buf, T.ink);
-    segs(c, T, kPadX + lw + 9, g.ctxY + (kLineXS - 4) / 2, w - lw - 9 - pw - 9, a.ctxWindow ? ctxPct(a) : 0, kSegOff);
+    // As tall as the percentage's digits, on their rows, up to 9 px before it.
+    int dt, dh;
+    digitRows(FONT_S, dt, dh);
+    segs(c, T, kPadX + lw + 9, g.ctxY + (kLineXS - FONT_S.cellH) / 2 + dt, w - lw - 9 - pw - 9, dh, a.ctxWindow ? ctxPct(a) : 0,
+         kSegOff);
     buf[0] = '\0';
     const char* tool = a.tool == ToolKind::Claude ? "claude code" : a.tool == ToolKind::Codex ? "codex" : a.tool == ToolKind::Gemini ? "gemini" : "";
     const char* parts[4] = {tool, a.model, a.folder, a.branch};
@@ -1295,7 +1424,7 @@ static inline void card(Canvas& c, const BigSpec& S, const Theme& T, const Panel
     switch (b.kind[i]) {
       case Hit::Back: button(c, r, "", pressed ? T.ink : T.bg, pressed ? T.bg : T.ink, pressed ? T.ink : kRule, true); break;
       case Hit::Focus:
-        button(c, r, a.unseen && a.status == Status::Idle ? "review in terminal" : "focus terminal", pressed ? T.accent : T.ink, T.bg,
+        button(c, r, openLabel(a), pressed ? T.accent : T.ink, T.bg,
                pressed ? T.accent : T.ink);
         break;
       case Hit::Resume: button(c, r, "resume", pressed ? T.accent : T.ink, T.bg, pressed ? T.accent : T.ink); break;
@@ -1395,14 +1524,14 @@ static inline void prompt(Canvas& c, const BigSpec& S, const Theme& T, const Pan
         break;
       }
       default:
-        if (orange) {   // a link: "FOCUS TERMINAL", underlined
+        if (orange) {   // a link: "OPEN IN TERMINAL", underlined
           if (pressed) c.rect(r.x, r.y, r.w, r.h, T.bg);
           const uint16_t col = pressed ? T.accent : T.bg;
-          const int tw = upperW(FONT_XS, "focus terminal"), ty = r.y + (r.h - FONT_XS.cellH) / 2;
-          upperAt(c, FONT_XS, r.x + (r.w - tw) / 2, ty, "focus terminal", col);
+          const int tw = upperW(FONT_XS, openLabel(a)), ty = r.y + (r.h - FONT_XS.cellH) / 2;
+          upperAt(c, FONT_XS, r.x + (r.w - tw) / 2, ty, openLabel(a), col);
           c.rect(r.x + (r.w - tw) / 2, ty + FONT_XS.cellH, tw, 2, col);
         } else {
-          button(c, r, "focus terminal", pressed ? T.ink : T.bg, pressed ? T.bg : T.ink, pressed ? T.ink : kRule);
+          button(c, r, openLabel(a), pressed ? T.ink : T.bg, pressed ? T.bg : T.ink, pressed ? T.ink : kRule);
         }
     }
   }
@@ -1410,7 +1539,7 @@ static inline void prompt(Canvas& c, const BigSpec& S, const Theme& T, const Pan
     const int x = p.btn.r[0].x + p.btn.r[0].w + 9;
     upperAt(c, FONT_XS, x, p.orY, "or answer at the terminal", ink, p.btn.r[1].x - 8 - x);
   } else if (!p.n) {
-    upperAt(c, FONT_XS, kPadX, p.btn.r[0].y - 9 - kLineXS, "type your answer at the terminal", kMuted, w);
+    upperAt(c, FONT_XS, kPadX, p.btn.r[0].y - 9 - kLineXS, "type the answer at the terminal", kMuted, w);
   }
 }
 

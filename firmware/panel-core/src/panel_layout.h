@@ -174,6 +174,10 @@ struct PanelUi {
   Attention* att = nullptr;
   bool needsYou = false;
 
+  // Usage limits are known: big homes keep the bottom row for the usage
+  // readout in its corner (layout_big.h).
+  bool usage = false;
+
   // List homes: the scroll offset in pixels, and its settle animation.
   float scroll = 0;
   float scrollFrom = 0, scrollTo = 0;

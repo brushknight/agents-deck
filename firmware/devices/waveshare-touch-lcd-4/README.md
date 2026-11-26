@@ -38,7 +38,7 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
 
   A row of sharp buttons underneath:
   - **back** to the deck;
-  - **focus terminal**;
+  - **open in terminal**;
   - **interrupt** while the agent runs, **stop** while it doesn't (it arms on the first tap:
     "again", for 3 s);
   - once the agent has exited, **resume** and **remove**.
@@ -48,7 +48,7 @@ Flutter UI with every size times 2/3 (`layout_big.h`).
 - **Prompts.** A permission turns the screen orange; a question stays dark with an orange edge. Both
   show the pet in its box with its "?", what it asks, the command (a permission) or the question's
   detail, and every answer as a row. Tap one to choose it (the primary is chosen to start with), tap
-  it again to send; on a question **send** sends the chosen one. Back and **focus terminal** sit at
+  it again to send; on a question **send** sends the chosen one. Back and **open in terminal** sit at
   the foot.
 - **Back.** Swipe right, or press BOOT.
 - **The board's panel.** Pull down from the top edge of any screen (a tap there still opens the tile
