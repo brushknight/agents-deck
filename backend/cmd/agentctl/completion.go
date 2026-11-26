@@ -9,6 +9,7 @@ import (
 
 	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/server"
 )
 
 // zshCompletion is printed by `agentctl completion zsh`; load it with
@@ -73,6 +74,8 @@ _agentctl() {
     'web:open the dashboard in the browser'
     'pair:pair a device'
     'devices:paired devices and boards'
+    'machines:the machines of a multi-node workspace'
+    'doctor:is this computer ready to run agents'
     'link:Deck Link boards (USB or Wi-Fi)'
     'ports:USB ports and what is on them'
     'bluetooth:boards over Bluetooth'
@@ -154,6 +157,13 @@ _agentctl() {
       elif (( CURRENT == 5 )) && [[ ${words[3]} == scope ]]; then _values 'scope' view act admin
       elif (( CURRENT == 5 )) && [[ ${words[3]} == uplink ]]; then _values 'uplink' auto wifi ble
       elif [[ ${words[3]} == reset ]]; then _agentctl_args '--yes[do not ask]'
+      fi ;;
+    machines)
+      if (( CURRENT == 3 )); then
+        local -a sub; sub=('invite:a one-time code for a new machine' 'join:join a machine'"'"'s workspace'
+          'remove:take a machine out' 'leave:take this machine out')
+        _describe -t machines 'machines command' sub
+      elif (( CURRENT == 4 )) && [[ ${words[3]} == remove ]]; then _agentctl_values machines 'machines'
       fi ;;
     link)
       if (( CURRENT == 3 )); then
@@ -245,6 +255,13 @@ func completeCmd(args []string) {
 		if call("GET", "/local/devices", nil, &res) == nil {
 			for _, d := range res.Devices {
 				compLine(os.Stdout, d.Name, d.Name+"  -- "+string(d.Kind)+" · "+string(d.Scope), false)
+			}
+		}
+	case "machines":
+		var res struct{ Machines []server.MachineRow }
+		if call("GET", "/local/machines", nil, &res) == nil {
+			for _, m := range res.Machines {
+				compLine(os.Stdout, m.Name, m.Name+"  -- "+m.Address, false)
 			}
 		}
 	case "agents":

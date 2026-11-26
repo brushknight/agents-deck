@@ -23,6 +23,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
@@ -137,6 +138,10 @@ type Server struct {
 	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
 	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
 	Tokens *devices.Tokens
+	// Node is this machine's side of a multi-node workspace (internal/node):
+	// /node/v1 on the device listener, /local/machines on the unix socket.
+	// nil: no workspace (no network listener).
+	Node *node.Manager
 	// Queue holds prompts sent with "mode": "queue" until their agent is
 	// idle (queue.go; RunQueue types them in). nil: queueing is off.
 	Queue *queue.Queue
@@ -695,6 +700,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		mux.Handle("/admin/v1/", s.audited("local", s.Admin))
 	}
 	s.localDevices(mux)
+	s.localMachines(mux)
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}

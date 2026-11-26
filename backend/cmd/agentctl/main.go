@@ -34,6 +34,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
@@ -151,6 +152,9 @@ const usage = `agentctl: runs and controls agents deck
   agentctl status [--json]       is the service running, does it start at login, where are its files
   agentctl doctor                is this computer ready to run agents: shell, tmux, tools, service,
                                  linger (Linux), network; says how to fix what's missing
+  agentctl machines [invite | join <address> <code> | remove <name> | leave]
+                                 the machines of a multi-node workspace: list them, make a one-time
+                                 join code, join another machine's workspace, take one out
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -254,6 +258,8 @@ func main() {
 		err = status(args)
 	case "doctor":
 		err = doctor(args)
+	case "machines", "machine":
+		err = machinesCmd(args)
 	case "release-key":
 		err = releaseKeyCmd(args)
 	case "update":
@@ -1101,6 +1107,9 @@ type fileConfig struct {
 		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
 	} `json:"link"`
 	CPUGuard json.RawMessage `json:"cpuGuard"` // cpuguard.Setting, read with cpuguard.FromConfig
+	// MachineName is this machine's name in a multi-node workspace (lowercase
+	// letters, digits and dashes); the host name when empty.
+	MachineName string `json:"machineName,omitempty"`
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1359,6 +1368,19 @@ func serve(args []string) error {
 		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // images from the release catalog (wireAdmin)
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
+		// Multi-node: other machines join this one's workspace over the
+		// same listener (/node/v1). Demo decks never join one.
+		if !*demoMode {
+			name := cfg.MachineName
+			if name == "" {
+				name = node.MachineName(host)
+			}
+			if err := devices.ValidName(name); err != nil {
+				return fmt.Errorf("config.json machineName %q: %w", name, err)
+			}
+			srv.Node = &node.Manager{Name: name, Version: version, CA: ca, Devices: srv.Devices, Audit: srv.Audit,
+				Path: paths.Machines(), DevicePort: port}
+		}
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))
 		}

@@ -449,6 +449,50 @@ each board is connected right now (USB, Wi-Fi or Bluetooth);
 `web`, the unix socket `local`, an MCP token `mcp:<name>` (and `"action": "start agent"` for MCP's
 `start_agent`).
 
+### Machines (multi-node)
+
+Machines of one workspace trust each other the way a phone trusts the Mac: each is a device of kind
+`node` in the other's `devices.json`, with a client certificate from the other's CA. Nothing new is
+opened: the same `:7341` listener, TLS 1.3, a device certificate on every request; the dashboards stay
+on `127.0.0.1`, and `/admin/v1` and MCP are never on the network.
+
+**Joining.** `agentctl machines invite` on a member prints a one-time code (5 minutes, single use),
+`ABCDE-FGHIJ-3D1F9A0C55E2B7A1`: a secret, then the first 16 hex digits of the member's CA fingerprint.
+`agentctl machines join <address>[:7341] <code>` on the new machine then:
+
+1. fetches the member's CA (`GET /node/v1/ca`, no certificate) and checks it against the code, and that
+   the listener's certificate is signed by it; a mismatch stops before the secret is sent;
+2. sends `POST /node/v1/join {"code", "name", "csr", "ca", "port"}` (no certificate, pinned to that
+   CA): the member signs the new machine's certificate request, adds it as a node and answers
+   `{"name", "cert", "csr"}`;
+3. signs the member's request with its own CA and adds the member as a node;
+4. hands it that certificate: `POST /node/v1/join/finish {"cert"}`, now with its own certificate.
+
+Each machine keeps the other in `machines.json` (0600): its address, its CA (the listener is checked
+against it, not against its host name) and the certificate and key this machine holds there. Machine
+names are the host name, or `machineName` in `config.json` (lowercase letters, digits and dashes).
+
+**Scope.** A machine that joins gets one scope on the other, `admin` for now (start, stop and move
+agents), and is checked against it on `/v1` like any device. It comes from one setting in the code
+(`devices.NodeJoinScope`).
+
+**Removing.** `agentctl machines remove <name>` forgets a machine and tells it (`POST
+/node/v1/leave`) when it can be reached, so it forgets this one too; `agentctl machines leave` does
+that for every machine. A removed machine's next request fails the TLS check. Joins and removals
+are in `audit.log` (`"action": "join"`, `"remove"`).
+
+| method | path | who | what |
+|---|---|---|---|
+| GET | `/node/v1/ca` | anyone | `{"name", "version", "ca"}`: the CA a join is checked against |
+| POST | `/node/v1/join` | anyone with a join code | see above; `401` for an expired, used or wrong code |
+| POST | `/node/v1/join/finish` | the machine that just joined | `{"cert"}`: this machine's certificate there |
+| GET | `/node/v1/hello` | nodes | `{"name", "version", "fingerprint"}` |
+| POST | `/node/v1/leave` | nodes | the caller forgot this machine; it is forgotten here too |
+
+Every other device (a board, a phone) gets `403` on `/node/v1`; none of it is on `127.0.0.1:7340` or
+the unix socket. On a Linux machine with a firewall, port 7341 must be open for other machines to join
+or reach it (on NixOS, `networking.firewall.allowedTCPPorts = [ 7341 ];`).
+
 ## Management API (`/admin/v1`)
 
 The calls the Settings page, the tray app and `agentctl` use to run this computer's deck: settings,
