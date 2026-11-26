@@ -4333,7 +4333,20 @@ function drawAbout() {
 const TG_PAIR_MIN = 10; // the pairing code's life (telegram.PairTTL)
 const tgBridges = () => (S.telegram?.bridges || []).filter((b) => b.on || b.held);
 const tgAgent = (id) => agentsList().find((a) => a.id === id);
-const tgName = (id) => { const a = tgAgent(id); return a ? agentName(a) : 'an ended agent'; };
+// tgName: an agent by its title on the deck; once it has ended or gone,
+// by the title its bridge last knew; "the linked agent" if none was known.
+const tgName = (id) => {
+  const a = tgAgent(id);
+  if (a) return agentName(a);
+  return (S.telegram?.bridges || []).find((b) => b.agent === id && b.agentTitle)?.agentTitle || 'the linked agent';
+};
+// tgNameCap: the same at the start of a sentence (an agent's own title is kept as it is).
+const tgNameCap = (id) => { const n = tgName(id); return n === 'the linked agent' ? 'The linked agent' : n; };
+const tgEnded = (b) => !!b.agent && (!tgAgent(b.agent) || tgAgent(b.agent).status === 'exited');
+// tgShowCode: the pairing code in two halves ("8DHV-9PBT"); /start takes it either way.
+const tgShowCode = (c) => (c && c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : c);
+// tgWaiting: "1 message is waiting; …deliver it." / "3 messages are waiting; …deliver them."
+const tgWaiting = (n) => `${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver ${n === 1 ? 'it' : 'them'}.`;
 // tgUser: who the bot is paired with, by name; never a number.
 const tgUser = (b) => (b.userName && b.userName !== 'someone' && !/^\d+$/.test(b.userName) ? b.userName : 'your Telegram account');
 const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
@@ -4469,7 +4482,7 @@ function tgNewSec() {
 function tgPairView(b) {
   const t = S.tg;
   const out = Date.now() > t.until;
-  const code = h('div', { class: `term tgcode${out ? ' old' : ''}` }, h('span', { class: 'bigcode' }, h('span', { class: 'p' }, '/start'), ` ${t.code}`));
+  const code = h('div', { class: `term tgcode${out ? ' old' : ''}` }, h('span', { class: 'bigcode' }, h('span', { class: 'p' }, '/start'), ` ${tgShowCode(t.code)}`));
   const fresh = async (e) => {
     const r = await busy(e.currentTarget, () => api('POST', '/admin/v1/telegram', { op: 'pair', bridge: b.id }));
     if (r) { t.code = r.pairCode || ''; t.until = Date.parse(r.pairUntil) || Date.now() + TG_PAIR_MIN * 60000; await load('telegram'); draw(true); }
@@ -4481,7 +4494,7 @@ function tgPairView(b) {
   ] : [
     h('p', { class: 'txt' }, 'In Telegram, open ', h('span', { class: 'mono w' }, b.bot), ' and send it this. Only the account that sends it can use the bot.'),
     h('div', { class: 'tgcoderow' }, code,
-      h('button', { type: 'button', class: 'btn', 'data-k': 'tg-copy', onclick: () => copied(`/start ${t.code}`, 'Copied: paste it to the bot') }, icon('copy', 14, 1.8), 'Copy'),
+      h('button', { type: 'button', class: 'btn', 'data-k': 'tg-copy', onclick: () => copied(`/start ${tgShowCode(t.code)}`, 'Copied: paste it to the bot') }, icon('copy', 14, 1.8), 'Copy'),
       h('a', { class: 'btn p', href: `https://t.me/${encodeURIComponent(b.bot.replace(/^@/, ''))}?start=${encodeURIComponent(t.code)}`, target: '_blank', rel: 'noreferrer' }, 'Open in Telegram')),
     h('div', { class: 'tgwait', role: 'status' }, h('span', { class: 'sq' }), h('span', { class: 'nm' }, 'Waiting for your message…'),
       h('span', { class: 'sub' }, `the code works for ${TG_PAIR_MIN} minutes · `, h('button', { type: 'button', class: 'btn link', 'data-k': 'tg-newcode', onclick: fresh }, 'new code'))),
@@ -4536,7 +4549,7 @@ function tgRow(b) {
   const meta = [b.userId ? `from ${tgUser(b)}` : 'not paired yet', !b.userId ? '' : last ? `last: ${ago(last.at)}, ${tgSummary(last.summary)}` : 'nothing sent yet'].filter(Boolean).join(' · ');
   const relink = () => { Object.assign(S.tg, { relink: b.id, all: false, confirm: null }); draw(true); };
   const right = [];
-  if (a && b.userId) {
+  if (a && !tgEnded(b) && b.userId) {
     right.push(tgMenuBtn(`tg-linked:${b.id}`, `Linked · ${tgName(b.agent)}`, [
       { text: 'Link to another agent…', run: relink },
       a ? { text: `Open ${agentName(a)}`, href: `#agent/${encodeURIComponent(a.id)}` } : null,
@@ -4545,7 +4558,7 @@ function tgRow(b) {
     h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-else:${b.id}`, onclick: relink }, 'Link elsewhere'),
     h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-unlink:${b.id}`, onclick: () => { S.tg.confirm = { kind: 'unlink', id: b.id }; draw(true); } }, 'Unlink'));
   } else if (b.userId) right.push(btn('Link to an agent', relink, '', { 'data-k': `tg-link:${b.id}` }));
-  return row(`${b.bot || b.id} → ${b.agent ? tgName(b.agent) : 'no agent'}`, meta, right, { name: true, cls: 'tgrow', pic: tgFace(a),
+  return row(b.bot || b.id, meta, right, { name: true, cls: 'tgrow', pic: tgFace(tgEnded(b) ? null : a),
     below: b.held ? h('span', { class: 'tgheld' }, chip(`held ${b.heldMessages || b.held}`, 'wait', 'dot')) : null });
 }
 
@@ -4566,8 +4579,8 @@ function tgStates(b) {
   const n = b.heldMessages || b.held;
   const a = tgAgent(b.agent);
   if (c === 'drop') {
-    out.push(tgCard('Drop held messages', 'bad', h('p', { class: 'txt' }, `Drop ${plural(n, 'held message')} from ${b.bot}? They are deleted from this ${machine()}; they stay in your Telegram chat.`),
-      tgActs(keep('Keep them'), btn(`Drop ${plural(n, 'message')}`, async (e) => { if (await tgPost('drop', { bridge: b.id }, e.currentTarget, (r) => `Dropped ${plural(r.dropped || 0, 'message')}`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-drop-yes' }))));
+    out.push(tgCard('Drop held messages', 'bad', h('p', { class: 'txt' }, `Drop ${plural(n, 'held message')} from ${b.bot}? ${n === 1 ? 'It is' : 'They are'} deleted from this ${machine()}; ${n === 1 ? 'it stays' : 'they stay'} in your Telegram chat.`),
+      tgActs(keep(n === 1 ? 'Keep it' : 'Keep them'), btn(`Drop ${plural(n, 'message')}`, async (e) => { if (await tgPost('drop', { bridge: b.id }, e.currentTarget, (r) => `Dropped ${plural(r.dropped || 0, 'message')}`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-drop-yes' }))));
   } else if (c === 'unlink') {
     out.push(tgCard('Unlink', 'acc2', h('p', { class: 'txt' }, `Unlink ${b.bot} from ${tgName(b.agent)}? The bot stays paired. Until you link it again, what ${tgUser(b)} sends is held and the bot says so.`),
       tgActs(keep('Keep it'), btn('Unlink', async (e) => { if (await tgPost('unlink', { bridge: b.id }, e.currentTarget, `${b.bot} unlinked`)) { t.confirm = null; draw(true); } }, 'd', { 'data-k': 'tg-unlink-yes' }))));
@@ -4602,9 +4615,9 @@ function tgStates(b) {
     const ended = b.agent && (!a || a.status === 'exited');
     const when = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
     out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(`${b.bot} → ${b.agent ? tgName(b.agent) : 'no agent'}`, chip(`held ${n}`, 'wait', 'dot')),
-      h('p', { class: 'txt' }, `${ended ? `${a ? agentName(a) : 'The linked agent'} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver them.`),
+      h('p', { class: 'txt' }, `${ended ? `${tgNameCap(b.agent)} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${tgWaiting(n)}`),
       tgActs(btn('Link to an agent', () => { Object.assign(t, { relink: b.id, all: false, confirm: null }); draw(true); }, 'p', { 'data-k': 'tg-held-link' }),
-        btn('Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));
+        btn(n === 1 ? 'Drop it' : 'Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));
   }
   return out.length ? h('div', { class: 'tgstates' }, out) : null;
 }
@@ -4743,8 +4756,8 @@ function tgHeldCards() {
     const n = b.heldMessages || b.held;
     const a = tgAgent(b.agent);
     const at = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
-    const why = b.agent && (!a || a.status === 'exited') ? `${a ? agentName(a) : 'The linked agent'} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
-    return rcard(icon('send', 16, 1.8), 'Held', `${b.bot} holds ${plural(n, 'message')}`, `${why} Link the bot to an agent to deliver them.`, [
+    const why = tgEnded(b) ? `${tgNameCap(b.agent)} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
+    return rcard(icon('send', 16, 1.8), 'Held', `${b.bot} holds ${plural(n, 'message')}`, `${why} Link the bot to an agent to deliver ${n === 1 ? 'it' : 'them'}.`, [
       btn('Link to an agent', () => { Object.assign(S.tg, { relink: b.id, all: false, step: 0, confirm: null }); location.hash = '#telegram'; }, 'p', { 'data-k': `tg-held:${b.id}` }),
     ], 'held');
   });

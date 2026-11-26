@@ -1392,6 +1392,7 @@ input.bad, input[type="password"].bad { border-color: var(--bad); }
 .rcard.held .vis, .rcard.held .eyebrow { color: var(--wait); }
 .rcard.held .eyebrow { font-size: 11px; line-height: 14px; letter-spacing: 0.12em; }
 .tghere > .r { flex: none; }
+.tghere .nm { white-space: normal; overflow-wrap: anywhere; } /* "@bot sends here" wraps; the row grows */
 /* Home's side column is narrow on a small window: there the held card takes the rows' size */
 .deckside { container-type: inline-size; }
 @container (max-width: 330px) {
