@@ -187,9 +187,11 @@ func (b *Bridge) Status() Status {
 // Recent is the newest delivered batches, newest first.
 func (b *Bridge) Recent(n int) []Delivery { return recentDeliveries(b.Inbox, n) }
 
-// DropHeld drops every batch waiting in the queue (held, or behind a held
-// one). Their folders stay in the inbox, marked dropped. It returns how many
-// batches and messages went.
+// DropHeld deletes every batch waiting in the queue (held, or behind a held
+// one) from this computer: its folder, text and files. The messages stay in
+// the Telegram chat. A one-line tombstone ("dropped 3 messages") takes their
+// place in the recent deliveries. It returns how many batches and messages
+// went.
 func (b *Bridge) DropHeld() (int, int, error) {
 	b.work.Lock()
 	defer b.work.Unlock()
@@ -200,11 +202,10 @@ func (b *Bridge) DropHeld() (int, int, error) {
 	batches, msgs := 0, 0
 	var firstErr error
 	for i, bt := range q {
-		bt.State, bt.Error = stateDropped, "dropped by you"
-		if err := bt.save(); err != nil && firstErr == nil {
+		if err := b.removeBatch(bt); err != nil {
 			firstErr = err
 			b.mu.Lock()
-			b.queue = append(q[i:], b.queue...) // keep what couldn't be marked
+			b.queue = append(q[i:], b.queue...) // keep what couldn't be deleted
 			b.mu.Unlock()
 			break
 		}
@@ -212,9 +213,25 @@ func (b *Bridge) DropHeld() (int, int, error) {
 		msgs += len(bt.Messages)
 	}
 	if batches > 0 {
-		b.logf("dropped %s (%s)", plural(batches, "batch"), plural(msgs, "message"))
+		now := b.now()
+		tomb := &Batch{ID: now.Format("20060102-150405") + "-dropped", State: stateDropped, Opened: now, Delivered: now,
+			Dropped: msgs, dir: filepath.Join(b.Inbox, now.Format("2006-01-02"), now.Format("150405")+"-dropped")}
+		if err := tomb.save(); err != nil {
+			b.logf("dropped: writing the note: %v", err)
+		}
+		b.logf("dropped %s (%s), deleted from this computer", plural(batches, "batch"), plural(msgs, "message"))
 	}
 	return batches, msgs, firstErr
+}
+
+// removeBatch deletes one batch's folder; only ever a folder inside this
+// bridge's inbox.
+func (b *Bridge) removeBatch(bt *Batch) error {
+	inbox, dir := filepath.Clean(b.Inbox), filepath.Clean(bt.dir)
+	if inbox == "." || inbox == "" || !strings.HasPrefix(dir, inbox+string(filepath.Separator)) {
+		return fmt.Errorf("batch %s is not in the inbox", bt.ID)
+	}
+	return os.RemoveAll(dir)
 }
 
 // Config is the bridge's current config.

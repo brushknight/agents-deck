@@ -151,7 +151,7 @@ func telegramCmd(args []string) error {
 		return err
 	}
 	if req.Op == "drop" {
-		fmt.Printf("Dropped %d held message(s); their files stay in the inbox.\n", st.Dropped)
+		fmt.Printf("Dropped %d held message(s): deleted from this computer; they stay in your Telegram chat.\n", st.Dropped)
 	}
 	if req.Op == "link" && st.Delivered > 0 {
 		fmt.Printf("Delivered %d held batch(es) to %s.\n", st.Delivered, st.Agent)

@@ -303,14 +303,28 @@ func TestServiceUnlinkDropRecent(t *testing.T) {
 	if code != 200 || !strings.Contains(out, `"dropped":2`) || strings.Contains(out, `"held"`) {
 		t.Fatalf("drop: %d %s", code, out)
 	}
-	// Dropped stays dropped: a link later delivers nothing, and the folder stays.
+	// Dropped is gone from this computer: a link later delivers nothing, the
+	// held batch's folder (text and files) is deleted, and a tombstone heads
+	// the recent deliveries.
 	if code, out := h.do(t, "POST", `{"op":"link","agent":"k3f9a2"}`); code != 200 || strings.Contains(out, `"delivered"`) {
 		t.Fatalf("link after drop: %d %s", code, out)
 	}
 	if n := len(h.prompts()); n != 1 {
 		t.Fatalf("delivered %d", n)
 	}
-	if m, _ := filepath.Glob(filepath.Join(h.Dir, "default", "inbox", "*", "*", "batch.json")); len(m) != 2 {
-		t.Fatalf("batch folders %v", m)
+	all, _ := filepath.Glob(filepath.Join(h.Dir, "default", "inbox", "*", "*", "batch.json"))
+	for _, f := range all {
+		b, _ := os.ReadFile(f)
+		if strings.Contains(string(b), "made-up while unlinked") {
+			t.Fatalf("a dropped batch is still on disk: %s", f)
+		}
+	}
+	if len(all) != 2 { // the delivered batch and the tombstone
+		t.Fatalf("batch files %v", all)
+	}
+	_, out = h.do(t, "GET", "?recent=1")
+	json.Unmarshal([]byte(out), &res)
+	if r := res.Bridges[0].Recent; len(r) != 2 || r[0].Dropped != 2 || r[0].Summary != "dropped 2 messages" || r[0].Agent != "" || r[1].Agent != "q601r3" {
+		t.Fatalf("recent after drop: %s", out)
 	}
 }

@@ -16,7 +16,7 @@ const (
 	stateReady     = "ready"     // closed, files downloaded, waiting to go to the agent
 	stateHeld      = "held"      // the linked agent is gone: waits for a re-link
 	stateDelivered = "delivered" // the deck took the prompt
-	stateDropped   = "dropped"   // held, then dropped by you (its files stay)
+	stateDropped   = "dropped"   // a tombstone: held batches dropped by you (deleted), how many messages
 )
 
 // Batch is one burst of messages: one folder in the inbox, one prompt. Its
@@ -35,6 +35,7 @@ type Batch struct {
 	Queued    bool         `json:"queued,omitempty"`   // delivered into the agent's queue (it was busy)
 	Position  int          `json:"position,omitempty"` // its place there then (1 = next)
 	WasHeld   bool         `json:"wasHeld,omitempty"`  // delivered after being held
+	Dropped   int          `json:"dropped,omitempty"`  // a tombstone: how many held messages were dropped then
 
 	dir string
 }
@@ -129,6 +130,7 @@ type Delivery struct {
 	Queued   bool      `json:"queued,omitempty"`
 	Position int       `json:"position,omitempty"`
 	WasHeld  bool      `json:"wasHeld,omitempty"`
+	Dropped  int       `json:"dropped,omitempty"` // not a delivery: held messages dropped then (deleted from this computer)
 }
 
 // recentDeliveries reads the newest delivered batches in the inbox, newest
@@ -145,7 +147,7 @@ func recentDeliveries(inbox string, n int) []Delivery {
 				continue
 			}
 			var b Batch
-			if json.Unmarshal(data, &b) == nil && b.State == stateDelivered {
+			if json.Unmarshal(data, &b) == nil && (b.State == stateDelivered || b.State == stateDropped && b.Dropped > 0) {
 				got = append(got, &b)
 			}
 		}
@@ -159,6 +161,10 @@ func recentDeliveries(inbox string, n int) []Delivery {
 	}
 	out := make([]Delivery, 0, len(got))
 	for _, b := range got {
+		if b.State == stateDropped {
+			out = append(out, Delivery{At: b.Delivered, Dropped: b.Dropped, Summary: "dropped " + plural(b.Dropped, "message")})
+			continue
+		}
 		d := Delivery{At: b.Delivered, Agent: b.Agent, Queued: b.Queued, Position: b.Position, WasHeld: b.WasHeld}
 		sum := summarize(b)
 		d.Summary, d.Problems = sum.short, sum.list
