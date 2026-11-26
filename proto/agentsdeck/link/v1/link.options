@@ -24,6 +24,8 @@ agentsdeck.link.v1.Agent.model_label     max_size:24
 agentsdeck.link.v1.Agent.effort          max_size:12
 agentsdeck.link.v1.Agent.last_prompt     max_size:160
 agentsdeck.link.v1.Agent.last_answer     max_size:160
+agentsdeck.link.v1.Agent.machine         max_size:33
+agentsdeck.link.v1.Agent.machine_tag     max_size:9
 agentsdeck.link.v1.Agent.error           max_size:128
 agentsdeck.link.v1.Agent.subagents       max_count:6
 agentsdeck.link.v1.Agent.app             max_size:12

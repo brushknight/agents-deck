@@ -231,6 +231,9 @@ func (m *Manager) dial(ctx context.Context, name string) {
 		} else {
 			backoff = 0
 			m.deliver(ctx, name)
+			if _, err := m.pushIndex(ctx, name); err != nil {
+				wait = min(wait, tm.backoffMin) // try again soon; the next beat decides reachability
+			}
 		}
 		m.lmu.Lock()
 		wake := m.peer(name).wake

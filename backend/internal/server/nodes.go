@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/node"
 )
 
@@ -44,6 +45,8 @@ func (s *Server) serveNode(w http.ResponseWriter, r *http.Request, d devices.Dev
 	switch route {
 	case "POST /outbox":
 		s.Node.ServeOutbox(w, r, d)
+	case "POST /index":
+		s.Node.ServeIndex(w, r, d)
 	case "GET /hello":
 		s.Node.ServeHello(w, r, d)
 	case "POST /join/finish":
@@ -149,4 +152,46 @@ func (s *Server) localMachines(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"left": names})
 	})
+}
+
+// RunNode wires the workspace to this machine's agents and keeps the links
+// up until ctx ends: this machine's own agents go out to the others
+// (re-indexed on every change), theirs come into the snapshot every screen
+// reads, and a machine's state changing redraws the screens.
+func (s *Server) RunNode(ctx context.Context) {
+	n := s.Node
+	n.LocalAgents = func() []model.Agent { return s.Store.LocalSnapshot().Agents }
+	n.Changed = s.Store.Touch
+	s.Store.Machine = func() string {
+		if len(n.List()) == 0 {
+			return ""
+		}
+		return n.Name
+	}
+	s.Store.Remote = n.RemoteAgents
+	changes, stop := s.Store.Subscribe()
+	events, unsub := n.Subscribe()
+	go func() {
+		defer stop()
+		defer unsub()
+		n.ReindexLocal()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-changes:
+				time.Sleep(100 * time.Millisecond) // coalesce bursts of hook events
+				select {
+				case <-changes:
+				default:
+				}
+				n.ReindexLocal()
+			case e := <-events:
+				if e.Kind == "machines" {
+					s.Store.Touch() // their agents' reachable changed
+				}
+			}
+		}
+	}()
+	go n.Run(ctx)
 }

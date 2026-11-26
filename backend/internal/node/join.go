@@ -182,6 +182,7 @@ func (m *Manager) ServeLeave(w http.ResponseWriter, r *http.Request, d devices.D
 func (m *Manager) forget(name, why string) {
 	_ = m.Devices.Remove(name)
 	_ = m.drop(name)
+	m.forgetRemote(name)
 	m.audit(name, "remove", http.StatusOK, why)
 	log.Printf("node: %s %s", name, why)
 }

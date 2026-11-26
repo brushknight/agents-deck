@@ -107,6 +107,10 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // message. An interrupted turn keeps the answer before it. Clients show it in place
                                   // of lastPrompt once the agent is idle or has exited
   "lastAnswerAt": "2026-10-08T00:48:10Z", // omitted until there is an answer: when it gave it
+  "machine": "studio",            // multi-node: the machine it runs on; omitted without other machines
+  "machineTag": "s",              // another machine's agent only: its id here is "k3f9a2@s" (see Machines)
+  "reachable": true,              // false: its machine is out of reach, this is its last known state (show it grey);
+                                  // always true for this machine's own agents
   "waiting": null,                // Prompt, only when status == "waiting"
   "error": null,                  // { "message": "api 529 overloaded" } only when status == "error"
   "tokens": { "input": 1200, "output": 84000, "cacheRead": 3100000, "cacheWrite": 210000 },
@@ -489,6 +493,7 @@ are in `audit.log` (`"action": "join"`, `"remove"`).
 | POST | `/node/v1/join/finish` | the machine that just joined | `{"cert"}`: this machine's certificate there |
 | GET | `/node/v1/hello` | nodes | `{"name", "version", "fingerprint"}` |
 | POST | `/node/v1/leave` | nodes | the caller forgot this machine; it is forgotten here too |
+| POST | `/node/v1/index` | nodes | `{"epoch", "from", "seq", "full", "agents", "removed"}`: the sender's agents (see "Every agent, every machine"); answers `{"epoch", "seq"}`, the seq this machine has |
 | POST | `/node/v1/outbox` | nodes | `{"calls": [{"key", "seq", "by", "at", "method", "path", "body"}]}`, oldest first: run in order, each as the caller's `/v1` request (its scope, the audit log with who asked); a key seen before gets its first answer again. Answers `{"answers": [{"key", "code", "body", "at"}]}` |
 
 **The link.** Every machine keeps a connection to every other one: it dials the other's listener
@@ -506,6 +511,18 @@ order, a key each) until that machine is reachable, then goes out, oldest first,
 `POST /node/v1/outbox`. Calls survive a restart; a call can be taken back until it goes. The other
 machine runs each call once: it keeps the keys it ran (and their answers) for 7 days, so a call sent
 again after a dropped connection gets its first answer. Answers are kept for their caller for a day.
+
+**Every agent, every machine.** Each machine is the only writer of its own agents' records and sends
+them to the others over its own connection (`POST /node/v1/index`): the full set first, then what
+changed, each change numbered (`seq`), so a reconnect sends only what the other machine doesn't have
+yet (it answers with the `seq` it has; a machine that restarted starts over with the full set). The
+other machines keep a read-only copy (`remote-agents/<machine>.json`): transcripts, queues and screens
+are not copied. A record that claims an agent of the receiving machine is ignored. In `/v1/state`,
+Deck Link and `agentctl ls`, another machine's agents come after this machine's own, with `machine`,
+`machineTag` and an id of `<id>@<tag>` (the tag is the machine's first letter, longer when two
+machines share one); while their machine is out of reach they stay, `"reachable": false`, with their
+last known state. Acting on them from another machine isn't possible yet (`501`). `agentctl ls`
+gets a MACHINE column once another machine has joined, and `--on <machine>`.
 
 **State and events.** `GET /v1/machines` says, per machine, whether it is `reachable` (with `rttMs`),
 since when it isn't (`awaySince`), its version and how many calls wait for it; `/v1/events` sends
