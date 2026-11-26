@@ -148,7 +148,7 @@ from the network.
 ## From the web flasher
 
 For a board when you haven't installed agents deck, or on a computer that isn't yours. The **[web
-flasher](https://brushknight.com/agents-deck)** runs in Chrome or Edge: pick your board, click **Connect**, choose the board's
+flasher](https://agents-deck.sh/#boards)** runs in Chrome or Edge: pick your board, click **Connect**, choose the board's
 USB port, and click **Install**. Nothing to install, about a minute. It uses Web Serial, which Safari
 and Firefox don't have.
 

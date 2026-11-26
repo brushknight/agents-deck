@@ -211,7 +211,7 @@ with chargers only carry power). Then pick one way:
   mine**, pick the board from the pictures, and click **Install firmware**. The app downloads the
   image from the latest release, checks its signature, writes it and reads it back. When it's done
   the board restarts, pairs and shows your agents.
-- **From the [web flasher](https://brushknight.com/agents-deck)**, if you haven't installed anything: open it in Chrome or
+- **From the [web flasher](https://agents-deck.sh/#boards)**, if you haven't installed anything: open it in Chrome or
   Edge, pick your board, click **Connect**, choose the board's USB port, and click **Install**. (It
   uses Web Serial, which Safari and Firefox don't have.)
 - **From a terminal**, with `agentctl flash`, or by building the firmware yourself with PlatformIO
