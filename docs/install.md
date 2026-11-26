@@ -241,7 +241,9 @@ machines or boards connect to this one. The service's unit puts NixOS's profiles
 **A second deck on one computer** (a test instance, with `AGENTSTERM_HOME` pointing at its own data
 folder) needs its own tmux server, or it would take over the first deck's agents: set
 `"tmuxSocket": "<a name>"` in its `config.json` (letters, digits, `.`, `_`, `-`). The default is
-`agentsterm`.
+`agentsterm`. A second deck never watches or lists other apps' sessions (Orca, cmux, herdr, Codex,
+Claude sessions started elsewhere), so it can't type into a real one; `agentctl doctor` and its log say
+so.
 
 ## Telegram
 

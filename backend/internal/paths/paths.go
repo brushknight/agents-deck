@@ -25,6 +25,15 @@ func Data() string {
 
 func Ensure() error { return os.MkdirAll(Data(), 0o700) }
 
+// Separate: this is a test deck, with a data folder of its own
+// ($AGENTSTERM_HOME, other than the default). A test deck never watches or
+// lists other apps' sessions (Orca, cmux, herdr, Codex, Claude started
+// elsewhere), so it can never type into a real one.
+func Separate() bool {
+	d := os.Getenv("AGENTSTERM_HOME")
+	return d != "" && filepath.Clean(d) != filepath.Clean(defaultData())
+}
+
 // Socket is the daemon's unix socket. macOS caps socket paths at 104 bytes
 // (Linux and Windows at 108), so a deep data dir falls back to the per-user
 // private temp folder ($TMPDIR on macOS, %TEMP% under the profile on Windows).

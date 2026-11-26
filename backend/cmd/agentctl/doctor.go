@@ -95,7 +95,7 @@ func doctor(args []string) error {
 			}
 			return r.Machines
 		},
-		login: m.Registration(), cfg: loadConfig(), separate: os.Getenv("AGENTSTERM_HOME") != "",
+		login: m.Registration(), cfg: loadConfig(), separate: paths.Separate(),
 	}
 	if sd, ok := m.(*service.Systemd); ok {
 		env.linger, env.lingerFix = sd.Linger, sd.LingerHint()
@@ -160,6 +160,7 @@ func doctorChecks(e doctorEnv) []check {
 	switch {
 	case e.separate:
 		add(check{name: "at login", detail: "not checked: AGENTSTERM_HOME is a data folder of its own, and the login item belongs to the main deck"})
+		add(check{name: "other apps", detail: "test deck: not watching other apps (Orca, cmux, herdr, Codex, Claude sessions started elsewhere), so it never reaches a real session"})
 	case !e.login.Registered:
 		add(check{name: "at login", level: checkWarn, detail: "not set up to start at login", fix: "agentctl install"})
 	case e.login.Note != "":

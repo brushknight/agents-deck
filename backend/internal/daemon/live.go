@@ -137,6 +137,9 @@ func (d *Daemon) sessionMeta(l claude.Live) claude.SessionInfo {
 // WatchLive finds hand-started Claude sessions every few seconds and keeps the
 // ones you added on the board (watch-only: status from their transcripts).
 func (d *Daemon) WatchLive() {
+	if d.Isolated { // a test deck: never other apps' sessions
+		return
+	}
 	for {
 		d.syncLive()
 		time.Sleep(3 * time.Second)
@@ -328,6 +331,9 @@ func (d *Daemon) removeLive(e store.Entry) {
 // changed: see agentsPoller), else by scanning processes (older Claude
 // Code). ours are the sessions the deck already follows through their hooks.
 func (d *Daemon) discover(skip, ours map[string]bool) []claude.Live {
+	if d.Isolated { // a test deck lists no sessions it didn't start
+		return nil
+	}
 	d.live.mu.Lock()
 	if d.live.claudeBin == "" {
 		d.live.claudeBin = LookPathLogin("claude")
