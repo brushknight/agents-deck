@@ -149,6 +149,8 @@ const usage = `agentctl: runs and controls agents deck
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now
   agentctl uninstall             stop the service and no longer start it at login
   agentctl status [--json]       is the service running, does it start at login, where are its files
+  agentctl doctor                is this computer ready to run agents: shell, tmux, tools, service,
+                                 linger (Linux), network; says how to fix what's missing
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -163,6 +165,16 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	if cmd != "hook" && cmd != "statusline" { // they never touch tmux, and run on every Claude event
+		name := loadConfig().TmuxSocket
+		if v := os.Getenv("AGENTSTERM_TMUX_SOCKET"); v != "" {
+			name = v // a test instance can set it without a config.json
+		}
+		if err := tmux.SetSocket(name); err != nil {
+			fmt.Fprintln(os.Stderr, "agentctl:", err)
+			os.Exit(1)
+		}
+	}
 	if err := platformSupports(cmd); err != nil {
 		fmt.Fprintln(os.Stderr, "agentctl:", err)
 		os.Exit(1)
@@ -240,6 +252,8 @@ func main() {
 		err = uninstall()
 	case "status":
 		err = status(args)
+	case "doctor":
+		err = doctor(args)
 	case "release-key":
 		err = releaseKeyCmd(args)
 	case "update":
