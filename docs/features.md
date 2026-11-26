@@ -34,7 +34,7 @@ Tap a tile for its card (in the browser, the agent's own page, with a box to sen
   crash or a restart. `agentctl ls` shows it as ACTIVE, and `agentctl ls --sort active` puts the most
   recently active first.
 
-<p align="center"><img src="images/web-permission-v4.png" alt="answering a permission prompt from the web" width="80%"></p>
+<p align="center"><img src="images/web-permission-v5.png" alt="answering a permission prompt from the web" width="80%"></p>
 
 ## Where it shows up
 

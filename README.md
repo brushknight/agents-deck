@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/hero-v3.png" alt="agents deck: the board of Claude Code and Codex agents in the macOS menu bar, on a 4-inch wall panel and on a 2.4-inch LilyGo T4-S3, finding agents in Orca, herdr, cmux, Codex and tmux" width="100%"></p>
+<p align="center"><img src="docs/images/hero-v4.webp" alt="agents deck: the board of Claude Code and Codex agents as pixel pets in the macOS menu bar, on a 4-inch wall panel and on a 2.4-inch LilyGo T4-S3, finding agents in Orca, herdr, cmux, Codex and tmux" width="100%"></p>
 
 <p align="center">
   <a href="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml"><img src="https://github.com/brushknight/agents-deck/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
@@ -24,6 +24,12 @@ and it works without the cable.
 - [Pick a display](#pick-a-display) · [Flash a board](#flash-a-board) · [Wi-Fi](#wi-fi) · [Bluetooth](#bluetooth)
 - [Updates](#updates) · [What works where](#what-works-where) · [Harnesses](#works-with-your-harness)
 - [For the terminal](#for-the-terminal) · [How it works](#how-it-works) · [Security](#security--privacy) · [Docs](#docs)
+
+### Your agents grow
+
+Every agent hatches from an egg and grows on the tokens it already uses. Pets never spend a token.
+
+<p align="center"><img src="docs/images/grow-v1.webp" alt="An agent's pet hatching from an egg and growing through its stages, baby to legend, as the tokens it has eaten count up" width="100%"></p>
 
 ## What you need
 
@@ -79,8 +85,8 @@ What each download puts where, how to update and how to remove it: [docs/install
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-board-v4.png" alt="the deck in the browser: one tile per agent"></td>
-<td><img src="docs/images/menubar-deck-v3.png" alt="the same deck dropped down from the menu bar"></td>
+<td width="62%"><img src="docs/images/web-board-v5.png" alt="the deck in the browser: one tile per agent"></td>
+<td><img src="docs/images/menubar-deck-v4.png" alt="the same deck dropped down from the menu bar"></td>
 </tr>
 </table>
 
@@ -96,7 +102,7 @@ last one is done. Each agent wears a pixel hat picked by its folder, so a projec
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-needs-you-v4.png" alt="Home in the browser: the agents that need you, listed beside the deck"></td>
+<td width="62%"><img src="docs/images/web-needs-you-v5.png" alt="Home in the browser: the agents that need you, listed beside the deck"></td>
 <td><img src="docs/images/devices/lcd4-needs-you.png" alt="the same Needs you page on the 4-inch board"></td>
 </tr>
 </table>
@@ -118,8 +124,8 @@ the 1.47″. The round boards don't have it yet. [Features](docs/features.md#the
 
 <table>
 <tr>
-<td width="62%"><img src="docs/images/web-permission-v4.png" alt="answering a permission prompt from the browser"></td>
-<td><img src="docs/images/panel-detail-v3.png" alt="an agent's card on the desk panel, with its subagents"></td>
+<td width="62%"><img src="docs/images/web-permission-v5.png" alt="answering a permission prompt from the browser"></td>
+<td><img src="docs/images/panel-detail-v4.png" alt="an agent's card on the desk panel, with its subagents"></td>
 </tr>
 </table>
 
@@ -142,7 +148,7 @@ of picking one; elsewhere, text you'd have to type yourself sends you to the ter
 </tr>
 <tr>
 <td><img src="docs/images/settings-network-v4.png" alt="Settings, Network: the Wi-Fi boards get, each board's network, Bluetooth and pairing a phone"></td>
-<td><img src="docs/images/menubar-needs-you-v3.png" alt="the Needs you page in the menu bar"></td>
+<td><img src="docs/images/menubar-needs-you-v4.png" alt="the Needs you page in the menu bar"></td>
 </tr>
 <tr>
 <td><b>Network.</b> Whether paired devices may connect over the network, the Wi-Fi network boards get, each board's network, whether Bluetooth is on, and pairing a phone.</td>
@@ -187,7 +193,7 @@ screen of every board.
 <td><b>Waveshare ESP32-S3-LCD-1.47B</b><br>1.47″ strip · no touch · USB only · Needs you (hold BOOT)<br>One agent and a mini-board; look only.<br>Buy: <a href="https://www.waveshare.com/esp32-s3-lcd-1.47b.htm">Waveshare</a>, about $13 · firmware: <a href="firmware/devices/waveshare-lcd-147"><code>waveshare-lcd-147</code></a></td>
 </tr>
 <tr>
-<td align="center" width="180"><img src="docs/images/panel-board-v3.png" width="160" alt="the desk panel"></td>
+<td align="center" width="180"><img src="docs/images/panel-board-v4.png" width="160" alt="the desk panel"></td>
 <td><b>Wall Panel (Raspberry Pi CM4)</b><br>4″ 720×720 · touch · Wi-Fi · Needs you<br>The full deck app.<br>Buy: <a href="https://github.com/dotstartech/wall-panel">project page</a> · firmware: <a href="clients/flutter/agents_ui"><code>clients/flutter</code></a></td>
 </tr>
 </table>
@@ -307,7 +313,7 @@ Windows has not been tried on a real Windows PC yet; please
 
 | | |
 |---|---|
-| <img src="docs/images/panel-question-v3.png" alt="a question on the desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
+| <img src="docs/images/panel-question-v4.png" alt="a question on the desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi ([Wall Panel](https://github.com/dotstartech/wall-panel)), paired with `agentctl pair`. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
 The browser works on your phone too ([docs/phone.md](docs/phone.md)). The full tour of every screen
