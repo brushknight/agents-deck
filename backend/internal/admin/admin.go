@@ -159,6 +159,7 @@ type Admin struct {
 	index    projectIndex // which project each agent is in (projectmatch.go)
 	jobs     jobs
 	ports    portHolds
+	bg       sync.WaitGroup // background work started by a request (Wait: tests)
 	catMu    sync.Mutex
 	catalog  *firmware.Catalog
 	catAt    time.Time
@@ -262,3 +263,17 @@ func readBody(r *http.Request, max int64, v any) error {
 	}
 	return nil
 }
+
+// background runs fn after the request that started it, counted so Wait can
+// tell when it has finished.
+func (a *Admin) background(fn func()) {
+	a.bg.Add(1)
+	go func() {
+		defer a.bg.Done()
+		fn()
+	}()
+}
+
+// Wait waits for background work started by requests (the firmware catalog,
+// an update check's download). Tests call it before their folders go.
+func (a *Admin) Wait() { a.bg.Wait() }
