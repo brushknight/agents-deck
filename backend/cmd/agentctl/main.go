@@ -1305,7 +1305,7 @@ func serve(args []string) error {
 	// demo's data folder, never the Keychain. Their prompts go to the demo's
 	// simulated agents through the same Dispatch path as a real deck's.
 	if !*demoMode || telegramInDemo() {
-		srv.Telegram = startTelegram(srv, st, wifiStore) // telegram.go
+		srv.Telegram = startTelegram(srv, st, wifiStore, *demoMode) // telegram.go
 	}
 	adm := newAdmin(st, srv, self, *logFile)
 	if srv.Telegram != nil {

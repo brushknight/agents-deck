@@ -29,9 +29,12 @@ import (
 // in like any other: POST /v1/agents/{id}/prompt with "mode": "queue", as
 // the device "telegram" (scope act), so they wait for a busy agent and show
 // in the audit log.
-func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *telegram.Service {
+func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore, demo bool) *telegram.Service {
 	who := devices.Device{Name: "telegram", Scope: devices.Act}
-	base, _ := standInAPI()
+	base := liveAPI()
+	if demo {
+		base, _ = standInAPI()
+	}
 	s := &telegram.Service{
 		Keys:  keys,
 		Path:  filepath.Join(paths.Data(), "telegram.json"),
@@ -91,6 +94,17 @@ func standInAPI() (base string, set bool) {
 		log.Printf("telegram: AGENTS_DECK_TELEGRAM_API ignored: a stand-in Bot API must be on this computer (http://127.0.0.1:<port>)")
 	}
 	return base, base != ""
+}
+
+// liveAPI is the Bot API a real deck uses: always Telegram's. A real deck
+// never takes AGENTS_DECK_TELEGRAM_API (it would hand a real bot token to
+// whatever listens on that port); only a demo does. Set, it's ignored here
+// with a warning.
+func liveAPI() string {
+	if os.Getenv("AGENTS_DECK_TELEGRAM_API") != "" {
+		log.Printf("telegram: AGENTS_DECK_TELEGRAM_API ignored: only a demo (agentctl serve --demo) uses a stand-in Bot API")
+	}
+	return ""
 }
 
 // telegramInDemo: a demo runs the Telegram bridges only against a stand-in
