@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/redact"
+
 	"github.com/brushknight/agents-deck/backend/internal/model"
 )
 
@@ -144,15 +146,18 @@ func scanMeta(b []byte, s *SessionInfo, head bool) {
 			s.Branch = m.GitBranch
 		}
 		switch m.Type {
+		// The picker (list_sessions, the web and the menu bar) shows these:
+		// redacted like the store's agent text, before the clip can cut a
+		// secret in half.
 		case "ai-title":
 			if m.AITitle != "" {
-				s.AITitle = m.AITitle
+				s.AITitle = redact.String(m.AITitle)
 			}
 		case "custom-title":
-			s.Custom = m.Custom
+			s.Custom = redact.String(m.Custom)
 		case "last-prompt":
 			if m.LastPrompt != "" {
-				s.LastPrompt = clip(oneLine(m.LastPrompt), 200)
+				s.LastPrompt = clip(redact.String(oneLine(m.LastPrompt)), 200)
 			}
 		}
 	}
