@@ -1359,8 +1359,9 @@ input.bad, input[type="password"].bad { border-color: var(--bad); }
 .btn.link.mut { color: var(--soft); }
 .btn.link.mut:hover:not(:disabled) { color: var(--ink); }
 .tgrow { min-height: 72px; flex-wrap: nowrap; }
-.tgrow > .r { gap: 0; }
-.tgrow > .r > .chip { margin-right: 10px; }
+.tgrow > .r { gap: 0; flex: none; flex-wrap: nowrap; }
+.tgrow > .grow { min-width: 0; }
+.tgheld { display: flex; margin-top: 4px; }
 .tgrow > .r > .btn.link:nth-last-child(2) { margin-left: 20px; }
 .tgrow > .r > .btn.link:last-child { margin-left: 24px; }
 .tgmenu { position: relative; display: inline-flex; }
@@ -1390,7 +1391,7 @@ input.bad, input[type="password"].bad { border-color: var(--bad); }
 .tgslot.sm { padding: 10px 14px; }
 .rcard.held .vis, .rcard.held .eyebrow { color: var(--wait); }
 .rcard.held .eyebrow { font-size: 11px; line-height: 14px; letter-spacing: 0.12em; }
-.tghere .nm { white-space: normal; overflow-wrap: anywhere; }
+.tghere > .r { flex: none; }
 /* Home's side column is narrow on a small window: there the held card takes the rows' size */
 .deckside { container-type: inline-size; }
 @container (max-width: 330px) {

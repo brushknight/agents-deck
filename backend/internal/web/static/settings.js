@@ -942,6 +942,13 @@ function setPet(el, a, more = {}) {
   el.replaceChildren(node);
   watchPet(el);
 }
+// setFace draws an agent where a small face of it goes (the Needs you list,
+// the mini deck, the CPU list): its pet while it has one, else its critter.
+// Pets everywhere: never a critter for an agent with a pet.
+function setFace(el, a, pose) {
+  if (a?.pet) setPet(el, a, { pose, bubble: false });
+  else setSprite(el, pose, a?.tool || 'claude', a?.hat || null, { bubble: false });
+}
 // Pets off screen hold still: their motion pauses until they scroll back.
 const petSeen = typeof IntersectionObserver === 'function'
   ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
@@ -4326,8 +4333,9 @@ function drawAbout() {
 const TG_PAIR_MIN = 10; // the pairing code's life (telegram.PairTTL)
 const tgBridges = () => (S.telegram?.bridges || []).filter((b) => b.on || b.held);
 const tgAgent = (id) => agentsList().find((a) => a.id === id);
-const tgName = (id) => { const a = tgAgent(id); return a ? agentName(a) : id; };
-const tgUser = (b) => b.userName || 'your account';
+const tgName = (id) => { const a = tgAgent(id); return a ? agentName(a) : 'an ended agent'; };
+// tgUser: who the bot is paired with, by name; never a number.
+const tgUser = (b) => (b.userName && b.userName !== 'someone' && !/^\d+$/.test(b.userName) ? b.userName : 'your Telegram account');
 const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')}`;
 const tgOpen = (b) => !!b.agent && !!tgAgent(b.agent) && tgAgent(b.agent).status !== 'exited';
 
@@ -4381,8 +4389,8 @@ function tgFace(a, cls = '') {
   const face = h('span', { class: `face dk tgface ${cls}`.trim() });
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#0A0A0A');
-  const spr = h('span', { class: 'spr c' });
-  setSprite(spr, poseOf(a), a.tool, a.hat, { bubble: false });
+  const spr = h('span', { class: a.pet ? 'spr pet' : 'spr c' });
+  setFace(spr, a, poseOf(a)); // its pet, as on its tile; the critter without one
   face.append(spr);
   return face;
 }
@@ -4528,8 +4536,7 @@ function tgRow(b) {
   const meta = [b.userId ? `from ${tgUser(b)}` : 'not paired yet', !b.userId ? '' : last ? `last: ${ago(last.at)}, ${tgSummary(last.summary)}` : 'nothing sent yet'].filter(Boolean).join(' · ');
   const relink = () => { Object.assign(S.tg, { relink: b.id, all: false, confirm: null }); draw(true); };
   const right = [];
-  if (b.held) right.push(chip(`held ${b.heldMessages || b.held}`, 'wait', 'dot'));
-  if (b.agent && b.userId) {
+  if (a && b.userId) {
     right.push(tgMenuBtn(`tg-linked:${b.id}`, `Linked · ${tgName(b.agent)}`, [
       { text: 'Link to another agent…', run: relink },
       a ? { text: `Open ${agentName(a)}`, href: `#agent/${encodeURIComponent(a.id)}` } : null,
@@ -4538,7 +4545,17 @@ function tgRow(b) {
     h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-else:${b.id}`, onclick: relink }, 'Link elsewhere'),
     h('button', { type: 'button', class: 'btn link mut', 'data-k': `tg-unlink:${b.id}`, onclick: () => { S.tg.confirm = { kind: 'unlink', id: b.id }; draw(true); } }, 'Unlink'));
   } else if (b.userId) right.push(btn('Link to an agent', relink, '', { 'data-k': `tg-link:${b.id}` }));
-  return row(`${b.bot || b.id} → ${b.agent ? tgName(b.agent) : 'no agent'}`, meta, right, { name: true, cls: 'tgrow', pic: tgFace(a) });
+  return row(`${b.bot || b.id} → ${b.agent ? tgName(b.agent) : 'no agent'}`, meta, right, { name: true, cls: 'tgrow', pic: tgFace(a),
+    below: b.held ? h('span', { class: 'tgheld' }, chip(`held ${b.heldMessages || b.held}`, 'wait', 'dot')) : null });
+}
+
+// tgOffline: since when Telegram can't be reached, and when the next try is.
+function tgOffline(b) {
+  const since = Date.parse(b.errorSince || '');
+  const at = Date.parse(b.retryAt || '');
+  const mins = Math.round((at - Date.now()) / 60000);
+  const next = !at ? '' : mins < 1 ? ' Trying again in under a minute.' : ` Trying again in ${mins} min.`;
+  return `No connection to Telegram${since ? ` since ${hhmm(new Date(since))}` : ''}.${next} Telegram keeps what you send for a day.`;
 }
 
 // tgStates: what needs a word under the bridge's row (TG-03).
@@ -4569,7 +4586,7 @@ function tgStates(b) {
         tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
     } else {
       out.push(tgCard('Telegram can\'t be reached', 'wait', tgLine(`${b.bot || b.id}${b.agent ? ` → ${tgName(b.agent)}` : ''}`, chip('offline', 'wait', 'dot')),
-        h('p', { class: 'txt' }, 'No connection to Telegram. Trying again by itself, at most a minute apart. Telegram keeps what you send for a day, so nothing is lost.'),
+        h('p', { class: 'txt' }, tgOffline(b)),
         tgActs(btn('Try now', (ev) => tgPost('retry', { bridge: b.id }, ev.currentTarget), '', { 'data-k': 'tg-retry' }))));
     }
   }
@@ -4585,7 +4602,7 @@ function tgStates(b) {
     const ended = b.agent && (!a || a.status === 'exited');
     const when = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
     out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(`${b.bot} → ${b.agent ? tgName(b.agent) : 'no agent'}`, chip(`held ${n}`, 'wait', 'dot')),
-      h('p', { class: 'txt' }, `${ended ? `${tgName(b.agent)} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver them.`),
+      h('p', { class: 'txt' }, `${ended ? `${a ? agentName(a) : 'The linked agent'} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver them.`),
       tgActs(btn('Link to an agent', () => { Object.assign(t, { relink: b.id, all: false, confirm: null }); draw(true); }, 'p', { 'data-k': 'tg-held-link' }),
         btn('Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));
   }
@@ -4609,7 +4626,8 @@ function tgDelivery(d, b) {
   if (d.dropped) return h('div', { class: 'row tgd drop' }, when, h('span', { class: 'sub' }, `${d.summary} · deleted from this ${machine()}`));
   const { big, failed } = tgProblems(d);
   const sub = [d.agent && d.agent !== b.agent ? `to ${tgName(d.agent)}` : '', d.snippet, d.from ? `forwarded from ${d.from}` : '', ...(d.files || []).map((f) => f.replace(/^\d+-/, ''))].filter(Boolean).join(' · ');
-  const probs = [big.length ? `left out, over 20 MB (open in Telegram): ${big.join(', ')}` : '', failed.length ? `didn't download: ${failed.join(', ')}` : ''].filter(Boolean).join('; ');
+  const missing = [...big.map((x) => `${x.replace(/\)$/, ', over 20 MB)')}`), ...failed];
+  const probs = missing.length ? `${missing.join(', ')} didn't come through; the rest went to ${tgName(d.agent)}` : '';
   const ch = big.length ? chip(`${plural(big.length, 'file')} left out`, 'bad', 'dot')
     : failed.length ? chip(`${failed.length} missing`, 'bad', 'dot')
       : d.queued ? chip(`queued · ${ordinal(d.position || 1)}`, 'wait', 'dot') : chip('one prompt', '', 'dot');
@@ -4725,7 +4743,7 @@ function tgHeldCards() {
     const n = b.heldMessages || b.held;
     const a = tgAgent(b.agent);
     const at = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
-    const why = b.agent && (!a || a.status === 'exited') ? `${tgName(b.agent)} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
+    const why = b.agent && (!a || a.status === 'exited') ? `${a ? agentName(a) : 'The linked agent'} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
     return rcard(icon('send', 16, 1.8), 'Held', `${b.bot} holds ${plural(n, 'message')}`, `${why} Link the bot to an agent to deliver them.`, [
       btn('Link to an agent', () => { Object.assign(S.tg, { relink: b.id, all: false, step: 0, confirm: null }); location.hash = '#telegram'; }, 'p', { 'data-k': `tg-held:${b.id}` }),
     ], 'held');
