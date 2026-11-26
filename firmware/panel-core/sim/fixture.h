@@ -230,14 +230,25 @@ static inline void agentToLink(const Json& j, agentsdeck_link_v1_Agent& a) {
   }
   if (!j["pet"].isNull()) {   // Agent pets on (convert.go)
     const Json& p = j["pet"];
+    // The /v1 JSON names are camelCase (nextAt); older fixtures used next_at.
+    auto num = [&](const char* camel, const char* snake) {
+      return !p[camel].isNull() ? p[camel].num() : p[snake].num();
+    };
     a.has_pet = true;
     FIXTURE_COPY(a.pet.name, p["name"].str());
     FIXTURE_COPY(a.pet.stage, p["stage"].str());
     FIXTURE_COPY(a.pet.mood, p["mood"].str());
     a.pet.level = (uint32_t)p["level"].num();
     a.pet.ate = (int64_t)p["ate"].num();
-    a.pet.next_at = (int64_t)p["next_at"].num();
+    a.pet.next_at = (int64_t)num("nextAt", "next_at");
+    a.pet.level_from = (int64_t)num("levelFrom", "level_from");
     a.pet.hearts = (uint32_t)p["hearts"].num();
+    a.pet.ready = p["ready"].truthy();
+    if (!p["hat"].isNull()) {   // its own mystery hat, from a kid on (Pet.hat)
+      a.pet.has_hat = true;
+      FIXTURE_COPY(a.pet.hat.shape, p["hat"]["shape"].str());
+      FIXTURE_COPY(a.pet.hat.color, p["hat"]["color"].str());
+    }
   }
 }
 
