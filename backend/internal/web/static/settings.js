@@ -941,8 +941,24 @@ function setPet(el, a, more = {}) {
 // the mini deck, the CPU list): its pet while it has one, else its critter.
 // Pets everywhere: never a critter for an agent with a pet.
 function setFace(el, a, pose) {
-  if (a?.pet) setPet(el, a, { pose, bubble: false });
-  else setSprite(el, pose, a?.tool || 'claude', a?.hat || null, { bubble: false });
+  if (a?.pet) {
+    setPet(el, a, { pose, bubble: false });
+    el.style.setProperty('--pb', petFloor(el));
+  } else setSprite(el, pose, a?.tool || 'claude', a?.hat || null, { bubble: false });
+}
+// petFloor: the lowest row the pet's art reaches, in pet pixels (13 for a
+// grown-up, 14 for a baby, 15 for a cracked egg), so a face can stand every
+// pet on the same floor. Measured once per drawing.
+const petFloors = new Map();
+function petFloor(el) {
+  const k = el.dataset.pose;
+  if (!petFloors.has(k)) {
+    let b = 13;
+    for (const p of el.querySelectorAll('path'))
+      for (const m of (p.getAttribute('d') || '').matchAll(/M(-?[\d.]+) (-?[\d.]+)h(-?[\d.]+)v(-?[\d.]+)/g)) b = Math.max(b, +m[2] + +m[4]);
+    petFloors.set(k, b);
+  }
+  return petFloors.get(k);
 }
 // Pets off screen hold still: their motion pauses until they scroll back.
 const petSeen = typeof IntersectionObserver === 'function'
