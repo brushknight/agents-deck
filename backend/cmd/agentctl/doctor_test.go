@@ -84,6 +84,9 @@ func TestDoctorSeparateInstance(t *testing.T) {
 	if s := out.String(); strings.Contains(s, "agentctl install") || !strings.Contains(s, "agentctl serve (with this AGENTSTERM_HOME)") {
 		t.Fatalf("a test instance was told to install:\n%s", s)
 	}
+	if s := out.String(); !strings.Contains(s, "test deck: not watching other apps") {
+		t.Fatalf("doctor doesn't say a test deck leaves other apps alone:\n%s", s)
+	}
 }
 
 // A one-way link is named, with the machine whose port to open.

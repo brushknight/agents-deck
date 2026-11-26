@@ -43,6 +43,9 @@ func orcaAgentID(pane string) string {
 // WatchOrca polls Orca every 2 seconds while it runs (no-op when it isn't
 // installed, or with "orca": false in config.json).
 func (d *Daemon) WatchOrca() {
+	if d.Isolated { // a test deck: never other apps' sessions
+		return
+	}
 	if d.Cfg.Orca != nil && !*d.Cfg.Orca {
 		return
 	}
