@@ -83,7 +83,7 @@ const S = {
   mcp: null, // MCP tokens and where clients connect
   mcpNew: null, // the new-token form, then the token made (shown once)
   telegram: null, // the Telegram bridges (GET /admin/v1/telegram)
-  tg: { step: 0, menu: '', confirm: null, relink: '', pick: '', all: false }, // the Telegram page: its flow, menu and confirms
+  tg: { step: 0, menu: '', confirm: null, relink: '', pick: '', all: false, here: null }, // Telegram: the page's flow, menu and confirms; here: the agent page's row
 };
 
 // ---- small helpers -----------------------------------------------------------------
@@ -498,7 +498,7 @@ function needs(page) {
 // extras: what a page shows when it can, and does without (an older service
 // has no Bluetooth or MCP calls).
 function extras(page) {
-  return { telegram: ['telegram'], updates: ['jobList'], home: ['projects', 'live'], agent: ['accounts'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
+  return { telegram: ['telegram'], updates: ['jobList'], home: ['projects', 'live', 'telegram'], agent: ['accounts', 'telegram'], boards: ['bt', 'btBoards', 'jobList'], board: ['bt', 'btBoards', 'jobList'], network: ['bt'], agents: ['mcp', 'projects', 'state', 'cpu', 'system'] }[page] || [];
 }
 
 function firstError(page) {
@@ -1250,6 +1250,7 @@ function readyRows() {
     egg.append(petNode(a.pet, { hat: a.hat, still: true }).node);
     rows.push(rrow(egg, 'An egg is ready', `${agentName(a)}: open it to see it hatch`, `#home/${encodeURIComponent(a.id)}`));
   }
+  rows.push(...tgHeldCards());
   return rows;
 }
 
@@ -1781,6 +1782,7 @@ function queueBlock(a, note) {
 // does, a prompt box) or asking (the question and its answers).
 function buildAgent(a, body, view = agentView) {
   const hd = agentHead(a);
+  const tg = h('div', { class: 'blk tgherewrap', hidden: true });
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
   const external = codexThread(a);
@@ -1875,8 +1877,8 @@ function buildAgent(a, body, view = agentView) {
     const hint = free ? (own ? 'Or answer it in its terminal.' : 'It wants free text: answer it in its terminal.')
       : `Answer here with 1 to ${(w.options || []).length} on the keyboard${own ? ', type your own' : ''}, or answer in its terminal.`;
     const qb = queueBlock(a, note);
-    put(body, hd.el, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
-    return (x) => { hd.update(x); qb.update(x); };
+    put(body, hd.el, tg, ask, free ? null : list, own, h('p', { class: free && !own ? 'txt' : 'sub' }, hint), acts, note, qb.el);
+    return (x) => { hd.update(x); qb.update(x); tgHere(tg, x); };
   }
 
   view.answer = null;
@@ -1914,12 +1916,13 @@ function buildAgent(a, body, view = agentView) {
       h('button', { type: 'button', class: 'btn p sm', 'data-k': 'pr-send', onclick: (e) => send(e) }, busyNow ? 'Queue' : 'Send'),
       a.status === 'running' && (!a.external || inApp(a)) ? h('button', { type: 'button', class: 'btn sm', 'data-k': 'pr-now', title: 'Stops this turn (Esc), then sends it', onclick: (e) => send(e, 'interrupt') }, 'Stop and send') : null);
   }
-  put(body, hd.el, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
+  put(body, hd.el, tg, h('div', { class: 'blk stats4' }, sCtx, sTok, sCost, sTurns),
     h('div', { class: 'term' }, doingBar, doing),
     h('div', { class: 'grow' }, lastLbl, last, lastWhen), promptBox, qb.el, acts, note, foot);
   return (x) => {
     hd.update(x);
     qb.update(x);
+    tgHere(tg, x);
     const pct = ctxPct(x);
     vCtx.textContent = `${pct}%`;
     prog.style.width = `${pct}%`;
@@ -4582,7 +4585,7 @@ function tgStates(b) {
     const ended = b.agent && (!a || a.status === 'exited');
     const when = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
     out.push(tgCard(ended ? 'The linked agent ended' : 'Held', 'wait', tgLine(`${b.bot} → ${b.agent ? tgName(b.agent) : 'no agent'}`, chip(`held ${n}`, 'wait', 'dot')),
-      h('p', { class: 'txt' }, `${ended ? `${tgName(b.agent)} ended at ${when}` : `${b.bot} isn't linked to an agent since ${when}`}. ${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver them.`),
+      h('p', { class: 'txt' }, `${ended ? `${tgName(b.agent)} ended at ${when}` : `${b.bot} was unlinked at ${when}`}. ${plural(n, 'message')} ${n === 1 ? 'is' : 'are'} waiting; link the bot to an agent to deliver them.`),
       tgActs(btn('Link to an agent', () => { Object.assign(t, { relink: b.id, all: false, confirm: null }); draw(true); }, 'p', { 'data-k': 'tg-held-link' }),
         btn('Drop them', () => { t.confirm = { kind: 'drop', id: b.id }; draw(true); }, '', { 'data-k': 'tg-held-drop' }))));
   }
@@ -4652,6 +4655,83 @@ function drawTelegram() {
   return [head('Telegram', 'Prompts from', 'your phone.'), bridges, ...(t.step === 1 ? [tgNewSec()] : list.map(tgRecentSec))];
 }
 
+// ---- Telegram on an agent's page and on Home -------------------------------------------------
+
+// tgHere: the agent page's Telegram row, in TG-02's four states: linked
+// here; no bot sends here; picking the bridge; and the confirm that names
+// both agents when the bot moves.
+const tgPaired = () => tgBridges().filter((b) => b.on && b.userId);
+function tgHere(holder, a) {
+  const list = tgPaired();
+  const st = S.tg.here?.id === a.id ? S.tg.here : null;
+  const key = JSON.stringify([a.id, a.status, list.map((b) => [b.id, b.agent, b.bot, b.userName]), st, S.tg.menu.startsWith('tg-here:') ? S.tg.menu : '']);
+  if (holder.dataset.key === key) return;
+  holder.dataset.key = key;
+  const set = (v) => { S.tg.here = v ? { id: a.id, ...v } : null; tgHere(holder, agentsList().find((x) => x.id === a.id) || a); };
+  if (!list.length || a.status === 'exited') { holder.replaceChildren(); holder.hidden = true; return; }
+  holder.hidden = false;
+  const here = list.find((b) => b.agent === a.id);
+  const link = async (b, el) => {
+    const r = await busy(el, () => api('POST', '/admin/v1/telegram', { op: 'link', bridge: b.id, agent: a.id }), (x) => `${b.bot} → ${agentName(a)}${x.delivered ? `: ${plural(x.delivered, 'held batch', 'held batches')} delivered` : ''}`);
+    if (r) { await load('telegram'); set(null); }
+  };
+  const pickBridge = (b, el) => (b.agent && tgOpen(b) ? set({ mode: 'confirm', bridge: b.id }) : link(b, el));
+  let kids;
+  if (st?.mode === 'confirm') {
+    const b = list.find((x) => x.id === st.bridge);
+    if (!b) { set(null); return; }
+    kids = h('div', { class: 'tgherebox' }, h('span', { class: 'eyebrow acc2' }, `Link ${b.bot} here?`),
+      h('p', { class: 'txt' }, `${b.bot} sends to `, h('b', { class: 'mono w' }, tgName(b.agent)), ` now. After this, what ${tgUser(b)} sends goes to ${agentName(a)} instead. Nothing already sent moves.`),
+      tgActs(btn(`Keep ${tgName(b.agent)}`, () => set(null), '', { 'data-k': 'tg-keep' }), btn('Link here', (e) => link(b, e.currentTarget), 'p', { 'data-k': 'tg-here-yes' })));
+  } else if (st?.mode === 'unlink' && here) {
+    kids = h('div', { class: 'tgherebox' }, h('span', { class: 'eyebrow acc2' }, 'Unlink'),
+      h('p', { class: 'txt' }, `Unlink ${here.bot} from ${agentName(a)}? The bot stays paired. Until you link it again, what ${tgUser(here)} sends is held and the bot says so.`),
+      tgActs(btn('Keep it', () => set(null), '', { 'data-k': 'tg-keep' }), btn('Unlink', async (e) => {
+        if (await busy(e.currentTarget, () => api('POST', '/admin/v1/telegram', { op: 'unlink', bridge: here.id }), `${here.bot} unlinked`)) { await load('telegram'); set(null); }
+      }, 'd', { 'data-k': 'tg-unlink-yes' })));
+  } else if (st?.mode === 'pick') {
+    const group = h('div', { class: 'opts', role: 'radiogroup', 'aria-label': 'Bridge' });
+    list.forEach((b, i) => group.append(h('button', {
+      type: 'button', class: 'opt p', role: 'radio', 'aria-checked': i ? 'false' : 'true', tabindex: i ? '-1' : '0', 'data-k': `tg-bridge:${b.id}`,
+      onclick: (e) => pickBridge(b, e.currentTarget), onkeydown: (e) => radioKeys(e, group, null),
+    }, h('span', { class: 'k' }, String(i + 1)), h('span', {}, b.bot), h('span', { class: 'h' }, b.agent ? `now → ${tgName(b.agent)}` : 'not linked'))));
+    kids = h('div', { class: 'tgherebox tight' },
+      h('div', { class: 'tgline' }, h('span', { class: 'eyebrow mut' }, 'Link Telegram here · pick a bridge'),
+        h('button', { type: 'button', class: 'btn link mut small sp', 'data-k': 'tg-here-cancel', onclick: () => set(null) }, 'Cancel')),
+      group,
+      h('div', { class: 'tgslot sm', 'aria-disabled': 'true' }, h('span', {}, '+ another bot'), h('span', { class: 'sub' }, 'later')));
+  } else if (here) {
+    kids = row(`${here.bot} sends here`, `What ${tgUser(here)} sends arrives as one prompt per burst.`,
+      tgMenuBtn(`tg-here:${here.id}`, `Linked · ${here.bot}`, [
+        { text: 'Link to another agent…', run: () => { Object.assign(S.tg, { relink: here.id, all: false, step: 0 }); location.hash = '#telegram'; } },
+        { text: `Open ${here.bot}`, href: '#telegram' },
+        { text: 'Unlink', bad: true, run: () => set({ mode: 'unlink' }) },
+      ]), { name: true, cls: 'tghere', pic: h('span', { class: 'ico acc' }, icon('send', 16, 1.8)) });
+  } else {
+    const b = list[0];
+    kids = row('No bot sends here', list.length > 1 ? `${plural(list.length, 'bot')} send to other agents.` : b.agent ? `${b.bot} sends to ${tgName(b.agent)} now.` : `${b.bot} isn't linked to an agent.`,
+      h('button', { type: 'button', class: 'btn sm', 'data-k': 'tg-here', onclick: () => set({ mode: 'pick' }) }, icon('link', 16, 1.8), 'Link Telegram here'),
+      { name: true, cls: 'tghere', pic: h('span', { class: 'ico' }, icon('send', 16, 1.8)) });
+  }
+  holder.replaceChildren(kids);
+  const focus = holder.querySelector('[data-k="tg-here-yes"], [data-k^="tg-bridge:"], [data-k="tg-unlink-yes"]');
+  if (st && focus) focus.focus({ preventScroll: true });
+}
+
+// tgHeldCards: Home's Ready for you: a bridge holding messages. Home only
+// offers to link them; dropping is on the Telegram page.
+function tgHeldCards() {
+  return tgBridges().filter((b) => b.held).map((b) => {
+    const n = b.heldMessages || b.held;
+    const a = tgAgent(b.agent);
+    const at = hhmm(new Date(a?.status === 'exited' && a.statusSince ? a.statusSince : b.heldSince || Date.now()));
+    const why = b.agent && (!a || a.status === 'exited') ? `${tgName(b.agent)} ended at ${at}.` : `${b.bot} was unlinked at ${at}.`;
+    return rcard(icon('send', 16, 1.8), 'Held', `${b.bot} holds ${plural(n, 'message')}`, `${why} Link the bot to an agent to deliver them.`, [
+      btn('Link to an agent', () => { Object.assign(S.tg, { relink: b.id, all: false, step: 0, confirm: null }); location.hash = '#telegram'; }, 'p', { 'data-k': `tg-held:${b.id}` }),
+    ], 'held');
+  });
+}
+
 // ---- pages and routing ------------------------------------------------------------------------
 
 const DRAW = {
@@ -4710,7 +4790,7 @@ async function route(initial) {
   const changed = page !== S.page || arg !== S.arg;
   S.page = page; S.arg = arg;
   if (page === 'newboard' && (!S.nb || S.nb.port !== arg)) S.nb = { port: arg, step: 1, choice: '' };
-  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; Object.assign(S.tg, { menu: '', confirm: null, relink: '' }); }
+  if (changed) { S.open = { wifi: '', rename: '', project: '' }; S.confirmLoginOff = false; agentView = null; S.today = null; Object.assign(S.tg, { menu: '', confirm: null, here: null }); if (page !== 'telegram') S.tg.relink = ''; }
   if (page !== 'start') S.startForm = null;
   if (page !== 'home') S.panel = false; // Panel view is a way to see Home
   const section = SECTION[page] || page;

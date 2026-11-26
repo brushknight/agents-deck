@@ -1381,3 +1381,21 @@ input.bad, input[type="password"].bad { border-color: var(--bad); }
 .tgd .nm.tgs { font-weight: 500; }
 .tgd .sub.cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tgd.drop { min-height: 44px; }
+
+/* Telegram on an agent's page (its row, under the head) and on Home (a held card) */
+.tgherewrap > .row { border-top: 0; }
+.tgherebox { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.tgherebox.tight { gap: 10px; }
+.tgherebox .actions { gap: 10px; }
+.tgslot.sm { padding: 10px 14px; }
+.rcard.held .vis, .rcard.held .eyebrow { color: var(--wait); }
+.rcard.held .eyebrow { font-size: 11px; line-height: 14px; letter-spacing: 0.12em; }
+.tghere .nm { white-space: normal; overflow-wrap: anywhere; }
+/* Home's side column is narrow on a small window: there the held card takes the rows' size */
+.deckside { container-type: inline-size; }
+@container (max-width: 330px) {
+  .rcard.held { grid-template-columns: 40px minmax(0, 1fr); min-height: 0; box-shadow: 4px 4px 0 var(--term); }
+  .rcard.held .bd { padding: 10px 12px 12px; gap: 4px; }
+  .rcard.held .ttl { font-family: var(--f-mono); font-size: 12px; line-height: 16px; font-weight: 700; letter-spacing: 0; }
+  .rcard.held .act .btn { width: 100%; padding: 0 6px; font-size: 11px; }
+}
