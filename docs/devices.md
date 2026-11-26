@@ -24,7 +24,7 @@ them again.
 | <img src="images/devices/amoled18-home.png" width="74" alt=""> | [Waveshare ESP32-S3-Touch-AMOLED-1.8](#waveshare-esp32-s3-touch-amoled-18) | 1.8″ AMOLED, 368×448 | 2×2 tiles in a scrolling list | yes | yes | yes | yes | [`waveshare-touch-amoled-18`](../firmware/devices/waveshare-touch-amoled-18) |
 | <img src="images/devices/t4s3-home.png" width="68" alt=""> | [LilyGO T4-S3](#lilygo-t4-s3-241-amoled) | 2.41″ AMOLED, 450×600 | 2×3 tiles in a scrolling list | yes | yes | yes | yes | [`lilygo-t4-s3`](../firmware/devices/lilygo-t4-s3) |
 | <img src="images/devices/lcd147-running.png" width="110" alt=""> | [Waveshare ESP32-S3-LCD-1.47B](#waveshare-esp32-s3-lcd-147b-strip) | 1.47″ strip, 320×172 | one agent in detail and a mini-board | no (one button) | no, USB only | no | yes, while you hold BOOT | [`waveshare-lcd-147`](../firmware/devices/waveshare-lcd-147) |
-| <img src="images/panel-board-v3.png" width="90" alt=""> | [Desk panel](#desk-panel-4-720720) | 4″ square, 720×720 | the full deck (Flutter app) | yes | yes (that's how it connects) | no | yes | [`clients/flutter`](../clients/flutter/agents_ui) |
+| <img src="images/panel-board-v4.png" width="90" alt=""> | [Desk panel](#desk-panel-4-720720) | 4″ square, 720×720 | the full deck (Flutter app) | yes | yes (that's how it connects) | no | yes | [`clients/flutter`](../clients/flutter/agents_ui) |
 
 ## What every board has in common
 
@@ -205,7 +205,7 @@ deck, as in the menu bar.
 
 | board | Needs you | detail | permission | question |
 |---|---|---|---|---|
-| <img src="images/panel-board-v3.png" width="180" alt="the deck on the desk panel"> | <img src="images/panel-needs-you-v3.png" width="180" alt="the Needs you page on the desk panel"> | <img src="images/panel-detail-v3.png" width="180" alt="an agent's detail with its subagents"> | <img src="images/panel-permission-v3.png" width="180" alt="a permission prompt"> | <img src="images/panel-question-v3.png" width="180" alt="a question"> |
+| <img src="images/panel-board-v4.png" width="180" alt="the deck on the desk panel"> | <img src="images/panel-needs-you-v3.png" width="180" alt="the Needs you page on the desk panel"> | <img src="images/panel-detail-v4.png" width="180" alt="an agent's detail with its subagents"> | <img src="images/panel-permission-v3.png" width="180" alt="a permission prompt"> | <img src="images/panel-question-v4.png" width="180" alt="a question"> |
 
 - **Connect:** over Wi-Fi only, with its own certificate: `agentctl pair desk-panel --bundle -` makes
   a key and certificate to copy to it. See [features](features.md) and [protocol](protocol.md).
@@ -237,10 +237,10 @@ firmware/panel-core/tools/render_docs.sh
 node docs/tools/web-shots.mjs
 ```
 
-The goldens map to `docs/images` as `agents-grid.png` to `panel-board-v3.png`,
+The goldens map to `docs/images` as `agents-grid.png` to `panel-board-v4.png`,
 `agents-attention.png` to `panel-needs-you-v3.png`, `agents-detail-running.png` to
-`panel-detail-v3.png`, `agents-permission.png` to `panel-permission-v3.png`, `agents-question.png` to
-`panel-question-v3.png`, and `menubar.png` to `menubar-deck-v3.png`. `menubar-needs-you-v3.png` is
+`panel-detail-v4.png`, `agents-permission.png` to `panel-permission-v3.png`, `agents-question.png` to
+`panel-question-v4.png`, and `menubar.png` to `menubar-deck-v4.png`. `menubar-needs-you-v4.png` is
 the same deck with the Needs you mark tapped (`agents-page-attention`). When a picture changes, give
 it the next `-vN` name so GitHub's image cache shows the new one. `web-shots.mjs` runs the demo on
 `127.0.0.1:17340` with its own data folder and the network listener off, so it never meets the
