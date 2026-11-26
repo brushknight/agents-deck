@@ -15,7 +15,7 @@
 // "workstation" instead of this computer's. Chrome runs headless with a
 // throwaway profile. Everything is stopped and removed at the end.
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -56,7 +56,14 @@ for (let i = 0; i < 40 && !page; i++) {
   await sleep(250);
   try { page = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json()).find((t) => t.type === 'page'); } catch { /* not yet */ }
 }
-for (let i = 0; i < 40; i++) { try { await fetch(base + '/'); break; } catch { await sleep(250); } }
+let up = false;
+for (let i = 0; i < 40 && !up; i++) { try { await fetch(base + '/'); up = true; } catch { await sleep(250); } }
+// The demo didn't answer: say why instead of photographing an error page. A
+// long SHOTS_TMP is the usual cause: the unix socket path must fit in 104 bytes.
+if (!up || !existsSync(join(home, 'web-session'))) {
+  console.error(`the demo didn't start: see ${join(tmp, 'serve.log')}${process.env.SHOTS_TMP ? ' (is SHOTS_TMP short enough for a unix socket?)' : ''}`);
+  process.exit(1);
+}
 const cookie = readFileSync(join(home, 'web-session'), 'utf8').trim();
 
 const ws = new WebSocket(page.webSocketDebuggerUrl);
