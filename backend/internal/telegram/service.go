@@ -272,19 +272,25 @@ func (s *Service) setErr(r *run, msg string) {
 
 // BridgeStatus is one bridge in GET /local/telegram.
 type BridgeStatus struct {
-	ID        string `json:"id"`
-	On        bool   `json:"on"` // a token is stored and its poller runs
-	Bot       string `json:"bot,omitempty"`
-	UserID    int64  `json:"userId,omitempty"`
-	UserName  string `json:"userName,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Pending   int    `json:"pending,omitempty"`
-	Held      int    `json:"held,omitempty"`
-	Waiting   int    `json:"waiting,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Inbox     string `json:"inbox"`
-	PairCode  string `json:"pairCode,omitempty"`  // only in the answer to setup or pair
-	Delivered int    `json:"delivered,omitempty"` // only in the answer to link: held batches that went
+	ID       string `json:"id"`
+	On       bool   `json:"on"` // a token is stored and its poller runs
+	Bot      string `json:"bot,omitempty"`
+	UserID   int64  `json:"userId,omitempty"`
+	UserName string `json:"userName,omitempty"`
+	Agent    string `json:"agent,omitempty"`
+	Pending  int    `json:"pending,omitempty"`
+	Held     int    `json:"held,omitempty"`
+	Waiting  int    `json:"waiting,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Inbox    string `json:"inbox"`
+	Ignored  int    `json:"ignored,omitempty"` // messages from other accounts, dropped (since the service started)
+	// HeldSince and HeldMessages: the held batches' oldest time and message count.
+	HeldSince    time.Time  `json:"heldSince,omitzero"`
+	HeldMessages int        `json:"heldMessages,omitempty"`
+	Recent       []Delivery `json:"recent,omitempty"`    // GET only: the newest deliveries, newest first
+	Dropped      int        `json:"dropped,omitempty"`   // only in the answer to drop: messages dropped
+	PairCode     string     `json:"pairCode,omitempty"`  // only in the answer to setup or pair
+	Delivered    int        `json:"delivered,omitempty"` // only in the answer to link: held batches that went
 }
 
 func (s *Service) status(id string) BridgeStatus {
@@ -300,6 +306,7 @@ func (s *Service) status(id string) BridgeStatus {
 		st := r.bridge.Status()
 		out.UserID, out.UserName, out.Agent = st.UserID, st.UserName, st.Agent
 		out.Pending, out.Held, out.Waiting = st.Pending, st.Held, st.Waiting
+		out.Ignored, out.HeldSince, out.HeldMessages = st.Ignored, st.HeldSince, st.HeldMessages
 		if st.Error != "" {
 			out.Error = st.Error
 		}
@@ -307,6 +314,10 @@ func (s *Service) status(id string) BridgeStatus {
 		for _, bt := range all {
 			if bt.State == stateHeld {
 				out.Held++
+				out.HeldMessages += len(bt.Messages)
+				if out.HeldSince.IsZero() || bt.Opened.Before(out.HeldSince) {
+					out.HeldSince = bt.Opened
+				}
 			} else if bt.State != stateOpen {
 				out.Waiting++
 			}
@@ -317,7 +328,7 @@ func (s *Service) status(id string) BridgeStatus {
 
 // Request is POST /local/telegram.
 type Request struct {
-	Op     string `json:"op"`               // setup, pair, link, user, off
+	Op     string `json:"op"`               // setup, pair, link, unlink, drop, user, off
 	Bridge string `json:"bridge,omitempty"` // "" = the only bridge ("default" for the first setup)
 	Token  string `json:"token,omitempty"`  // setup
 	Agent  string `json:"agent,omitempty"`  // link
@@ -358,7 +369,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var out []BridgeStatus
 		for _, id := range s.ids() {
 			if q := r.URL.Query().Get("bridge"); q == "" || q == id {
-				out = append(out, s.status(id))
+				st := s.status(id)
+				if r.URL.Query().Get("recent") != "" {
+					st.Recent = recentDeliveries(s.inbox(id), 10)
+				}
+				out = append(out, st)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"bridges": out})
@@ -370,7 +385,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var req Request
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, `body must be {"op": "setup"|"pair"|"link"|"user"|"off", "bridge": …}`)
+		writeErr(w, http.StatusBadRequest, `body must be {"op": "setup"|"pair"|"link"|"unlink"|"drop"|"user"|"off", "bridge": …}`)
 		return
 	}
 	id, err := s.pick(req.Bridge, req.Op)
@@ -384,13 +399,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := s.status(id)
-	out.PairCode, out.Delivered = extra.code, extra.delivered
+	out.PairCode, out.Delivered, out.Dropped = extra.code, extra.delivered, extra.dropped
 	writeJSON(w, http.StatusOK, out)
 }
 
 type extra struct {
 	code      string
 	delivered int
+	dropped   int
 }
 
 // update changes a bridge's config, through its running bridge if any.
@@ -472,6 +488,39 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 			return http.StatusInternalServerError, err.Error(), x
 		}
 		s.logf("telegram %s: linked to %s", id, req.Agent)
+	case "unlink":
+		// Messages from now on are held (and the bot says so) until a link.
+		if r := s.runOf(id); r != nil {
+			if _, err := r.bridge.Link(""); err != nil {
+				return http.StatusInternalServerError, err.Error(), x
+			}
+		} else if err := s.update(id, func(c *Config) { c.Agent = "" }); err != nil {
+			return http.StatusInternalServerError, err.Error(), x
+		}
+		s.logf("telegram %s: unlinked", id)
+	case "drop":
+		r := s.runOf(id)
+		var b *Bridge
+		if r != nil {
+			b = r.bridge
+		} else { // not running: drop what's on disk
+			c, _ := s.config(id)
+			b = NewBridge(c)
+			b.Inbox, b.Logf = s.inbox(id), s.Logf
+			if err := b.Load(); err != nil {
+				return http.StatusInternalServerError, err.Error(), x
+			}
+			b.mu.Lock()
+			if b.timer != nil {
+				b.timer.Stop()
+			}
+			b.mu.Unlock()
+		}
+		_, msgs, err := b.DropHeld()
+		if err != nil {
+			return http.StatusInternalServerError, err.Error(), x
+		}
+		x.dropped = msgs
 	case "user":
 		if req.UserID <= 0 {
 			return http.StatusBadRequest, "a Telegram user id is a positive number", x
@@ -488,7 +537,7 @@ func (s *Service) do(ctx context.Context, id string, req Request) (int, string, 
 		}
 		s.logf("telegram %s: bot token removed, bridge off (its inbox and settings stay)", id)
 	default:
-		return http.StatusBadRequest, `"op" is setup, pair, link, user or off`, x
+		return http.StatusBadRequest, `"op" is setup, pair, link, unlink, drop, user or off`, x
 	}
 	return http.StatusOK, "", x
 }

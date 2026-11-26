@@ -76,7 +76,11 @@ func newService(t *testing.T, f *fakeAPI) *svcHarness {
 
 func (h *svcHarness) do(t *testing.T, method, body string) (int, string) {
 	t.Helper()
-	r := httptest.NewRequest(method, "/local/telegram", strings.NewReader(body))
+	path := "/local/telegram"
+	if strings.HasPrefix(body, "?") { // a GET's query
+		path, body = path+body, ""
+	}
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w.Code, w.Body.String()
@@ -239,5 +243,74 @@ func TestServiceRelinkDeliversHeld(t *testing.T) {
 	}
 	if p := h.prompts(); len(p) != 1 || p[0].agent != "q601r3" || !strings.Contains(p[0].text, "made-up held note") {
 		t.Fatalf("delivered %v", p)
+	}
+}
+
+// Unlink holds what comes next; drop drops it; GET ?recent lists what was
+// delivered, with its place in the queue; strangers are only counted.
+func TestServiceUnlinkDropRecent(t *testing.T) {
+	f := newFake(t)
+	h := newService(t, f)
+	h.Deliver = func(agent, text string) (Result, error) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.got = append(h.got, delivered{agent, text})
+		return Result{Queued: true, Position: 2}, nil
+	}
+	if code, out := h.do(t, "POST", `{"op":"setup","token":"`+testToken+`"}`); code != 200 {
+		t.Fatal(out)
+	}
+	h.do(t, "POST", `{"op":"user","userId":42}`)
+	h.do(t, "POST", `{"op":"link","agent":"q601r3"}`)
+	b := h.runOf("default").bridge
+	ctx := context.Background()
+	fw := msg(1, 42, "Made-up feedback about the receipt email.")
+	fw.Origin = &Origin{Type: "user", Date: 1794990000, SenderUser: &User{ID: 9, FirstName: "Sam", LastName: "Example"}}
+	must(t, b.handle(ctx, fw))
+	b.CloseNow()
+	must(t, b.handle(ctx, msg(2, 77, "a stranger"))) // counted, not kept
+
+	code, out := h.do(t, "GET", "?recent=1")
+	var res struct{ Bridges []BridgeStatus }
+	json.Unmarshal([]byte(out), &res)
+	if code != 200 || len(res.Bridges) != 1 || len(res.Bridges[0].Recent) != 1 {
+		t.Fatalf("recent: %d %s", code, out)
+	}
+	d := res.Bridges[0].Recent[0]
+	if d.Agent != "q601r3" || !d.Queued || d.Position != 2 || d.Summary != "1 message" || d.From != "Sam Example" ||
+		!strings.HasPrefix(d.Snippet, "Made-up feedback") || res.Bridges[0].Ignored != 1 {
+		t.Fatalf("delivery %+v, ignored %d", d, res.Bridges[0].Ignored)
+	}
+
+	// Unlinked: the next batch is held, and the bot says so.
+	if code, out := h.do(t, "POST", `{"op":"unlink"}`); code != 200 || strings.Contains(out, `"agent"`) {
+		t.Fatalf("unlink: %d %s", code, out)
+	}
+	must(t, b.handle(ctx, msg(3, 42, "made-up while unlinked")))
+	must(t, b.handle(ctx, msg(4, 42, "and another")))
+	b.CloseNow()
+	_, out = h.do(t, "GET", "")
+	if !strings.Contains(out, `"held":1`) || !strings.Contains(out, `"heldMessages":2`) || !strings.Contains(out, `"heldSince"`) {
+		t.Fatalf("held: %s", out)
+	}
+	f.mu.Lock()
+	last := f.sent[len(f.sent)-1]
+	f.mu.Unlock()
+	if !strings.HasPrefix(last, "Held: no agent linked") {
+		t.Fatalf("bot said %q", last)
+	}
+	code, out = h.do(t, "POST", `{"op":"drop"}`)
+	if code != 200 || !strings.Contains(out, `"dropped":2`) || strings.Contains(out, `"held"`) {
+		t.Fatalf("drop: %d %s", code, out)
+	}
+	// Dropped stays dropped: a link later delivers nothing, and the folder stays.
+	if code, out := h.do(t, "POST", `{"op":"link","agent":"k3f9a2"}`); code != 200 || strings.Contains(out, `"delivered"`) {
+		t.Fatalf("link after drop: %d %s", code, out)
+	}
+	if n := len(h.prompts()); n != 1 {
+		t.Fatalf("delivered %d", n)
+	}
+	if m, _ := filepath.Glob(filepath.Join(h.Dir, "default", "inbox", "*", "*", "batch.json")); len(m) != 2 {
+		t.Fatalf("batch folders %v", m)
 	}
 }

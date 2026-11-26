@@ -80,7 +80,7 @@ func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *tele
 	return s
 }
 
-// telegramCmd: agentctl telegram [--bridge <id>] [setup | link <agent> | pair | user <id> | off | status].
+// telegramCmd: agentctl telegram [--bridge <id>] [setup | link <agent> | unlink | drop | pair | user <id> | off | status].
 // Everything goes through the service (/local/telegram), which keeps each
 // bridge's token in the keystore; the token is read here without echo and
 // never printed.
@@ -137,14 +137,21 @@ func telegramCmd(args []string) error {
 			return errors.New("usage: agentctl telegram [--bridge <id>] user <Telegram user id>   (a number)")
 		}
 		req.Op, req.UserID = "user", id
+	case "unlink":
+		req.Op = "unlink"
+	case "drop":
+		req.Op = "drop"
 	case "off":
 		req.Op = "off"
 	default:
-		return fmt.Errorf("unknown telegram command %q: setup, link, pair, user, off, status", sub)
+		return fmt.Errorf("unknown telegram command %q: setup, link, unlink, drop, pair, user, off, status", sub)
 	}
 	var st telegram.BridgeStatus
 	if err := callTimeout("POST", "/local/telegram", req, &st, 40*time.Second); err != nil {
 		return err
+	}
+	if req.Op == "drop" {
+		fmt.Printf("Dropped %d held message(s); their files stay in the inbox.\n", st.Dropped)
 	}
 	if req.Op == "link" && st.Delivered > 0 {
 		fmt.Printf("Delivered %d held batch(es) to %s.\n", st.Delivered, st.Agent)
@@ -221,13 +228,16 @@ func printBridge(b telegram.BridgeStatus, named bool) {
 		fmt.Println("  Linked to:  ", b.Agent)
 	}
 	if b.Held > 0 {
-		fmt.Printf("  Held:        %d batch(es), delivered when you link a running agent\n", b.Held)
+		fmt.Printf("  Held:        %d message(s) in %d batch(es), delivered when you link a running agent (or: agentctl telegram drop)\n", b.HeldMessages, b.Held)
 	}
 	if b.Waiting > 0 {
 		fmt.Printf("  Waiting:     %d batch(es) to deliver\n", b.Waiting)
 	}
 	if b.Pending > 0 {
 		fmt.Printf("  Arriving:    %d message(s), sent after a few quiet seconds\n", b.Pending)
+	}
+	if b.Ignored > 0 {
+		fmt.Printf("  Ignored:     %d message(s) from other accounts since the service started\n", b.Ignored)
 	}
 	fmt.Println("  Files in:   ", b.Inbox)
 	if b.Error != "" {

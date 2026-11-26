@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ const (
 	stateReady     = "ready"     // closed, files downloaded, waiting to go to the agent
 	stateHeld      = "held"      // the linked agent is gone: waits for a re-link
 	stateDelivered = "delivered" // the deck took the prompt
+	stateDropped   = "dropped"   // held, then dropped by you (its files stay)
 )
 
 // Batch is one burst of messages: one folder in the inbox, one prompt. Its
@@ -30,6 +32,9 @@ type Batch struct {
 	Agent     string       `json:"agent,omitempty"` // delivered to, or held for
 	Error     string       `json:"error,omitempty"` // why it hasn't gone yet
 	Delivered time.Time    `json:"delivered,omitempty"`
+	Queued    bool         `json:"queued,omitempty"`   // delivered into the agent's queue (it was busy)
+	Position  int          `json:"position,omitempty"` // its place there then (1 = next)
+	WasHeld   bool         `json:"wasHeld,omitempty"`  // delivered after being held
 
 	dir string
 }
@@ -88,7 +93,7 @@ func loadBatches(inbox string) ([]*Batch, error) {
 		if err := json.Unmarshal(data, &b); err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
-		if b.State == stateDelivered {
+		if b.State == stateDelivered || b.State == stateDropped {
 			continue
 		}
 		b.dir = filepath.Dir(f)
@@ -110,4 +115,70 @@ func (b *Batch) has(msgID int64) bool {
 		}
 	}
 	return false
+}
+
+// Delivery is one delivered batch, for the app's list of recent deliveries.
+type Delivery struct {
+	At       time.Time `json:"at"`
+	Agent    string    `json:"agent"`
+	Summary  string    `json:"summary"`            // "4 messages, 3 images"
+	Snippet  string    `json:"snippet,omitempty"`  // the start of its first text
+	From     string    `json:"from,omitempty"`     // a forward's author, when the first message is one
+	Files    []string  `json:"files,omitempty"`    // file names, in order
+	Problems []string  `json:"problems,omitempty"` // too big or failed, with names
+	Queued   bool      `json:"queued,omitempty"`
+	Position int       `json:"position,omitempty"`
+	WasHeld  bool      `json:"wasHeld,omitempty"`
+}
+
+// recentDeliveries reads the newest delivered batches in the inbox, newest
+// first, at most n. It looks at the newest days first.
+func recentDeliveries(inbox string, n int) []Delivery {
+	days, _ := filepath.Glob(filepath.Join(inbox, "*"))
+	sort.Sort(sort.Reverse(sort.StringSlice(days)))
+	var got []*Batch
+	for _, day := range days {
+		files, _ := filepath.Glob(filepath.Join(day, "*", "batch.json"))
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				continue
+			}
+			var b Batch
+			if json.Unmarshal(data, &b) == nil && b.State == stateDelivered {
+				got = append(got, &b)
+			}
+		}
+		if len(got) >= n {
+			break
+		}
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i].Delivered.After(got[j].Delivered) })
+	if len(got) > n {
+		got = got[:n]
+	}
+	out := make([]Delivery, 0, len(got))
+	for _, b := range got {
+		d := Delivery{At: b.Delivered, Agent: b.Agent, Queued: b.Queued, Position: b.Position, WasHeld: b.WasHeld}
+		sum := summarize(b)
+		d.Summary, d.Problems = sum.short, sum.list
+		for i := range b.Messages {
+			if t := clean(b.Messages[i].Text + b.Messages[i].Caption); t != "" {
+				d.Snippet = clip(strings.Join(strings.Fields(t), " "), 120)
+				break
+			}
+		}
+		if len(b.Messages) > 0 {
+			if from, _, ok := forwarded(&b.Messages[0]); ok {
+				d.From = from
+			}
+		}
+		for _, f := range b.Files {
+			if f.Status == "ok" {
+				d.Files = append(d.Files, f.Name)
+			}
+		}
+		out = append(out, d)
+	}
+	return out
 }
