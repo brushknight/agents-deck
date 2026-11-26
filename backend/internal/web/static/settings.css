@@ -939,6 +939,20 @@ code { font-family: var(--f-mono); font-size: 0.92em; color: var(--ink); }
    grey seams. */
 .petpic .spr.pet { width: 40px; }
 .tile .spr.pet { width: 60px; max-width: none; }
+/* In a face (Needs you, Next waiting, the CPU list) and in the small deck's
+   cells: 1.5 px a pet pixel (3 screen pixels on a 2x display), the largest
+   size at which the tallest pet fits the 40 px boxes: a legend in a wizard
+   hat is 24 x 23 pet pixels with its hat and arms (the art goes 7 above the
+   viewBox and 2 past each side). The pet stands on the box's floor, 2 px up,
+   so its hat stops 2 px under the top. */
+.face .spr.pet, .mini a .spr.pet { width: 30px; max-width: none; align-self: flex-end; margin-bottom: 2px; }
+/* Needs you and Next waiting rows: a 52 px face at 2 px a pet pixel, one
+   scale for every stage, so growth reads. Each pet stands 2 px above the
+   floor on its own lowest pixel (--pb, setFace), so the tallest (a legend in
+   a wizard hat, 48 x 46 px) has 2 px at each side and 4 px above. The row
+   grows by the 12 px; nothing else in it moves. */
+.qrow .face:has(.spr.pet) { width: 52px; height: 52px; }
+.qrow .face .spr.pet { width: 40px; margin-bottom: calc(var(--pb, 13) * 2px - 26px); }
 @media (max-width: 1100px) { .tile .spr.pet { width: 40px; } }
 /* On orange (a tile that needs you, the sidebar's corner) the pet is drawn
    in ink, as the critter is there (pets.js, ink): no plate behind it. */
