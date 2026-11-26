@@ -11,7 +11,7 @@ import (
 
 // LookPathLogin resolves a command through the user's login shell PATH.
 func LookPathLogin(name string) string {
-	out, err := proc.Output(10*time.Second, "/bin/zsh", "-lc", "command -v "+shellJoin([]string{name}))
+	out, err := proc.Output(10*time.Second, proc.LoginShell(), "-lc", "command -v "+shellJoin([]string{name}))
 	if err != nil {
 		return ""
 	}

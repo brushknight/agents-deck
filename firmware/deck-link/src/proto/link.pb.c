@@ -96,6 +96,9 @@ PB_BIND(agentsdeck_link_v1_Resume, agentsdeck_link_v1_Resume, AUTO)
 PB_BIND(agentsdeck_link_v1_HatchPet, agentsdeck_link_v1_HatchPet, AUTO)
 
 
+PB_BIND(agentsdeck_link_v1_ListMachines, agentsdeck_link_v1_ListMachines, AUTO)
+
+
 PB_BIND(agentsdeck_link_v1_Move, agentsdeck_link_v1_Move, AUTO)
 
 
@@ -166,6 +169,12 @@ PB_BIND(agentsdeck_link_v1_AccountList, agentsdeck_link_v1_AccountList, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_AccountInfo, agentsdeck_link_v1_AccountInfo, AUTO)
+
+
+PB_BIND(agentsdeck_link_v1_MachineList, agentsdeck_link_v1_MachineList, 2)
+
+
+PB_BIND(agentsdeck_link_v1_MachineInfo, agentsdeck_link_v1_MachineInfo, AUTO)
 
 
 PB_BIND(agentsdeck_link_v1_QueueList, agentsdeck_link_v1_QueueList, 2)

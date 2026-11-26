@@ -46,6 +46,7 @@ func ServerCert() string      { return filepath.Join(Data(), "server-cert.pem") 
 func ServerKey() string       { return filepath.Join(Data(), "server-key.pem") }
 func Devices() string         { return filepath.Join(Data(), "devices.json") }      // paired devices
 func MCPTokens() string       { return filepath.Join(Data(), "mcp-tokens.json") }   // MCP tokens (hashes only)
+func Machines() string        { return filepath.Join(Data(), "machines.json") }     // other machines of the workspace (multi-node), 0600
 func Audit() string           { return filepath.Join(Data(), "audit.log") }         // one line per action, by device
 func Pets() string            { return filepath.Join(Data(), "pets.json") }         // agent pets (Settings > General)
 func PromptQueue() string     { return filepath.Join(Data(), "prompt-queue.json") } // prompts waiting for a busy agent
