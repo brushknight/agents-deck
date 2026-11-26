@@ -35,6 +35,34 @@ type API struct {
 // ErrUnauthorized: the Bot API refused the token (revoked or mistyped).
 var ErrUnauthorized = errors.New("the bot token was refused: make a new one with @BotFather and run agentctl telegram setup")
 
+// ErrTooBig: the Bot API doesn't hand a bot files over MaxDownload.
+var ErrTooBig = errors.New("too big for the Bot API")
+
+// retryWait is the first pause between tries; it doubles each time.
+var retryWait = time.Second
+
+// retry runs f up to tries times with a growing pause, stopping early on
+// errors another try can't fix.
+func retry(ctx context.Context, tries int, f func() error) error {
+	wait := retryWait
+	var err error
+	for i := range tries {
+		if err = f(); err == nil || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrTooBig) || ctx.Err() != nil {
+			return err
+		}
+		if i == tries-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		wait *= 2
+	}
+	return err
+}
+
 // ErrConflict: another program polls this bot, or it has a webhook.
 var ErrConflict = errors.New("another program is reading this bot's messages (or it has a webhook): stop it, or make a separate bot")
 
@@ -122,16 +150,29 @@ func (a *API) GetUpdates(ctx context.Context, offset int64, timeout time.Duratio
 	return ups, err
 }
 
-// SendMessage sends plain text to a chat.
+// SendMessage sends plain text to a chat, trying 3 times.
 func (a *API) SendMessage(ctx context.Context, chat int64, text string) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	return a.call(ctx, "sendMessage", url.Values{"chat_id": {strconv.FormatInt(chat, 10)}, "text": {text}}, nil)
+	return retry(ctx, 3, func() error {
+		c, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return a.call(c, "sendMessage", url.Values{"chat_id": {strconv.FormatInt(chat, 10)}, "text": {text}}, nil)
+	})
 }
 
-// Download saves a file the bot received to dst (0600), at most MaxDownload
-// bytes. It returns the path the Bot API gave the file (for its extension).
+// Download saves a file the bot received to dst (0600), trying 3 times. It
+// returns the path the Bot API gave the file (for its extension), or
+// ErrTooBig for a file over MaxDownload.
 func (a *API) Download(ctx context.Context, fileID, dst string) (string, error) {
+	var got string
+	err := retry(ctx, 3, func() error {
+		var err error
+		got, err = a.download(ctx, fileID, dst)
+		return err
+	})
+	return got, err
+}
+
+func (a *API) download(ctx context.Context, fileID, dst string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var f struct {
@@ -139,11 +180,15 @@ func (a *API) Download(ctx context.Context, fileID, dst string) (string, error) 
 		Size int64  `json:"file_size"`
 	}
 	if err := a.call(ctx, "getFile", url.Values{"file_id": {fileID}}, &f); err != nil {
+		if strings.Contains(err.Error(), "too big") {
+			return "", ErrTooBig
+		}
 		return "", err
 	}
-	if f.Path == "" {
-		return "", errors.New("too big for a bot to download (over 20 MB)")
+	if f.Path == "" || f.Size > MaxDownload {
+		return "", ErrTooBig
 	}
+	_ = os.Remove(dst) // a try that failed halfway, or a run that crashed
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.base()+"/file/bot"+a.Token+"/"+f.Path, nil)
 	if err != nil {
 		return "", a.scrub(err)
@@ -165,7 +210,7 @@ func (a *API) Download(ctx context.Context, fileID, dst string) (string, error) 
 		err = cerr
 	}
 	if err == nil && n > MaxDownload {
-		err = errors.New("over 20 MB")
+		err = ErrTooBig
 	}
 	if err != nil {
 		os.Remove(dst)
@@ -194,7 +239,9 @@ type Message struct {
 	Video        *Document   `json:"video"`
 	Voice        *Document   `json:"voice"`
 	Audio        *Document   `json:"audio"`
-	Sticker      *struct{}   `json:"sticker"`
+	VideoNote    *Document   `json:"video_note"`
+	Animation    *Document   `json:"animation"`
+	Sticker      *Sticker    `json:"sticker"`
 	Origin       *Origin     `json:"forward_origin"`
 	// Before Bot API 7.0 (still sent by some servers).
 	ForwardFrom       *User  `json:"forward_from"`
@@ -238,15 +285,26 @@ type PhotoSize struct {
 	FileID   string `json:"file_id"`
 	Width    int    `json:"width"`
 	Height   int    `json:"height"`
-	FileSize int64  `json:"file_size"`
+	FileSize int64  `json:"file_size,omitempty"`
 }
 
-// Document is a file sent as a file (also used for video, voice and audio).
+// Document is a file sent as a file (also used for video, voice, audio,
+// video notes and animations).
 type Document struct {
 	FileID   string `json:"file_id"`
-	FileName string `json:"file_name"`
-	MimeType string `json:"mime_type"`
-	FileSize int64  `json:"file_size"`
+	FileName string `json:"file_name,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+}
+
+// Sticker is a sticker: a static .webp, an animated .tgs or a video .webm.
+type Sticker struct {
+	FileID     string     `json:"file_id"`
+	FileSize   int64      `json:"file_size,omitempty"`
+	IsAnimated bool       `json:"is_animated,omitempty"`
+	IsVideo    bool       `json:"is_video,omitempty"`
+	Emoji      string     `json:"emoji,omitempty"`
+	Thumbnail  *PhotoSize `json:"thumbnail,omitempty"`
 }
 
 // Origin says who wrote a forwarded message, and when.
