@@ -34,6 +34,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
@@ -72,8 +73,9 @@ const usage = `agentctl: runs and controls agents deck
                                  lists it first, asks before more than 5
   agentctl attach <agent>        show an agent in this terminal (detach: ctrl-q); one that isn't
                                  running is brought back first (it asks)
-  agentctl ls [--sort active]    list agents (ACTIVE: its latest message sent or received);
-                                 --sort active: most recently active first
+  agentctl ls [--sort active] [--on <machine>]
+                                 list agents (ACTIVE: its latest message sent or received);
+                                 --sort active: most recently active first; --on: one machine's
   agentctl rm <agent>            stop and forget an agent
   agentctl move <agent> <n>      put an agent at position n (1 = first tile; free spots ok)
   agentctl sessions [words] [-n N]
@@ -149,6 +151,11 @@ const usage = `agentctl: runs and controls agents deck
   agentctl install               start the service at login (launchd, systemd, Windows startup) and now
   agentctl uninstall             stop the service and no longer start it at login
   agentctl status [--json]       is the service running, does it start at login, where are its files
+  agentctl doctor                is this computer ready to run agents: shell, tmux, tools, service,
+                                 linger (Linux), network; says how to fix what's missing
+  agentctl machines [invite | join <address> <code> | remove <name> | leave]
+                                 the machines of a multi-node workspace: list them, make a one-time
+                                 join code, join another machine's workspace, take one out
   agentctl set term iterm|tmux|window
   agentctl set mouse tmux|native
                                  how focus shows an agent (default iterm); applies immediately
@@ -164,6 +171,16 @@ func main() {
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	versionQuiet = quietVersion[cmd]
+	if cmd != "hook" && cmd != "statusline" { // they never touch tmux, and run on every Claude event
+		name := loadConfig().TmuxSocket
+		if v := os.Getenv("AGENTSTERM_TMUX_SOCKET"); v != "" {
+			name = v // a test instance can set it without a config.json
+		}
+		if err := tmux.SetSocket(name); err != nil {
+			fmt.Fprintln(os.Stderr, "agentctl:", err)
+			os.Exit(1)
+		}
+	}
 	if err := platformSupports(cmd); err != nil {
 		fmt.Fprintln(os.Stderr, "agentctl:", err)
 		os.Exit(1)
@@ -241,6 +258,10 @@ func main() {
 		err = uninstall()
 	case "status":
 		err = status(args)
+	case "doctor":
+		err = doctor(args)
+	case "machines", "machine":
+		err = machinesCmd(args)
 	case "release-key":
 		err = releaseKeyCmd(args)
 	case "update":
@@ -639,7 +660,8 @@ func reopen() error {
 func list(args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	sortBy := fs.String("sort", "position", "order: position (as on the deck) or active (most recently active first)")
-	if err := fs.Parse(args); err != nil {
+	on := fs.String("on", "", "only the agents of this machine (multi-node)")
+	if err := fs.Parse(reorder(args, map[string]bool{"--sort": true, "-sort": true, "--on": true, "-on": true})); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
@@ -648,6 +670,18 @@ func list(args []string) error {
 	s, err := state()
 	if err != nil {
 		return err
+	}
+	if *on != "" {
+		kept := s.Agents[:0]
+		for _, a := range s.Agents {
+			if a.Machine == *on {
+				kept = append(kept, a)
+			}
+		}
+		if len(kept) == 0 {
+			return fmt.Errorf("no agents on %q: agentctl machines lists the machines", *on)
+		}
+		s.Agents = kept
 	}
 	switch *sortBy {
 	case "position", "slot":
@@ -664,12 +698,16 @@ func list(args []string) error {
 	// first, always in the same columns; what a waiting agent asks goes last
 	// so it never pushes the other columns around.
 	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 3, ' ', 0)
-	acctCol, waitCol := false, false
+	acctCol, waitCol, machineCol := false, false, false
 	for _, a := range s.Agents {
 		acctCol = acctCol || a.Account != nil
 		waitCol = waitCol || a.Waiting != nil
+		machineCol = machineCol || a.Machine != "" // set once another machine has joined
 	}
 	head := []string{"ID", "NAME", "STATUS", "ACTIVE", "CONTEXT", "COST", "FOLDER"}
+	if machineCol {
+		head = append(head, "MACHINE")
+	}
 	if acctCol {
 		head = append(head, "ACCOUNT")
 	}
@@ -684,7 +722,9 @@ func list(args []string) error {
 			ctx = fmt.Sprintf("%d%%", a.Context.Used*100/a.Context.Window)
 		}
 		st := string(a.Status)
-		if a.Lost {
+		if a.MachineTag != "" && !a.Reachable { // another machine's agent, its machine out of reach
+			st = node.AwayWord
+		} else if a.Lost {
 			st = "lost"
 			lost++
 		} else if !a.StatusSince.IsZero() && a.Status != model.Exited {
@@ -695,6 +735,9 @@ func list(args []string) error {
 			cost = "—" // Codex reports no prices
 		}
 		row := []string{a.ID, clip(listName(a.Title), 40), st, activeAgo(a.LastActive), ctx, cost, clip(a.Folder, 24)}
+		if machineCol {
+			row = append(row, a.Machine)
+		}
 		if acctCol {
 			acct := ""
 			if a.Account != nil {
@@ -1089,6 +1132,12 @@ type fileConfig struct {
 		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
 	} `json:"link"`
 	CPUGuard json.RawMessage `json:"cpuGuard"` // cpuguard.Setting, read with cpuguard.FromConfig
+	// MachineName is this machine's name in a multi-node workspace (lowercase
+	// letters, digits and dashes); the host name when empty.
+	MachineName string `json:"machineName,omitempty"`
+	// OnAway: when a machine is out of reach, "ask" (default: one machine.ask
+	// event after node.AskAfter) or "nothing".
+	OnAway string `json:"onAway,omitempty"`
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1347,6 +1396,22 @@ func serve(args []string) error {
 		srv.DeviceFirmware = link.FirmwareHandler(link.ServerDeck{S: srv}, hub) // images from the release catalog (wireAdmin)
 		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
 		deviceTLS = srv.TLSConfig(cert)
+		// Multi-node: other machines join this one's workspace over the
+		// same listener (/node/v1). Demo decks never join one.
+		if !*demoMode {
+			name := cfg.MachineName
+			if name == "" {
+				name = node.MachineName(host)
+			}
+			if err := devices.ValidName(name); err != nil {
+				return fmt.Errorf("config.json machineName %q: %w", name, err)
+			}
+			srv.Node = &node.Manager{Name: name, Version: version, CA: ca, Devices: srv.Devices, Audit: srv.Audit,
+				Path: paths.Machines(), DevicePort: port}
+			srv.Node.Dir = paths.Data()
+			srv.Node.OnAway = func() string { return loadConfig().OnAway }
+			srv.RunNode(machineCtx)
+		}
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))
 		}

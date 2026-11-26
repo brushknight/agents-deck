@@ -55,6 +55,7 @@ side to update (not for `hook`, `statusline`, `mcp` and completion, which other 
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
 | POST | `/v1/agents/{id}/pet/hatch` | – | `204`: hatches the agent's pet egg that is ready (`pet.ready`), once someone has seen it: the web does this when you open the agent or its pet. It gets its name, level and mystery hat, and every screen sees it. `409` when the egg isn't ready, has hatched already, or Agent pets is off; `404` unknown agent |
 | GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
+| GET | `/v1/machines` | – | `200` `{"machines": [{"name": "attic", "reachable": true, "rttMs": 38, "version": "0.6.0", "waiting": 0}]}`: the other machines of a multi-node workspace ([Machines](#machines-multi-node)); one that can't be reached has `"reachable": false` and `"awaySince"` (and `"oneWay": true` when it reaches this machine but this machine can't reach it), and screens call it "out of reach". `waiting` is how many calls wait in this machine's outbox for it. Empty without a workspace. `/v1/events` sends `event: machines` with the same body when one changes |
 | POST | `/v1/agents/{id}/handoff` | `{"account": "personal"}` | `200` `{"id": "k3f9a2"}` — continues a Claude session in another account, for when one runs out of usage: its transcript is copied into that account's folder and Claude resumes it there. An agent the deck started stops and comes back in the same slot (same `id`); a watched session keeps running in its own terminal and the copy starts as a new agent (its `id`) |
 | GET | `/v1/firmware/{board}/{version}` | – | `200` the app image (`application/octet-stream`, `ETag` and `X-Firmware-SHA256` its SHA-256); `206` for a `Range` request. **Network listener only, Deck Link boards only**: the board's certificate must belong to a board whose type runs that board's firmware (`403` otherwise), `503` while the service has no firmware catalog, `404` for a version it doesn't have. Every request is audited. A board fetches it after the deck's `FirmwareOffer` ([link/protocol.md](link/protocol.md#firmware-updates-over-wi-fi)); it is board management, not a command, so it has no Deck Link command of its own |
 
@@ -109,6 +110,10 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // message. An interrupted turn keeps the answer before it. Clients show it in place
                                   // of lastPrompt once the agent is idle or has exited
   "lastAnswerAt": "2026-10-08T00:48:10Z", // omitted until there is an answer: when it gave it
+  "machine": "studio",            // multi-node: the machine it runs on; omitted without other machines
+  "machineTag": "s",              // another machine's agent only: its id here is "k3f9a2@s" (see Machines)
+  "reachable": true,              // false: its machine is out of reach, this is its last known state (show it grey);
+                                  // always true for this machine's own agents
   "waiting": null,                // Prompt, only when status == "waiting"
   "error": null,                  // { "message": "api 529 overloaded" } only when status == "error"
   "tokens": { "input": 1200, "output": 84000, "cacheRead": 3100000, "cacheWrite": 210000 },
@@ -451,6 +456,99 @@ each board is connected right now (USB, Wi-Fi or Bluetooth);
 (`GET /v1/firmware/…`) are recorded too, with the byte range in `detail`; the web dashboard is
 `web`, the unix socket `local`, an MCP token `mcp:<name>` (and `"action": "start agent"` for MCP's
 `start_agent`).
+
+### Machines (multi-node)
+
+Machines of one workspace trust each other the way a phone trusts the Mac: each is a device of kind
+`node` in the other's `devices.json`, with a client certificate from the other's CA. Nothing new is
+opened: the same `:7341` listener, TLS 1.3, a device certificate on every request; the dashboards stay
+on `127.0.0.1`, and `/admin/v1` and MCP are never on the network.
+
+**Joining.** `agentctl machines invite` on a member prints a one-time code (5 minutes, single use),
+`ABCDE-FGHIJ-3D1F9A0C55E2B7A1`: a secret, then the first 16 hex digits of the member's CA fingerprint.
+`agentctl machines join <address>[:7341] <code>` on the new machine then:
+
+1. fetches the member's CA (`GET /node/v1/ca`, no certificate) and checks it against the code, and that
+   the listener's certificate is signed by it; a mismatch stops before the secret is sent;
+2. sends `POST /node/v1/join {"code", "name", "csr", "ca", "port"}` (no certificate, pinned to that
+   CA): the member signs the new machine's certificate request, adds it as a node and answers
+   `{"name", "cert", "csr"}`;
+3. signs the member's request with its own CA and adds the member as a node;
+4. hands it that certificate: `POST /node/v1/join/finish {"cert"}`, now with its own certificate.
+
+Each machine keeps the other in `machines.json` (0600): its address, its CA (the listener is checked
+against it, not against its host name) and the certificate and key this machine holds there. Machine
+names are the host name, or `machineName` in `config.json` (lowercase letters, digits and dashes).
+
+**Scope.** A machine that joins gets one scope on the other, `admin` for now (start, stop and move
+agents), and is checked against it on `/v1` like any device. It comes from one setting in the code
+(`devices.NodeJoinScope`).
+
+**Removing.** `agentctl machines remove <name>` forgets a machine and tells it (`POST
+/node/v1/leave`) when it can be reached, so it forgets this one too; `agentctl machines leave` does
+that for every machine. A removed machine's next request fails the TLS check. Joins and removals
+are in `audit.log` (`"action": "join"`, `"remove"`).
+
+| method | path | who | what |
+|---|---|---|---|
+| GET | `/node/v1/ca` | anyone | `{"name", "version", "ca"}`: the CA a join is checked against |
+| POST | `/node/v1/join` | anyone with a join code | see above; `401` for an expired, used or wrong code |
+| POST | `/node/v1/join/finish` | the machine that just joined | `{"cert"}`: this machine's certificate there |
+| GET | `/node/v1/hello` | nodes | `{"name", "version", "fingerprint"}` |
+| POST | `/node/v1/leave` | nodes | the caller forgot this machine; it is forgotten here too |
+| POST | `/node/v1/index` | nodes | `{"epoch", "from", "seq", "full", "agents", "removed"}`: the sender's agents (see "Every agent, every machine"); answers `{"epoch", "seq"}`, the seq this machine has |
+| POST | `/node/v1/act` | nodes | one call, now: `{"key", "by", "method", "path", "body"}` → `{"key", "code", "body", "at"}`; the same keys as the outbox, so a call runs once however it came |
+| POST | `/node/v1/outbox` | nodes | `{"calls": [{"key", "seq", "by", "at", "method", "path", "body"}]}`, oldest first: run in order, each as the caller's `/v1` request (its scope, the audit log with who asked); a key seen before gets its first answer again. Answers `{"answers": [{"key", "code", "body", "at"}]}` |
+
+**The link.** Every machine keeps a connection to every other one: it dials the other's listener
+(the address in `machines.json`, the other's CA pinned, its own node certificate), sends a heartbeat
+(`GET /node/v1/hello`) every 10 seconds and keeps the connection open. Each pair of machines has
+two connections, one per direction; each carries what its dialer sends. A machine is reachable while
+this machine's own heartbeat to it answered in the last 40 seconds (so this machine's calls for it can
+go); after that it is "out of reach" (the one word every screen uses for it). If it still calls this
+machine while this one can't reach it, `oneWay` is true: on a routed network, its port 7341 may be
+closed. Reconnecting waits 1 second, doubling up to 60. Nothing on
+a machine waits for the link: its own agents, screens and API go on as before.
+
+**The outbox.** A call for another machine waits on disk (`outbox/<machine>/` in the data folder, in
+order, a key each) until that machine is reachable, then goes out, oldest first, in batches of 50 over
+`POST /node/v1/outbox`. Calls survive a restart; a call can be taken back until it goes. The other
+machine runs each call once: it keeps the keys it ran (and their answers) for 7 days, so a call sent
+again after a dropped connection gets its first answer. Answers are kept for their caller for a day.
+
+**Every agent, every machine.** Each machine is the only writer of its own agents' records and sends
+them to the others over its own connection (`POST /node/v1/index`): the full set first, then what
+changed, each change numbered (`seq`), so a reconnect sends only what the other machine doesn't have
+yet (it answers with the `seq` it has; a machine that restarted starts over with the full set). The
+other machines keep a read-only copy (`remote-agents/<machine>.json`): transcripts, queues and screens
+are not copied. A record that claims an agent of the receiving machine is ignored. In `/v1/state`,
+Deck Link and `agentctl ls`, another machine's agents come after this machine's own, with `machine`,
+`machineTag` and an id of `<id>@<tag>` (the tag is the machine's first letter, longer when two
+machines share one); while their machine is out of reach they stay, `"reachable": false`, with their
+last known state. `agentctl ls` gets a MACHINE column once another machine has joined, and `--on
+<machine>`.
+
+**Acting on another machine's agent.** Every `/v1/agents/<id>@<tag>/…` call (answer, prompt and the
+queue, interrupt, stop, rename; reading its queue too) is checked against the caller's scope on this
+machine, then sent to the machine that runs the agent as the same call on its own id, over this
+machine's connection (`POST /node/v1/act`). There it runs with that machine's normal checks, against
+the scope this machine has there, and the answer comes back as if the agent were here: the same
+status codes and errors (`409` for an answer to a question that has moved on). When that machine is
+out of reach, the call waits in this machine's outbox and the caller gets `202 {"waiting": "<machine>",
+"position": 2, "key": "…"}`; it goes out in order when the machine is back, and its answer is kept
+under its key (`agentctl machines waiting` lists waiting calls and recent answers; `agentctl machines
+cancel <key>` takes one back before it goes). Reading (`GET`) never waits: `503` while the machine is
+out of reach. Both machines' audit logs record the call and who asked (`<caller>@<machine>`).
+
+**State and events.** `GET /v1/machines` says, per machine, whether it is `reachable` (with `rttMs`),
+since when it isn't (`awaySince`), its version and how many calls wait for it; `/v1/events` sends
+`event: machines` with the same body when that changes. With `"onAway": "ask"` (the default in
+`config.json`; `"nothing"` turns it off), it also sends `event: machine.ask` with `{"machine",
+"since"}` once per absence, 10 minutes after a machine went out of reach.
+
+Every other device (a board, a phone) gets `403` on `/node/v1`; none of it is on `127.0.0.1:7340` or
+the unix socket. On a Linux machine with a firewall, port 7341 must be open for other machines to join
+or reach it (on NixOS, `networking.firewall.allowedTCPPorts = [ 7341 ];`).
 
 ## Management API (`/admin/v1`)
 

@@ -23,6 +23,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/node"
 	"github.com/brushknight/agents-deck/backend/internal/pets"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/queue"
@@ -137,6 +138,10 @@ type Server struct {
 	// Tokens are the MCP access tokens (mcp.go): POST /mcp on the loopback
 	// listener and POST /local/mcp on the unix socket need one. nil: MCP off.
 	Tokens *devices.Tokens
+	// Node is this machine's side of a multi-node workspace (internal/node):
+	// /node/v1 on the device listener, /local/machines on the unix socket.
+	// nil: no workspace (no network listener).
+	Node *node.Manager
 	// Queue holds prompts sent with "mode": "queue" until their agent is
 	// idle (queue.go; RunQueue types them in). nil: queueing is off.
 	Queue *queue.Queue
@@ -188,11 +193,11 @@ type Server struct {
 	apiOnce sync.Once
 	held    stash    // the magic trick: what the receiver holds (stash.go)
 	queue   delivery // typing queued prompts in (queue.go)
-	apiMux  *http.ServeMux
+	apiMux  http.Handler
 }
 
 // sharedAPI is one API mux for in-process callers (Dispatch).
-func (s *Server) sharedAPI() *http.ServeMux {
+func (s *Server) sharedAPI() http.Handler {
 	s.apiOnce.Do(func() { s.apiMux = s.api() })
 	return s.apiMux
 }
@@ -201,12 +206,19 @@ const sessionCookie = "agentsterm_session"
 
 // ---- shared API --------------------------------------------------------
 
-func (s *Server) api() *http.ServeMux {
+func (s *Server) api() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.View(s.Store.Snapshot(), callerOf(r)))
 	})
 	mux.HandleFunc("GET /v1/events", s.events)
+	mux.HandleFunc("GET /v1/machines", func(w http.ResponseWriter, r *http.Request) {
+		ms := []node.State{}
+		if s.Node != nil {
+			ms = s.Node.States()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"machines": ms})
+	})
 	mux.HandleFunc("POST /v1/stash", s.postStash)
 	mux.HandleFunc("POST /v1/magic/view", s.postMagicView)
 	mux.HandleFunc("POST /v1/agents/{id}/answer", func(w http.ResponseWriter, r *http.Request) {
@@ -448,7 +460,18 @@ func (s *Server) api() *http.ServeMux {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 	})
-	return mux
+	// Another machine's agent (<id>@<tag>, multi-node): its calls go to that
+	// machine (nodes.go, forward). The caller's own scope was checked already.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/agents/") {
+			id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/v1/agents/"), "/")
+			if s.Node != nil && strings.Contains(id, "@") {
+				s.forward(w, r, id)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // AccountInfo is one row of GET /v1/accounts.
@@ -531,6 +554,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no")
 	ch, unsub := s.Store.Subscribe()
 	defer unsub()
+	var nodes <-chan node.Event // multi-node: "machines" when one's state changed, "machine.ask"
+	if s.Node != nil {
+		c, cancel := s.Node.Subscribe()
+		defer cancel()
+		nodes = c
+	}
 	rc := http.NewResponseController(w)
 	send := func() bool {
 		b, _ := json.Marshal(s.View(s.Store.Snapshot(), callerOf(r)))
@@ -559,6 +588,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if !send() {
 				return
 			}
+		case e := <-nodes:
+			var b []byte
+			if e.Kind == "machines" {
+				b, _ = json.Marshal(map[string]any{"machines": s.Node.States()})
+			} else {
+				b, _ = json.Marshal(e)
+			}
+			_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Kind, b); err != nil {
+				return
+			}
+			fl.Flush()
 		case <-ping.C:
 			_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
@@ -695,6 +736,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		mux.Handle("/admin/v1/", s.audited("local", s.Admin))
 	}
 	s.localDevices(mux)
+	s.localMachines(mux)
 	if s.LinkUpgrade != nil {
 		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
 	}
