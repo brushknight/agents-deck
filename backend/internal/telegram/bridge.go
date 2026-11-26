@@ -154,25 +154,84 @@ type Status struct {
 	Pending int    `json:"pending,omitempty"`
 	Held    int    `json:"held,omitempty"`
 	Waiting int    `json:"waiting,omitempty"`
+	Ignored int    `json:"ignored,omitempty"` // messages from accounts that aren't paired, since the service started
 	Error   string `json:"error,omitempty"`
+	// HeldSince: when the oldest held batch came in; zero with none held.
+	HeldSince time.Time `json:"heldSince,omitzero"`
+	// HeldMessages: how many messages the held batches hold.
+	HeldMessages int `json:"heldMessages,omitempty"`
 }
 
 // Status reports the bridge.
 func (b *Bridge) Status() Status {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s := Status{Config: b.cfg, Error: b.lastErr}
+	s := Status{Config: b.cfg, Error: b.lastErr, Ignored: b.ignored}
 	if b.open != nil {
 		s.Pending = len(b.open.Messages)
 	}
 	for _, bt := range b.queue {
 		if bt.State == stateHeld {
 			s.Held++
+			s.HeldMessages += len(bt.Messages)
+			if s.HeldSince.IsZero() || bt.Opened.Before(s.HeldSince) {
+				s.HeldSince = bt.Opened
+			}
 		} else {
 			s.Waiting++
 		}
 	}
 	return s
+}
+
+// Recent is the newest delivered batches, newest first.
+func (b *Bridge) Recent(n int) []Delivery { return recentDeliveries(b.Inbox, n) }
+
+// DropHeld deletes every batch waiting in the queue (held, or behind a held
+// one) from this computer: its folder, text and files. The messages stay in
+// the Telegram chat. A one-line tombstone ("dropped 3 messages") takes their
+// place in the recent deliveries. It returns how many batches and messages
+// went.
+func (b *Bridge) DropHeld() (int, int, error) {
+	b.work.Lock()
+	defer b.work.Unlock()
+	b.mu.Lock()
+	q := b.queue
+	b.queue = nil
+	b.mu.Unlock()
+	batches, msgs := 0, 0
+	var firstErr error
+	for i, bt := range q {
+		if err := b.removeBatch(bt); err != nil {
+			firstErr = err
+			b.mu.Lock()
+			b.queue = append(q[i:], b.queue...) // keep what couldn't be deleted
+			b.mu.Unlock()
+			break
+		}
+		batches++
+		msgs += len(bt.Messages)
+	}
+	if batches > 0 {
+		now := b.now()
+		tomb := &Batch{ID: now.Format("20060102-150405") + "-dropped", State: stateDropped, Opened: now, Delivered: now,
+			Dropped: msgs, dir: filepath.Join(b.Inbox, now.Format("2006-01-02"), now.Format("150405")+"-dropped")}
+		if err := tomb.save(); err != nil {
+			b.logf("dropped: writing the note: %v", err)
+		}
+		b.logf("dropped %s (%s), deleted from this computer", plural(batches, "batch"), plural(msgs, "message"))
+	}
+	return batches, msgs, firstErr
+}
+
+// removeBatch deletes one batch's folder; only ever a folder inside this
+// bridge's inbox.
+func (b *Bridge) removeBatch(bt *Batch) error {
+	inbox, dir := filepath.Clean(b.Inbox), filepath.Clean(bt.dir)
+	if inbox == "." || inbox == "" || !strings.HasPrefix(dir, inbox+string(filepath.Separator)) {
+		return fmt.Errorf("batch %s is not in the inbox", bt.ID)
+	}
+	return os.RemoveAll(dir)
 }
 
 // Config is the bridge's current config.
@@ -551,6 +610,7 @@ func (b *Bridge) process() int {
 			return sent
 		}
 		bt.State, bt.Agent, bt.Error, bt.Delivered = stateDelivered, cfg.Agent, "", b.now()
+		bt.Queued, bt.Position, bt.WasHeld = res.Queued, res.Position, wasHeld
 		if err := bt.save(); err != nil {
 			b.logf("batch %s: %v", bt.ID, err)
 		}
@@ -575,9 +635,12 @@ type built struct {
 	text     string
 	short    string // "3 messages, 2 images, 1 file"
 	problems string // "; too big for the Bot API (31 MB): clip.mov, open it in Telegram"
+	list     []string
 }
 
-func (b *Bridge) summary(bt *Batch) built {
+func (b *Bridge) summary(bt *Batch) built { return summarize(bt) }
+
+func summarize(bt *Batch) built {
 	var images, files int
 	var problems []string
 	for _, f := range bt.Files {
@@ -599,7 +662,7 @@ func (b *Bridge) summary(bt *Batch) built {
 	if files > 0 {
 		s += ", " + plural(files, "file")
 	}
-	out := built{short: s}
+	out := built{short: s, list: problems}
 	if len(problems) > 0 {
 		out.problems = "; " + strings.Join(problems, "; ")
 	}

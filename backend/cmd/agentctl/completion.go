@@ -170,7 +170,8 @@ _agentctl() {
     telegram)
       if (( CURRENT == 3 )); then
         local -a sub; sub=('status:the bridges and where messages go' 'setup:store a bot token and pair'
-          'link:the agent a bridge sends to' 'pair:pair your Telegram account again'
+          'link:the agent a bridge sends to' 'unlink:hold messages until a link' 'drop:drop held messages'
+          'pair:pair your Telegram account again'
           'user:pair by Telegram user id' 'off:forget a bridge'"'"'s bot token')
         _describe -t telegram 'telegram command' sub
       elif (( CURRENT == 4 )) && [[ ${words[3]} == link ]]; then _agentctl_agents

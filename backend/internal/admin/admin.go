@@ -143,6 +143,11 @@ type Admin struct {
 	NetworkOn bool
 	// Open shows a folder in the file manager (proc.Open).
 	Open func(path string) error
+
+	// Telegram serves /admin/v1/telegram, the Telegram bridges (the same
+	// handler as /local/telegram on the unix socket; telegram.Service). nil:
+	// no bridges (a demo).
+	Telegram http.Handler
 	// CLIDir is where "install the agentctl command" puts its link
 	// (~/.local/bin); Exe is the agentctl it links to.
 	CLIDir, Exe string
@@ -179,6 +184,10 @@ func (a *Admin) Handler() http.Handler {
 	a.jobs.init()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/v1/system", a.system)
+	if a.Telegram != nil {
+		mux.HandleFunc("GET /admin/v1/telegram", a.Telegram.ServeHTTP)
+		mux.HandleFunc("POST /admin/v1/telegram", a.Telegram.ServeHTTP)
+	}
 	mux.HandleFunc("GET /admin/v1/settings", a.getSettings)
 	mux.HandleFunc("PATCH /admin/v1/settings", a.patchSettings)
 	mux.HandleFunc("POST /admin/v1/restart", a.restart)
