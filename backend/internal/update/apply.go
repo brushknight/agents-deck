@@ -28,7 +28,7 @@ const linuxRestart = `systemctl --user try-restart --no-block agents-deck.servic
 // in the release's zip, after checking the new one's signature: it must
 // verify, and when the running app is signed with a Developer ID the new one
 // must be signed by the same team.
-func (u *Updater) applyApp(ctx context.Context, zip string) error {
+func (u *Updater) applyApp(ctx context.Context, rel *Release, zip string) error {
 	bundle := appBundleOf(u.Exe)
 	if bundle == "" {
 		return fmt.Errorf("%s isn't inside an app bundle", u.Exe)
@@ -71,6 +71,9 @@ func (u *Updater) applyApp(ctx context.Context, zip string) error {
 	}
 	name := appExecutable(bundle)
 	if err := swapDir(bundle, newApp, stage); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return &AppManagementError{App: bundle, Page: u.Releases.PageURL(rel.Version), Err: err}
+		}
 		return err
 	}
 	return u.Sys.Detach("/bin/sh", "-c", appRestart, "sh", filepath.Join(bundle, "Contents", "MacOS", filepath.Base(u.Exe)), name, bundle)
@@ -80,16 +83,63 @@ func (u *Updater) applyApp(ctx context.Context, zip string) error {
 // volume, removed by the caller); if fresh can't move in, cur goes back.
 func swapDir(cur, fresh, trash string) error {
 	old := filepath.Join(trash, "old")
-	if err := os.Rename(cur, old); err != nil {
+	if err := rename(cur, old); err != nil {
 		return fmt.Errorf("moving %s aside: %w", cur, err)
 	}
-	if err := os.Rename(fresh, cur); err != nil {
-		if rerr := os.Rename(old, cur); rerr != nil {
+	if err := rename(fresh, cur); err != nil {
+		if rerr := rename(old, cur); rerr != nil {
 			return fmt.Errorf("putting the new version in place: %v; and putting the old one back: %v (it is in %s)", err, rerr, old)
 		}
 		return fmt.Errorf("putting the new version in place: %w", err)
 	}
 	return nil
+}
+
+// rename is os.Rename; tests make it fail the way macOS does.
+var rename = os.Rename
+
+// AppManagementError: macOS didn't let agents deck replace its own app.
+// Since macOS 13 (App Management, under Privacy & Security), a program may
+// change another app's bundle only with that permission, or when the same
+// developer signed both. The old app is still in place and works.
+type AppManagementError struct {
+	App  string // the bundle it tried to replace
+	Page string // where to download the release by hand
+	Err  error
+}
+
+func (e *AppManagementError) Error() string {
+	msg := "macOS didn't let agents deck replace " + e.App + ", so nothing changed and this version keeps running. " +
+		"To update from here, turn agents deck on in System Settings › Privacy & Security › App Management and try again"
+	if e.Page != "" {
+		msg += "; or download the new version from " + e.Page + " and drag it into Applications"
+	}
+	return msg + "."
+}
+
+func (e *AppManagementError) Unwrap() error { return e.Err }
+
+// installedMacApp: the agents deck app in /Applications or ~/Applications, or "".
+func installedMacApp() string {
+	dirs := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, "Applications"))
+	}
+	for _, d := range dirs {
+		if app := filepath.Join(d, "agents deck.app"); isDir(filepath.Join(app, "Contents", "MacOS")) {
+			return app
+		}
+	}
+	return ""
+}
+
+// besideAppMessage: a separate agentctl on a Mac that also has the app. Only
+// the app updates: replacing this copy alone would leave the command and the
+// app on different versions, and the service would move to this copy.
+func (u *Updater) besideAppMessage() string {
+	return "This agentctl is a separate copy (" + u.Exe + "); the agents deck app at " + u.MacApp +
+		" has its own and updates itself. Update the app in its Settings › Updates (or run agentctl update while the service runs). " +
+		"To keep the command on the app's version, delete this copy and turn on Settings › General › The agentctl command."
 }
 
 var bundleExeRe = regexp.MustCompile(`<key>CFBundleExecutable</key>\s*<string>([^<]+)</string>`)
@@ -144,13 +194,23 @@ func (u *Updater) applyArchive(ctx context.Context, rel *Release, files map[stri
 	}
 
 	// The binary first: a rename over the running file is atomic, and the old
-	// one keeps running until the restart.
-	if err := os.Rename(fresh, u.Exe); err != nil {
+	// one keeps running until the restart. A hard link keeps the old one, so
+	// a tray app that can't be swapped puts agentctl back as it was: the two
+	// never end up on different versions.
+	old := filepath.Join(stage, "old")
+	kept := newApp != "" && os.Link(u.Exe, old) == nil
+	if err := rename(fresh, u.Exe); err != nil {
 		return fmt.Errorf("replacing %s: %w", u.Exe, err)
 	}
 	if newApp != "" {
 		if err := u.swapAppDir(newApp); err != nil {
-			return fmt.Errorf("agentctl is updated, the tray app isn't: %w", err)
+			if !kept {
+				return fmt.Errorf("agentctl is updated, the tray app isn't: %w", err)
+			}
+			if rerr := rename(old, u.Exe); rerr != nil {
+				return fmt.Errorf("the tray app couldn't be updated (%v), and the old agentctl couldn't be put back: %w", err, rerr)
+			}
+			return fmt.Errorf("the tray app couldn't be updated, so nothing was changed: %w", err)
 		}
 	}
 	if u.GOOS == "darwin" {
@@ -168,7 +228,7 @@ func (u *Updater) swapAppDir(newApp string) error {
 	}
 	defer os.RemoveAll(trash)
 	near := filepath.Join(trash, "new")
-	if err := os.Rename(newApp, near); err != nil {
+	if err := rename(newApp, near); err != nil {
 		var le *os.LinkError
 		if !errors.As(err, &le) {
 			return err

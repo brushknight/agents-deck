@@ -261,6 +261,14 @@ doesn't update itself: Settings, Updates says when a new version is out, and you
 From a clone, `./install.sh --source` builds the same from the code (Go 1.24+; Flutter 3.44+ for
 `--app`). A build from source never updates itself.
 
+On a Mac that also has the app, the app updates itself and `agentctl` with it, and a separate
+`agentctl` in `~/.local/bin` doesn't: updating it alone would leave the command and the app on
+different versions. `agentctl update` there hands the update to the service, which runs the app's
+copy; Settings, General, **The agentctl command** links `~/.local/bin/agentctl` to the app's, so the
+two stay the same (delete the separate copy first). If macOS asks to allow agents deck to change
+apps, or the update says macOS didn't let it replace the app, turn agents deck on in System Settings,
+Privacy & Security, App Management, and try again; the old version keeps running meanwhile.
+
 To see what's installed and whether it runs:
 
 ```bash

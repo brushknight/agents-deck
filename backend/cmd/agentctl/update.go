@@ -143,7 +143,7 @@ func updateCmd(args []string) error {
 		return err
 	}
 	printUpdate(st)
-	if check || (st.State != update.StateAvailable && st.State != update.StateReady) || u.Kind == update.KindDeb {
+	if check || (st.State != update.StateAvailable && st.State != update.StateReady) || u.Kind == update.KindDeb || u.MacApp != "" {
 		return nil
 	}
 	if st.State == update.StateAvailable {

@@ -41,12 +41,16 @@ const maxNotes = 256 << 10
 // Updater checks for, downloads and installs new releases of agents deck.
 // It's safe for concurrent use.
 type Updater struct {
-	Current  string // this build's version
-	Kind     string // InstallKind
-	GOOS     string
-	GOARCH   string
-	Exe      string // the running agentctl, symlinks resolved
-	AppDir   string // Linux archive installs: the tray app's folder, "" when there is none
+	Current string // this build's version
+	Kind    string // InstallKind
+	GOOS    string
+	GOARCH  string
+	Exe     string // the running agentctl, symlinks resolved
+	AppDir  string // Linux archive installs: the tray app's folder, "" when there is none
+	// MacApp, for a separate agentctl on a Mac (install.sh): the agents deck
+	// app installed there, "" when there is none. The app carries its own
+	// agentctl and updates itself; this copy then doesn't (see Check).
+	MacApp   string
 	Releases *Releases
 	Sys      System
 
@@ -66,6 +70,9 @@ func New(current string) *Updater {
 		Current: current, Kind: detectKind(runtime.GOOS, exe, current),
 		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Exe: exe,
 		Releases: NewReleases(), Sys: HostSystem{},
+	}
+	if runtime.GOOS == "darwin" && u.Kind == KindArchive {
+		u.MacApp = installedMacApp()
 	}
 	if runtime.GOOS == "linux" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -136,6 +143,9 @@ func (u *Updater) Check(ctx context.Context) (State, error) {
 		s.State = StateAvailable
 		s.Message = "This agentctl.exe was unzipped by hand, so it doesn't update itself. " +
 			"Download the new installer or .zip from " + s.Page + "."
+	case u.MacApp != "":
+		s.State = StateAvailable
+		s.Message = u.besideAppMessage()
 	default:
 		s.State = StateAvailable
 		if names, err := u.assets(rel); err != nil {
@@ -242,9 +252,12 @@ func (u *Updater) apply(ctx context.Context, rel *Release) error {
 		}
 		files[n] = p
 	}
+	if u.MacApp != "" {
+		return fmt.Errorf("%w: %s", ErrNotSelfUpdating, u.besideAppMessage())
+	}
 	switch u.Kind {
 	case KindApp:
-		return u.applyApp(ctx, files[macApp(rel.Version, u.GOARCH)])
+		return u.applyApp(ctx, rel, files[macApp(rel.Version, u.GOARCH)])
 	case KindArchive:
 		return u.applyArchive(ctx, rel, files)
 	case KindWindows:
