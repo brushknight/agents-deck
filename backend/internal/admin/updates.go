@@ -33,11 +33,11 @@ func (a *Admin) refreshCatalog() {
 	}
 	a.catBusy = true
 	a.catMu.Unlock()
-	go func() {
+	a.background(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		_, _ = a.loadCatalog(ctx)
-	}()
+	})
 }
 
 // loadCatalog reads the latest release's catalog now.
@@ -196,13 +196,13 @@ func (a *Admin) updateCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "couldn't reach the releases: "+err.Error())
 		return
 	}
-	go func() { // fetch it now, so Install doesn't wait
+	a.background(func() { // fetch it now, so Install doesn't wait
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		if err := a.check(ctx, false); err != nil {
 			log.Printf("update: %v", err)
 		}
-	}()
+	})
 	writeJSON(w, http.StatusOK, a.updateView())
 }
 

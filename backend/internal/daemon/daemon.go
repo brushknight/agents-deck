@@ -20,6 +20,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/limits"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/proc"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/term"
@@ -27,6 +28,9 @@ import (
 )
 
 type Config struct {
+	// TmuxSocket names the deck's tmux server (tmux -L), "agentsterm" when
+	// empty. A second deck on one computer (a test instance) sets its own.
+	TmuxSocket string `json:"tmuxSocket,omitempty"`
 	// ClaudeArgs are appended to every claude launch, e.g. ["--model", "opus"].
 	ClaudeArgs []string `json:"claudeArgs"`
 	// Codex: mirror Codex app/CLI threads onto the board (default on).
@@ -426,16 +430,13 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 		inner = []string{d.Agentctl, "sim-agent", "--dir", abs, "--speed", fmt.Sprint(speed),
 			"--patience", fmt.Sprint(patience), "--transcript", e.Transcript}
 	case "shell":
-		inner = []string{os.Getenv("SHELL")}
-		if inner[0] == "" {
-			inner[0] = "/bin/zsh"
-		}
+		inner = []string{proc.LoginShell()}
 		e.A.Status = model.Idle
 	default:
 		return "", fmt.Errorf("unknown tool %q", tool)
 	}
 	// A login shell gives the agent the user's normal PATH and environment.
-	argv := []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}
+	argv := loginArgv(inner)
 	if tool == "claude" {
 		argv = d.claudeArgv(explicitTitle(*e), accountOf(*e), []string{"--session-id", e.SessionID})
 	}
