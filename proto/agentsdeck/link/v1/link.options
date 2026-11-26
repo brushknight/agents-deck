@@ -24,6 +24,8 @@ agentsdeck.link.v1.Agent.model_label     max_size:24
 agentsdeck.link.v1.Agent.effort          max_size:12
 agentsdeck.link.v1.Agent.last_prompt     max_size:160
 agentsdeck.link.v1.Agent.last_answer     max_size:160
+agentsdeck.link.v1.Agent.machine         max_size:33
+agentsdeck.link.v1.Agent.machine_tag     max_size:9
 agentsdeck.link.v1.Agent.error           max_size:128
 agentsdeck.link.v1.Agent.subagents       max_count:6
 agentsdeck.link.v1.Agent.app             max_size:12
@@ -89,6 +91,9 @@ agentsdeck.link.v1.LiveSession.folder    max_size:48
 agentsdeck.link.v1.AccountList.accounts  max_count:4
 agentsdeck.link.v1.AccountInfo.name      max_size:16
 agentsdeck.link.v1.AccountInfo.color     max_size:12
+agentsdeck.link.v1.MachineList.machines  max_count:4
+agentsdeck.link.v1.MachineInfo.name      max_size:33
+agentsdeck.link.v1.MachineInfo.version   max_size:24
 agentsdeck.link.v1.QueueList.prompts     max_count:4
 agentsdeck.link.v1.QueuedPrompt.id       max_size:8
 agentsdeck.link.v1.QueuedPrompt.text     max_size:64
