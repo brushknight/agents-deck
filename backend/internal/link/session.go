@@ -756,6 +756,7 @@ var Routes = map[string]string{
 	"interrupt":      "POST /v1/agents/{id}/interrupt",
 	"send_prompt":    "POST /v1/agents/{id}/prompt",
 	"queue":          "GET /v1/agents/{id}/queue | POST /v1/agents/{id}/queue/{qid}/cancel",
+	"list_machines":  "GET /v1/machines",
 	"dismiss":        "POST /v1/agents/{id}/dismiss",
 	"resume":         "POST /v1/agents/{id}/resume",
 	"move":           "POST /v1/agents/{id}/move",
@@ -822,6 +823,24 @@ func (s *Session) command(f *linkpb.Frame) error {
 					Folder: x.Folder, StartedMs: ms(x.Started), OnBoard: x.OnBoard, Background: x.Background})
 			}
 			return &linkpb.Frame{Body: &linkpb.Frame_LiveSessions{LiveSessions: l}}
+		})
+	case *linkpb.Frame_ListMachines:
+		return s.typed(f.Seq, "/v1/machines", func(raw []byte) *linkpb.Frame {
+			var r struct {
+				Machines []struct {
+					Name, Version     string
+					Reachable, OneWay bool
+					AwaySince         time.Time
+					RttMs, Waiting    int
+				}
+			}
+			_ = json.Unmarshal(raw, &r)
+			l := &linkpb.MachineList{}
+			for _, x := range r.Machines {
+				l.Machines = append(l.Machines, &linkpb.MachineInfo{Name: x.Name, Reachable: x.Reachable,
+					AwaySinceMs: uint64(max(ms(x.AwaySince), 0)), RttMs: uint32(x.RttMs), Version: x.Version, Waiting: uint32(x.Waiting), OneWay: x.OneWay})
+			}
+			return &linkpb.Frame{Body: &linkpb.Frame_MachineList{MachineList: l}}
 		})
 	case *linkpb.Frame_ListAccounts:
 		return s.typed(f.Seq, "/v1/accounts", func(raw []byte) *linkpb.Frame {

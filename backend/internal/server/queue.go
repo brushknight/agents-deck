@@ -213,7 +213,7 @@ type Holder interface {
 	Holding() (bool, string)
 }
 
-// holding: the CPU guard holds queued prompts and start_agent now.
+// holding: the CPU guard holds queued prompts now.
 func (s *Server) holding() (bool, string) {
 	if s.Guard == nil {
 		return false, ""

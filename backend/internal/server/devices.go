@@ -46,6 +46,10 @@ func (s *Server) DeviceHandler() http.Handler {
 	api := s.api()
 	return secureHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d, ok := s.deviceOf(r)
+		if strings.HasPrefix(r.URL.Path, "/node/v1/") {
+			s.serveNode(w, r, d, ok)
+			return
+		}
 		if !ok {
 			if r.Method == http.MethodPost && r.URL.Path == "/v1/pair" {
 				s.pair(w, r)

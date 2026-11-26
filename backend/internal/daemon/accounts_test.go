@@ -38,8 +38,12 @@ func TestHandoff(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".zprofile"), []byte("export PATH="+bin+":$PATH\n"), 0o600); err != nil {
-		t.Fatal(err)
+	// Agents start in the login shell (proc.LoginShell: zsh on a Mac, bash
+	// on the CI runner, sh elsewhere): each reads its own profile.
+	for _, f := range []string{".zprofile", ".bash_profile", ".profile"} {
+		if err := os.WriteFile(filepath.Join(home, f), []byte("export PATH="+bin+":$PATH\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := accounts.Save([]accounts.Account{{Name: "personal", Dir: "~/.claude", Color: "sky"}, {Name: "work", Dir: "~/.claude-work", Color: "yellow"}}, "work"); err != nil {
 		t.Fatal(err)

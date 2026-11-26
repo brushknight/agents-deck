@@ -34,7 +34,7 @@ type Setting struct {
 	On    bool   `json:"on"`    // watch the CPU
 	Limit int    `json:"limit"` // percent of the whole computer (100: every core), 60 to 95
 	For   string `json:"for"`   // how long over the limit: "1m", "2m" or "5m"
-	Hold  bool   `json:"hold"`  // while busy, hold queued prompts and start_agent over MCP
+	Hold  bool   `json:"hold"`  // while busy, hold queued prompts (starting agents is never held)
 	Slow  bool   `json:"slow"`  // while busy, run the heaviest agent in background mode (macOS; Slower)
 	// Schedule: other limits for parts of the week; Limit for the rest.
 	Schedule Schedule `json:"schedule"`
@@ -138,7 +138,7 @@ type State struct {
 	SetAt     *time.Time `json:"setAt,omitempty"` // "override": when
 	Scheduled bool       `json:"scheduled"`       // the schedule is on
 	For       string     `json:"for"`
-	Hold      bool       `json:"hold"`           // queued prompts and start_agent are held now
+	Hold      bool       `json:"hold"`           // queued prompts are held now
 	Held      int        `json:"held"`           // queued prompts waiting because of the guard
 	Released  bool       `json:"released"`       // Send them now: nothing is held until the CPU is calm
 	Peak      *Peak      `json:"peak,omitempty"` // the busiest minute today
@@ -363,7 +363,7 @@ func (g *Guard) Step() {
 }
 
 // Holding says whether work that can wait is held now, and why, in words
-// for whoever asked (start_agent over MCP).
+// for whoever asked.
 func (g *Guard) Holding() (bool, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

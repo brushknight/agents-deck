@@ -68,8 +68,10 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 			}
 		}
 		p.OutUntilMs = ms(a.OutUntil)
+		p.MachineTag, p.Reachable = a.MachineTag, a.Reachable
 	}
 	if has(linkpb.FieldGroup_FIELDS_CARD) {
+		p.Machine = a.Machine
 		p.AiTitle, p.Cwd, p.Branch, p.ProjectFolder = a.AITitle, a.Cwd, a.Branch, a.ProjectFolder
 		p.Model, p.ModelLabel, p.Effort = a.Model, a.ModelLabel, a.Effort
 		if a.Activity != nil {

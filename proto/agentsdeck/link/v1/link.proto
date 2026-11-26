@@ -60,6 +60,7 @@ message Frame {
     RestoreResult restore_result = 53;  // reply to Restore
     AccountList account_list = 54;  // reply to ListAccounts
     QueueList queue_list = 55;     // reply to Queue (listing)
+    MachineList machine_list = 56;  // reply to ListMachines
 
     // Pairing and Wi-Fi (docs/link/protocol.md, "Pairing and Wi-Fi"). Not
     // web API commands: they set up the board itself.
@@ -81,6 +82,7 @@ message Frame {
     // More commands, board → deck, once fields 30..49 were taken: one per
     // web API endpoint, like those.
     HatchPet hatch_pet = 70;      // POST /v1/agents/{id}/pet/hatch
+    ListMachines list_machines = 71;  // GET /v1/machines
   }
 }
 
@@ -248,6 +250,12 @@ message Agent {
   int64 out_until_ms = 44;     // its account (or its model) is out of usage until then; 0 = not out
   string last_answer = 45;       // its reply that ended its latest finished turn, as plain text
   int64 last_answer_at_ms = 46;  // when it gave that reply; 0 = no answer yet
+  // Multi-node: the machine it runs on (card), its tag (the id is <id>@<tag>)
+  // and whether that machine can be reached now (tile): false = show it grey
+  // with its last known state. On a deck without other machines: "", "", true.
+  string machine = 47;
+  string machine_tag = 48;
+  bool reachable = 49;
 }
 
 message Activity {
@@ -367,6 +375,10 @@ message Queue {
 message Dismiss { string agent_id = 1; }
 message Resume { string agent_id = 1; }
 message HatchPet { string agent_id = 1; }  // hatch its pet's egg once it is ready (Pet.ready); Result 409 if it isn't
+
+// The other machines of a multi-node workspace, and whether the deck can
+// reach them now (the reply is a MachineList).
+message ListMachines {}
 
 message Move {
   string agent_id = 1;
@@ -535,6 +547,23 @@ message AccountInfo {
 
 // The prompts queued for an agent, next first: the first few (total says how
 // many there are).
+// The other machines of the workspace (multi-node), by name: the first few.
+// A screen says the away word ("out of reach") for one that isn't
+// reachable; the word itself isn't sent.
+message MachineList {
+  repeated MachineInfo machines = 1;
+}
+
+message MachineInfo {
+  string name = 1;
+  bool reachable = 2;
+  uint64 away_since_ms = 3;  // since when it can't be reached; 0 while reachable
+  uint32 rtt_ms = 4;         // the last heartbeat's round trip, while reachable
+  string version = 5;
+  uint32 waiting = 6;        // calls waiting in this deck's outbox for it
+  bool one_way = 7;          // it reaches this deck, this deck can't reach it (port 7341?)
+}
+
 message QueueList {
   repeated QueuedPrompt prompts = 1;
   uint32 total = 2;
