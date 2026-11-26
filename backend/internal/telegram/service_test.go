@@ -360,3 +360,23 @@ func TestServiceRetryRemove(t *testing.T) {
 		t.Errorf("retry with no bridge: %d", code)
 	}
 }
+
+// Offline: the status says since when, and when the next try is.
+func TestServiceErrorSinceRetryAt(t *testing.T) {
+	f := newFake(t)
+	h := newService(t, f)
+	if code, out := h.do(t, "POST", `{"op":"setup","token":"`+testToken+`"}`); code != 200 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	f.srv.Close() // Telegram can't be reached
+	before := time.Now()
+	code, out := h.do(t, "POST", `{"op":"retry"}`)
+	var st BridgeStatus
+	json.Unmarshal([]byte(out), &st)
+	if code != 200 || st.Error == "" || st.ErrorSince.Before(before.Add(-time.Second)) || !st.RetryAt.After(st.ErrorSince) {
+		t.Fatalf("offline: %d %s", code, out)
+	}
+	if code, out := h.do(t, "GET", ""); code != 200 || !strings.Contains(out, `"errorSince"`) || !strings.Contains(out, `"retryAt"`) {
+		t.Fatalf("GET: %d %s", code, out)
+	}
+}

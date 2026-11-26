@@ -31,11 +31,12 @@ import (
 // in the audit log.
 func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *telegram.Service {
 	who := devices.Device{Name: "telegram", Scope: devices.Act}
+	base, _ := standInAPI()
 	s := &telegram.Service{
 		Keys:  keys,
 		Path:  filepath.Join(paths.Data(), "telegram.json"),
 		Dir:   filepath.Join(paths.Data(), "telegram"),
-		Base:  os.Getenv("AGENTS_DECK_TELEGRAM_API"), // tests: a stand-in for the Bot API ("": Telegram's)
+		Base:  base, // tests: a stand-in for the Bot API on this computer ("": Telegram's)
 		Limit: server.MaxPromptBytes,
 		Logf:  log.Printf,
 		Deliver: func(agent, text string) (telegram.Result, error) {
@@ -78,6 +79,25 @@ func startTelegram(srv *server.Server, st *store.Store, keys pki.Keystore) *tele
 		log.Printf("telegram: %v", err)
 	}
 	return s
+}
+
+// standInAPI reads AGENTS_DECK_TELEGRAM_API, a stand-in for the Bot API in
+// tests. Only an address on this computer counts (telegram.StandIn); any
+// other value is ignored, and the log says so. set: a stand-in is in use.
+func standInAPI() (base string, set bool) {
+	v := os.Getenv("AGENTS_DECK_TELEGRAM_API")
+	base, ok := telegram.StandIn(v)
+	if !ok {
+		log.Printf("telegram: AGENTS_DECK_TELEGRAM_API ignored: a stand-in Bot API must be on this computer (http://127.0.0.1:<port>)")
+	}
+	return base, base != ""
+}
+
+// telegramInDemo: a demo runs the Telegram bridges only against a stand-in
+// Bot API on this computer, for tests; without one it runs none.
+func telegramInDemo() bool {
+	_, set := standInAPI()
+	return set
 }
 
 // telegramCmd: agentctl telegram [--bridge <id>] [setup | link <agent> | unlink | drop | pair | user <id> | off | status].

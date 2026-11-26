@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -316,4 +317,28 @@ type Origin struct {
 	SenderChat      *Chat  `json:"sender_chat"`
 	Chat            *Chat  `json:"chat"`
 	AuthorSignature string `json:"author_signature"`
+}
+
+// StandIn checks AGENTS_DECK_TELEGRAM_API, a stand-in for the Bot API in
+// tests: it is used only when it is an http:// or https:// URL on this
+// computer (localhost, 127.0.0.0/8 or ::1), so it can never point the
+// bridges at a real Bot API host. ok is false for anything else, which is
+// then ignored ("" with ok true: not set).
+func StandIn(v string) (base string, ok bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", true
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
+		return "", false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return strings.TrimRight(v, "/"), true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return strings.TrimRight(v, "/"), true
+	}
+	return "", false
 }

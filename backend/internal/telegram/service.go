@@ -69,6 +69,8 @@ type run struct {
 	name   string        // the bot's display name
 	botID  int64
 	err    string
+	since  time.Time // when err started
+	retry  time.Time // the next try after it
 }
 
 type file struct {
@@ -250,7 +252,7 @@ func (s *Service) poll(ctx context.Context, id string, r *run) {
 				return
 			}
 			s.mu.Lock()
-			r.bot, r.name, r.botID, r.err = "@"+me.Username, me.FirstName, me.ID, ""
+			r.bot, r.name, r.botID, r.err, r.since, r.retry = "@"+me.Username, me.FirstName, me.ID, "", time.Time{}, time.Time{}
 			s.mu.Unlock()
 			s.logf("telegram %s: listening as @%s", id, me.Username)
 			break
@@ -260,6 +262,9 @@ func (s *Service) poll(ctx context.Context, id string, r *run) {
 			s.logf("telegram %s: %v", id, err)
 			return
 		}
+		s.mu.Lock()
+		r.retry = time.Now().Add(wait)
+		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return
@@ -286,7 +291,10 @@ func (s *Service) botTaken(id string, bot int64) string {
 
 func (s *Service) setErr(r *run, msg string) {
 	s.mu.Lock()
-	r.err = msg
+	if r.err == "" || r.since.IsZero() {
+		r.since = time.Now()
+	}
+	r.err, r.retry = msg, time.Time{}
 	s.mu.Unlock()
 }
 
@@ -307,6 +315,9 @@ type BridgeStatus struct {
 	Ignored  int    `json:"ignored,omitempty"` // messages from other accounts, dropped (since the service started)
 	// PairUntil: while a pairing code waits for /start, when it runs out (the code itself is only in setup's or pair's answer).
 	PairUntil time.Time `json:"pairUntil,omitzero"`
+	// ErrorSince and RetryAt: with error, when it started and when the next try is (zero: none planned).
+	ErrorSince time.Time `json:"errorSince,omitzero"`
+	RetryAt    time.Time `json:"retryAt,omitzero"`
 	// HeldSince and HeldMessages: the held batches' oldest time and message count.
 	HeldSince    time.Time  `json:"heldSince,omitzero"`
 	HeldMessages int        `json:"heldMessages,omitempty"`
@@ -326,6 +337,9 @@ func (s *Service) status(id string) BridgeStatus {
 	r := s.runs[id]
 	if r != nil {
 		out.On, out.Bot, out.BotName, out.Error = true, r.bot, r.name, r.err
+		if r.err != "" {
+			out.ErrorSince, out.RetryAt = r.since, r.retry
+		}
 	}
 	s.mu.Unlock()
 	if r != nil {
@@ -334,7 +348,7 @@ func (s *Service) status(id string) BridgeStatus {
 		out.Pending, out.Held, out.Waiting = st.Pending, st.Held, st.Waiting
 		out.Ignored, out.HeldSince, out.HeldMessages = st.Ignored, st.HeldSince, st.HeldMessages
 		if st.Error != "" {
-			out.Error = st.Error
+			out.Error, out.ErrorSince, out.RetryAt = st.Error, st.ErrorSince, st.RetryAt
 		}
 	} else if all, err := loadBatches(s.inbox(id)); err == nil {
 		for _, bt := range all {
