@@ -1110,6 +1110,9 @@ type fileConfig struct {
 	// MachineName is this machine's name in a multi-node workspace (lowercase
 	// letters, digits and dashes); the host name when empty.
 	MachineName string `json:"machineName,omitempty"`
+	// OnAway: when a machine is out of reach, "ask" (default: one machine.ask
+	// event after node.AskAfter) or "nothing".
+	OnAway string `json:"onAway,omitempty"`
 }
 
 // lanIPs are this computer's non-loopback IPv4 addresses.
@@ -1380,6 +1383,15 @@ func serve(args []string) error {
 			}
 			srv.Node = &node.Manager{Name: name, Version: version, CA: ca, Devices: srv.Devices, Audit: srv.Audit,
 				Path: paths.Machines(), DevicePort: port}
+			srv.Node.Dir = paths.Data()
+			srv.Node.OnAway = func() string { return loadConfig().OnAway }
+			// A call from another machine runs as its /v1 API would for that
+			// machine's device: the same scope check and audit, plus who asked.
+			srv.Node.Exec = func(from devices.Device, c node.Call) (int, []byte) {
+				srv.Audit.Log(devices.AuditEntry{Device: from.Name, Action: "outbox " + c.Method + " " + c.Path, Status: 0, Detail: "key " + c.Key + ", asked by " + c.By})
+				return srv.Dispatch(from, c.Method, c.Path, c.Body)
+			}
+			go srv.Node.Run(machineCtx)
 		}
 		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
 			_ = os.Remove(filepath.Join(paths.Data(), old))

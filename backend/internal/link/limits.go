@@ -43,6 +43,8 @@ var limits = map[string]limit{
 	"LiveSession.session_id": {size: 40}, "LiveSession.title": {size: 64}, "LiveSession.cwd": {size: 128}, "LiveSession.folder": {size: 48},
 	"AccountList.accounts": {count: 4},
 	"AccountInfo.name":     {size: 16}, "AccountInfo.color": {size: 12},
+	"MachineList.machines": {count: 4},
+	"MachineInfo.name":     {size: 33}, "MachineInfo.version": {size: 24},
 	"QueueList.prompts": {count: 4}, "QueuedPrompt.id": {size: 8}, "QueuedPrompt.text": {size: 64}, "QueuedPrompt.by": {size: 24},
 	"Restore.agent_ids":     {size: 12, count: 16},
 	"RestoreResult.results": {count: 16},
