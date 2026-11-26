@@ -962,7 +962,16 @@ static inline void tile(Canvas& c, const SquareSpec& S, const Theme& T, const Ag
       c.text(*S.tileMeta, p.count.x, p.count.y, n, k.meta, p.count.w);
     }
   }
-  drawCritter(c, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
+  {
+    // The pet stays inside its tile: a tall one (hair, a crown, a hat) is cut
+    // at the tile's top and bottom instead of drawing over the tile above.
+    // Every primitive clips to rows top..h-1, so a copy narrowed to the
+    // tile's rows does it.
+    Canvas pc = c;
+    if (pc.top < r.y) pc.top = r.y;
+    if (pc.h > r.y + r.h) pc.h = r.y + r.h;
+    if (pc.top < pc.h) drawCritter(pc, p.critter.x, p.critter.y, p.scale, a, poseOf(a, now), k.body, k.fill, ms, true);
+  }
   SQ_ADD(sprite, t1);
   SQ_T0(t2);
   textCentered(c, *S.tileTitle, r.x + r.w / 2, p.name.y, a.title[0] ? a.title : a.id, k.label, p.name.w);

@@ -2,6 +2,7 @@
 // prompt and notices; touch, scrolling, holds and hit-testing.
 #include <assert.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "../sim/fixture.h"
@@ -114,7 +115,50 @@ static void checkScreens(const SquareSpec& S) {
     }
 }
 
+// Pets stay inside their tiles: a tall pet (a legend with a crown, hair)
+// draws nothing above or below its tile, in the grid and in the list, on
+// every square board.
+static void testPetStaysInTile() {
+  const uint16_t kGuard = 0xBEEF;
+  const Theme T = deckTheme(true);
+  for (const SquareSpec& S : {specAmoled18(), specLcd4(), specT4S3()}) {
+    const int W = S.w, H = S.h;
+    std::vector<uint16_t> mem((size_t)W * H);
+    Canvas c{mem.data(), W, H};
+    struct Case {
+      Rect r;
+      bool list;
+    };
+    std::vector<Case> cases;
+    if (S.home == HomeKind::Grid) cases.push_back({cellRect(S, gridGeom(S, 1), perPage(S) > 2 ? perPage(S) / 2 : 1), false});
+    else cases.push_back({listTile(S, 2, 0), true});
+    for (const Case& k : cases) {
+      const Rect r = k.r;
+      assert(r.w > 0 && r.h > 0 && r.y > 0 && r.y + r.h < H);
+      for (int stage = DECK_PET_BABY; stage <= DECK_PET_LEGEND; stage++) {
+        Agent a = mk("tall", 0, Status::Running);
+        a.pet = deck_pet_t{};
+        a.pet.has = true;
+        a.pet.stage = (uint8_t)stage;
+        a.pet.mood = DECK_PET_FED;
+        a.pet.level = 41;
+        a.pet.hat = deck_pet_hat_of("crown");
+        a.pet.hat_color = deck_pet_hat_color_of("yellow");
+        for (uint32_t ms = 0; ms < 4000; ms += 250) {
+          std::fill(mem.begin(), mem.end(), kGuard);
+          square_detail::tile(c, S, T, a, r, ms, 1795000000, k.list, false, 0);
+          for (int y = 0; y < H; y++) {
+            if (y >= r.y && y < r.y + r.h) continue;
+            for (int x = 0; x < W; x++) assert(mem[(size_t)y * W + x] == kGuard);
+          }
+        }
+      }
+    }
+  }
+}
+
 int main() {
+  testPetStaysInTile();
   const SquareSpec A = specAmoled18(), L = specLcd4();
 
   // ---- the spec's numbers
