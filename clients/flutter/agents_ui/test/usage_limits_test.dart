@@ -61,6 +61,20 @@ void main() {
       expect(out.text, startsWith('work out · '));
     });
 
+    test('the corner: the account in use, then the one nearest its limit', () {
+      final calm = cornerSources(state('calm'));
+      expect(calm.length, 2);
+      expect(calm.first.tool, 'claude');
+      // The second is the other source closest to its limit.
+      final near = cornerSources(state('near'));
+      final others = state(
+        'near',
+      ).limits.where((l) => l.name != near.first.name);
+      int used(AgentLimits l) => weekOf(l)!.used;
+      expect(used(near[1]), others.map(used).reduce((a, b) => a > b ? a : b));
+      expect(cornerSources(AgentsState.fromJson(petsPageState())), isEmpty);
+    });
+
     test('reset times read short', () {
       final now = DateTime(2026, 11, 24, 14, 12);
       expect(resetText(DateTime(2026, 11, 24, 16, 40), now), '16:40');
@@ -113,14 +127,20 @@ void main() {
         await tester.tap(find.byKey(const Key('agents-page-0')));
         await tester.pump(const Duration(milliseconds: 400));
       }
-      expect(find.byKey(const Key('usage-line')), findsOneWidget);
-      expect(find.text('work'), findsOneWidget);
-      if (scenario == 'out') {
-        expect(find.text('fable out'), findsOneWidget);
-        expect(find.textContaining('out · '), findsWidgets);
-      } else {
-        expect(find.textContaining('out · '), findsNothing);
-      }
+      // No usage row along the top: the readout sits in the bottom-left
+      // corner, beside the page dots.
+      expect(find.byKey(const Key('usage-line')), findsNothing);
+      final corner = tester.getRect(find.byKey(const Key('usage-corner')));
+      expect(corner.left, 14);
+      final dots = tester.getRect(find.byKey(const Key('agents-pager')));
+      expect(corner.center.dy, closeTo(dots.center.dy, 1));
+      expect(find.byKey(const Key('usage-corner-second')), findsOneWidget);
+      final first = tester.widget<Text>(
+        find.byKey(const Key('usage-corner-first')),
+      );
+      final s = state(scenario);
+      final w = weekOf(cornerSources(s).first)!;
+      expect(first.data, cornerValue(w));
       await golden(tester, 'panel-$scenario');
     });
 
@@ -131,8 +151,14 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
       }
       await open(tester, 'checkout-api');
+      // One row: the account's week, the context at its end.
       expect(find.byKey(const Key('agent-usage')), findsOneWidget);
-      expect(find.text('all models · week'), findsOneWidget);
+      expect(find.text('USAGE · WORK'), findsOneWidget);
+      expect(find.textContaining('ctx '), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const Key('agent-usage'))).height,
+        lessThan(24),
+      );
       if (scenario == 'out') {
         // The chip says until when, and the line under the rows says the
         // agent waits (the page has no "continue on" row any more).
@@ -190,6 +216,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byKey(const Key('usage-line')), findsNothing);
+    expect(find.byKey(const Key('usage-corner')), findsNothing);
+    expect(find.byKey(const Key('agent-usage')), findsNothing);
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import 'agents_model.dart';
@@ -31,68 +33,230 @@ String limitValue(LimitWindow w) => w.reset
     ? 'out'
     : '${w.used}%';
 
-/// The wall panel's header line: per account its colour, its name and its
-/// week, a model's week once it is out, and "week" at the end. Nothing
-/// without limits.
-class UsageLine extends StatelessWidget {
-  const UsageLine({super.key, required this.state, this.size = 15});
+/// The week of a set of limits: what the corner and the agent's row show.
+LimitWindow? weekOf(AgentLimits l) =>
+    l.shown.where((w) => w.model.isEmpty).firstOrNull ?? l.shown.firstOrNull;
+
+/// The two sources the deck's corner shows: the Claude account in use (the
+/// one most agents run in, busy ones first), then the other source closest
+/// to its limit. Pending Grigorii's answer on which two to show: change it
+/// here only.
+List<AgentLimits> cornerSources(AgentsState state) {
+  if (state.limits.isEmpty) return const [];
+  int score(AgentLimits l) {
+    var n = 0;
+    for (final a in state.agents) {
+      if (a.tool != l.tool || (a.account?.name ?? '') != l.account) continue;
+      n += a.status == AgentStatus.running || a.needsYou ? 1000 : 1;
+    }
+    return n;
+  }
+
+  final claude = state.limits.where((l) => l.tool == 'claude').toList();
+  final pool = claude.isEmpty ? state.limits : claude;
+  var inUse = pool.first;
+  for (final l in pool) {
+    if (score(l) > score(inUse)) inUse = l;
+  }
+  const rank = {'ok': 0, 'near': 1, 'low': 2, 'out': 3};
+  int nearness(AgentLimits l) {
+    final w = weekOf(l);
+    if (w == null || w.reset) return -1;
+    return (rank[w.level] ?? 0) * 1000 + w.used;
+  }
+
+  AgentLimits? next;
+  for (final l in state.limits) {
+    if (identical(l, inUse)) continue;
+    if (next == null || nearness(l) > nearness(next)) next = l;
+  }
+  return [inUse, ?next];
+}
+
+/// A source's value in the corner: "86%", "out · thu 06:34", "–".
+String cornerValue(LimitWindow w) {
+  if (w.out) {
+    return w.resetsAt == null ? 'out' : 'out · ${resetText(w.resetsAt!)}';
+  }
+  return limitValue(w);
+}
+
+/// The deck's bottom-left corner: the account in use as a tiny critter in
+/// its colour and its week, then the second source as a dot and its week.
+/// Orange past 80% and when out. Nothing without limits.
+class UsageCorner extends StatelessWidget {
+  const UsageCorner({super.key, required this.state, this.size = 15});
 
   final AgentsState state;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    if (state.limits.isEmpty) return const SizedBox.shrink();
-    final groups = <Widget>[];
-    for (final l in state.limits) {
-      final week = l.shown.where((w) => w.model.isEmpty).firstOrNull;
-      final models = l.shown.where((w) => w.model.isNotEmpty && w.out);
-      groups.add(
-        Padding(
-          padding: EdgeInsets.only(right: size * 1.1),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: size * 0.55,
-                height: size * 0.55,
-                color: limitColor(state, l),
-              ),
-              SizedBox(width: size * 0.4),
-              // Long names are cut: every account keeps its place.
-              ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: size * 7.5),
-                child: Text(
-                  l.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  softWrap: false,
-                  style: DeckHud.rm(size, _muted),
-                ),
-              ),
-              if (week != null) ...[SizedBox(width: size * 0.4), _value(week)],
-              for (final m in models) ...[
-                SizedBox(width: size * 0.4),
-                _block('${m.model} out'),
-              ],
-            ],
-          ),
+    final sources = cornerSources(state);
+    if (sources.isEmpty) return const SizedBox.shrink();
+    Widget value(AgentLimits l, String key) {
+      final w = weekOf(l);
+      return Text(
+        w == null ? '–' : cornerValue(w),
+        key: Key('usage-corner-$key'),
+        maxLines: 1,
+        softWrap: false,
+        style: DeckHud.rm(
+          size,
+          w == null || w.reset
+              ? DeckHud.dim
+              : (w.hot ? DeckHud.accent : DeckHud.ink),
+          weight: 700,
+          spacing: size * 0.02,
         ),
       );
     }
+
+    final gap = size * 7 / 15;
     return Row(
-      key: const Key('usage-line'),
+      key: const Key('usage-corner'),
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Flexible(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const NeverScrollableScrollPhysics(),
-            child: Row(children: groups),
+        CustomPaint(
+          size: Size(size * 14 / 15, size * 8 / 15),
+          painter: _CritterIcon(limitColor(state, sources.first)),
+        ),
+        SizedBox(width: gap),
+        value(sources.first, 'first'),
+        if (sources.length > 1) ...[
+          SizedBox(width: gap + size * 6 / 15),
+          Container(
+            width: size * 8 / 15,
+            height: size * 8 / 15,
+            decoration: BoxDecoration(
+              color: limitColor(state, sources[1]),
+              shape: BoxShape.circle,
+            ),
+          ),
+          SizedBox(width: gap),
+          value(sources[1], 'second'),
+        ],
+      ],
+    );
+  }
+}
+
+/// The corner's critter: 7 × 4 pixels, as on the boards.
+class _CritterIcon extends CustomPainter {
+  const _CritterIcon(this.color);
+
+  final Color color;
+
+  static const _rows = ['.xxxxx.', 'xx.x.xx', 'xxxxxxx', '.x.x.x.'];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final px = size.width / 7, py = size.height / 4;
+    final paint = Paint()
+      ..color = color
+      ..isAntiAlias = false;
+    for (var y = 0; y < 4; y++) {
+      for (var x = 0; x < 7; x++) {
+        if (_rows[y][x] == 'x') {
+          canvas.drawRect(Rect.fromLTWH(x * px, y * py, px, py), paint);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CritterIcon old) => old.color != color;
+}
+
+/// An agent's page, one row: its account's week (label, segments, percent,
+/// reset time) and its context at the end, "ctx 41%".
+class UsageContextRow extends StatelessWidget {
+  const UsageContextRow({
+    super.key,
+    required this.limits,
+    required this.context,
+    this.size = 15,
+  });
+
+  final AgentLimits limits;
+
+  /// "41%", "--" (not known).
+  final String context;
+  final double size;
+
+  @override
+  Widget build(BuildContext ctx) {
+    final w = weekOf(limits);
+    final model = w == null || w.model.isEmpty ? '' : ' ${w.model}';
+    final label = 'USAGE · ${limits.name}$model'.toUpperCase();
+    final reset = w?.resetsAt == null ? '' : resetText(w!.resetsAt!);
+    final value = w == null ? '' : (w.out ? 'OUT' : limitValue(w));
+    return LayoutBuilder(
+      builder: (_, box) {
+        // Roboto Mono: every character is 0.6 em, so the row can tell what
+        // fits. Narrow (the menu bar): the reset time goes first, then
+        // segments, down to 8.
+        final ch = size * 0.6, gap = size * 0.8;
+        final labelW = math.min(size * 11, label.length * (ch + size * 0.1));
+        // Three gaps: after the label, after the segments, before "ctx".
+        final fixed =
+            labelW + 3 * gap + value.length * ch + ('ctx $context'.length) * ch;
+        var showReset = reset.isNotEmpty;
+        int fit(double room) =>
+            ((room + size * 0.6 / 4.5) / (size * 0.6 * (1 + 1 / 4.5))).floor();
+        var n = 26;
+        if (w != null) {
+          var room =
+              box.maxWidth - fixed - (showReset ? gap + reset.length * ch : 0);
+          if (fit(room) < 26 && showReset) {
+            showReset = false;
+            room = box.maxWidth - fixed;
+          }
+          n = fit(room).clamp(8, 26);
+        }
+        return _row(w, label, showReset ? reset : '', n);
+      },
+    );
+  }
+
+  Widget _row(LimitWindow? w, String label, String reset, int n) {
+    return Row(
+      key: const Key('agent-usage'),
+      children: [
+        // A long account name is cut; the bar keeps its place.
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: size * 11),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: DeckHud.rm(size, _muted, weight: 700, spacing: size * 0.1),
           ),
         ),
+        if (w != null) ...[
+          SizedBox(width: size * 0.8),
+          _Segments(w, n: n, width: size * 0.6, height: size * 0.8),
+          SizedBox(width: size * 0.8),
+          _value(w),
+          if (reset.isNotEmpty) ...[
+            SizedBox(width: size * 0.8),
+            Text(
+              reset,
+              maxLines: 1,
+              softWrap: false,
+              style: DeckHud.rm(size, _muted),
+            ),
+          ],
+        ],
+        const Spacer(),
+        SizedBox(width: size * 0.8),
         Text(
-          'WEEK',
-          style: DeckHud.rm(size * 0.8, DeckHud.dim, spacing: size * 0.1),
+          'ctx $context',
+          key: const Key('agent-context'),
+          maxLines: 1,
+          softWrap: false,
+          style: DeckHud.rm(size, _muted),
         ),
       ],
     );
@@ -100,163 +264,80 @@ class UsageLine extends StatelessWidget {
 
   Widget _value(LimitWindow w) {
     if (w.out) {
-      return _block(
-        w.resetsAt == null ? 'out' : 'out ${resetText(w.resetsAt!)}',
+      return Container(
+        key: Key('agent-usage-${w.id}'),
+        padding: EdgeInsets.symmetric(horizontal: size * 0.3, vertical: 1),
+        color: DeckHud.accent,
+        child: Text('OUT', style: DeckHud.rm(size, _ink, weight: 700)),
       );
     }
     return Text(
       limitValue(w),
+      key: Key('agent-usage-${w.id}'),
       style: DeckHud.rm(
         size,
-        w.hot ? _orange2 : (w.reset ? DeckHud.dim : DeckHud.ink),
+        w.hot ? DeckHud.accent : (w.reset ? DeckHud.dim : DeckHud.ink),
         weight: 700,
       ),
     );
   }
-
-  Widget _block(String text) => Container(
-    padding: EdgeInsets.symmetric(horizontal: size * 0.3, vertical: 1),
-    color: DeckHud.accent,
-    child: Text(text, style: DeckHud.rm(size, _ink, weight: 700)),
-  );
 }
 
-/// An agent's page: its account's usage over the context, one row per
-/// window shown (label, segments, percent, reset time), and while it is
-/// out of usage, a line saying until when.
-class UsageRows extends StatelessWidget {
-  const UsageRows({
+/// While an agent is out of usage: until when, and what it does meanwhile.
+class UsageOutLine extends StatelessWidget {
+  const UsageOutLine({
     super.key,
-    required this.limits,
-    this.outUntil,
+    required this.until,
     this.moveTo,
-    this.size = 16,
+    this.size = 15,
   });
 
-  final AgentLimits limits;
-
-  /// The agent is out of usage until then (null: it isn't).
-  final DateTime? outUntil;
+  final DateTime until;
 
   /// Another account it could continue on ("" or null: none).
   final String? moveTo;
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    final out = outUntil;
-    return Column(
-      key: const Key('agent-usage'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text.rich(
-          TextSpan(
-            children: [
-              const TextSpan(text: 'USAGE'),
-              TextSpan(
-                text: ' · ${limits.name.toUpperCase()}',
-                style: const TextStyle(color: DeckHud.dim),
-              ),
-            ],
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: DeckHud.rm(size, _muted, weight: 700, spacing: size * 0.12),
-        ),
-        for (final w in limits.shown) ...[
-          SizedBox(height: size * 0.4),
-          Row(
-            key: Key('agent-usage-${w.id}'),
-            children: [
-              SizedBox(
-                width: size * 12,
-                child: Text(
-                  limits.labelOf(w),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: DeckHud.rm(size, _muted),
-                ),
-              ),
-              SizedBox(width: size * 0.8),
-              Expanded(child: _Segments(w)),
-              SizedBox(width: size * 0.8),
-              SizedBox(width: size * 3.4, child: _value(w)),
-              SizedBox(
-                width: size * 6.6,
-                child: Text(
-                  w.resetsAt == null ? '' : resetText(w.resetsAt!),
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  style: DeckHud.rm(size, w.reset ? DeckHud.dim : _muted),
-                ),
-              ),
-            ],
-          ),
-        ],
-        if (out != null) ...[
-          SizedBox(height: size * 0.5),
-          Text(
-            'out of usage until ${resetText(out)}'
-            '${moveTo == null || moveTo!.isEmpty ? ' · it waits until then' : ' · it can continue on $moveTo'}',
-            key: const Key('agent-usage-out'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: DeckHud.rm(size, _orange2, weight: 700),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _value(LimitWindow w) {
-    final v = limitValue(w);
-    if (w.out) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: size * 0.35, vertical: 2),
-          color: DeckHud.accent,
-          child: Text(
-            v.toUpperCase(),
-            style: DeckHud.rm(size, _ink, weight: 700),
-          ),
-        ),
-      );
-    }
-    return Text(
-      v,
-      textAlign: TextAlign.right,
-      style: DeckHud.rm(
-        size * 1.1,
-        w.hot ? _orange2 : (w.reset ? DeckHud.dim : DeckHud.ink),
-        weight: 700,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Text(
+    'out of usage until ${resetText(until)}'
+    '${moveTo == null || moveTo!.isEmpty ? ' · it waits until then' : ' · it can continue on $moveTo'}',
+    key: const Key('agent-usage-out'),
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: DeckHud.rm(size, _orange2, weight: 700),
+  );
 }
 
 /// A window as square segments: ink while fine, orange from 80%.
 class _Segments extends StatelessWidget {
-  const _Segments(this.w);
+  const _Segments(
+    this.w, {
+    required this.n,
+    required this.width,
+    required this.height,
+  });
 
   final LimitWindow w;
+  final int n;
+  final double width, height;
 
   @override
   Widget build(BuildContext context) {
-    const n = 24;
     final on = w.reset ? 0 : (w.used.clamp(0, 100) / 100 * n).round();
     final color = w.hot ? DeckHud.accent : DeckHud.ink;
-    return SizedBox(
-      height: 10,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < n; i++) ...[
-            if (i > 0) const SizedBox(width: 3),
-            Expanded(child: ColoredBox(color: i < on ? color : _segOff)),
-          ],
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < n; i++) ...[
+          if (i > 0) SizedBox(width: width / 4.5),
+          SizedBox(
+            width: width,
+            height: height,
+            child: ColoredBox(color: i < on ? color : _segOff),
+          ),
         ],
-      ),
+      ],
     );
   }
 }

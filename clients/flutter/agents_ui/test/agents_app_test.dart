@@ -196,13 +196,13 @@ void main() {
     expect(find.text('Done before.'), findsNothing);
   });
 
-  testWidgets('no back button on the panel (it closes cards by swiping)', (
+  testWidgets('a back button on the panel too (swiping still closes)', (
     tester,
   ) async {
     await _pumpApp(tester, FakeAgentsSource.demo());
     await _open(tester, 'checkout-api');
     expect(find.text('doing now'), findsOneWidget);
-    expect(find.byKey(const Key('agent-back')), findsNothing);
+    expect(find.byKey(const Key('agent-back')), findsOneWidget);
   });
 
   testWidgets('the back button closes the card when asked for', (tester) async {
@@ -488,7 +488,7 @@ void main() {
     await tester.tap(find.byKey(const Key('agent-focus')));
     await tester.pump();
     _expectCall(source.calls.last, 'focus', 'k3f9a2', null);
-    expect(find.text('focused'), findsOneWidget);
+    expect(find.text('opened'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(find.byKey(const Key('agent-interrupt')));
@@ -727,7 +727,9 @@ void main() {
     expect(find.text('hungry · feed me'), findsOneWidget);
     expect(find.byType(HungryStripes), findsOneWidget);
     await _open(tester, 'docs-site');
-    expect(find.text('review in terminal'), findsOneWidget);
+    // One label for the terminal, hungry or not.
+    expect(find.text('open in terminal'), findsOneWidget);
+    expect(find.text('hungry · feed me'), findsWidgets);
     // The daemon clears it once its terminal has been looked at.
     final json = source.toJson();
     (json['agents'] as List).cast<Map<String, dynamic>>().firstWhere(
@@ -735,7 +737,7 @@ void main() {
     )['unseen'] = false;
     source.load(json);
     await tester.pump();
-    expect(find.text('review in terminal'), findsNothing);
+    expect(find.text('open in terminal'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
   });
 

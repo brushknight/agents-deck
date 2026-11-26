@@ -3,7 +3,7 @@
 // innerHTML: names and messages from the service are always text.
 
 import {
-  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, lastShown, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, hungry,
+  setSkew, now, fmtN, fmtCost, rel, ageMin, lastActive, lastShown, tilde, ctxPct, verb, TOOL_POSE, poseOf, codexThread, watched, inApp, openLabel, hungry,
   subsOnly, tileMeta, pillText, HAT_ART, HAT_COLORS, HAT_SHAPES, HAT_COLOR_NAMES, BOT_BODY, spriteSVG,
 } from './deck-core.js';
 import { petSVG, heartSVG, petKind, levelAt, STAGES, STAGE_NAMES, STAGE_LEVEL, MOOD_NAMES, MAX_HEARTS } from './pets.js';
@@ -1779,7 +1779,7 @@ function buildAgent(a, body, view = agentView) {
   const note = h('p', { class: 'sub', role: 'status', 'aria-live': 'polite' });
   const acts = h('div', { class: 'actions' });
   const external = codexThread(a);
-  if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
+  if (a.status !== 'exited') acts.append(actButton(a, openLabel(a), 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note, 'p'));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
   if (a.tool === 'claude' && a.account) {
@@ -2278,7 +2278,7 @@ function buildBar(a, body, view) {
   // Panel view: a square Back first, as on the menu bar app's agent page
   const back = h('button', { type: 'button', class: 'btn sm sq', 'data-k': 'bar-back', 'aria-label': 'Back to the grid', title: 'Back to the grid · Esc', hidden: !S.panel, onclick: closeBar }, icon('back', 14, 2.2));
   acts.append(back);
-  if (a.status !== 'exited') acts.append(actButton(a, external ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : hungry(a) ? 'Review in terminal' : 'Focus', 'focus', note));
+  if (a.status !== 'exited') acts.append(actButton(a, openLabel(a), 'focus', note));
   else if (a.resumable) acts.append(actButton(a, 'Resume', 'resume', note));
   if (a.status === 'running' && (!a.external || inApp(a))) acts.append(actButton(a, 'Interrupt', 'interrupt', note));
   acts.append(h('span', { class: 'sp' }), h('a', { class: 'abfull', href: `#agent/${encodeURIComponent(a.id)}`, 'data-k': 'bar-full', title: 'The agent\'s whole page: handoff, Stop and more' }, 'Full page ↗'));

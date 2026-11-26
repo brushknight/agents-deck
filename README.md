@@ -124,7 +124,7 @@ the 1.47″. The round boards don't have it yet. [Features](docs/features.md#the
 </table>
 
 Click or tap a tile for its card: what it's doing now and its subagents, context, tokens, estimated
-cost, turns and the last prompt, with **focus terminal**, **interrupt** and **stop**. A permission
+cost, turns and the last prompt, with **open in terminal**, **interrupt** and **stop**. A permission
 prompt shows the exact command with Claude's own options, a question shows its choices, and your
 answer is typed into the agent's terminal. In the browser you can also type your own answer instead
 of picking one; elsewhere, text you'd have to type yourself sends you to the terminal.

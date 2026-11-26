@@ -78,6 +78,9 @@ export const poseOf = (a) => {
 export const codexThread = (a) => a.external && a.tool === 'codex' && !a.app;
 export const watched = (a) => a.external && a.tool === 'claude' && !a.app;
 export const inApp = (a) => !!a.app; // runs in another app (Orca, herdr): answer, interrupt and focus work there
+// The one label for raising an agent's terminal, the same on every deck (the
+// desk panel, the menu bar and the boards say it in lower case).
+export const openLabel = (a) => (codexThread(a) ? 'Open in Codex' : inApp(a) ? `Open in ${a.app}` : 'Open in terminal');
 
 export const needsYou = (a) => a.status === 'waiting' || a.status === 'error';
 

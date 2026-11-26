@@ -177,7 +177,7 @@ void main() {
     for (final gone in ['tokens out', 'cache read', 'cost · est', 'turns']) {
       expect(find.text(gone), findsNothing);
     }
-    expect(find.text('FOCUS TERMINAL'), findsOneWidget);
+    expect(find.text('OPEN IN TERMINAL'), findsOneWidget);
     expect(find.text('INTERRUPT'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await golden(tester, 'running');
@@ -198,7 +198,7 @@ void main() {
     );
     expect((pet.pose, pet.calm), (CritterPose.wait, true));
     expect(find.byKey(const Key('agent-option-1')), findsOneWidget);
-    expect(find.text('FOCUS TERMINAL'), findsOneWidget);
+    expect(find.text('OPEN IN TERMINAL'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await golden(tester, 'waiting');
   });
@@ -213,7 +213,7 @@ void main() {
       find.text('finished 1h ago · nobody has looked yet'),
       findsOneWidget,
     );
-    expect(find.text('REVIEW IN TERMINAL'), findsOneWidget);
+    expect(find.text('OPEN IN TERMINAL'), findsOneWidget);
     expect(find.text('STOP'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await golden(tester, 'idle');
@@ -384,7 +384,7 @@ void main() {
     await tester.tap(find.byKey(const Key('pet-back')));
     await tester.pump();
     expect(find.byKey(const Key('pet-name')), findsNothing);
-    expect(find.text('FOCUS TERMINAL'), findsOneWidget);
+    expect(find.text('OPEN IN TERMINAL'), findsOneWidget);
   });
 
   testWidgets('an egg that becomes ready on its page: hatch it there', (

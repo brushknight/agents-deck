@@ -39,7 +39,7 @@ class AgentsApp extends StatefulWidget {
     this.cardHost,
     this.pairingCard,
     this.visible,
-    this.backButton = false,
+    this.backButton = true,
     this.menuBar = false,
   }) : assert(
          (openCard == null) == (cardHost == null),
@@ -54,7 +54,9 @@ class AgentsApp extends StatefulWidget {
   /// Wraps the board so [openCard] can find its host; null = [CardMorph].
   final Widget Function(Widget board)? cardHost;
 
-  /// A back button on agent cards, for hosts without an edge swipe.
+  /// A back button on every screen that isn't the deck (an agent's page, a
+  /// prompt, the pet's page, the session picker), edge swipe or not: it shows
+  /// how to go back. Off only for a host that draws its own.
   final bool backButton;
 
   /// In the menu bar app: an agent's page has no clock and no text under
@@ -367,24 +369,20 @@ class _AgentsAppState extends State<AgentsApp> {
       },
       child: Padding(
         // On whole device pixels when the host scales the deck.
+        // With the usage readout in the corner the grid sits 13 px from
+        // the top (where the usage row was: up 21 px), its tiles a little
+        // taller.
         padding: EdgeInsets.fromLTRB(
           DeckPixels.snap(context, 8),
-          DeckPixels.snap(context, 8),
+          DeckPixels.snap(
+            context,
+            !widget.menuBar && state.limits.isNotEmpty ? 13 : 8,
+          ),
           DeckPixels.snap(context, 8),
           0,
         ),
         child: Column(
           children: [
-            // Each account's week, on the panel (the menu bar says it in
-            // its status line).
-            if (!widget.menuBar && state.limits.isNotEmpty)
-              SizedBox(
-                height: 26,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                  child: UsageLine(state: state),
-                ),
-              ),
             Expanded(
               child: PageView.builder(
                 key: const Key('agents-pages'),
@@ -406,13 +404,29 @@ class _AgentsAppState extends State<AgentsApp> {
             ),
             SizedBox(
               height: _barsHeight,
-              child: _PageBars(
-                pages: pages,
-                current: _view - 1,
-                hot: hot,
-                attention: needsYou.count,
-                onTap: (p) => _goTo(p + 1),
-                onAttention: () => _goTo(0),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _PageBars(
+                      pages: pages,
+                      current: _view - 1,
+                      hot: hot,
+                      attention: needsYou.count,
+                      onTap: (p) => _goTo(p + 1),
+                      onAttention: () => _goTo(0),
+                    ),
+                  ),
+                  // The usage readout, bottom left beside the page dots, on
+                  // the panel (the menu bar says it in its status line):
+                  // 14 px from the screen's edge.
+                  if (!widget.menuBar && state.limits.isNotEmpty)
+                    Positioned(
+                      left: 14 - DeckPixels.snap(context, 8),
+                      top: 0,
+                      bottom: 0,
+                      child: Center(child: UsageCorner(state: state)),
+                    ),
+                ],
               ),
             ),
           ],
