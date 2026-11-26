@@ -14,7 +14,28 @@ import (
 	"time"
 )
 
-var Socket = "agentsterm" // a variable only so tests can use their own server
+// Socket is the name of the deck's own tmux server (tmux -L): config.json
+// "tmuxSocket", "agentsterm" by default. A second deck on the same computer
+// (a test instance) needs a name of its own, or it would adopt the first
+// one's agents.
+var Socket = DefaultSocket
+
+// DefaultSocket is the tmux server's name when config.json doesn't set one.
+const DefaultSocket = "agentsterm"
+
+// SetSocket uses name for the tmux server: letters, digits, '.', '_' and
+// '-', at most 64 (tmux makes a file of that name). "" keeps the default.
+func SetSocket(name string) error {
+	if name == "" {
+		Socket = DefaultSocket
+		return nil
+	}
+	if len(name) > 64 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != "" || strings.HasPrefix(name, ".") {
+		return fmt.Errorf("tmuxSocket %q: use letters, digits, '.', '_' and '-' (at most 64)", name)
+	}
+	Socket = name
+	return nil
+}
 
 // NewSession starts a detached session running argv in dir with extra env.
 func NewSession(name, dir string, env []string, argv []string) error {

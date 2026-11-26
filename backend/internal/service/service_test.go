@@ -116,7 +116,7 @@ After=default.target
 [Service]
 ExecStart=/home/sam/.local/bin/agentctl serve
 Restart=on-failure
-Environment=PATH=/home/sam/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=PATH=/home/sam/.local/bin:/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 [Install]
 WantedBy=default.target
@@ -314,5 +314,30 @@ func TestWaitGone(t *testing.T) {
 	}
 	if WaitGone(1, 5*time.Millisecond, time.Millisecond, func(int) bool { return true }) {
 		t.Fatal("a process that never exits counted as gone")
+	}
+}
+
+// A NixOS user: the per-user profile on PATH, and linger read from loginctl.
+func TestSystemdNixOSAndLinger(t *testing.T) {
+	var asked []string
+	s := &Systemd{Exe: "/home/demo/.local/bin/agentctl", Home: "/home/demo", User: "demo",
+		Run: func(name string, args ...string) ([]byte, error) {
+			asked = append(asked, name+" "+strings.Join(args, " "))
+			return []byte("no\n"), nil
+		}}
+	if !strings.Contains(s.UnitFile(), "Environment=PATH=/home/demo/.local/bin:/home/demo/.nix-profile/bin:/etc/profiles/per-user/demo/bin:/run/wrappers/bin:/run/current-system/sw/bin:") {
+		t.Errorf("unit PATH:\n%s", s.UnitFile())
+	}
+	if on, known := s.Linger(); on || !known {
+		t.Errorf("linger: %v %v", on, known)
+	}
+	if len(asked) != 1 || asked[0] != "loginctl show-user demo --property=Linger --value" {
+		t.Errorf("asked: %v", asked)
+	}
+	if h := s.LingerHint(); !strings.Contains(h, "loginctl enable-linger demo") || !strings.Contains(h, "users.users.demo.linger = true") {
+		t.Errorf("hint: %s", h)
+	}
+	if on, known := (&Systemd{}).Linger(); on || known {
+		t.Error("no user: unknown")
 	}
 }

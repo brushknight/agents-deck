@@ -214,6 +214,35 @@ rm -f ~/.local/bin/agentctl ~/.local/bin/agents-deck \
 sudo rm -f /etc/udev/rules.d/70-agents-deck.rules    # if you copied it
 ```
 
+### A server with no desktop
+
+The deck runs on a Linux machine you never sit at (a home server, a VM), for example as the second
+machine of a multi-node deck. Nothing needs a screen: `agentctl` runs as a systemd user service and
+agents live in tmux.
+
+1. Install `agentctl` (the .tar.gz, or `install.sh` above) and run `agentctl install`.
+2. Turn on **linger**, or the service and every agent stop when you log out: `loginctl enable-linger
+   <you>`. `agentctl install` says so when it is off.
+3. Sign in to the tools agents use (`claude`, `codex`, `gh`) as that user.
+4. Run `agentctl doctor`. It checks the shell agents start in, tmux, the tools, the data folder, the
+   service, linger and the network listener, and says how to fix what's missing.
+
+Agents start in your login shell (`$SHELL`, or your account's shell when the service has none), as
+a login shell so they get your normal `PATH`. Nothing is assumed at a fixed place: a machine without
+zsh or `/bin/bash` works.
+
+**NixOS.** The configuration is declarative, so set these there rather than by hand:
+`users.users.<you>.linger = true;`, the packages agents need (`tmux`, `git`, Node for Claude Code)
+in `environment.systemPackages`, and `networking.firewall.allowedTCPPorts = [ 7341 ];` when other
+machines or boards connect to this one. The service's unit puts NixOS's profiles
+(`/run/current-system/sw/bin`, `/etc/profiles/per-user/<you>/bin`, `~/.nix-profile/bin`) on its
+`PATH`.
+
+**A second deck on one computer** (a test instance, with `AGENTSTERM_HOME` pointing at its own data
+folder) needs its own tmux server, or it would take over the first deck's agents: set
+`"tmuxSocket": "<a name>"` in its `config.json` (letters, digits, `.`, `_`, `-`). The default is
+`agentsterm`.
+
 ## Only the command line
 
 No app, just `agentctl` and the service, on macOS or Linux:
@@ -257,6 +286,12 @@ the key is gone. A reset means every device paired over the network has to pair 
 ([below](#a-board-stopped-connecting-after-an-update)).
 
 ## Troubleshooting
+
+### Is everything in place?
+
+`agentctl doctor` checks what the deck needs on this computer: the shell agents start in, tmux,
+Claude Code, Codex and git, the data folder, the service and whether it starts at login, linger on
+Linux, and the network listener. Each line is `ok`, `warn` or `FAIL`, with how to fix it.
 
 ### The deck says the service isn't answering
 
