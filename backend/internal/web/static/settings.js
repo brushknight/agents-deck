@@ -584,7 +584,7 @@ function cpuFace(u, a) {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#141412');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, a ? poseOf(a) : 'idle', a?.tool || 'claude', a?.hat || null, { bubble: false });
+  setFace(spr, a, a ? poseOf(a) : 'idle');
   face.append(spr);
   return face;
 }
@@ -937,6 +937,29 @@ function setPet(el, a, more = {}) {
   el.replaceChildren(node);
   watchPet(el);
 }
+// setFace draws an agent where a small face of it goes (the Needs you list,
+// the mini deck, the CPU list): its pet while it has one, else its critter.
+// Pets everywhere: never a critter for an agent with a pet.
+function setFace(el, a, pose) {
+  if (a?.pet) {
+    setPet(el, a, { pose, bubble: false });
+    el.style.setProperty('--pb', petFloor(el));
+  } else setSprite(el, pose, a?.tool || 'claude', a?.hat || null, { bubble: false });
+}
+// petFloor: the lowest row the pet's art reaches, in pet pixels (13 for a
+// grown-up, 14 for a baby, 15 for a cracked egg), so a face can stand every
+// pet on the same floor. Measured once per drawing.
+const petFloors = new Map();
+function petFloor(el) {
+  const k = el.dataset.pose;
+  if (!petFloors.has(k)) {
+    let b = 13;
+    for (const p of el.querySelectorAll('path'))
+      for (const m of (p.getAttribute('d') || '').matchAll(/M(-?[\d.]+) (-?[\d.]+)h(-?[\d.]+)v(-?[\d.]+)/g)) b = Math.max(b, +m[2] + +m[4]);
+    petFloors.set(k, b);
+  }
+  return petFloors.get(k);
+}
 // Pets off screen hold still: their motion pauses until they scroll back.
 const petSeen = typeof IntersectionObserver === 'function'
   ? new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting))) : null;
@@ -1220,7 +1243,7 @@ function qrow(a) {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#0A0A0A');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, 'wait', a.tool, a.hat, { bubble: false });
+  setFace(spr, a, 'wait');
   face.append(spr);
   return h('a', { class: 'qrow', href: `#${S.page === 'home' ? 'home' : 'agent'}/${encodeURIComponent(a.id)}` }, face,
     h('span', { class: 'grow' }, h('span', { class: 'eyebrow', title: agentName(a) }, agentName(a)), h('span', { class: 'mono q' }, askOf(a).q)));
@@ -1626,7 +1649,7 @@ function miniDeck(page, cur, landing) {
       const spr = h('span', { class: 'spr c dk' });
       el.style.setProperty('--body', a.status === 'waiting' ? '#0A0A0A' : ['idle', 'exited', 'starting'].includes(a.status) ? '#7A776F' : '#FF4D00');
       el.style.setProperty('--cut', a.status === 'waiting' ? '#FF4D00' : '#141412');
-      setSprite(spr, a.status === 'waiting' ? 'wait' : 'idle', a.tool, a.hat, { bubble: false });
+      setFace(spr, a, a.status === 'waiting' ? 'wait' : 'idle');
       el.append(spr);
       g.append(el);
     } else g.append(h('a', { href: `#start/${slot}`, class: `f${isCur ? ' cur' : ''}`, 'aria-label': `Free spot ${i + 1}` }));
@@ -2535,7 +2558,8 @@ function drawGeneral() {
   face.style.setProperty('--body', '#FF4D00');
   face.style.setProperty('--cut', '#141412');
   const spr = h('span', { class: 'spr c' });
-  setSprite(spr, 'wait', sample?.tool || 'claude', sample?.hat || { shape: 'top hat', color: 'yellow' }, { bubble: false });
+  if (sample) setFace(spr, sample, 'wait');
+  else setSprite(spr, 'wait', 'claude', { shape: 'top hat', color: 'yellow' }, { bubble: false });
   face.append(spr);
   const notify = blk(
     h('div', { class: 'row notif' }, face, h('div', { class: 'grow' }, h('span', { class: 'nm' }, `${sample ? agentName(sample) : 'An agent'} needs you`), h('span', { class: 'sub' }, `${sample ? askOf(sample).q : 'Allow bash?'} · now`))),
