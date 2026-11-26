@@ -264,6 +264,7 @@ func TestTailTranscript(t *testing.T) {
 		`{"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":100,"cache_read_input_tokens":1000,"cache_creation_input_tokens":500}}}`,
 		`{"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":100,"cache_read_input_tokens":1000,"cache_creation_input_tokens":500}}}`,
 		`{"type":"ai-title","aiTitle":"Fix the bug"}`,
+		`{"type":"last-prompt","lastPrompt":"fix the bug","sessionId":"s"}`,
 	}
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -286,6 +287,11 @@ func TestTailTranscript(t *testing.T) {
 	}
 	if Tail(e) {
 		t.Error("no new bytes: no change")
+	}
+
+	// Only a watched session (no hooks) takes its last prompt from here.
+	if e.A.LastPrompt != "" {
+		t.Errorf("hooked agent's last prompt set from the transcript: %q", e.A.LastPrompt)
 	}
 
 	// A partial line is held until its newline arrives.
@@ -460,5 +466,31 @@ func TestTailLimitHit(t *testing.T) {
 	Tail(&store.Entry{Transcript: path})
 	if len(got) != 1 || got[0].transcript != path || !strings.HasPrefix(got[0].text, "You've hit your Fable limit") || got[0].at.Minute() != 26 {
 		t.Fatalf("hits: %+v", got)
+	}
+}
+
+// A session watched from the live picker has no hooks: its last prompt comes
+// from the transcript's "last-prompt" lines, the newest one winning.
+func TestTailWatchedLastPrompt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := []string{
+		`{"type":"last-prompt","lastPrompt":"first ask","sessionId":"s"}`,
+		`{"type":"user","gitBranch":"main"}`,
+		`{"type":"last-prompt","lastPrompt":"  then\n fix   the tests ","sessionId":"s"}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &store.Entry{Transcript: path, LiveTTY: "/dev/ttys009"}
+	if !Tail(e) {
+		t.Fatal("expected change")
+	}
+	if e.A.LastPrompt != "then fix the tests" {
+		t.Errorf("last prompt %q", e.A.LastPrompt)
+	}
+	e = &store.Entry{Transcript: path, LiveAttach: "abc123"}
+	Tail(e)
+	if e.A.LastPrompt != "then fix the tests" {
+		t.Errorf("background session: last prompt %q", e.A.LastPrompt)
 	}
 }
