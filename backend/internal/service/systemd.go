@@ -16,6 +16,7 @@ const Unit = "agents-deck.service"
 // Without systemd it says how to run the service by hand.
 type Systemd struct {
 	Exe, Home string
+	User      string // the user's name, for linger and NixOS's per-user profile ("" skips both)
 	Run       Runner
 	LookPath  func(string) (string, error) // exec.LookPath; tests fake it
 }
@@ -34,11 +35,47 @@ After=default.target
 [Service]
 ExecStart=` + systemdArg(s.Exe) + ` serve
 Restart=on-failure
-Environment=PATH=` + s.Home + `/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=PATH=` + s.unitPath() + `
 
 [Install]
 WantedBy=default.target
 `
+}
+
+// unitPath is the service's PATH: a systemd user service starts with almost
+// none, and agents need claude, codex, tmux and git. NixOS keeps programs in
+// profiles (no /usr/bin), so those come too; folders that don't exist on a
+// machine are harmless.
+func (s *Systemd) unitPath() string {
+	dirs := []string{s.Home + "/.local/bin"}
+	if s.User != "" {
+		dirs = append(dirs, s.Home+"/.nix-profile/bin", "/etc/profiles/per-user/"+s.User+"/bin")
+	}
+	dirs = append(dirs, "/run/wrappers/bin", "/run/current-system/sw/bin", "/nix/var/nix/profiles/default/bin",
+		"/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+	return strings.Join(dirs, ":")
+}
+
+// Linger reports whether systemd keeps this user's services running when
+// they aren't logged in (loginctl enable-linger). Without it the service and
+// every agent stop at logout, which a machine without a desktop session
+// (a server) can't live with. known is false when loginctl can't say.
+func (s *Systemd) Linger() (on, known bool) {
+	if s.User == "" || s.Run == nil {
+		return false, false
+	}
+	b, err := s.Run("loginctl", "show-user", s.User, "--property=Linger", "--value")
+	if err != nil {
+		return false, false
+	}
+	v := strings.TrimSpace(string(b))
+	return v == "yes", v == "yes" || v == "no"
+}
+
+// LingerHint says how to turn linger on, with NixOS's declarative way too.
+func (s *Systemd) LingerHint() string {
+	return "the service and its agents stop when you log out: run `loginctl enable-linger " + s.User +
+		"` (on NixOS set `users.users." + s.User + ".linger = true;` in your configuration)"
 }
 
 // systemdArg quotes a path for ExecStart when it needs it (spaces, quotes)
@@ -83,6 +120,9 @@ func (s *Systemd) Install(out io.Writer) error {
 	if _, err := s.ctl("enable", Unit); err == nil {
 		if _, err = s.ctl("restart", Unit); err == nil {
 			fmt.Fprintf(out, "installed %s (systemd user service, running)\n", path)
+			if on, known := s.Linger(); known && !on {
+				fmt.Fprintln(out, "note:", s.LingerHint())
+			}
 			return nil
 		}
 	}

@@ -208,6 +208,11 @@ type Store struct {
 	// Limits is each account's usage limits, as the tools last reported
 	// them (nil: none are kept).
 	Limits func() []model.Limits
+	// Multi-node: Machine is this machine's name ("" without other machines:
+	// its agents then carry none); Remote is the other machines' agents, shown
+	// after this machine's own (nil: none).
+	Machine func() string
+	Remote  func() []model.Agent
 
 	// The "Needs you" grid (attention.go): the clock and the random free
 	// spot (tests set both), how long an agent stays after it stops needing
@@ -491,7 +496,13 @@ func (s *Store) FindBySession(sid string) string {
 	return ""
 }
 
-func (s *Store) Snapshot() model.State {
+func (s *Store) Snapshot() model.State { return s.snapshot(true) }
+
+// LocalSnapshot is Snapshot without other machines' agents: what this
+// machine owns (and pushes to them).
+func (s *Store) LocalSnapshot() model.State { return s.snapshot(false) }
+
+func (s *Store) snapshot(withRemote bool) model.State {
 	s.mu.Lock()
 	agents := make([]model.Agent, 0, len(s.entries))
 	type where struct{ account, transcript string }
@@ -501,6 +512,7 @@ func (s *Store) Snapshot() model.State {
 		places = append(places, where{e.Account, e.Transcript})
 	}
 	hat, account, project, queued, slow, pet, lims := s.Hat, s.Account, s.Project, s.Queued, s.Slow, s.Pet, s.Limits
+	machine, remote := s.Machine, s.Remote
 	s.mu.Unlock()
 	var counts map[string]int
 	if queued != nil {
@@ -533,8 +545,25 @@ func (s *Store) Snapshot() model.State {
 			agents[i].Project, agents[i].ProjectFolder = project(agents[i].Cwd)
 		}
 		agents[i].OutUntil = limits.OutUntil(ls, agents[i], now)
+		agents[i].Reachable = true
+		if machine != nil {
+			agents[i].Machine = machine()
+		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })
+	if withRemote && remote != nil {
+		// Other machines' agents after this machine's own, in their order.
+		// (Their place on the board comes with the shared layout.)
+		next := 0
+		for _, a := range agents {
+			next = max(next, a.Slot+1)
+		}
+		for _, a := range remote() {
+			a.Slot, a.AttentionSlot = next, 0
+			next++
+			agents = append(agents, a)
+		}
+	}
 	return model.State{
 		Server: model.Server{Name: s.Name, Version: s.Version, Time: time.Now().UTC()},
 		Agents: agents,

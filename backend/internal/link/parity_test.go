@@ -159,7 +159,7 @@ func TestAgentParity(t *testing.T) {
 		Subagents: []model.Subagent{{ID: "s", Title: "sub", Type: "Explore", Tool: "Grep"}}, Queued: 2, Slowed: true, SlowedByYou: true, CPU: 12.5,
 		Pet: &model.Pet{Name: "Nib", Stage: "kid", Level: 6, Ate: 160000, LevelFrom: 152588, NextAt: 190735, Hearts: 3, Mood: "fed",
 			Ready: true, Hat: &model.PetHat{Shape: "devil horns", Color: "teal"}, HatchedAt: now},
-		StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour), OutUntil: now.Add(time.Hour)}
+		StartedAt: now, UpdatedAt: now, LastActive: now.Add(-time.Hour), OutUntil: now.Add(time.Hour), Machine: "attic", MachineTag: "a", Reachable: true}
 	p := toPB(full, 1|2|4|8).ProtoReflect()
 	var missing []string
 	for i := range desc.Fields().Len() {
