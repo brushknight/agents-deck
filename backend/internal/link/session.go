@@ -723,6 +723,10 @@ func (s *Session) sendAgent(p *linkpb.Agent) error {
 }
 
 func (s *Session) send(f *linkpb.Frame) error {
+	// A board decodes into fixed buffers and drops a frame that doesn't fit (a
+	// development build's version, a long host name): clip every frame we send,
+	// whoever built it. Welcome and SnapshotBegin carry the Mac's name and version.
+	clipMessage(f.ProtoReflect())
 	var b []byte
 	var err error
 	if s.mode == JSON {
