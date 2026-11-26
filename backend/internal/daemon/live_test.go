@@ -145,6 +145,45 @@ func TestClaudeAgentsList(t *testing.T) {
 	}
 }
 
+// An interactive session waiting on a question (AskUserQuestion) or a
+// permission: Claude Code reports "status": "waiting" (no "state"). It needs
+// you, as a blocked background session does; it was shown idle before.
+func TestClaudeAgentsWaiting(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENTSTERM_HOME", filepath.Join(root, "home"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "cfg"))
+	_ = os.MkdirAll(filepath.Join(root, "home"), 0o700)
+	old := tmux.Socket
+	tmux.Socket = fmt.Sprintf("agentsdeck-test-w%d", os.Getpid())
+	t.Cleanup(func() { tmux.Socket = old })
+	id := "8091a2b3-1111-4222-8333-944455556666"
+	fake := filepath.Join(root, "claude")
+	report := func(status string) {
+		list := `[{"cwd":"/work/app","kind":"interactive","startedAt":1791446002609,"sessionId":"` + id + `","name":"pick a colour","pid":4242,"status":"` + status + `"}]`
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\necho '"+list+"'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report("waiting")
+	d := &Daemon{Store: store.New("", "test", "0")}
+	d.live.claudeBin = fake
+	d.syncLive()
+	if err := d.AddLive(id, -1); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := d.Store.Get(liveAgentID(id))
+	if e.A.Status != model.Waiting || e.A.Waiting == nil {
+		t.Fatalf("waiting on a question = needs you: %+v", e.A)
+	}
+	// Answered in its terminal: it works on.
+	report("busy")
+	d.live.poller = agentsPoller{}
+	d.syncLive()
+	if e, _ = d.Store.Get(liveAgentID(id)); e.A.Status == model.Waiting || e.A.Waiting != nil {
+		t.Fatalf("still waiting after the answer: %+v", e.A)
+	}
+}
+
 // With `sessions auto`, every Claude session found joins the deck by itself;
 // one you take off stays off, until you add it again.
 func TestSessionsAuto(t *testing.T) {
