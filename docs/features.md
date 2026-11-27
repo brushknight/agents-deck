@@ -82,6 +82,24 @@ and **interrupt** are typed into that terminal; **hide** takes the agent off the
 again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
 `send`, `switch`). `config.json`: `"orca": false` turns it off.
 
+### OpenCode
+
+Sessions of [OpenCode](https://opencode.ai) updated in the last 6 hours show up with their title,
+folder, model, tokens, cost and last activity (tested with 2.3.0; its local HTTP API is experimental).
+The deck reads OpenCode's SQLite store (`~/.local/share/opencode/opencode.db`, opened read-only through
+the system `sqlite3`) for history and never reads message text. Discovery needs the system `sqlite3`;
+without it OpenCode sessions are absent. Working comes from OpenCode's live local API
+(`GET /api/session/active`), waiting from its per-session permission requests, not from the persisted
+`time_busy`/`time_idle` stamps or a latest-message guess. If the service can't be reached, a session
+keeps its last observed state instead of being guessed at.
+
+**Answering and interrupt.** A pending permission request from OpenCode's local API shows as a normal
+permission card (**allow once**, **reject**, and **always allow** when the request can be saved), and
+**interrupt** stops a turn, both through OpenCode's service. **open in OpenCode** is not available (422):
+the TUI stays where it is. **hide** takes the tile off until the session next does something. Agents you
+start with `agentctl new -c opencode` are ordinary deck agents, with their terminal, focus and prompts.
+`config.json`: `"opencode": false` turns the mirror off.
+
 ### herdr
 
 Agents you run in [herdr](https://herdr.dev) (Claude Code, Codex and the other agents it knows) show up

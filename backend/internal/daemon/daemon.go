@@ -46,6 +46,9 @@ type Config struct {
 	// Cmux: mirror Claude agents running in cmux onto the board (default on;
 	// cmux's socket access must be Automation).
 	Cmux *bool `json:"cmux"`
+	// OpenCode: mirror recent OpenCode sessions and answer their permissions
+	// through its local service (default on).
+	OpenCode *bool `json:"opencode"`
 	// CodexWindowHours: threads updated within this many hours are shown (default 6).
 	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).
@@ -67,6 +70,7 @@ type Daemon struct {
 	orca      orcaWatch
 	herdr     herdrWatch
 	cmux      cmuxWatch
+	opencode  opencodeWatch
 	front     string          // tmux session of the focused terminal (last tick)
 	panes     map[string]bool // our panes' terminals (last tick)
 	panesAt   time.Time

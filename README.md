@@ -317,6 +317,7 @@ is in [docs/features.md](docs/features.md).
 
 agents deck is a status board, not a harness. If you already run your agents in one of these, there's
 nothing to set up: the deck finds them and lets you answer, interrupt and jump to them from any screen.
+OpenCode lets the deck answer permission prompts and interrupt.
 
 | Runs your agents | What the deck shows |
 |---|---|
@@ -324,6 +325,7 @@ nothing to set up: the deck finds them and lets you answer, interrupt and jump t
 | [herdr](https://herdr.dev) | agents in herdr's panes, in every herdr session that's running |
 | [cmux](https://cmux.com) | Claude agents in cmux's terminals, while cmux is open (answering needs one cmux setting, see [features](docs/features.md#cmux)) |
 | Codex app and Codex CLI | threads from the last 6 hours, read-only |
+| [OpenCode](https://opencode.ai) | sessions from the last 6 hours, with tokens and cost; answer permissions and interrupt from the deck |
 | agentctl (built in) | agents it starts with `agentctl new`, each in a tmux session with a status header |
 | Claude Code on its own | sessions you started by hand in any terminal, once you add them (`agentctl live`, `agentctl add`) |
 
