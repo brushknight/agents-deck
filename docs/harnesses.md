@@ -1,6 +1,6 @@
 # Adding a harness
 
-A harness is an app that runs coding agents itself: Orca, herdr, cmux. The deck doesn't replace it; it
+A harness is an app that runs coding agents itself: Orca, herdr, cmux, Copilot CLI. The deck doesn't replace it; it
 reads the harness, shows its agents next to agentctl's own, and sends what you do on the deck (answer,
 interrupt, open, hide) back through the harness. This page says how to add one.
 
@@ -17,13 +17,14 @@ Before writing code, find out what the harness lets other programs see and do. T
 | typing text and pressing keys in the agent's terminal | answers, and Esc to interrupt | for answering |
 | showing the agent's terminal | **open in …** | nice to have |
 
-How the three that exist get these:
+How the four that exist get these:
 
 | | agents and state | Claude session | screen, typing, focus |
 |---|---|---|---|
 | Orca | `orca worktree ps`, `orca terminal list` (CLI) | the one Claude session in the worktree's folder | `orca terminal read`, `send`, `switch` |
 | herdr | `session.snapshot` on its socket | herdr's hook, else the pane's process | `pane.read`, `pane.send_text`, `pane.send_keys`, `agent.focus` |
 | cmux | its Claude hooks' file, `~/.cmuxterm/claude-hook-sessions.json` | in that file | `surface.read_text`, `send_text`, `send_key`, `focus` on its socket |
+| Copilot CLI | its `session-state/<id>/events.jsonl`, listed only for a live `inuse.<pid>.lock` | — | none: read-only |
 
 Prefer what the harness documents (a CLI, a socket API, a state file) over reading its window or its
 private storage. If it only offers part of the list, a read-only integration (tiles with status, answered
@@ -52,7 +53,7 @@ Test it against a fake: a socket in a temp folder (`herdr_test.go`, `cmux_test.g
 - `sync<Name>()` puts the harness's agents on the board and takes off the ones that are gone. Each agent
   is a `store.Entry` with `External: true` and `A.App` set to the harness's name (11 characters at most:
   Deck Link carries it in 12 bytes). Its id is a letter plus the start of a SHA-256 of the agent's stable
-  key; the letters in use are `h` herdr, `l` sessions added by hand, `m` cmux, `o` Orca.
+  key; the letters in use are `h` herdr, `l` sessions added by hand, `m` cmux, `o` Orca, `p` Copilot.
 - Map the harness's state onto the agent:
   - working: `model.Running`, with `A.Activity` set to the tool call from the transcript;
   - waiting for you: `model.Waiting`, with `A.Waiting` set to the prompt. `screenPrompt` (in
@@ -100,7 +101,8 @@ The web dashboard, the menu bar app, the desk panel and the boards need no chang
 
 Unit tests with a fake client cover the mapping (`cmuxwatch_test.go`): a working agent, a question with
 its options, an answer that types the key, a stale or wrong answer refused, interrupt, hide and come back,
-and the tile leaving when the agent does.
+and the tile leaving when the agent does. `copilotwatch_test.go` covers the new watcher's statuses,
+hide/reappear, API failure and concurrent dismiss.
 
 Then try it for real:
 
