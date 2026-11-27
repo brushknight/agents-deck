@@ -33,6 +33,8 @@ func (d *Daemon) harnessOf(e store.Entry) (harness, bool) {
 		return harness{d.herdrSend, d.herdrInterrupt, d.herdrFocus, d.herdrHide, d.herdrPrompt}, true
 	case "cmux":
 		return harness{d.cmuxSend, d.cmuxInterrupt, d.cmuxFocus, d.cmuxHide, d.cmuxPrompt}, true
+	case "copilot":
+		return harness{d.copilotSend, d.copilotInterrupt, d.copilotFocus, d.copilotHide, d.copilotPrompt}, true
 	}
 	return harness{}, false
 }

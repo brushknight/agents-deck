@@ -82,6 +82,21 @@ and **interrupt** are typed into that terminal; **hide** takes the agent off the
 again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
 `send`, `switch`). `config.json`: `"orca": false` turns it off.
 
+### GitHub Copilot CLI
+
+Sessions of the [GitHub Copilot CLI](https://github.com/github/copilot-cli) that are open in a live
+Copilot process show up while they run (tested with CLI 1.0.115). A session is listed only while its own
+`inuse.<pid>.lock` names a live process; the open-session snapshot's `working` flag is not trusted. The
+deck reads each session's event log (`~/.copilot/session-state/<id>/events.jsonl`, read-only) for model,
+context, tokens, cost and working tool. It is **running** only for an open turn with activity in the last
+ten minutes, and **waiting** when a `permission.requested` has no matching `permission.completed` — that
+check wins over the turn. A finished session with a stale turn start reads idle, not running. Answering
+stays in Copilot.
+
+**Read-only.** **open in Copilot** isn't available, and **answer**, **interrupt** and **prompt** return
+422; **hide** takes the tile off the deck until that session next does something. `config.json`:
+`"copilot": false` turns it off.
+
 ### herdr
 
 Agents you run in [herdr](https://herdr.dev) (Claude Code, Codex and the other agents it knows) show up

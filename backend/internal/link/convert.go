@@ -9,7 +9,8 @@ import (
 
 var tools = map[string]linkpb.Tool{
 	"claude": linkpb.Tool_TOOL_CLAUDE, "codex": linkpb.Tool_TOOL_CODEX, "gemini": linkpb.Tool_TOOL_GEMINI,
-	"shell": linkpb.Tool_TOOL_SHELL, "opencode": linkpb.Tool_TOOL_OPENCODE, "sim": linkpb.Tool_TOOL_SIM,
+	"shell": linkpb.Tool_TOOL_SHELL, "opencode": linkpb.Tool_TOOL_OPENCODE,
+	"copilot": linkpb.Tool_TOOL_COPILOT, "sim": linkpb.Tool_TOOL_SIM,
 }
 
 var statuses = map[model.Status]linkpb.Status{

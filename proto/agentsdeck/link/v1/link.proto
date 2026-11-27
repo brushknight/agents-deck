@@ -188,6 +188,7 @@ enum Tool {
   TOOL_SHELL = 4;
   TOOL_OPENCODE = 5;
   TOOL_SIM = 6;
+  TOOL_COPILOT = 7;
 }
 
 enum Status {
@@ -235,7 +236,7 @@ message Agent {
   uint32 subagent_count = 30;  // len(subagents), sent with TILE so a small board can show it
   int64 started_at_ms = 31;
   int64 updated_at_ms = 32;
-  string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux"
+  string app = 33;             // the app it runs in when not agentctl's: "orca", "herdr", "cmux", "copilot"
   Account account = 34;  // the Claude account it runs in; unset while only one is set up
   int64 last_active_ms = 35;  // its latest message sent or received; 0 = not known yet
   uint32 attention_slot = 36;  // its spot on the "Needs you" grid, 1..16 (4 x 4, by rows); 0 = not there

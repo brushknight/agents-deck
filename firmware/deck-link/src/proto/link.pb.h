@@ -43,7 +43,8 @@ typedef enum _agentsdeck_link_v1_Tool {
     agentsdeck_link_v1_Tool_TOOL_GEMINI = 3,
     agentsdeck_link_v1_Tool_TOOL_SHELL = 4,
     agentsdeck_link_v1_Tool_TOOL_OPENCODE = 5,
-    agentsdeck_link_v1_Tool_TOOL_SIM = 6
+    agentsdeck_link_v1_Tool_TOOL_SIM = 6,
+    agentsdeck_link_v1_Tool_TOOL_COPILOT = 7
 } agentsdeck_link_v1_Tool;
 
 typedef enum _agentsdeck_link_v1_Status {
@@ -656,7 +657,7 @@ typedef struct _agentsdeck_link_v1_Agent {
     uint32_t subagent_count; /* len(subagents), sent with TILE so a small board can show it */
     int64_t started_at_ms;
     int64_t updated_at_ms;
-    char app[12]; /* the app it runs in when not agentctl's: "orca", "herdr", "cmux" */
+    char app[12]; /* the app it runs in when not agentctl's: "orca", "herdr", "cmux", "copilot" */
     bool has_account;
     agentsdeck_link_v1_Account account; /* the Claude account it runs in; unset while only one is set up */
     int64_t last_active_ms; /* its latest message sent or received; 0 = not known yet */
@@ -772,8 +773,8 @@ extern "C" {
 #define _agentsdeck_link_v1_FieldGroup_ARRAYSIZE ((agentsdeck_link_v1_FieldGroup)(agentsdeck_link_v1_FieldGroup_FIELDS_LIMITS+1))
 
 #define _agentsdeck_link_v1_Tool_MIN agentsdeck_link_v1_Tool_TOOL_UNSPECIFIED
-#define _agentsdeck_link_v1_Tool_MAX agentsdeck_link_v1_Tool_TOOL_SIM
-#define _agentsdeck_link_v1_Tool_ARRAYSIZE ((agentsdeck_link_v1_Tool)(agentsdeck_link_v1_Tool_TOOL_SIM+1))
+#define _agentsdeck_link_v1_Tool_MAX agentsdeck_link_v1_Tool_TOOL_COPILOT
+#define _agentsdeck_link_v1_Tool_ARRAYSIZE ((agentsdeck_link_v1_Tool)(agentsdeck_link_v1_Tool_TOOL_COPILOT+1))
 
 #define _agentsdeck_link_v1_Status_MIN agentsdeck_link_v1_Status_STATUS_UNSPECIFIED
 #define _agentsdeck_link_v1_Status_MAX agentsdeck_link_v1_Status_STATUS_EXITED

@@ -882,7 +882,7 @@ const TOOL_COLORS = { claude: '#C98B6B', codex: '#4FB3A6' };
 const acctColor = (acc) => (HAT_COLORS[acc?.color] || HAT_COLORS.ink)[0];
 // The colour in a tile's corner: its Claude account's, else its tool's.
 const chipColor = (a) => (a.account ? acctColor(a.account) : TOOL_COLORS[a.tool] || '#E8E4DC');
-const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', shell: 'Shell', gemini: 'Gemini CLI', opencode: 'opencode', sim: 'Simulated' };
+const TOOL_NAMES = { claude: 'Claude Code', codex: 'Codex', shell: 'Shell', gemini: 'Gemini CLI', opencode: 'opencode', copilot: 'Copilot', sim: 'Simulated' };
 
 // spriteNode: the deck's critter as an SVG element (parsed from the
 // deck's own drawing; the drawing holds no names or text from agents).

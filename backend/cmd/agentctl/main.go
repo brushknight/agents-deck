@@ -1246,6 +1246,7 @@ func serve(args []string) error {
 		go d.WatchOrca()
 		go d.WatchHerdr()
 		go d.WatchCmux()
+		go d.WatchCopilot()
 		go d.WatchLive()
 		ctl, lc = d, d
 	}
